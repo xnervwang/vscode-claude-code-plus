@@ -8236,6 +8236,37 @@ console.log('\nconversations whose background sessions are busy');
         && cachedRun.rewrittenAge >= 0 && cachedRun.rewrittenAge < 30000) {
       ok('a /proc snapshot under 9 s old from another window is reused, under either the key this build writes or the one before it; an older one is replaced with a new reading');
     } else bad(`the shared /proc snapshot: ${JSON.stringify(cachedRun)}`);
+    /* Which stat files each snapshot reads. The first snapshot and every sixth after it read all of them; the others
+       read only new processes, those whose parent is gone, and those counted as running shells. */
+    const statRun = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+      const fs = require('fs'), path = require('path');
+      const d = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'detached.js'))});
+      const proc = ${JSON.stringify(root3)}, records = ${JSON.stringify(records)};
+      let read = [];
+      const real = fs.promises.open;
+      fs.promises.open = function (f, ...rest) {
+        const m = /[\\/](\\d+)[\\/]stat$/.exec(String(f));
+        if (m) read.push(Number(m[1]));
+        return real.call(fs.promises, f, ...rest);
+      };
+      const take = async () => { read = []; const r = await d.snapshot({ proc, records }); return { read: read.sort((a, b) => a - b), shells: [...r.shells].sort() }; };
+      (async () => {
+        const all = fs.readdirSync(proc).filter((n) => /^\\d+$/.test(n)).length;
+        const first = await take();
+        const second = await take();
+        fs.rmSync(path.join(proc, '100'), { recursive: true });
+        fs.mkdirSync(path.join(proc, '800'));
+        fs.writeFileSync(path.join(proc, '800', 'stat'), '800 (sleep) S 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 900 0 0\\n');
+        const third = await take();
+        await take(); await take(); await take();
+        const seventh = await take();
+        process.stdout.write(JSON.stringify({ all, first: first.read.length, second: second.read, third: third.read, seventh: seventh.read.length, shells: second.shells }));
+      })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 60000 }));
+    // 102, 400 and 500 are the shells counted by now; 101 to 103 lose their parent when 100 goes, and 800 is new.
+    if (statRun.first === statRun.all && JSON.stringify(statRun.second) === '[102,400,500]'
+        && JSON.stringify(statRun.third) === '[101,102,103,400,500,800]' && statRun.seventh === statRun.all) {
+      ok('a /proc snapshot reads every stat on the first and every sixth one after; otherwise only new processes, reparented ones and those counted as running shells');
+    } else bad(`stat files read by each snapshot: ${JSON.stringify(statRun)}`);
   } finally { fs.rmSync(root3, { recursive: true, force: true }); }
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   if (/i && i\.state === 'idle' && bgWorking\.has\(i\.sessionId\) \? Object\.assign\(\{\}, i, \{ state: 'running' \}\)/.test(ext)

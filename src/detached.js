@@ -53,12 +53,30 @@ async function readStat(file, slot) {
   } catch (_) { return null; } finally { if (fh) await fh.close().catch(() => {}); }
 }
 
+/*
+ * What the last scan of each /proc root found. Most of a machine's couple of thousand processes were already there
+ * ten seconds ago, so their stat is reused. It is read again for a process whose parent is gone (it has been
+ * reparented), for one in `fresh` (the caller needs its state now), and for all of them every FULL_EVERY-th scan, so a
+ * reused pid or a name changed by exec is noticed within a minute.
+ */
+const FULL_EVERY = 6;
+const scans = new Map();
+
 /* pid -> { comm, state, ppid, start } for every process whose stat can be read; start is in clock ticks since boot. */
-async function processes(proc) {
+async function processes(proc, { fresh = new Set() } = {}) {
   const out = new Map();
   let names;
   try { names = (await fs.promises.readdir(proc)).filter((n) => /^\d+$/.test(n)); } catch (_) { return out; }
-  await inBatches(names, async (n, slot) => {
+  const last = scans.get(proc) || { count: 0, byPid: new Map() };
+  const full = last.count % FULL_EVERY === 0;
+  const listed = new Set(names.map(Number));
+  const toRead = [];
+  for (const n of names) {
+    const pid = Number(n), was = last.byPid.get(pid);
+    if (full || !was || fresh.has(pid) || (was.ppid > 1 && !listed.has(was.ppid))) toRead.push(n);
+    else out.set(pid, was);
+  }
+  await inBatches(toRead, async (n, slot) => {
     const s = await readStat(path.join(proc, n, 'stat'), slot);
     if (!s) return;
     const open = s.indexOf('('), close = s.lastIndexOf(')');
@@ -66,6 +84,7 @@ async function processes(proc) {
     const f = s.slice(close + 2).split(' ');
     out.set(Number(n), { comm: s.slice(open + 1, close), state: f[0], ppid: Number(f[1]), start: f[19] });
   });
+  scans.set(proc, { count: last.count + 1, byPid: out });
   return out;
 }
 
@@ -114,9 +133,11 @@ function claudeTest(procs, claudePids) {
    program, so each process is read once rather than on every snapshot. */
 const startedBy = new Map();
 
+/* Per /proc root, the pids that were counted as running shells in the last snapshot: their state is read every time. */
+const shellPids = new Map();
 async function snapshot({ proc = '/proc', records = [] } = {}) {
-  const shells = new Set(), launchers = new Map();
-  const procs = await processes(proc);
+  const shells = new Set(), launchers = new Map(), counted = new Set();
+  const procs = await processes(proc, { fresh: shellPids.get(proc) });
   if (!procs.size) return { shells, launchers };
   const { isClaude, under } = claudeTest(procs, new Set(records.map((r) => r.pid)));
   const candidates = [...procs].filter(([pid, p]) => p.state !== 'Z' && p.state !== 'X' && !isClaude(pid));
@@ -135,8 +156,9 @@ async function snapshot({ proc = '/proc', records = [] } = {}) {
       }
     }
     keep.set(key, id);
-    if (id) shells.add(id);
+    if (id) { shells.add(id); counted.add(pid); }
   });
+  shellPids.set(proc, counted);
   startedBy.clear();
   for (const [k, v] of keep) startedBy.set(k, v);
   const byPid = new Map(records.map((r) => [r.pid, r]));
