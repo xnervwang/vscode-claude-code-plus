@@ -851,7 +851,16 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           return a ? { href: a.getAttribute('href') } : null;
         }, LINK_TEXT), 30000, 500);
         check(!!drawn && drawn.href === href, 'a steward\'s link in a reply keeps its address when Claude Code draws it', drawn);
-        if (drawn) await frontPanel.locator('[data-testid="assistant-message"] a', { hasText: LINK_TEXT }).last().click();
+        /* With the Steward panel open, the 1024x677 macOS CI window left the conversation a few lines and clicking
+           the link timed out. Close the panel first. */
+        await exec('workbench.action.closePanel');
+        await sleep(500);
+        const link = frontPanel.locator('[data-testid="assistant-message"] a', { hasText: LINK_TEXT }).last();
+        let clickError = '';
+        if (drawn) {
+          await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+          await link.click({ timeout: 15000 }).catch((e) => { clickError = String((e && e.message) || e).slice(0, 1500); });
+        }
         await sleep(1500);
         await shot('steward-link-click');
         /* VS Code shows this prompt before handing a vscode: URL to an extension. If it shows up, our click handler
@@ -864,7 +873,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         if (allow) await allow.first().click();
         const jumped = drawn ? await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, other.title)), 15000, 300) : null;
         check(!!jumped && !allow, 'clicked, it brings that conversation\'s tab to the front, without going through VS Code\'s link prompt',
-          { asked: !!allow, dialogText, toasts: await toasts(), tabs: await claudeTabs() });
+          { clickError, asked: !!allow, dialogText, toasts: await toasts(), tabs: await claudeTabs() });
         await shot('steward-link-jump');
       }
       await exec('workbench.action.closePanel');
