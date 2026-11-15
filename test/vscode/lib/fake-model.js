@@ -12,6 +12,8 @@
  * A turn whose message contains ASK_TO_RUN is answered with a Bash tool call of RUN instead of text, so that Claude Code
  * stops to ask for permission to run it; the turn that carries the tool's result is answered with text again.
  *
+ * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation.
+ *
  * hold() keeps the next turns' replies back until release() is called, so a turn can be watched while it runs.
  */
 const http = require('http');
@@ -23,17 +25,22 @@ function sse(res, type, payload) {
   res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...payload })}\n\n`);
 }
 
-/* Whether the last user message of a request is a plain question containing ASK_TO_RUN, rather than a tool's result. The
-   CLI can send a system message after it. */
-function asksToRun(ask) {
-  const last = (ask.messages || []).filter((m) => m && m.role === 'user').pop();
-  if (!last) return false;
-  const parts = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : last.content || [];
-  if (parts.some((p) => p && p.type === 'tool_result')) return false;
-  return parts.some((p) => p && p.type === 'text' && String(p.text).toLowerCase().includes(ASK_TO_RUN));
-}
+const LINK_ASK = /link to conversation ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+const LINK_TEXT = 'that conversation';
 
-async function start({ reply = 'Done. The retry delay is set in config/sync.yml.' } = {}) {
+/* The last user message's text; null when that message is a tool result. The CLI can send a system message after
+   it. */
+function lastAsk(ask) {
+  const last = (ask.messages || []).filter((m) => m && m.role === 'user').pop();
+  if (!last) return null;
+  const parts = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : last.content || [];
+  if (parts.some((p) => p && p.type === 'tool_result')) return null;
+  return parts.filter((p) => p && p.type === 'text').map((p) => String(p.text)).join('\n');
+}
+const asksToRun = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_RUN); };
+const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
+
+async function start({ reply: plain = 'Done. The retry delay is set in config/sync.yml.' } = {}) {
   const seen = [];
   let gate = null;
   let n = 0;
@@ -45,6 +52,8 @@ async function start({ reply = 'Done. The retry delay is set in config/sync.yml.
       let ask = {};
       try { ask = JSON.parse(body || '{}'); } catch (_) { ask = {}; }
       const tool = asksToRun(ask);
+      const linked = linkAsked(ask);
+      const reply = linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).` : plain;
       seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool });
       if (req.method === 'POST' && /\/v1\/messages\/count_tokens$/.test(url)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -92,4 +101,4 @@ async function start({ reply = 'Done. The retry delay is set in config/sync.yml.
     turns: () => seen.filter((s) => s.method === 'POST' && s.stream && /\/v1\/messages(\?|$)/.test(s.url)).length };
 }
 
-module.exports = { start, ASK_TO_RUN, RUN };
+module.exports = { start, ASK_TO_RUN, RUN, LINK_TEXT };

@@ -9242,6 +9242,25 @@ console.log('\nanswering from the Conversations tab');
     } else bad(`steward links in a panel: ${JSON.stringify({ listeners: listeners.length, taken, sent })}`);
   }
 
+  {
+    /* Claude Code 2.1.325's defaultUrlTransform, with and without the steward link edit. */
+    const original = 'function Tre(e){let t=e.indexOf(":"),n=e.indexOf("?"),i=e.indexOf("#"),o=e.indexOf("/");'
+      + 'if(t===-1||o!==-1&&t>o||n!==-1&&t>n||i!==-1&&t>i||Ckn.test(e.slice(0,t)))return e;return""}';
+    const { applyEdits } = require('../src/edits');
+    const edit = webview.EDITS.find((e) => e.name === 'steward links pass the link check');
+    const r = edit ? applyEdits(original, [edit]) : { error: 'no such edit' };
+    const run = (src) => new Function('Ckn', `${src};return Tre;`)(/^(https?|ircs?|mailto|xmpp)$/i);
+    const id = 'ABCDEF01-2345-4678-9abc-def012345678';
+    const addresses = ['vscode://xnervwang.claude-code-plus/open?session=' + id, 'vscode://xnervwang.claude-code-plus/open?session=not-an-id',
+      'vscode://vscode.git/clone?url=https://example.com/r.git', 'https://example.com/', 'notes.md'];
+    const before = addresses.map(run(original));
+    const after = r.error ? [] : addresses.map(run(r.out));
+    if (JSON.stringify(before) === JSON.stringify(['', '', '', addresses[3], addresses[4]])
+        && JSON.stringify(after) === JSON.stringify([addresses[0], '', '', addresses[3], addresses[4]])) {
+      ok('a steward\'s link keeps its address through Claude Code\'s link check, which empties it unpatched; other vscode: links are still emptied');
+    } else bad(`the link check: ${JSON.stringify({ error: r.error, before, after })}`);
+  }
+
   /* In a browser, against an input built like Claude Code's: an editable box whose Enter sends, or with Ctrl+Enter
      only when set so, and Shift+Enter a new line. The script under test is the one that ships. */
   {

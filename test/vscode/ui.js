@@ -32,7 +32,7 @@ const win = require('./lib/window');
 const { baselines } = require('./lib/baseline');
 const pixels = require('./lib/pixels');
 const { folderName } = require('./lib/fake-home');
-const { ASK_TO_RUN, RUN } = require('./lib/fake-model');
+const { ASK_TO_RUN, RUN, LINK_TEXT } = require('./lib/fake-model');
 const tabdot = require('../../src/tabdot');
 
 const { sleep, until } = win;
@@ -839,34 +839,31 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         await frame.locator('button[data-act="none"]').click();
         await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, front.title)), 10000, 300);
       }
-      /* The link a steward writes for a conversation: clicked in a panel, it reaches this extension, which brings that
-         conversation's tab to the front. */
+      /* A steward link that Claude Code drew in a reply, clicked, should bring up the linked conversation's tab. */
       const other = threads[1], frontPanel = await conversation(front);
       if (frontPanel) {
-        await frontPanel.evaluate((id) => {
-          const a = document.createElement('a');
-          a.href = 'vscode://xnervwang.claude-code-plus/open?session=' + id;
-          a.id = 'cce-test-link';
-          a.textContent = 'go there';
-          a.style.cssText = 'position:fixed;top:40px;left:40px;z-index:100000;padding:6px;background:#fff;color:#000';
-          document.body.appendChild(a);
-        }, other.id);
-        await frontPanel.locator('#cce-test-link').click();
-        // VS Code may first ask whether this extension may open the link.
+        const href = 'vscode://xnervwang.claude-code-plus/open?session=' + other.id;
+        await frontPanel.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(`Give me a link to conversation ${other.id}.`);
+        await page.keyboard.press('Enter');
+        const drawn = await until(() => frontPanel.evaluate((text) => {
+          const a = [...document.querySelectorAll('[data-testid="assistant-message"] a')].filter((x) => x.textContent.trim() === text).pop();
+          return a ? { href: a.getAttribute('href') } : null;
+        }, LINK_TEXT), 30000, 500);
+        check(!!drawn && drawn.href === href, 'a steward\'s link in a reply keeps its address when Claude Code draws it', drawn);
+        if (drawn) await frontPanel.locator('[data-testid="assistant-message"] a', { hasText: LINK_TEXT }).last().click();
         await sleep(1500);
         await shot('steward-link-click');
-        const dialogText = await page.evaluate(() => [...document.querySelectorAll('.monaco-dialog-box')].map((d) => d.innerText).join(' | '));
+        /* VS Code shows this prompt before handing a vscode: URL to an extension. If it shows up, our click handler
+           missed the click. */
         const allow = await until(async () => {
           const b = page.locator('.monaco-dialog-box .monaco-button', { hasText: /^(Open|Yes|Allow)$/ });
           return (await b.count()) ? b : null;
         }, 3000, 300);
+        const dialogText = allow ? await page.evaluate(() => [...document.querySelectorAll('.monaco-dialog-box')].map((d) => d.innerText).join(' | ')) : '';
         if (allow) await allow.first().click();
-        const jumped = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, other.title)), 15000, 300);
-        /* On macOS in CI the link reached nothing: no prompt and no jump. The likely reason, not verified, is that VS Code
-           there passes vscode:// links to the system, which sends them to the copy of VS Code registered for them, and
-           the copy a test downloads is not registered. */
-        if (process.platform === 'darwin' && !jumped && !allow) note('on macOS the link reached nothing (no prompt, no jump), so the jump was not checked there');
-        else check(!!jumped, 'a steward\'s link to a conversation, clicked in a panel, brings that conversation\'s tab to the front',
+        const jumped = drawn ? await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, other.title)), 15000, 300) : null;
+        check(!!jumped && !allow, 'clicked, it brings that conversation\'s tab to the front, without going through VS Code\'s link prompt',
           { asked: !!allow, dialogText, toasts: await toasts(), tabs: await claudeTabs() });
         await shot('steward-link-jump');
       }

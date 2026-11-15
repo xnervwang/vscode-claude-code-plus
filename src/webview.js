@@ -337,6 +337,9 @@ const SCRIPT_BODY = buildBody();
    Without the page's function the meter behaves as in Claude Code. */
 const METER_KEPT = '(typeof window.__cceMeterKept==="function"&&window.__cceMeterKept())';
 
+/* Regex source for a steward link; 93-steward-links.js accepts the same form. */
+const STEWARD_HREF = String.raw`/^vscode:\/\/xnervwang\.claude-code-plus\/open\?session=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:&|$)/i`;
+
 const EDITS = [
   {
     /* OPEN SESSIONS reads what the session list itself reads: the store of sessions, the context that opens one, and the
@@ -588,6 +591,14 @@ const EDITS = [
     re: /([\w$]+)\(([\w$]+)\)!==\1\(([\w$]+)\.resolvedModel\?\?""\)/g,
     to: (m, strip, served, pick) =>
       `${strip}(${served}).replace(/^(?:[a-z]+\\.)?anthropic\\./i,"")!==${strip}(${pick}.resolvedModel??"").replace(/^(?:[a-z]+\\.)?anthropic\\./i,"")`,
+  },
+  {
+    /* react-markdown's default urlTransform keeps only http, https, irc, ircs, mailto and xmpp URLs and returns ""
+       for the rest, so a steward's vscode://xnervwang.claude-code-plus/open?session=<id> link ended up with href=""
+       and clicking it did nothing. This lets that one form through. */
+    name: 'steward links pass the link check',
+    re: /function ([\w$]+)\(([\w$]+)\)\{(let [\w$]+=\2\.indexOf\(":"\),[\w$]+=\2\.indexOf\("\?"\),[\w$]+=\2\.indexOf\("#"\),[\w$]+=\2\.indexOf\("\/"\);)/g,
+    to: (m, fn, url, rest) => `function ${fn}(${url}){if(typeof ${url}==="string"&&${STEWARD_HREF}.test(${url}))return ${url};${rest}`,
   },
 ];
 
