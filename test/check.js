@@ -5931,6 +5931,36 @@ console.log('\nthe latest tool call, on the working line while Focus view folds 
   else bad('99-sweep.js no longer calls paintToolClock from its timer, so the label is never drawn');
 }
 
+console.log('\nthe plan directory\'s names, kept from a watch');
+{
+  const names = require('../src/plan-names');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-names-'));
+  fs.writeFileSync(path.join(dir, 'a.json'), '{}');
+  const t0 = 1000000;
+  const unwatched = (fs.writeFileSync(path.join(dir, 'b.json'), '{}'), names.names(dir, t0).sort().join());
+  names.watching(dir);
+  const first = names.names(dir, t0).sort().join();
+  fs.writeFileSync(path.join(dir, 'c.json'), '{}');
+  const cached = names.names(dir, t0 + 1000).sort().join();
+  names.changed(dir, 'c.json');
+  fs.rmSync(path.join(dir, 'a.json'));
+  names.changed(dir, 'a.json');
+  const told = names.names(dir, t0 + 2000).sort().join();
+  fs.writeFileSync(path.join(dir, 'd.json'), '{}');
+  const later = names.names(dir, t0 + names.LIST_MS + 1).sort().join();
+  fs.writeFileSync(path.join(dir, 'e.json'), '{}');
+  names.changed(dir, '');
+  const unnamed = names.names(dir, t0 + names.LIST_MS + 2).sort().join();
+  names.watching('');
+  fs.writeFileSync(path.join(dir, 'f.json'), '{}');
+  const after = names.names(dir, t0 + names.LIST_MS + 3).sort().join();
+  fs.rmSync(dir, { recursive: true, force: true });
+  if (unwatched === 'a.json,b.json' && first === 'a.json,b.json' && cached === first && told === 'b.json,c.json'
+      && later === 'b.json,c.json,d.json' && unnamed === 'b.json,c.json,d.json,e.json' && after.endsWith('f.json')) {
+    ok('the plan directory is listed once while watched, changes are taken by name, and it is listed again after 5 minutes, after a change without a name, or once the watch is gone');
+  } else bad(`plan directory names: ${JSON.stringify({ unwatched, first, cached, told, later, unnamed, after })}`);
+}
+
 console.log('\na window whose install was replaced by a rebuild of the same version');
 {
   const removal = require('../src/removal');

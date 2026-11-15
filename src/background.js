@@ -27,6 +27,7 @@ const fs = require('fs');
 const path = require('path');
 const { claudeDir, planDir, SESSION, transcriptOf, readLines, oneAtATime, writeAtomic } = require('./claude-files');
 const detached = require('./detached');
+const planNames = require('./plan-names');
 
 const jobsDir = () => path.join(claudeDir(), 'jobs');
 const SUFFIX = '.background';
@@ -363,7 +364,7 @@ function collect(opts = {}) {
   const dir = opts.dir || planDir();
   const jobs = opts.jobs || jobsDir();
   let names;
-  try { names = fs.readdirSync(dir).filter((n) => LINK_FILE.test(n)); } catch (_) { return []; }
+  try { names = planNames.names(dir).filter((n) => LINK_FILE.test(n)); } catch (_) { return []; }
   const files = [];
   for (const n of names) {
     const file = path.join(dir, n), link = readLink(file);
@@ -468,7 +469,7 @@ function working(opts = {}) {
   const out = new Set(shells);
   for (const [w, l] of launchedBy) if (live.has(w)) out.add(l);
   let names;
-  try { names = fs.readdirSync(dir).filter((n) => LINK_FILE.test(n)); } catch (_) { return out; }
+  try { names = planNames.names(dir).filter((n) => LINK_FILE.test(n)); } catch (_) { return out; }
   for (const n of names) {
     const link = readLink(path.join(dir, n));
     if (link.ids.some((id) => busy.has(id)) || link.workers.some((w) => live.has(w) || shells.has(w))) {

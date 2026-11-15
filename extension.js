@@ -25,6 +25,7 @@ const host = require('./src/host');
 const { safeColor } = webview;
 const { readTasks, rememberDirs } = require('./src/tasks');
 const background = require('./src/background');
+const planNames = require('./src/plan-names');
 const stewardView = require('./src/steward-view');
 const stewardMarks = require('./src/steward-marks');
 const stewards = require('./src/stewards');
@@ -834,21 +835,25 @@ function start(context, log, renamed, handing = false) {
     try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
   };
   let stewardWatch = null, stewardSettle = 0;
+  /* The same watch keeps the plan directory's names current for the passes that list it (src/plan-names.js). */
   const watchStewards = () => {
     if (stewardWatch) return;
     try {
-      stewardWatch = fs.watch(planDir(), { persistent: false }, (event, name) => {
+      const dir = planDir();
+      stewardWatch = fs.watch(dir, { persistent: false }, (event, name) => {
+        planNames.changed(dir, name);
         if (name && name !== stewards.FILE) return;
         if (stewardSettle) clearTimeout(stewardSettle);
         stewardSettle = setTimeout(() => { stewardSettle = 0; redrawStewards(); }, 300);
       });
-      stewardWatch.on('error', () => { try { stewardWatch.close(); } catch (_) { /* closed */ } stewardWatch = null; });
+      stewardWatch.on('error', () => { planNames.watching(''); try { stewardWatch.close(); } catch (_) { /* closed */ } stewardWatch = null; });
+      planNames.watching(dir);
     } catch (_) { stewardWatch = null; }
   };
   watchStewards();
   context.subscriptions.push({ dispose: () => {
     if (stewardSettle) clearTimeout(stewardSettle);
-    if (stewardWatch) { try { stewardWatch.close(); } catch (_) { /* closed */ } }
+    if (stewardWatch) { planNames.watching(''); try { stewardWatch.close(); } catch (_) { /* closed */ } }
   } });
 
   globalThis.__cceAnswerHook = (key, sent, reason) => claude.answered(key, sent, reason);

@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const waiting = require('./waiting');
+const planNames = require('./plan-names');
 const { planDir, transcriptOf } = require('./claude-files');
 const { OPEN_STATES } = require('./workplan');
 
@@ -52,7 +53,7 @@ const openSeen = new Map();
 function stoppedWithOpenRows(folders, running, { dir = planDir(), now = Date.now(), readPlan, find = transcriptOf } = {}) {
   const out = new Map();
   let names = [];
-  try { names = fs.readdirSync(dir).filter((n) => /^[0-9a-f-]{36}\.json$/i.test(n)); } catch (_) { return out; }
+  try { names = planNames.names(dir).filter((n) => /^[0-9a-f-]{36}\.json$/i.test(n)); } catch (_) { return out; }
   if (openSeen.size > 4 * names.length + 100) openSeen.clear();
   for (const name of names) {
     const id = name.slice(0, -5);
