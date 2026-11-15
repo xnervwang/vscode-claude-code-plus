@@ -2930,11 +2930,17 @@ console.log('\nwhat the Stop hook says, and how often');
     else bad('the reminder stayed silent after the plan changed');
     fs.rmSync(t.dir, { recursive: true, force: true });
   }
-  /* Stop can fire several times in one turn; the hook asks for the brief on the first. */
+  /* Stop can fire several times in one turn; the hook asks for the brief on the first. For Claude Code it asks only if a
+     row changed state during the turn. The turn starts at the last user message, 00:02. */
   {
-    const t = stage(10, { nodes: [{ title: 'x', state: 'todo' }] }, 3, { brief: true });
+    const still = stage(10, { nodes: [{ title: 'x', state: 'todo', since: '2026-01-01T00:01:00+00:00' }] }, 3, { brief: true });
+    const quiet = run(still);
+    if (!/status was last written|summary of this conversation/.test(quiet.said)) ok('with the brief on, a working turn that moved no row is not asked for its brief');
+    else bad(`a turn that moved no row was asked for its brief: ${JSON.stringify(quiet.said.slice(0, 120))}`);
+    fs.rmSync(still.dir, { recursive: true, force: true });
+    const t = stage(10, { nodes: [{ title: 'x', state: 'doing', since: '2026-01-01T00:02:30+00:00' }] }, 3, { brief: true });
     const first = run(t), later = [run(t), run(t), run(t)].filter((x) => x.said);
-    if (/status|summary/.test(first.said)) ok('with the brief on, a working turn is asked for its brief');
+    if (/status|summary/.test(first.said)) ok('with the brief on, a working turn that moved a row is asked for its brief');
     else bad(`with the brief on, a working turn said ${JSON.stringify(first.said.slice(0, 120))}`);
     if (!later.length) ok('and a later Stop in the same turn asks nothing again');
     else bad(`a later Stop in the same turn asked again ${later.length} times: ${JSON.stringify(later[0].said.slice(0, 120))}`);
