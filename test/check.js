@@ -8305,7 +8305,7 @@ console.log('\nconversations whose background sessions are busy');
       let read = [];
       const real = fs.promises.open;
       fs.promises.open = function (f, ...rest) {
-        const m = /[\\/](\\d+)[\\/]stat$/.exec(String(f));
+        const m = /[\\\\/](\\d+)[\\\\/]stat$/.exec(String(f));
         if (m) read.push(Number(m[1]));
         return real.call(fs.promises, f, ...rest);
       };
