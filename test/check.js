@@ -3488,6 +3488,20 @@ console.log('\nthe waiting, paired out of the official log');
     };
     if (rotated(false) && rotated(true)) ok('a log moved aside at its size limit is finished before the new one is read from its start');
     else bad(`after the log was moved aside: new log shorter ${rotated(false)}, longer ${rotated(true)}`);
+    /* Fake ids past 2^53: the old log and the new one get ids that round to the same Number. */
+    const realStat = fs.statSync;
+    const ids = new Map();
+    fs.statSync = function (file, opts) {
+      const st = realStat.call(fs, file, opts);
+      const key = String(realStat.call(fs, file, { bigint: true }).ino);
+      if (!ids.has(key)) ids.set(key, 2n ** 60n + BigInt(ids.size));
+      const id = ids.get(key);
+      return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { ino: opts && opts.bigint ? id : Number(id) });
+    };
+    let bigIds;
+    try { bigIds = rotated(true); } finally { fs.statSync = realStat; }
+    if (bigIds) ok('and so is one whose file ids are past 2^53, which as Numbers come out equal');
+    else bad('after the log was moved aside, with file ids past 2^53: the new log was not taken as a new file');
   }
 }
 

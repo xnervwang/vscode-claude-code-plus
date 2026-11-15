@@ -273,6 +273,13 @@ function rotatedFile(log) {
   return log.replace(/(\.log)?$/, '.1$1');
 }
 
+/* ino comes from a bigint stat and is kept as a string: NTFS file ids can exceed 2^53, and two of them can round to
+   the same Number. */
+function fileStat(file) {
+  const st = fs.statSync(file, { bigint: true });
+  return { size: Number(st.size), ino: st.ino ? String(st.ino) : '' };
+}
+
 /**
  * Read whatever is new in the log and append the slow waits to this window's record file. Returns what was added.
  *
@@ -292,7 +299,7 @@ function sample(opts) {
     thresholdMs = THRESHOLD_MS } = opts;
   const into = recordFile(dir, pid);
   let stat;
-  try { stat = fs.statSync(log); } catch (_) { return { added: [], state, why: 'no log for this window yet' }; }
+  try { stat = fileStat(log); } catch (_) { return { added: [], state, why: 'no log for this window yet' }; }
   const same = state.file === log && Number.isFinite(state.size);
   const moved = same && ((state.ino && state.ino !== stat.ino) || state.size > stat.size);
   const from = same && !moved ? state.size : 0;
@@ -307,7 +314,7 @@ function sample(opts) {
     if (moved) {
       const old = rotatedFile(log);
       let rest = null;
-      try { rest = fs.statSync(old); } catch (_) { /* moved somewhere this does not look */ }
+      try { rest = fileStat(old); } catch (_) { /* moved somewhere this does not look */ }
       if (rest && (state.ino ? rest.ino === state.ino : rest.size >= state.size)) text = wholeLines(old, state.size, rest.size).text;
     }
     const r = wholeLines(log, from, stat.size);
