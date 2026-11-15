@@ -53,6 +53,7 @@ const deleteSession = require('./src/deletesession');
 const recentClosed = require('./src/recentclosed');
 const ADAPTERS = require('./src/adapters');
 const removal = require('./src/removal');
+const buildDigest = require('./src/build-digest');
 const carryover = require('./src/carryover');
 const PACKAGE = require('./package.json');
 
@@ -340,10 +341,24 @@ function start(context, log, renamed, handing = false) {
    *
    * Replaced: another build of this extension is installed now (another version beside it, or the same version again
    * over it) while this window keeps running this one. It then leaves every shared file alone; the windows that reload
-   * run the installed build and keep those files current.
+   * run the installed build and keep those files current. If the same package is installed again over this copy and no
+   * file differs from what this window loaded, the window adopts the new install stamp and carries on.
    */
-  const loadedStamp = removal.installStamp(context.extensionPath);
-  const standing = perTick(() => removal.standing(context.extensionPath, ID, loadedStamp, markedIn(path.dirname(context.extensionPath))));
+  let loadedStamp = removal.installStamp(context.extensionPath);
+  const loadedCode = buildDigest.digest(context.extensionPath);
+  let comparedStamp = 0;
+  const standing = perTick(() => {
+    const root = path.dirname(context.extensionPath), marked = markedIn(root);
+    const s = removal.standing(context.extensionPath, ID, loadedStamp, marked);
+    if (s !== 'replaced' || marked[path.basename(context.extensionPath)] === true || !loadedCode) return s;
+    const now = removal.installStamp(context.extensionPath);
+    if (!now || now === comparedStamp) return s;
+    comparedStamp = now;
+    if (buildDigest.digest(context.extensionPath) !== loadedCode) return s;
+    log.appendLine('the same package was installed again over this copy; this window keeps its part');
+    loadedStamp = now;
+    return '';
+  });
   const uninstalling = () => standing() === 'uninstalling';
   const replaced = () => standing() === 'replaced';
 

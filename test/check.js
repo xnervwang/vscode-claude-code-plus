@@ -5978,6 +5978,30 @@ console.log('\na window whose install was replaced by a rebuild of the same vers
   ];
   for (const [good, label] of cases) (good ? ok : bad)(label);
   fs.rmSync(dir, { recursive: true, force: true });
+  /* Two installs of one package differ only in package.json's __metadata, which the digest leaves out. */
+  {
+    const digest = require('../src/build-digest').digest;
+    const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-digest-'));
+    const put = (rel, body) => { fs.mkdirSync(path.dirname(path.join(copy, rel)), { recursive: true }); fs.writeFileSync(path.join(copy, rel), body); };
+    put('package.json', JSON.stringify({ name: 'x', version: '1.1.0', __metadata: { installedTimestamp: 1000 } }));
+    put('extension.js', 'module.exports = 1;\n');
+    put('src/a.js', 'a\n');
+    const first = digest(copy);
+    put('package.json', JSON.stringify({ name: 'x', version: '1.1.0', __metadata: { installedTimestamp: 2000 } }));
+    put('claude-plugin/hooks/__pycache__/x.cpython-37.pyc', 'compiled');
+    const again = digest(copy);
+    put('src/a.js', 'b\n');
+    const rebuilt = digest(copy);
+    fs.rmSync(copy, { recursive: true, force: true });
+    if (first && first === again && rebuilt !== first && digest(path.join(copy, 'gone')) === '') {
+      ok('an install of the same package digests the same whatever its install stamp; a rebuild with a file changed does not');
+    } else bad(`install digests: ${JSON.stringify([first, again, rebuilt])}`);
+    const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    if (/const loadedCode = buildDigest\.digest\(context\.extensionPath\);/.test(extSrc)
+        && /if \(buildDigest\.digest\(context\.extensionPath\) !== loadedCode\) return s;[\s\S]{0,200}loadedStamp = now;\s*return '';/.test(extSrc)) {
+      ok('a window whose copy was installed again with the same code takes the new install as its own, and stays replaced otherwise');
+    } else bad('extension.js no longer compares the code of a copy installed again over it');
+  }
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const guarded = [
     ['writing the live stylesheet', /const writeLiveNow = \(\) => \{\s*if \(removed\(\) \|\| uninstalling\(\) \|\| replaced\(\)\) return;/],
