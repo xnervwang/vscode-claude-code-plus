@@ -12,8 +12,13 @@ Claude Code Plus's Steward panel keeps who manages whom in stewards.json in this
 Each managed conversation gets one line: its state from Claude Code's session records, what its plan has in progress,
 and how many questions it has for the user. Then what changed since the steward's previous turn, kept in
 <steward>.steward-seen beside its plan.
+
+If nothing in the list changed since the steward's previous turn, it gets one sentence saying so: the list is already
+in its context, and a steward wakes many times with nothing new. After each compaction the whole list is sent again
+(COMPACTED_SUFFIX, written by resume-work-plan.py).
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -21,7 +26,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from plan_common import (  # noqa: E402
-    SESSION_NAME, children, data_dir, listed, read_payload, side_file, write_quietly,
+    COMPACTED_SUFFIX, SESSION_NAME, children, data_dir, listed, read_payload, side_file, write_quietly,
 )
 
 STEWARDS_FILE = "stewards.json"
@@ -135,7 +140,7 @@ def watched(stewards):
             % ", ".join(stewards))
 
 
-def block(ids, names, now, seen, directory):
+def lines_of(ids, names, now, directory):
     lines = []
     for m in ids:
         name = str(names.get(m) or m)[:TITLE_CHARS]
@@ -146,11 +151,18 @@ def block(ids, names, now, seen, directory):
         if questions:
             parts.append("%d question%s for the user" % (questions, "" if questions == 1 else "s"))
         lines.append('- "%s" (%s): %s' % (name, m, "; ".join(parts)))
+    return lines
+
+
+def lead(ids):
+    return ("You are the steward of %d Claude Code conversation%s the user picked for you in the Steward panel; "
+            "follow the steward skill." % (len(ids), "" if len(ids) == 1 else "s"))
+
+
+def block(ids, names, now, seen, lines):
     changed = ['"%s": %s -> %s' % (str(names.get(m) or m)[:TITLE_CHARS], seen[m], now.get(m, STOPPED))
                for m in ids if m in seen and seen[m] != now.get(m, STOPPED)]
-    text = ("You are the steward of %d Claude Code conversation%s the user picked for you in the Steward panel; "
-            "follow the steward skill. Where they stand now:\n" % (len(ids), "" if len(ids) == 1 else "s"))
-    text += "\n".join(lines)
+    text = lead(ids) + " Where they stand now:\n" + "\n".join(lines)
     if changed:
         text += "\nChanged since your previous turn: " + "; ".join(changed) + "."
     return text
@@ -176,14 +188,26 @@ def main():
     seen_path = side_file(os.path.join(directory, sid + ".json"), SEEN_SUFFIX)
     try:
         with open(seen_path, encoding="utf-8") as fh:
-            seen = json.load(fh)
-        seen = seen if isinstance(seen, dict) else {}
+            last = json.load(fh)
+        last = last if isinstance(last, dict) else {}
     except (OSError, ValueError):
-        seen = {}
-    text = block(ids, names, now, seen, directory)
+        last = {}
+    # Older builds stored the states map on its own.
+    seen = last.get("states") if isinstance(last.get("states"), dict) else ({} if "digest" in last else last)
+    try:
+        with open(side_file(os.path.join(directory, sid + ".json"), COMPACTED_SUFFIX), encoding="utf-8") as fh:
+            compacted = fh.read().strip()
+    except OSError:
+        compacted = ""
+    lines = lines_of(ids, names, now, directory)
+    digest = hashlib.sha1("\n".join(lines).encode("utf-8")).hexdigest()
+    if last.get("digest") == digest and last.get("compacted", "") == compacted:
+        text = lead(ids) + " Nothing has changed since the list you were given at your previous turn."
+    else:
+        text = block(ids, names, now, seen, lines)
     if over:
         text += "\n" + watched(over)
-    write_quietly(seen_path, json.dumps({m: now.get(m, STOPPED) for m in ids}))
+    write_quietly(seen_path, json.dumps({"states": {m: now.get(m, STOPPED) for m in ids}, "digest": digest, "compacted": compacted}))
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": payload.get("hook_event_name", "UserPromptSubmit"), "additionalContext": text}}))
     return 0

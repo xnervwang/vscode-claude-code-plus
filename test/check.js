@@ -8979,6 +8979,15 @@ console.log('\nthe Steward panel');
         && c2.includes('Changed since your previous turn: "Two": working -> idle.') && other.stdout === '' && other.status === 0) {
       ok('steward.py tells a steward each conversation\'s state, work and questions, and then what changed; a conversation nobody manages gets nothing');
     } else bad(`steward.py said ${JSON.stringify([c1, c2, other.stdout, h1.stderr])}`);
+    /* A turn with nothing changed gets one sentence; the first turn after a compaction gets the whole list. */
+    const c4 = ctx(hook(S(1)));
+    fs.writeFileSync(path.join(data, S(1) + '.compacted'), '2026-11-15T19:00:00Z');
+    const c5 = ctx(hook(S(1))), c6 = ctx(hook(S(1)));
+    if (c4 === 'You are the steward of 2 Claude Code conversations the user picked for you in the Steward panel; follow the steward skill. '
+        + 'Nothing has changed since the list you were given at your previous turn.'
+        && c5.includes(`- "Two" (${S(2)}): idle`) && !c5.includes('Changed since') && c6 === c4) {
+      ok('a steward\'s list that has not changed since its previous turn is one sentence, and is given whole again after a compaction');
+    } else bad(`steward.py on unchanged turns said ${JSON.stringify([c4, c5, c6])}`);
     if (c3.startsWith(`A steward conversation (${S(1)}) watches this one`) && c3.includes('Do not send it status messages') && managed.status === 0) {
       ok('a managed conversation hears which steward watches it and is asked to leave questions in its plan, not message the steward');
     } else bad(`a managed conversation was told ${JSON.stringify(c3)}`);

@@ -128,8 +128,7 @@ The tables below show the text Claude Code Plus adds to what Claude Code sends t
 | What | When | At most | Turned off by |
 | --- | --- | --- | --- |
 | The work plan | Each message, while the conversation's plan has a row that is not `done` or `dropped`. The whole block, with what the states mean and how to change a row, on the conversation's first message and the first after each compaction; a short head in its place otherwise; one line when no row has changed since the message before | 6,000 characters, the brief included; the one line is about 160 characters and the plan's path | `claudeCodePlus.workPlan` |
-
-| The steward's list | Each message in a conversation that manages others in the Steward panel: one line per conversation, and what changed since its previous message | About 150 characters, and about 170 more per conversation it manages with a 40-character title, at most 30 of them | Unticking them in the Steward panel |
+| The steward's list | Each message in a conversation that manages others in the Steward panel: one line per conversation, and what changed since its previous message. One sentence in its place when nothing in it changed since the previous message; the whole list again after a compaction | About 150 characters, and about 170 more per conversation it manages with a 40-character title, at most 30 of them; the one sentence is about 200 characters | Unticking them in the Steward panel |
 | A steward is watching | Each message in a conversation a steward manages | About 360 characters | Unticking it in the Steward panel |
 
 ### Added now and then
