@@ -8334,6 +8334,9 @@ console.log('\nconversations whose background sessions are busy');
       && /await background\.workingNow\(\{ write: !replaced\(\) && !uninstalling\(\) \}\)/.test(ext)) {
     ok('an idle conversation with work still running is reported as running, and a replaced window writes no link file');
   } else bad('extension.js does not mark conversations whose background sessions are busy');
+  if (/log\.appendLine\('work running: ' \+ \(\[\.\.\.next\]\.map/.test(ext) && /work running: a scan took/.test(ext)) {
+    ok('each change of the conversations with work running is logged, and a slow scan');
+  } else bad('extension.js no longer logs the conversations with work running');
 }
 
 /* src/load-tabs.js against stand-in tab groups. */

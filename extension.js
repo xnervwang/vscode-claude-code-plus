@@ -976,6 +976,7 @@ function start(context, log, renamed, handing = false) {
    * Claude Code shows a conversation as running while its own background commands run. Checked every ten seconds.
    */
   let bgWorking = new Set();
+  const SLOW_SCAN_MS = 5000;
   let bgReading = false;
   /* Stops the processes src/duplicates.js allows to be stopped without asking. All windows do this from the same data;
      stop() skips a process that another window has already stopped. */
@@ -993,15 +994,20 @@ function start(context, log, renamed, handing = false) {
       if (JSON.stringify(dupsList(dupGroups)) !== was) writeLiveNow();
     } catch (e) { log.appendLine('conversations run twice: ' + ((e && e.message) || e)); }
   };
+  /* Each change of the set is logged, and a scan that takes long, so that a dot missing from a tab can be put down
+     either to the scan or to the drawing. */
   const readBgWorking = async () => {
     if (bgReading) return;
     bgReading = true;
+    const began = Date.now();
     let next;
     try {
       next = removed() || !enabled() ? new Set() : await background.workingNow({ write: !replaced() && !uninstalling() });
       readDuplicates();
     } finally { bgReading = false; }
+    if (Date.now() - began > SLOW_SCAN_MS) log.appendLine(`work running: a scan took ${Math.round((Date.now() - began) / 1000)} s`);
     if (next.size === bgWorking.size && [...next].every((id) => bgWorking.has(id))) return;
+    log.appendLine('work running: ' + ([...next].map((id) => id.slice(0, 8)).join(', ') || 'none'));
     bgWorking = next;
     try { if (typeof globalThis.__cceRefreshTabIcons === 'function') globalThis.__cceRefreshTabIcons(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next change */ }
