@@ -1,5 +1,5 @@
 {
-  "core": "71cd924bd3e639c413a3a9bf64da4f5461a592ab",
+  "core": "41f981e006998edc10e27dfa8863fddd2482a95f",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -104,7 +104,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/nudge-work-plan.py",
       "from": "shared/plugin/hooks/nudge-work-plan.py",
-      "sha256": "597c01ee786d708bde7c5a35c0125a4e37a8d11c7577f640885bda487eb10383"
+      "sha256": "8ba8895c44e6d66c3e03aa3939a5014aaf1243c530b0c43823fc60b70ddc65d5"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/remind-work-plan.py",
@@ -114,7 +114,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_agent.py",
       "from": "shared/plugin/claude/plan_agent.py",
-      "sha256": "4f357b793fb4df83931b397d97da1f3bbd9495ca00065885e1561230b2cd8c60"
+      "sha256": "b52580a7ef52ebafc8cd8d43e06dda236f6d579aced86a90f1a325d66f4b3bd3"
     },
     {
       "path": "claude-plugin/agent-work-plan/skills/maintain/SKILL.md",
