@@ -6,6 +6,8 @@ The plan is stored in a file outside the conversation, and Claude gets its open 
 
 Agent Plus's Conversations tab in the VS Code panel lists running Claude Code conversations in this window's workspace folders. Stopped conversations also appear if their plan still has open rows and was written in the last 7 days. A row that waits for your answer carries a question; the question appears under its conversation, and an answer entered in the Answer view next to the Conversations tab goes into that conversation's message input.
 
+Claude Code Plus also adds message timestamps and reply details (duration, context share, cost and model), session-list controls for open sessions, pins, text colors and deleting archived conversations, green tab dots while work runs, red ones when a turn finishes while you are away, and views of background sessions and scheduled prompts; see [Other features](#other-features). With [Steward](#steward), one conversation passes your messages to others and tells you when they need you.
+
 Requires Anthropic's Claude Code extension, Agent Plus and VS Code 1.96 or later. The work plan also needs Python 3.7 or later. On Windows without Python, the extension offers to download it from python.org (11 MB).
 
 ## What it looks like
@@ -50,7 +52,7 @@ Work you ask Claude to do now goes straight to `doing`. Work Claude suggests on 
 The extension registers a Claude Code plugin whose hooks hand the plan to Claude on each turn and around compactions. Its skill holds the rules Claude follows to keep the plan up to date.
 
 - The plugin's skill description loads in every session at about 110 tokens.
-- With a plan, every turn carries its open rows: the whole block, with the instructions, on the first turn and the first after each compaction; a short head when a row has changed; one line when none has. Rows that are `doing` and questions to you carry their notes; other rows show their title only. A finished row can be included when a row under it is still open. The block is cut to fit 6,000 characters, and a last line says how many open rows were left out. See [What it costs in tokens](#what-it-costs-in-tokens).
+- With a plan, every turn carries its open rows: the whole block, with the instructions, on the first turn and the first after each compaction; a short head (the open rows under a shorter header instead of the instructions) when a row has changed; one line when none has. Rows that are `doing` and questions to you carry their notes; other rows show their title only. A finished row can be included when a row under it is still open. The block is cut to fit 6,000 characters, and a last line says how many open rows were left out. See [What it costs in tokens](#what-it-costs-in-tokens).
 - Before an automatic compaction, Claude is asked to bring the rows it is working on up to date. After compaction, it is asked to read the plan file before anything else.
 
 ### Where the plan lives
@@ -67,7 +69,7 @@ Search for **Claude Code Plus** in the Extensions view, or run
 `code --install-extension xnervwang.claude-code-plus`. Anthropic's Claude Code extension and
 Agent Plus install as dependencies.
 
-If you have Work Plan for Claude Code (`xnervwang.claude-code-extras`), update it to its last version, which installs Claude Code Plus (`xnervwang.claude-code-plus`); you can then uninstall the old extension. While an earlier version of the old extension is installed, Claude Code Plus does nothing except show a warning when you run a command, because both extensions would patch the same Claude Code files. If you uninstall an earlier version of the old extension, VS Code runs its uninstall step on the next start: it copies plans to `~/.claude/agent-work-plan-plans-<time>/`, then unregisters the plugin. Within half a minute, Claude Code Plus registers the plugin again and copies the plans back. On its first start, Claude Code Plus copies `claudeCodeWorkPlan.*` and `claudeCodeExtras.*` settings to `claudeCodePlus.*`, except those kept in a remote machine's own settings file, which you rename by hand. On each start, Claude Code Plus copies pins and session colors from the old extension's storage unless it already has its own. Install Claude Code Plus before uninstalling the old extension, since VS Code deletes that storage when it finishes removing the old extension at its next start.
+If you have Work Plan for Claude Code (`xnervwang.claude-code-extras`), update it to its last version, which installs Claude Code Plus (`xnervwang.claude-code-plus`); you can then uninstall the old extension. While an earlier version of the old extension is installed, Claude Code Plus does nothing except show a warning when you run a command, because both extensions would patch the same Claude Code files. If you uninstall an earlier version of the old extension, VS Code runs its uninstall step on the next start: it copies plans to `~/.claude/agent-work-plan-plans-<time>/`, then unregisters the plugin. Within half a minute, Claude Code Plus registers the plugin again and copies the plans back. On its first start, Claude Code Plus copies `claudeCodeWorkPlan.*` and `claudeCodeExtras.*` settings to `claudeCodePlus.*`, except those kept in a remote machine's own settings file, which you rename by hand. On each start, Claude Code Plus copies pins and text colors from the old extension's storage unless it already has its own. Install Claude Code Plus before uninstalling the old extension, since VS Code deletes that storage when it finishes removing the old extension at its next start.
 
 The extension works by editing files inside the installed Claude Code extension. Reload the
 VS Code window twice after installing. Run `Claude Code Plus: Show Status` for the patch
@@ -77,37 +79,100 @@ Verified against Claude Code 2.1.323 and 2.1.325.
 
 ## Other features
 
-| Feature | What it shows | Where it appears |
-| --- | --- | --- |
-| Timestamps | Times from the transcript on every message and reply block, with `start→result` on tool calls; Claude Code's own message times are hidden while these are on. | Messages, reply blocks, tool calls |
-| Your time zone for Claude | When Claude runs on a machine in another time zone, as with Remote SSH, it is told yours, so it gives you times in your zone. | Claude's context |
-| Reply figures | `2m10s · ctx 33% · cost $0.42 · opus-5 high` shows turn duration, context-window use, running spend, model and effort. | Each reply |
-| Sub-agent tags and filters | Tag each sub-agent's messages with its task, such as `#look up tomorrow's weather`, and filter to the main thread or one sub-agent. | Tags on messages; filter in the footer |
-| Conversation navigation | Find your messages by time and first words or find compaction points; filter, click to scroll, step with arrows or `,` and `.`, or jump to the top or bottom. | Right edge of the panel |
-| Focus view button | Toggle Claude Code's own Focus view; while it is on and Claude works, the working line shows the latest tool call and elapsed time, such as `Bash running for 2m55s (since 11:11:18)`. | Footer button; working line |
-| Context meter | Keep the meter visible, outline it when 15% of the window remains, and rest the pointer on it for two seconds for a breakdown by category, memory files and custom agents, with what the work plan has added to the context. | Panel's context meter |
-| Open sessions | The conversations open in this window, in an editor tab or in the sidebar while it is shown, most recently active first, each with the status dot the session list gives it; click one to switch to it. | Top of the session list |
-| Open in a tab or the sidebar | **New in tab** and **New in sidebar** replace the New session button. A closed conversation's right-click menu offers **Resume in tab** and **Resume in sidebar** instead of Resume session; an open one keeps Switch to session. These do not change `claudeCode.preferredLocation`; the Claude button at the right of the editor tabs still opens where that setting says. | Session list |
-| Delete archived conversations | **Delete session…** in an archived conversation's right-click menu permanently deletes it from disk once you confirm: its transcripts, sub-agent conversations, saved tool outputs, file checkpoints (Claude Code's copies, not your files), debug log and work plan. A conversation open in a tab or the sidebar, or still running, is left alone. | Archived sessions in the session list |
-| Section and session ID on hover | Hovering over a conversation shows its session ID and where it sits in the list below Open sessions: its group, Ungrouped or Archived sessions. Rows in Open sessions show the same. | Session list |
-| Search by session ID | The search box also finds a conversation by part of its session ID, such as `69f9`: four or more characters, using only 0-9, a-f and hyphens. Shorter searches, and ones with other characters, match titles and branches only. | Session list |
-| RECENTLY CLOSED | The conversations whose Claude Code editor tabs you closed in this workspace, most recently closed first; the list is kept across reloads. Click one to open it again. The section starts collapsed. Open conversations are not listed, and up to `claudeCodePlus.recentClosedSessions` are shown (10 by default). | Session list, directly above Open sessions |
-| Session dates | Adds the dates of the first and last messages after Claude Code's last-active time: `11d` becomes `11d · 09/05→09/16`. | Session list |
-| Pinned conversations | Click the pin at the start of a session-list row to keep that conversation from Claude Code's transcript cleanup (`cleanupPeriodDays`) and out of Archived sessions, as long as a window keeps connecting to its machine (see Known limits). | Session list |
-| Text colors | Right-click a conversation and choose **Text color** to give its title one of the colors of Claude Code's `/color`. The color shows wherever the conversation is listed. | Session list |
-| Background sessions left out | The list skips sessions started with `claude --bg` or `claude -p`, and empty transcripts. Turn off `claudeCodePlus.hideBackgroundSessions` to see them. | Session list |
-| Chimes | A short sound when a turn finishes, permission is requested or Claude asks a question, played on the machine showing the panel; mute it in the footer. | Footer; machine showing the panel |
-| Background sessions | This conversation's `claude --bg` sessions, each state in its own colour and counted at the top, with what each waits for, its result, and the attach and logs commands. | Agents button in the footer and the agent map it opens |
-| Scheduled prompts | See timers this conversation set through Claude Code's scheduled tasks, with each schedule, last-fired time and prompt. | Agents button in the footer and the agent map it opens |
-| Background commands | See a count such as `1 task` while a background build, test run or `sleep` timer runs, with the list one click away. | Footer |
-| Tabs back after a restart | Claude Code tabs that were open when the window closed but that VS Code did not restore, as can happen after the window lost its remote connection, are opened again when it starts. Tabs you closed while connected stay closed. | Editor tabs |
-| Load background tabs | Off by default. With `claudeCodePlus.loadRestoredTabs` on, Claude Code conversations in background tabs load when the window starts, instead of when you first click them: each tab comes to the front for a moment, then the one you had in front comes back. | Editor tabs |
-| Status dots | A Claude Code tab's logo shows a green dot while Claude works, where Claude Code shows none, and a red one instead of Claude Code's orange when it finished while you were away. Work a conversation has running counts as working too, after its turn has ended: a `claude --bg` session or `claude -p` worker it started, a command it put in the background, or a shell it detached with `setsid` or `nohup` (read from /proc, so on Linux). A background command is the conversation's own process, so reloading the window ends it, and the dot goes grey. The session list uses the same green and red. | Editor tabs, session list |
-| Steward | Tick other Claude Code conversations in the Steward panel, from any VS Code window on this machine, and the conversation in front becomes their steward. The panel lists the conversations open in your VS Code windows, one group per window. A steward's tab and session list row read "Steward of N conversations" (or "Steward of all conversations"), or the name you gave it, followed by a bell. Each message you send the steward comes with what each of them is doing. Tick **All, including new ones** and it manages every conversation listed and each one opened later, except other stewards; while that is ticked, no row can be unticked. Start a message with `@` and a conversation's name, or ask the steward to tell one of them something, and the steward writes the message for that conversation in its own words. Claude Code Plus types it into that conversation and sends it, so it counts there as your own message, approvals included. A managed conversation knows a steward is watching, and leaves its questions for you in its work plan rather than messaging the steward. Their questions come back to you word for word, and the steward is told when one of them needs you, finishes something it is waiting for, or has a background session or `claude -p` worker of its own that ended without finishing. For a conversation waiting on a permission prompt, the steward is told which command it is for, and each question is passed to it once. When Claude Code runs a conversation in more than one process at once, as after a window went away while its extension host stayed, the conversation is marked in the Steward panel and the session list and the steward is told each process's pid, start time and window. Claude Code Plus stops the old process when it is idle and its window is gone, and tells the steward; otherwise the panel's Stop the old process button does it. Conversation names in its replies are links that open the conversation in whatever window has it. Replies that are only `[[quiet]]` or a dash are hidden, and so is the folded row of the message they answer. | Steward panel, at the bottom of the window; the steward conversation |
-| Token mode | Agent Plus's `agentPlus.tokenMode`, chosen from its entry in the status bar, decides which of the work plan, the time-zone note and the brief add to Claude's context; each one's own setting applies only in Custom. See [What it costs in tokens](#what-it-costs-in-tokens). | Status bar (Agent Plus) |
-| Session information | See the session ID, Claude's process ID, starting directory, transcript location and size, and the token mode; click a value to copy it. | Footer button |
+### In a conversation
+
+| Feature | What it shows |
+| --- | --- |
+| Timestamps | Times from the transcript on every message and reply block, and `start→result` on tool calls. Claude Code's own message times are hidden while these are on. |
+| Your time zone for Claude | When Claude runs on a machine in another time zone, as with Remote SSH, it is told yours, so it gives you times in your zone. |
+| Reply figures | `2m10s · ctx 33% · cost $0.42 · opus-5 high` on each reply shows turn duration, how much of the context window is in use, the conversation's cost so far, model and effort. |
+| Sub-agent tags and filters | Each sub-agent's messages are tagged with its task, such as `#look up tomorrow's weather`. A filter in the footer shows only the main thread or one sub-agent. |
+| Conversation navigation | A handle at the right edge of the panel opens a list of your messages by time and first words, with the compaction points marked. Filter the list, click a row to scroll there, step with the arrows or `,` and `.`, or jump to the top or bottom. |
+| Focus view button | A footer button that turns Claude Code's own Focus view on and off. While Focus view is on and Claude works, the working line shows the latest tool call and how long it has run, such as `Bash running for 2m55s (since 11:11:18)`. |
+| Context meter | The panel's context meter stays visible and gets an outline when 15% of the window remains. Rest the pointer on it for two seconds for a breakdown by category, memory files and custom agents, with what the work plan has added to the context. |
+| Chimes | A short sound when a turn finishes, permission is requested or Claude asks a question, played on the machine showing the panel. Mute it in the footer. |
+| Session information | A footer button that shows the session ID, Claude's process ID, starting directory, transcript location and size, and the token mode. Click a value to copy it. |
+| Token mode | Agent Plus's `agentPlus.tokenMode`, set from its entry in the status bar, decides which of the work plan, the time-zone note and the conversation brief (a summary, and a status saying where the conversation stands; see [Settings](#settings)) are added to Claude's context. Each one's own setting applies only in Custom. See [What it costs in tokens](#what-it-costs-in-tokens). |
+
+### In the session list
+
+| Feature | What it shows |
+| --- | --- |
+| Open sessions | A section at the top of the session list with the conversations open in this window, in an editor tab or in the sidebar while it is shown, most recently active first, each with the status dot the session list gives it. Click one to switch to it. |
+| Open in a tab or the sidebar | **New in tab** and **New in sidebar** replace the New session button. |
+| Section and session ID on hover | Hovering over a conversation shows its session ID and where it sits in the list below Open sessions: its group, Ungrouped or Archived sessions. Rows in Open sessions show the same. |
+| Search by session ID | The search box also finds a conversation by part of its session ID, such as `69f9`: four or more characters, using only 0-9, a-f and hyphens. Shorter searches, and ones with other characters, match titles and branches only. |
+| RECENTLY CLOSED | A section directly above Open sessions with the conversations whose Claude Code editor tabs you closed in this workspace, most recently closed first. Click one to open it again. |
+| Session dates | Adds the dates of the first and last messages after Claude Code's last-active time: `11d` becomes `11d · 09/05→09/16`. |
+| Pinned conversations | Click the pin at the start of a session-list row to keep that conversation from Claude Code's transcript cleanup (`cleanupPeriodDays`) and out of Archived sessions. |
+| Text colors | Right-click a conversation and choose **Text color** to give its title one of the colors of Claude Code's `/color`. The color shows wherever the conversation is listed. |
+| Delete archived conversations | **Delete session…** in an archived conversation's right-click menu permanently deletes it from disk once you confirm. |
+| Background sessions left out | The list skips sessions started with `claude --bg` or `claude -p`, and empty transcripts. Turn off `claudeCodePlus.hideBackgroundSessions` to see them. |
+
+#### Opening in a tab or the sidebar
+
+A closed conversation's right-click menu offers **Resume in tab** and **Resume in sidebar** instead of Resume session; an open one keeps Switch to session. These do not change `claudeCode.preferredLocation`; the Claude button at the right of the editor tabs still opens where that setting says.
+
+#### Recently closed
+
+The section starts collapsed, and the list is kept across reloads. Open conversations are not listed, and up to `claudeCodePlus.recentClosedSessions` conversations are shown (10 by default).
+
+#### Pinned conversations
+
+To protect a pinned conversation, the extension moves its files' modification time forward once they are old enough for the cleanup. The row still shows when the conversation was last active, but the list sorts it by the moved time. Uninstalling the extension removes the pins; the conversations stay, and the cleanup treats them as usual again.
+
+Pins are kept on the machine that holds the transcripts. A pin protects a conversation only while some VS Code window with this extension connects to the machine that holds its transcript, and stays open for at least a minute, at least once every `claudeCodePlus.sessionPinsMarginDays` days (14 by default, and never more than half of `cleanupPeriodDays`). The folder the window has open does not matter: each window refreshes every pinned conversation on that machine a minute after it starts and every 30 minutes while it stays open. After a longer gap, Claude Code's cleanup can delete pinned conversations the next time Claude Code runs on that machine, in a terminal or as a background session.
+
+#### Deleting archived conversations
+
+Deleting an archived conversation removes its transcripts, sub-agent conversations, saved tool outputs, file checkpoints (Claude Code's copies, not your files), debug log and work plan. A conversation open in a tab or the sidebar, or still running, is left alone.
+
+### On editor tabs
+
+| Feature | What it shows |
+| --- | --- |
+| Status dots | A Claude Code tab's logo shows a green dot while Claude works, where Claude Code shows none, and a red one instead of Claude Code's orange when it finished while you were away. The session list uses the same green and red. |
+| Tabs back after a restart | Claude Code tabs that were open when the window closed but that VS Code did not restore, as can happen after the window lost its remote connection, are opened again when it starts. Tabs you closed while connected stay closed. |
+| Load background tabs | Off by default. With `claudeCodePlus.loadRestoredTabs` on, Claude Code conversations in background tabs load when the window starts, instead of when you first click them: each tab comes to the front for a moment, then the one you had in front comes back. |
+
+#### Work that keeps a dot green
+
+Work a conversation has running counts as working too, after its turn has ended: a `claude --bg` session or `claude -p` worker it started, a command it put in the background, or a shell it detached with `setsid` or `nohup` (read from /proc, so on Linux). A background command is the conversation's own process, so reloading the window ends it, and the dot goes gray.
+
+### Background work
+
+| Feature | What it shows |
+| --- | --- |
+| Background sessions | The agent map, opened from the Agents button in the footer, lists this conversation's `claude --bg` sessions, each state in its own color and counted at the top, with what each waits for, its result, and the attach and logs commands. |
+| Scheduled prompts | The agent map also lists the timers this conversation set through Claude Code's scheduled tasks, with each schedule, last-fired time and prompt. |
+| Background commands | The footer shows a count such as `1 task` while a background build, test run or `sleep` timer runs, with the list one click away. |
+
+## Steward
+
+Tick other Claude Code conversations in the Steward panel, from any VS Code window on this machine, and the conversation in front becomes their steward. The Steward panel is at the bottom of the VS Code window, in the panel area beside Problems, Output and Terminal. The panel lists the conversations open in your VS Code windows, one group per window. Tick **All, including new ones** and it manages every conversation listed and each one opened later, except other stewards; while that is ticked, no row can be unticked. A steward's tab and session list row read "Steward of N conversations" (or "Steward of all conversations"), or the name you gave it, followed by a bell.
+
+Each message you send the steward comes with what each of the conversations it manages is doing. Start a message with `@` and a conversation's name, or ask the steward to tell one of them something, and the steward writes the message for that conversation in its own words. Claude Code Plus types it into that conversation and sends it, so it counts there as your own message, including when it approves something, such as a plan or a change. Conversation names in its replies are links that open the conversation in whatever window has it.
+
+A managed conversation knows a steward is watching, and leaves its questions for you in its work plan rather than messaging the steward. The steward passes that conversation's questions to you word for word. The steward is told by a notice from Claude Code Plus when a managed conversation needs you, finishes a turn while an open row in the steward's own work plan names it, or has a background session or `claude -p` worker of that conversation that ended without finishing. For a conversation waiting on a permission prompt, the steward is told which command it is for, and each question is passed to the steward once. When nothing in a notice needs you, the steward replies with only `[[quiet]]` or a single dash. The Claude Code panel where the steward conversation is shown hides such a reply, along with the folded row of tool calls just before it.
+
+When Claude Code runs a conversation in more than one process at once, as after a window went away while its extension host stayed, the conversation is marked in the Steward panel and the session list and the steward is told each process's pid, start time and window. Claude Code Plus stops the old process when it is idle and its window is gone, and tells the steward; otherwise the panel's Stop the old process button does it.
 
 ## What it costs in tokens
+
+Claude Code Plus adds text to what Claude Code sends the model. All of it comes from the work plan plugin Claude Code Plus registers with Claude Code; what Claude Code Plus draws in VS Code sends nothing to the model. The exception is the steward notice, which the extension itself posts to the steward conversation. Text added to a conversation stays in context and goes with every later model call until compaction replaces the conversation with a summary. A token is about four characters of English.
+
+### Typical values
+
+Measured on 2026-11-15 on one machine, with the brief on.
+
+| What | Typical | How it was measured |
+| --- | --- | --- |
+| The work plan, whole block | Median 2,498 characters, 90th percentile 5,057, plus the plan's path, which appears four times | The 44 Claude Code plans with open rows written on that machine in the 14 days before; each was copied and put through the work plan plugin's hook that adds the plan to a message |
+| The work plan, short head | Median 1,229 characters, 90th percentile 3,818, plus the plan's path, which appears twice | The same plans |
+| The work plan, one line | 238 characters plus the plan's path | The same plans |
+| Messages whose plan is unchanged since the message before | 41% | 9,059 messages with the plan in 70 Claude Code conversations over the same 14 days, counted by `build/plan-injection-stats.js` in Agent Plus's repository. A plan counts as unchanged when only how long a row had been in its state differed |
+
+### Token modes
 
 | Feature | Interface features | Essential features | All features | Custom |
 | --- | --- | --- | --- | --- |
@@ -121,13 +186,11 @@ In Interface features, Claude Code does not load the work plan plugin, just as w
 
 In a running conversation, a mode change applies from the next message to work plan injection and reminders, conversation brief requests, and the time zone. `Claude Code Plus: Show Status` shows the mode and which of the three features run. The information button in the footer of a Claude Code conversation names the mode.
 
-The tables below show the text Claude Code Plus adds to what Claude Code sends the model. All of it comes from the work plan plugin Claude Code Plus registers with Claude Code; what Claude Code Plus draws in VS Code sends nothing to the model. The exception is the steward notice, which the extension posts to the steward's inbox. Text added to a conversation stays in context and goes with every later model call until compaction replaces the conversation with a summary. A token is about four characters of English.
-
 ### Added to every message
 
 | What | When | At most | Turned off by |
 | --- | --- | --- | --- |
-| The work plan | Each message, while the conversation's plan has a row that is not `done` or `dropped`. The whole block, with what the states mean and how to change a row, on the conversation's first message and the first after each compaction; a short head in its place otherwise; one line when no row has changed since the message before. While the brief is on, each ends by asking for the status before the final reply of a turn that moves a row | 6,000 characters, the brief included; the one line is about 160 characters and the plan's path | `claudeCodePlus.workPlan` |
+| The work plan | Each message, while the conversation's plan has a row that is not `done` or `dropped`. The whole block, with what the states mean and how to change a row, on the conversation's first message and the first after each compaction; a short head in its place otherwise; one line when no row has changed since the message before. While the brief is on, each ends by asking for the status before the final reply of a turn that moves a row | 6,000 characters, the brief included; the one line is about 240 characters and the plan's path | `claudeCodePlus.workPlan` |
 | The steward's list | Each message in a conversation that manages others in the Steward panel: one line per conversation, and what changed since its previous message. One sentence in its place when nothing in it changed since the previous message; the whole list again after a compaction | About 150 characters, and about 170 more per conversation it manages with a 40-character title, at most 30 of them; the one sentence is about 200 characters | Unticking them in the Steward panel |
 | A steward is watching | Each message in a conversation a steward manages | About 360 characters | Unticking it in the Steward panel |
 
@@ -135,14 +198,14 @@ The tables below show the text Claude Code Plus adds to what Claude Code sends t
 
 | What | When | At most | Turned off by |
 | --- | --- | --- | --- |
-| End-of-turn reminders | At the end of a turn that left rows `doing`, asked you something without putting the question on a row, or changed things without reading or updating the plan | About 2,400 characters and the paths of the plan and of the row command, when every reminder and both of the brief's requests come at once | `claudeCodePlus.workPlan` |
+| End-of-turn reminders | At the end of a turn that left rows `doing`, asked you something without putting the question on a row, or changed things without reading or updating the plan | About 2,400 characters and the paths of the plan and of the command that writes it, when every reminder and both of the brief's requests come at once | `claudeCodePlus.workPlan` |
 | The brief's requests | At the end of a turn in which a row of the plan changed state: the status once per turn; the summary when there is none, after a top-level row was added, removed or closed, and after a compaction | Included in the end-of-turn reminders | `claudeCodePlus.conversationBrief` |
-| No row `doing` | At most once per turn, when the main thread has made three tool calls or changed two things besides the plan and no row is `doing` | About 430 characters, and the plan's path and the row command's path twice each | `claudeCodePlus.workPlan` |
-| Before a compaction | At 170k, 180k and 195k tokens of a 200K window, or 960k, 970k and 995k of a 1M window, once each between compactions, while a row is `doing`; said once more at the end of the turn if the plan was not written | About 540 characters, and the plan's path and the row command's path once each | `claudeCodePlus.workPlan`; `claudeCodePlus.workPlanQuietWhenReplyMatches` |
+| No row `doing` | At most once per turn, when the main thread has made three tool calls or changed two things besides the plan and no row is `doing` | About 430 characters, and the paths of the plan and of the command that writes it, twice each | `claudeCodePlus.workPlan` |
+| Before a compaction | At 170k, 180k and 195k tokens of a 200K window, or 960k, 970k and 995k of a 1M window, once each between compactions, while a row is `doing`; said once more at the end of the turn if the plan was not written | About 540 characters, and the paths of the plan and of the command that writes it, once each | `claudeCodePlus.workPlan`; `claudeCodePlus.workPlanQuietWhenReplyMatches` |
 | After a compaction | Once per compaction | About 950 characters, the plan's path, and the path of its closed rows when it has any | `claudeCodePlus.workPlan`; `claudeCodePlus.workPlanQuietWhenReplyMatches` |
 | The offer of a plan | Once, in a conversation with no plan, after your third message and a turn of 25 tool calls | About 390 characters and the plan's path | `claudeCodePlus.workPlan`; `claudeCodePlus.workPlanOfferMinTurns`, `claudeCodePlus.workPlanOfferMinToolCalls` |
 | A write to the plan, refused | When Claude writes or edits the plan file with a row description longer than the view shows, or a question that asks more than one thing | About 450 characters | `claudeCodePlus.workPlan` |
-| A steward notice | When a conversation a steward manages starts waiting for you, has a new question for you, finishes a turn while the steward's work plan names it, or has background work of its own that ended without finishing, at most once a minute for each steward. If the steward is idle, the notice starts a turn | About 210 characters, and about 100 more per conversation it names with a 40-character title, up to 380 more for one waiting on a prompt, up to 250 for each piece of background work that ended, and about 350 for each conversation run by two processes | Unticking them in the Steward panel |
+| A steward notice | When a conversation a steward manages starts waiting for you, has a new question for you, finishes a turn while a row in the steward's own work plan names it, or has background work of its own that ended without finishing, at most once a minute for each steward. If the steward is idle, the notice starts a turn | About 210 characters, and about 100 more per conversation it names with a 40-character title, up to 380 more for one waiting on a prompt, up to 250 for each piece of background work that ended, and about 350 for each conversation run by two processes | Unticking them in the Steward panel |
 | Your time zone | When the panel reads in another time zone than this machine's: on the conversation's first message and after each compaction, then when either side's date turns over, the offset changes, or the context has grown by 100k tokens | About 300 characters | `claudeCodePlus.tellClaudeYourTimeZone` |
 
 - The work plan is cut at 6,000 characters by the plugin. The reminders have no cut: each is fixed text with at most six row titles of 60 characters.
@@ -159,17 +222,6 @@ The tables below show the text Claude Code Plus adds to what Claude Code sends t
 - Everything Claude Code Plus and Agent Plus draw in VS Code.
 - An answer you give in Agent Plus's Answer view is typed into the conversation and sent as your message, as if you had typed it there.
 - The context meter's breakdown shows, for the conversation in front, how many times the work plan was added since the last compaction, how many characters that came to, and about what share of the context in use.
-
-### Typical values
-
-Measured on 2026-11-11 on one machine.
-
-| What | Typical | How it was measured |
-| --- | --- | --- |
-| The work plan, whole block | Median 2,246 characters, 90th percentile 4,720 | The 41 Claude Code plans written on that machine in the 14 days before; each was copied and put through the work plan plugin's hook that adds the plan to a message, once |
-| The work plan, short head | Median 1,102 characters, 90th percentile 3,576 | The same plans |
-| The work plan, one line | 220 characters with a 60-character path | The same plans |
-| Messages whose plan is unchanged since the message before | 48% | 8,587 messages with the plan in 63 Claude Code conversations over the same 14 days, counted as unchanged when only how long a row had been in its state differed; counted by `build/plan-injection-stats.js` in Agent Plus's repository |
 
 ## Settings
 
@@ -215,19 +267,27 @@ Message appearance: `claudeCodePlus.userMessageColor` and `claudeCodePlus.userMe
 
 ## Known limits
 
+### Work plan
+
 - A plan file is deleted once its conversation's transcript is gone and the file has not been written for a week. Claude Code removes old transcripts, apart from those of conversations pinned on the session list.
 - Uninstalling tries to copy plans to `~/.claude/agent-work-plan-plans-<timestamp>/` before unregistering the plugin, which deletes its data directory. Uninstalling continues if the copy fails, so keep your own copy of a plan that matters.
+
+### The patch
+
 - Disabling the extension leaves the patch in place. Run `Claude Code Plus: Remove from Claude Code (restore original files)` first.
+- A yellow circle with an exclamation mark at the panel's top right means a Claude Code build changed something the patch relies on, and some panel features are not working.
+- Editor-tab panels that stay blank in every window after running version 1.0.8 or earlier of the old extension: quit VS Code and delete the `CacheStorage` folders under `WebStorage` in VS Code's data folder (`~/Library/Application Support/Code` on macOS, `%APPDATA%\Code` on Windows, `~/.config/Code` on Linux).
+
+### After the remote connection is lost
+
 - After you reload a window that lost its remote connection, the remote machine keeps the Claude Code processes from before the reload running for five minutes, then stops them. A Claude Code tab that VS Code did not restore, and whose conversation is still running there, opens only then, about five minutes after the reload. If Claude was writing a reply in it, the reply stops at that point; what it had written so far stays in the conversation.
 - If you close a Claude Code tab while the window cannot reach its remote machine, the tab opens again the next time the window starts, because the close could not be recorded. Close it again once connected.
-- A yellow circle with an exclamation mark at the panel's top right means a Claude Code build changed something the patch relies on, and some panel features are not working.
-- To protect a pinned conversation, the extension moves its files' modification time forward once they are old enough for the cleanup. The row still shows when the conversation was last active, but the list sorts it by the moved time. Uninstalling the extension removes the pins; the conversations stay, and the cleanup treats them as usual again.
-- A pin protects a conversation only while some VS Code window with this extension connects to the machine that holds its transcript, and stays open for at least a minute, at least once every `claudeCodePlus.sessionPinsMarginDays` days (14 by default, and never more than half of `cleanupPeriodDays`). The folder the window has open does not matter: each window refreshes every pinned conversation on that machine a minute after it starts and every 30 minutes while it stays open. After a longer gap, Claude Code's cleanup can delete pinned conversations the next time Claude Code runs on that machine, in a terminal or as a background session.
-- Pins are kept on the machine that holds the transcripts. Pins on your computer do not protect a remote machine's conversations, or the other way round; a remote machine's pins are refreshed only by windows connected to it.
+
+### Steward
+
 - A steward can pass a message on only to a conversation that a VS Code window shows, since Claude Code Plus types it into its message input there.
-- Whether an extension host still has its window is told by the Claude Code panels in it, which say so once a minute; a host that has not heard from one for five minutes has none. A host running Claude Code Plus 1.1.0 from before this check, or with no panel, is taken to have one, so a process in it is never stopped without asking.
-- Steward notices go to the steward's inbox socket, which Claude Code documents for scripts but not the line it reads; they are not sent on native Windows, where that socket needs a token only the session holds.
-- Editor-tab panels that stay blank in every window after running version 1.0.8 or earlier of the old extension: quit VS Code and delete the `CacheStorage` folders under `WebStorage` in VS Code's data folder (`~/Library/Application Support/Code` on macOS, `%APPDATA%\Code` on Windows, `~/.config/Code` on Linux).
+- Whether an extension host still has its window is told by the Claude Code panels in it, which say so once a minute; a host that has not heard from one for five minutes has no window. A host that has never heard from any panel since it started is taken to have a window, so a process in it is never stopped without asking.
+- Steward notices go to the steward's inbox socket, which Claude Code documents for scripts but not the format of the line it reads from it; they are not sent on native Windows, where that socket needs a token only the session holds.
 
 ## Contributing
 
