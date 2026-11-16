@@ -35,7 +35,8 @@ const { transcriptOf } = require('./src/claude-files');
 const planInjections = require('./src/plan-injections');
 const tokenMode = require('./src/token-mode');
 const waiting = require('./src/waiting');
-const { createClaudeSource } = require('./src/claude-source');
+const { createClaudeSource, isPanelTab } = require('./src/claude-source');
+const { agentOfTab } = require('./src/other-agents');
 const coreLink = require('./src/core-link');
 const hookSettings = require('./src/hook-settings');
 const pluginInstall = require('./src/plugin-install');
@@ -774,12 +775,26 @@ function start(context, log, renamed, handing = false) {
     },
   });
   context.subscriptions.push(claude);
+  /* The other agent's conversation tab that came to the front last; null once a Claude Code panel comes to the front.
+     Other tabs do not change it; Agent Plus's work plan view does not move for them either. */
+  let otherFront = null, otherChanged = () => {};
+  const setOther = (next) => {
+    if (JSON.stringify(next) === JSON.stringify(otherFront)) return;
+    otherFront = next;
+    otherChanged();
+  };
   {
     const groups = vscode.window.tabGroups;
     const activeTab = () => { const g = groups && groups.activeTabGroup; return g ? g.activeTab : undefined; };
-    claude.tabsChanged(activeTab());
+    const onTabs = () => {
+      const tab = activeTab();
+      claude.tabsChanged(tab);
+      if (isPanelTab(tab)) setOther(null);
+      else { const other = agentOfTab(vscode, tab); if (other) setOther(other); }
+    };
+    onTabs();
     for (const name of ['onDidChangeTabs', 'onDidChangeTabGroups']) {
-      if (groups && typeof groups[name] === 'function') context.subscriptions.push(groups[name](() => claude.tabsChanged(activeTab())));
+      if (groups && typeof groups[name] === 'function') context.subscriptions.push(groups[name](onTabs));
     }
   }
 
@@ -804,10 +819,11 @@ function start(context, log, renamed, handing = false) {
     changed: () => redrawStewards(),
     focusWindow: () => focusThisWindow(),
     deliver: (sessionId, text) => claude.source.deliverAnswer(sessionId, text, {}),
-    pageAt: () => pageAt, duplicates: () => dupGroups, stopDuplicate,
+    pageAt: () => pageAt, duplicates: () => dupGroups, stopDuplicate, otherFront: () => otherFront,
     windowName: () => vscode.workspace.name || '', windowFolders: () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath),
   });
   context.subscriptions.push(steward);
+  otherChanged = () => steward.refresh();
   /*
    * Brings this window to the front. The API has no call for this, so this window's own `code` CLI opens the folder or
    * workspace file the window already has open, and VS Code focuses the window rather than opening another. Untitled
@@ -961,6 +977,8 @@ function start(context, log, renamed, handing = false) {
   /* A Claude Code panel's page got focus (src/page/92-focus.js). */
   globalThis.__cceFocusHook = (sessionId) => {
     try { claude.pageFocus(sessionId); } catch (e) { log.appendLine('page focus: ' + (e && e.message)); }
+    // A Claude Code panel in the sidebar has no tab, so its focus is the only sign it is in front again.
+    if (typeof sessionId === 'string' && sessionId) setOther(null);
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceFocusHook) delete globalThis.__cceFocusHook; } });
   /* A panel reports its time zone as it opens, which is usually after this has activated. */

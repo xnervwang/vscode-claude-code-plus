@@ -192,6 +192,10 @@ function body(model) {
   const away = model.hidden ? `<p class="away">${model.hidden} ticked conversation${model.hidden === 1 ? ' is' : 's are'} not open in any
       VS Code window, so the steward cannot send ${model.hidden === 1 ? 'it' : 'them'} anything; not listed.
       <button data-act="drop-hidden">Untick ${model.hidden === 1 ? 'it' : 'them'}</button></p>` : '';
+  if (model.other) {
+    const name = model.other.title ? `"${esc(model.other.title)}" is a ${esc(model.other.agent)} conversation` : `The tab in front is a ${esc(model.other.agent)} conversation`;
+    return `<p class="empty">${name}. The Steward panel works only with Claude Code conversations.</p>`;
+  }
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
     : `<div class="head"><span>Managed by <b>${esc(model.front.title)}</b>: ${model.managed}</span>
@@ -267,14 +271,16 @@ function shell(list, nonce) {
  * table of stewards has been rewritten here, focusWindow(), which brings this window to the front, transcriptOf(id), and
  * deliver(id, text), which types text into the conversation's message input here (src/relay.js), readState(id) for
  * a `claude --bg` session's state (src/background.js), duplicates() for the conversations run by several processes
- * and stopDuplicate(id) to stop the old one (src/duplicates.js), and pageAt() for the time of a page's last heartbeat.
+ * and stopDuplicate(id) to stop the old one (src/duplicates.js), pageAt() for the time of a page's last heartbeat, and
+ * otherFront() -> { agent, title } while another agent's conversation tab is in front (src/other-agents.js), or null.
  */
 function create(vscode, deps) {
   deps = Object.assign({ isBackground: bgSessions.isBackground, records: () => liveRecords(), post: stewards.post, alive, readState,
     windowName: () => '', windowFolders: () => [], shownList: () => [], changed: () => {}, focusWindow: () => {}, transcriptOf,
-    canShare: () => deps.canWrite(),
+    canShare: () => deps.canWrite(), otherFront: () => null,
     deliver: () => Promise.resolve({ outcome: 'notReceived', reason: 'this window cannot type into a conversation' }) }, deps);
   let view = null, timer = 0, busy = false, last = new Map(), lastFront = '', shown = null;
+  const frontKey = () => { const o = deps.otherFront(); return o ? 'other:' + o.agent + ':' + o.title : deps.activeChat(); };
   const states = new Map();
   /* A pass reads the plan of every conversation listed, every REFRESH_MS. A plan whose file has the same size and
      modification time as at the last read is taken from here instead. */
@@ -290,7 +296,10 @@ function create(vscode, deps) {
   };
   const cached = Object.assign({}, deps, { readPlan });
 
-  const model = (all, front) => {
+  /* The Claude Code conversation the panel is for: none while another agent's conversation tab is in front. Agent Plus's
+     work plan view has moved to that conversation, and a tick here would still change the last Claude Code one's list. */
+  const frontNow = () => (deps.otherFront() ? '' : deps.activeChat());
+  const model = (all, front, other = null) => {
     const table = stewards.read(deps.dir);
     const mine = new Set(front && table[front] ? table[front].manages : []);
     const every = !!(front && table[front] && table[front].all);
@@ -305,7 +314,7 @@ function create(vscode, deps) {
     // The conversation in front may not be in the list yet: `claude agents --json` is read at most every half minute.
     const title = self ? self.title : front ? conversations.claudeTitle({ sessionId: front, name: '', cwd: '' },
       deps.titles({ sessionId: front }), () => deps.readPlan(front)) : '';
-    return { front: front ? { id: front, title } : null, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
+    return { front: front ? { id: front, title } : null, other, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
       every };
   };
 
@@ -386,7 +395,8 @@ function create(vscode, deps) {
   /* `shown` is the list the page has, or null when it needs the whole page. */
   const render = () => {
     if (!view || !view.visible) return;
-    const list = body(model(last, deps.activeChat()));
+    const other = deps.otherFront();
+    const list = body(model(last, other ? '' : deps.activeChat(), other));
     if (shown === null) {
       view.webview.html = shell(list, Math.random().toString(36).slice(2) + Date.now().toString(36));
       shown = list;
@@ -578,7 +588,7 @@ function create(vscode, deps) {
   };
 
   const onMessage = async (m) => {
-    const front = deps.activeChat();
+    const front = frontNow();
     if (m && m.type === 'ready') { if (view) view.webview.postMessage({ type: 'body', html: shown || '' }); return; }
     if (m && m.type === 'stop-old' && typeof m.id === 'string') {
       const p = deps.stopDuplicate ? deps.stopDuplicate(m.id) : null;
@@ -630,7 +640,8 @@ function create(vscode, deps) {
   };
   const reg = vscode.window.registerWebviewViewProvider(VIEW, provider, { webviewOptions: { retainContextWhenHidden: false } });
   timer = setInterval(() => {
-    if (deps.activeChat() !== lastFront) { lastFront = deps.activeChat(); render(); }
+    const now = frontKey();
+    if (now !== lastFront) { lastFront = now; render(); }
     pass();
   }, REFRESH_MS);
   return {

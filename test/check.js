@@ -8667,6 +8667,57 @@ console.log('\nthe Steward panel');
       } else bad(`managing all: ${JSON.stringify([kept, still, whole, allTab, st.read(allDir)])}`);
     }
 
+    /* Another agent's conversation tab in front (src/other-agents.js): the Steward panel says so and shows no ticks, and a
+       tick does nothing until a Claude Code conversation is in front again. _onMessage awaits nothing for a tick, so the
+       table is written when it returns. */
+    {
+      const oa = require('../src/other-agents');
+      class TabInputCustom { constructor(uri, viewType) { this.uri = uri; this.viewType = viewType; } }
+      class TabInputText { constructor(uri) { this.uri = uri; } }
+      class TabInputWebview { constructor(viewType) { this.viewType = viewType; } }
+      const fake = { TabInputCustom, TabInputText, TabInputWebview };
+      const codexUri = { scheme: 'openai-codex', authority: 'route', path: '/local/0198' };
+      const got = [
+        oa.agentOfTab(fake, { label: 'Fix the parser', input: new TabInputCustom(codexUri, 'chatgpt.conversationEditor') }),
+        oa.agentOfTab(fake, { label: 'Restored', input: new TabInputText(codexUri) }),
+        oa.agentOfTab(fake, { label: 'Claude', input: new TabInputWebview('mainThreadWebview-claudeVSCodePanel') }),
+        oa.agentOfTab(fake, { label: 'a.js', input: new TabInputText({ scheme: 'file', path: '/w/a.js' }) }),
+        oa.agentOfTab(fake, undefined),
+      ];
+      if (JSON.stringify(got) === JSON.stringify([{ agent: 'Codex', title: 'Fix the parser' }, { agent: 'Codex', title: 'Restored' }, null, null, null])) {
+        ok('a Codex conversation tab, also one restored as a text editor, is another agent\'s; a Claude Code panel, a file and no tab are not');
+      } else bad(`other agents' tabs: ${JSON.stringify(got)}`);
+
+      const sv = require('../src/steward-view');
+      const st = require('../src/stewards');
+      const odir = path.join(root, 'plans-other');
+      fs.mkdirSync(odir, { recursive: true });
+      let provider, other = { agent: 'Codex', title: 'Fix the parser' };
+      const vs = { window: { registerWebviewViewProvider: (id, pr) => { provider = pr; return { dispose() {} }; }, showInformationMessage() {} } };
+      const v = sv.create(vs, { activeChat: () => S(1), otherFront: () => other, freshAgents: async () => ({ records: [] }), readPlan: () => null,
+        titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true,
+        shownHere: () => true, canWrite: () => true, canShare: () => false, enabled: () => true, log: () => {}, home: '/', dir: odir,
+        records: () => [], shownList: () => [S(1)] });
+      const sent = [];
+      const view = { visible: true, webview: { options: {}, html: '', onDidReceiveMessage() {}, postMessage: (m) => { sent.push(m); } },
+        onDidChangeVisibility() {}, onDidDispose() {} };
+      provider.resolveWebviewView(view);
+      const page = view.webview.html;
+      v._onMessage({ type: 'toggle', id: S(2), on: true });
+      const untouched = st.read(odir)[S(1)] === undefined;
+      other = null;
+      v.refresh();
+      const back = sent.map((m) => m.html || '').join('');
+      v._onMessage({ type: 'toggle', id: S(2), on: true });
+      const ticked = !!(st.read(odir)[S(1)] && st.read(odir)[S(1)].manages.includes(S(2)));
+      v.dispose();
+      if (/"Fix the parser" is a Codex conversation\. The Steward panel works only with Claude Code conversations\./.test(page)
+          && !/type="checkbox"/.test(page) && !/Managed by/.test(page) && untouched && /Managed by/.test(back) && ticked) {
+        ok('with a Codex tab in front the Steward panel names it as a Codex conversation, shows no ticks and changes nothing; '
+          + 'with a Claude Code conversation in front again it shows that one and ticking works');
+      } else bad(`Steward panel with another agent in front: ${JSON.stringify([page.slice(-300), untouched, back.slice(0, 200), ticked])}`);
+    }
+
     /* A message a steward passes on (src/relay.js, hooks/steward-relay.py). */
     {
       const relay = require('../src/relay');
