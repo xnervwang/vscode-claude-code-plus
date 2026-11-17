@@ -10319,6 +10319,37 @@ console.log('\nthe token mode');
   } else bad(`the README's mode table has columns ${JSON.stringify(cols)} and Custom ${JSON.stringify(custom)}`);
 }
 
+console.log('\nShow Status: everything it changed');
+{
+  const fp = require('../src/footprint');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-footprint-'));
+  try {
+    const a = { targetFile: (d) => path.join(d, 'extension.js'), BACKUP_SUFFIX: '.bak', status: () => 'patched' };
+    const b = { targetFile: (d) => path.join(d, 'index.js'), BACKUP_SUFFIX: '.bak', status: () => { throw new Error('locked'); } };
+    fs.writeFileSync(path.join(root, 'extension.js.bak'), 'original');
+    const files = fp.installFiles([a, b], root);
+    if (files[0].state === 'patched' && files[0].backup === path.join(root, 'extension.js.bak')
+        && files[1].state === 'unreadable: locked' && files[1].backup === '') {
+      ok('each patched file is listed with its state and the copy kept of Claude Code\'s own file, when there is one');
+    } else bad(`installFiles gave ${JSON.stringify(files)}`);
+    const text = fp.lines({ installs: [{ dir: root, files }], dataDir: '/data/plans', pinsMoved: 3,
+      plugin: { listed: true, enabled: false, unloadedByMode: true, ref: 'p@m', marketplace: 'm', location: '/m' },
+      commands: { remove: 'Remove It', disablePlugin: 'Stop It' } }).join('\n');
+    const none = fp.lines({}).join('\n');
+    if (text.includes(`  ${root}\n    extension.js: patched by this version; Claude Code's own copy is kept as extension.js.bak\n    index.js: unreadable: locked`)
+        && text.includes('Undo: Remove It') && text.includes('p@m: installed from the marketplace m at /m')
+        && text.includes('no (the Interface features token mode turned it off)') && text.includes('Undo: Stop It')
+        && text.includes('/data/plans') && /moved forward[^\n]*: 3/.test(text)
+        && none.includes('none found') && none.includes('not installed')) {
+      ok('the list covers the patched files, the plugin\'s registration and data, and moved transcript times, each with its undo');
+    } else bad(`the list read:\n${text}\n---\n${none}`);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  if (/showInformationMessage\([\s\S]{0,300}tokenModeLine\(\), FULL_LIST\);\s*if \(pick !== FULL_LIST\) return;[\s\S]{0,120}footprintLines\(\)/.test(ext)) {
+    ok('Show Status offers a button that writes the list to the output channel');
+  } else bad('Show Status does not offer the full list');
+}
+
 console.log('\nRestricted Mode');
 {
   /* In a workspace that is not trusted, activation starts nothing: no timer, no hook for the patched host, no registration
