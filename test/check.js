@@ -10345,8 +10345,8 @@ console.log('\nShow Status: everything it changed');
     } else bad(`the list read:\n${text}\n---\n${none}`);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  if (/showInformationMessage\([\s\S]{0,300}tokenModeLine\(\), FULL_LIST\);\s*if \(pick !== FULL_LIST\) return;[\s\S]{0,120}footprintLines\(\)/.test(ext)) {
-    ok('Show Status offers a button that writes the list to the output channel');
+  if (/registerCommand\('status', \(\) => \{[\s\S]{0,500}showInformationMessage\([\s\S]{0,300}tokenModeLine\(\), FULL_LIST\)\.then\(\(pick\) => \{\s*if \(pick !== FULL_LIST\) return;[\s\S]{0,120}footprintLines\(\)/.test(ext)) {
+    ok('Show Status offers a button that writes the list to the output channel, and returns without waiting for it');
   } else bad('Show Status does not offer the full list');
 }
 
