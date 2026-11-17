@@ -56,6 +56,7 @@ const ADAPTERS = require('./src/adapters');
 const removal = require('./src/removal');
 const buildDigest = require('./src/build-digest');
 const carryover = require('./src/carryover');
+const unsupported = require('./src/unsupported');
 const PACKAGE = require('./package.json');
 
 /* <publisher>.<name>, which is also how the editor names this extension's folders. Read from the manifest rather than
@@ -463,7 +464,7 @@ function start(context, log, renamed, handing = false) {
       if (interactive) offerReload('This window is running an earlier build of Claude Code Plus than the one now installed. Reload the window to run it.');
       return;
     }
-    const patched = [], restored = [], problems = [];
+    const patched = [], restored = [], problems = [], notSupported = new Set();
     const leaving = uninstalling();
     const restoring = removed() || leaving;
     /* The live stylesheet's options, computed once and only for the panel's bundle (the host bundle ignores them),
@@ -483,7 +484,10 @@ function start(context, log, renamed, handing = false) {
             const r = adapter.apply(dir, adapter === webview ? (opts || (opts = options())) : undefined);
             log.appendLine(`${label}: ${r.message}${r.liveChanged ? ' (live settings updated)' : ''}`);
             if (r.changed && !patched.includes(adapter.name)) patched.push(adapter.name);
-            else if (!r.changed && !r.current) problems.push(`${label}: ${r.message}`);
+            else if (!r.changed && !r.current) {
+              if (unsupported.isUnsupported(r.message)) notSupported.add(unsupported.versionOf(dir));
+              else problems.push(`${label}: ${r.message}`);
+            }
           }
         } catch (e) {
           problems.push(`${label}: ${e.message}`);
@@ -492,7 +496,13 @@ function start(context, log, renamed, handing = false) {
       }
     }
     if (!found && interactive) vscode.window.showWarningMessage('Claude Code Plus: the Claude Code extension is not installed, so there is nothing to patch.');
-    // A shape mismatch after a Claude Code update would otherwise be silent, so it is said out loud.
+    // Shown in the editor's display language; which rule failed is only in the output channel. Not awaited: a message
+    // with a button stays open.
+    if (notSupported.size) {
+      const details = vscode.l10n.t(unsupported.DETAILS);
+      vscode.window.showWarningMessage(vscode.l10n.t(unsupported.MESSAGE, [...notSupported].join(', ')), details)
+        .then((pick) => { if (pick === details) log.show(true); }, () => {});
+    }
     if (problems.length) vscode.window.showWarningMessage('Claude Code Plus: ' + problems.join(' | '));
     if (patched.length) offerReload(`Claude Code Plus is installed in ${patched.join(' and ')}. Reload the window once to start; after that, On/Off and colors change live.`);
     if (patched.length || restored.length) reloadOffered = true;

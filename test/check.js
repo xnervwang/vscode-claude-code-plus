@@ -2265,6 +2265,38 @@ if (explicit.length) {
 
    Translations are the one place another language belongs, and they are kept where the scan can tell them apart:
    package.nls.<language>.json and src/l10n/. Each must carry exactly the entries its English does. */
+console.log('\na Claude Code build the patch does not fit yet');
+{
+  const un = require('../src/unsupported');
+  const { pickShape } = require('../src/edits');
+  const miss = pickShape('nothing here', { name: 'some rule', re: /absent/g }, 'Claude Code');
+  const root = path.join(__dirname, '..');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-unsupported-'));
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
+  const version = un.versionOf(dir), fallback = un.versionOf(path.join(dir, 'anthropic.claude-code-1.2.3-linux-x64'));
+  fs.rmSync(dir, { recursive: true, force: true });
+  if (un.isUnsupported(miss.error) && !un.isUnsupported('already patched') && version === '9.8.7'
+      && fallback === 'anthropic.claude-code-1.2.3-linux-x64') {
+    ok('the error a rule that matches nothing gives is told apart from other problems, with the version from the install');
+  } else bad(`unsupported: ${JSON.stringify([miss.error, version, fallback])}`);
+  const ext = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
+  if (/if \(unsupported\.isUnsupported\(r\.message\)\) notSupported\.add\(unsupported\.versionOf\(dir\)\);\s*else problems\.push/.test(ext)
+      && /vscode\.window\.showWarningMessage\(vscode\.l10n\.t\(unsupported\.MESSAGE, \[\.\.\.notSupported\]\.join\(', '\)\), details\)\s*\.then\(/.test(ext)
+      && /const details = vscode\.l10n\.t\(unsupported\.DETAILS\);/.test(ext) && require('../package.json').l10n === './src/l10n') {
+    ok('it is shown as one plain sentence in the editor\'s display language, with the rule that failed left to the output channel');
+  } else bad('extension.js does not show the unsupported-build warning through vscode.l10n');
+  const bundles = fs.readdirSync(path.join(root, 'src', 'l10n')).filter((f) => /^bundle\.l10n\.[a-z]{2}(-[a-z]+)?\.json$/.test(f));
+  const keys = [un.MESSAGE, un.DETAILS].sort();
+  const off = bundles.filter((f) => {
+    const b = JSON.parse(fs.readFileSync(path.join(root, 'src', 'l10n', f), 'utf8'));
+    return JSON.stringify(Object.keys(b).sort()) !== JSON.stringify(keys) || !b[un.MESSAGE].includes('{0}')
+      || Object.values(b).some((v) => typeof v !== 'string' || !v.trim());
+  });
+  if (bundles.includes('bundle.l10n.zh-cn.json') && bundles.includes('bundle.l10n.zh-tw.json') && !off.length) {
+    ok(`each of the ${bundles.length} translations has exactly the strings passed to vscode.l10n.t, the version placeholder kept`);
+  } else bad(`translations: ${JSON.stringify({ bundles, off })}`);
+}
+
 console.log('\nshipped text');
 {
   const CJK = /[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯！-｠]/;
@@ -5269,6 +5301,7 @@ const activateStub = (opts = {}) => {
         workspace: { workspaceFolders: [], isTrusted: true, createFileSystemWatcher: () => ({ onDidCreate() {}, onDidChange() {}, onDidDelete() {}, dispose() {} }),
           getConfiguration: () => ({ get: (k, d) => d, inspect: () => undefined, update: async () => {} }),
           onDidChangeConfiguration: () => disposable, onDidChangeWorkspaceFolders: () => disposable, onDidGrantWorkspaceTrust: () => disposable },
+        l10n: { t: (m, ...a) => a.reduce((s, v, i) => s.split('{' + i + '}').join(String(v)), String(m)) },
         window: { createOutputChannel: () => ({ appendLine(l) { rec.logs.push(l); }, show() {}, dispose() {} }), createTreeView: () => ({ dispose() {} }),
           createStatusBarItem: () => ({ show() {}, hide() {}, dispose() {} }), registerWebviewViewProvider: () => disposable,
           registerUriHandler: () => disposable,
@@ -5541,6 +5574,7 @@ console.log('\nthe old id\'s last version, shim/');
     fs.writeFileSync(stub, `
       const rec = { said: [], executed: [] };
       module.exports = { rec,
+        l10n: { t: (m, ...a) => a.reduce((s, v, i) => s.split('{' + i + '}').join(String(v)), String(m)) },
         window: { showInformationMessage: async (text, ...items) => { rec.said.push([text].concat(items)); return 'Uninstall'; } },
         commands: { executeCommand: async (...a) => { rec.executed.push(a); } } };`);
     const script = `
@@ -6142,6 +6176,7 @@ console.log('\nwhat a tick and a change of setting cost');
           getConfiguration: () => ({ get: (k, d) => (k in values ? values[k] : d), inspect: () => undefined, update: async (k, v) => { values[k] = v; } }),
           onDidChangeConfiguration: (fn) => { listeners.config.push(fn); return disposable; },
           onDidChangeWorkspaceFolders: () => disposable },
+        l10n: { t: (m, ...a) => a.reduce((s, v, i) => s.split('{' + i + '}').join(String(v)), String(m)) },
         window: { createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }), createTreeView: () => ({ dispose() {} }),
           createStatusBarItem: () => ({ show() {}, hide() {}, dispose() {} }), registerWebviewViewProvider: () => disposable,
           registerUriHandler: () => disposable,
@@ -10201,6 +10236,7 @@ console.log('\nthe token mode');
           getConfiguration: (section) => ({ get: (k, d) => { const key = section ? section + '.' + k : k; return key in values ? values[key] : d; },
             inspect: () => undefined, update: async (k, v) => { updates.push([section + '.' + k, v]); values[section + '.' + k] = v; } }),
           onDidChangeConfiguration: (fn) => { listeners.push(fn); return disposable; }, onDidChangeWorkspaceFolders: () => disposable },
+        l10n: { t: (m, ...a) => a.reduce((s, v, i) => s.split('{' + i + '}').join(String(v)), String(m)) },
         window: { createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
           showInformationMessage: async (text, ...buttons) => { told.push([text, buttons]); return undefined; },
           showWarningMessage: async () => undefined, setStatusBarMessage() {}, tabGroups: { all: [], activeTabGroup: null },
@@ -10360,6 +10396,7 @@ console.log('\nRestricted Mode');
         workspace: { get isTrusted() { return state.trusted; }, onDidGrantWorkspaceTrust: (fn) => { state.grant.push(fn); return disposable; },
           workspaceFolders: [], getConfiguration: () => ({ get: (k, d) => d, inspect: () => undefined, update: async () => {} }),
           onDidChangeConfiguration: () => disposable, onDidChangeWorkspaceFolders: () => disposable },
+        l10n: { t: (m, ...a) => a.reduce((s, v, i) => s.split('{' + i + '}').join(String(v)), String(m)) },
         window: { createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }), showInformationMessage: async () => undefined,
           showWarningMessage: async () => undefined, setStatusBarMessage() {}, tabGroups: { all: [], activeTabGroup: null },
           registerWebviewViewProvider: () => disposable, registerUriHandler: () => disposable },

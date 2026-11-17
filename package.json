@@ -65,6 +65,7 @@
     "onStartupFinished"
   ],
   "main": "./extension.js",
+  "l10n": "./src/l10n",
   "contributes": {
     "commands": [
       {
