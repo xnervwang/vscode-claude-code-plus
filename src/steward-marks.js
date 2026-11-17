@@ -4,12 +4,11 @@
 
 'use strict';
 /*
- * Titles for a steward's tab and session list row (stewards are in src/stewards.js). If the user named the conversation,
- * the name stays; otherwise the title becomes "Steward of N conversations". The title Claude Code generates comes from
- * the first message, and a steward's first message is usually one it was asked to relay, so that title would describe
- * another conversation's work. A bell is appended in both cases.
+ * Titles for a steward's tab and session list row (stewards are in src/stewards.js): its own title, the name the user
+ * gave it or else the one Claude Code shows, with a bell appended. How many conversations it manages is in the Steward
+ * panel.
  *
- * Nothing is written to the transcript. When it stops managing any conversation, its usual title is shown again.
+ * Nothing is written to the transcript. When it stops managing any conversation, the bell goes.
  */
 const fs = require('fs');
 const path = require('path');
@@ -18,11 +17,6 @@ const stewards = require('./stewards');
 const BELL = '\u{1F6CE}\uFE0F';
 const ENDS = [' ' + BELL, ' \u{1F6CE}'];
 
-/* n: how many conversations it manages, or 'all'. */
-function label(n) {
-  return n === 'all' ? 'Steward of all conversations' : `Steward of ${n} conversation${n === 1 ? '' : 's'}`;
-}
-
 /** `title` without a bell this module put at its end. */
 function withoutBell(title) {
   const text = String(title == null ? '' : title);
@@ -30,13 +24,13 @@ function withoutBell(title) {
   return end ? text.slice(0, -end.length) : text;
 }
 
-/** A steward's title: the user's name for it if there is one, else "Steward of n conversations", then a bell. */
-function stewardTitle(custom, n) {
-  const own = withoutBell(String(custom || '').trim()).trim();
-  return (own || label(n)) + ' ' + BELL;
+/** `own` with a bell after it. */
+function stewardTitle(own) {
+  const text = withoutBell(String(own || '').trim()).trim();
+  return text ? text + ' ' + BELL : BELL;
 }
 
-/* The count label() shows for a table entry: 'all', or how many it manages. */
+/* What a table entry manages: 'all', or how many; tabTitle() treats 0 as not a steward. */
 const size = (t) => (t.all ? 'all' : t.manages.length);
 
 /* After a conversation stops being a steward, its own title is sent for this long, so every panel restores it. */
@@ -59,7 +53,7 @@ function marked(entries, table, marks = new Map(), now = Date.now(), named = () 
     const t = id && table && table[id];
     if (t) {
       marks.set(id, 0);
-      return Object.assign({}, e, { customTitle: stewardTitle(named(id), size(t)) });
+      return Object.assign({}, e, { customTitle: stewardTitle(named(id) || e.customTitle || e.summary) });
     }
     if (!id || !marks.has(id)) return e;
     if (!marks.get(id)) marks.set(id, now);
@@ -90,8 +84,8 @@ function tabTitle(current, kept, custom, n, own) {
   let original = kept && kept.shown === current ? kept.original : current;
   if (withoutBell(original) !== original) original = own || withoutBell(original);
   if (!n) return { title: original, kept: null };
-  const shown = stewardTitle(custom, n);
+  const shown = stewardTitle(custom || original || own);
   return { title: shown, kept: { original, shown } };
 }
 
-module.exports = { BELL, label, size, withoutBell, stewardTitle, marked, tableReader, tabTitle };
+module.exports = { BELL, size, withoutBell, stewardTitle, marked, tableReader, tabTitle };

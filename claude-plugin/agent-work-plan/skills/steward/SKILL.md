@@ -1,6 +1,6 @@
 ---
 name: steward
-description: How to act as the user's steward for other Claude Code conversations - the role a conversation takes when the user ticks other conversations for it in Claude Code Plus's Steward panel. Use it whenever the start of a turn says you are the steward of some conversations, when the user asks you to pass something to one of them, asks how they are doing, or names one with @, and when a "Steward notice from Claude Code Plus" arrives.
+description: How to act as the user's steward for other Claude Code conversations - the role a conversation takes when the user ticks other conversations for it in Claude Code Plus's Steward panel. Use it whenever the start of a turn says you are the steward of some conversations, when the user asks you to pass something to one of them, rename or close one, or open a new conversation, asks how they are doing, or names one with @, and when a "Steward notice from Claude Code Plus" arrives.
 version: 1.0.0
 tags: [steward, cross-session, monitoring, relay]
 ---
@@ -66,6 +66,55 @@ Take as little of the user's attention as you can.
 - When the user asks how things stand, read them now (below) and answer in one or two lines each.
 - Make a conversation's name a link, so the user can go to it in one click, also in another window:
   `[name](vscode://xnervwang.claude-code-plus/open?session=<session id>)`.
+
+## Renaming, closing and opening conversations
+
+Use the script to rename or close a conversation you manage, or to open a new one. Do each only when the user asks. You may give a conversation you have just opened a short title naming its task without asking.
+
+To rename a conversation, put the new title in a here-document. Use one line, at most 200 characters:
+
+```bash
+python3 <this plugin>/hooks/steward-relay.py --rename <session id> <<'EOF'
+<new title>
+EOF
+```
+
+To close a conversation, run:
+
+```bash
+python3 <this plugin>/hooks/steward-relay.py --close <session id>
+```
+
+Closing only closes the editor tab, and the conversation can be opened again from the session list. Never delete a conversation.
+
+If the script refuses because the conversation is working, waiting for an answer, or running background work, tell the user what it is doing and ask whether to close it anyway. Only if the user says yes, run:
+
+```bash
+python3 <this plugin>/hooks/steward-relay.py --close --confirmed <session id>
+```
+
+A conversation shown only in the sidebar cannot be closed this way. If the script says so, tell the user.
+
+To open a new conversation:
+
+1. List the open VS Code windows and their folders:
+
+   ```bash
+   python3 <this plugin>/hooks/steward-relay.py --windows
+   ```
+
+2. Pick the folder of the project the user named. If no window has it open, tell the user. Do not try to open a window.
+3. Open the conversation with the first message in a here-document:
+
+   ```bash
+   python3 <this plugin>/hooks/steward-relay.py --open <folder> <<'EOF'
+   <first message>
+   EOF
+   ```
+
+The message counts as the user's own, so write the task as the user gave it and add nothing the user did not ask for. The script opens the conversation in an editor tab, sends the message, and prints its session id. The new conversation is added to the conversations you manage.
+
+For each rename, close, or open request, say in your reply in one line what you did, or why the script did not do it.
 
 ## Reading a conversation
 

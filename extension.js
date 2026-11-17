@@ -810,6 +810,72 @@ function start(context, log, renamed, handing = false) {
     const p = duplicates.oldOne(group);
     return duplicates.stop(sessionId, p, 'button', { dir: planDir() }) ? p : null;
   };
+  /*
+   * Rename, close and open requests from a steward (src/relay.js). A rename goes through the panel showing the
+   * conversation, so its CLI hears of it too. A conversation that is working, waiting for an answer or running
+   * background work is closed only when the steward says the user confirmed it. How a new conversation gets its first
+   * message is in src/page/91-answer.js.
+   */
+  const renameConversation = async (sessionId, title) => {
+    let r;
+    try { r = typeof globalThis.__cceRename === 'function' ? globalThis.__cceRename(sessionId, title) : null; }
+    catch (e) { return { outcome: 'notReceived', reason: 'renaming failed here: ' + ((e && e.message) || e) }; }
+    if (!r) return { outcome: 'notReceived', reason: 'no Claude Code panel in this window shows the conversation' };
+    try { r = await r; } catch (e) { return { outcome: 'uncertain', reason: 'Claude Code reported: ' + ((e && e.message) || e) }; }
+    if (r && r.skipped) return { outcome: 'refused', reason: 'Claude Code did not write the title, which it does for a conversation with no transcript yet' };
+    return { outcome: 'submitted', reason: '' };
+  };
+  const closeConversation = async (sessionId, confirmed) => {
+    const panel = claude.panelFor(sessionId);
+    if (!panel) {
+      return shownHere(sessionId) ? { outcome: 'refused', reason: 'it is shown in the sidebar here, and only an editor tab can be closed' }
+        : { outcome: 'notReceived', reason: 'no editor tab in this window shows the conversation' };
+    }
+    const state = liveStates.get(sessionId) || '';
+    const busy = bgWorking.has(sessionId) ? 'running background work' : state === 'waiting' ? 'waiting for an answer' : state === 'running' ? 'working' : '';
+    if (busy && !confirmed) {
+      return { outcome: 'refused', reason: `busy: it is ${busy}; ask the user, and run --close --confirmed if they still want it closed` };
+    }
+    try { panel.dispose(); } catch (e) { return { outcome: 'uncertain', reason: 'closing the tab failed: ' + ((e && e.message) || e) }; }
+    return { outcome: 'submitted', reason: '' };
+  };
+  const OPEN_WAIT_MS = 40000, OPEN_ASK_MS = 500;
+  const opening = new Map();
+  globalThis.__cceSubmitHook = (id, sent, reason, sessionId) => {
+    const done = opening.get(id);
+    if (!done) return;
+    opening.delete(id);
+    done({ outcome: sent ? 'submitted' : 'notReceived', reason: sent ? '' : `the new tab did not send it (${reason || 'unknown'})`, sessionId });
+  };
+  context.subscriptions.push({ dispose: () => {
+    if (globalThis.__cceSubmitHook) delete globalThis.__cceSubmitHook;
+    for (const done of opening.values()) done({ outcome: 'uncertain', reason: 'the window closed' });
+    opening.clear();
+  } });
+  const openConversation = async (folder, text) => {
+    if (typeof globalThis.__cceToAllPanels !== 'function') return { outcome: 'notReceived', reason: 'Claude Code is not patched in this window' };
+    try {
+      await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, text, undefined, undefined, undefined, { programmatic: 'pin-to-panel' });
+    } catch (e) { return { outcome: 'notReceived', reason: 'Claude Code could not open a tab: ' + ((e && e.message) || e) }; }
+    const id = 'open-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    const started = Date.now();
+    return new Promise((resolve) => {
+      let timer = 0;
+      opening.set(id, (r) => { clearInterval(timer); resolve(r); });
+      const ask = () => {
+        if (!opening.has(id)) return;
+        if (Date.now() - started > OPEN_WAIT_MS) {
+          opening.delete(id);
+          clearInterval(timer);
+          resolve({ outcome: 'uncertain', reason: `the new tab did not report within ${OPEN_WAIT_MS / 1000} seconds; its first message may still be in its input` });
+          return;
+        }
+        try { globalThis.__cceToAllPanels({ type: 'cce_submit', id, text }); } catch (_) { /* asked again */ }
+      };
+      timer = setInterval(ask, OPEN_ASK_MS);
+      ask();
+    });
+  };
   const steward = stewardView.create(vscode, {
     activeChat, freshAgents: () => claude.freshAgents(), readPlan, titles: readTitles.titles, since: readTitles.since,
     live: () => liveStates, unread: () => unreadKeys, reveal: (sessionId) => claude.source.reveal(sessionId), shownHere,
@@ -820,6 +886,7 @@ function start(context, log, renamed, handing = false) {
     focusWindow: () => focusThisWindow(),
     deliver: (sessionId, text) => claude.source.deliverAnswer(sessionId, text, {}),
     pageAt: () => pageAt, duplicates: () => dupGroups, stopDuplicate, otherFront: () => otherFront,
+    rename: renameConversation, close: closeConversation, open: openConversation,
     windowName: () => vscode.workspace.name || '', windowFolders: () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath),
   });
   context.subscriptions.push(steward);

@@ -57,25 +57,61 @@
     }
     setTimeout(function(){
       if (showsOther(m)) { emptyInput(box); answerResult(m.id, false, 'not-shown'); return; }
-      /* With Ctrl, Enter sends whether or not Claude Code is set to send on Ctrl+Enter; Shift+Enter would be a new line. */
-      try {
-        box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
-      } catch (e) { /* checked below */ }
-      /* Sent once the input is first seen empty; anything typed after that is left alone. When the wait runs out, the
-         input is cleared only if it still holds just the answer. */
+      pressSend(box, m.text, function(sent, reason){ answerResult(m.id, sent, reason); });
+    }, 60);
+  };
+  /* Presses Enter to send the input. Sent once the input is first seen empty; anything typed after that is left alone.
+     When the wait runs out, the input is cleared only if it still holds just `text`. */
+  var pressSend = function(box, text, done){
+    /* With Ctrl, Enter sends whether or not Claude Code is set to send on Ctrl+Enter; Shift+Enter would be a new line. */
+    try {
+      box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    } catch (e) { /* checked below */ }
+    var waited = 0;
+    var look = function(){
+      if (!inputText(box)) { done(true, ''); return; }
+      if ((waited += 50) < 800) { setTimeout(look, 50); return; }
+      if (squash(box.textContent) === squash(text)) emptyInput(box);
+      done(false, 'left-in-input');
+    };
+    setTimeout(look, 50);
+  };
+
+  /* A steward's new conversation (src/relay.js). The host opened this tab with the first message already in its input,
+     and asks every panel of the window to send it. Only a panel with no conversation yet whose input holds exactly that
+     text sends it, once per id, and it answers when its conversation has a session id. */
+  var submittedNew = {};
+  var NEW_ID_WAIT_MS = 15000;
+  var submitResult = function(id, sent, reason, sessionId){
+    try { acquireVsCodeApi().postMessage({ type: 'cce_submit_result', id: id, sent: sent, reason: reason || '', sessionId: sessionId || '' }); }
+    catch (e) { /* the host reports it as not known when its wait runs out */ }
+  };
+  var submitNew = function(m){
+    if (submittedNew[m.id]) return;
+    var sid = sigValue('sessionId');
+    if (typeof sid === 'string' && sid) return;
+    var box = document.querySelector(ANSWER_INPUT);
+    if (!box || !squash(m.text) || squash(box.textContent) !== squash(m.text)) return;
+    submittedNew[m.id] = true;
+    pressSend(box, m.text, function(sent, reason){
+      if (!sent) { submitResult(m.id, false, reason, ''); return; }
       var waited = 0;
       var look = function(){
-        if (!inputText(box)) { answerResult(m.id, true, ''); return; }
-        if ((waited += 50) < 800) { setTimeout(look, 50); return; }
-        if (squash(box.textContent) === squash(m.text)) emptyInput(box);
-        answerResult(m.id, false, 'left-in-input');
+        var now = sigValue('sessionId');
+        if (typeof now === 'string' && now) { submitResult(m.id, true, '', now); return; }
+        if ((waited += 250) < NEW_ID_WAIT_MS) { setTimeout(look, 250); return; }
+        submitResult(m.id, true, '', '');
       };
-      setTimeout(look, 50);
-    }, 60);
+      look();
+    });
   };
   var listenForAnswers = function(){
     window.addEventListener('message', function(ev){
       var d = ev && ev.data, m = d && d.type === 'from-extension' ? d.message : null;
+      if (m && m.type === 'cce_submit' && typeof m.text === 'string' && typeof m.id === 'string') {
+        try { submitNew(m); } catch (e) { submitResult(m.id, false, 'error', ''); }
+        return;
+      }
       if (!m || m.type !== 'cce_answer' || typeof m.text !== 'string' || typeof m.id !== 'string') return;
       try { sendAnswer(m); } catch (e) { answerResult(m.id, false, 'error'); }
     });

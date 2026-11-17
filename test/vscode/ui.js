@@ -788,9 +788,10 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(boxes[0][0]), 'ticking one makes the conversation in front its steward', table);
-        const marked = await until(async () => (await claudeTabs()).find((x) => x.label === 'Steward of 1 conversation \u{1F6CE}\uFE0F'), 10000, 300);
-        check(!!marked, 'and its tab is titled as a steward, with a bell', await claudeTabs());
-        const row = list ? await until(() => list.evaluate(() => (document.body.innerText.match(/Steward of 1 conversation/g) || []).length), 15000, 500) : 0;
+        const belled = (label) => typeof label === 'string' && label.endsWith(' \u{1F6CE}\uFE0F') && titled(label.slice(0, -' \u{1F6CE}\uFE0F'.length), front.title);
+        const marked = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
+        check(!!marked, 'and its tab keeps its title with a bell after it', await claudeTabs());
+        const row = list ? await until(() => list.evaluate(() => (document.body.innerText.match(/\u{1F6CE}/gu) || []).length), 15000, 500) : 0;
         check(row >= 1, 'and its row in the session list too', row);
         await shot('steward-ticked');
         /* A message the steward passes on with its script: the window types it into the managed conversation, which
@@ -819,6 +820,54 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           check(/^Sent: /.test(said) && !!arrived, 'the steward passes a message on: it is typed into the managed conversation and sent as its user\'s message',
             { said, arrived: !!arrived });
           await shot('steward-relay');
+          /* The steward's other requests: a rename through the panel showing the conversation, a new conversation in
+             this window's folder with its first message sent, and closing that new one's tab. Each is run the way the
+             steward runs it, so its tool call is in the steward's transcript first. */
+          let calls = 0;
+          const act = (args, input) => {
+            const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
+            fs.appendFileSync(transcriptOf(front), JSON.stringify({ type: 'assistant', uuid: `${front.id.slice(0, 24)}00000000078${calls++}`,
+              timestamp: new Date().toISOString(), sessionId: front.id, cwd: profile.folder, isSidechain: false,
+              message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_act_${calls}`, name: 'Bash',
+                input: { command: line, description: 'Act for the user' } }] } }) + '\n');
+            return new Promise((resolve) => {
+              const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
+                { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: front.id }) });
+              let out = '';
+              kid.stdout.on('data', (d) => { out += d; });
+              kid.stderr.on('data', (d) => { out += d; });
+              kid.on('error', (e) => resolve('could not run the script: ' + e.message));
+              kid.on('exit', () => resolve(out.trim()));
+              kid.stdin.end(input || '');
+            });
+          };
+          const title = 'Renamed by its steward';
+          const renamed = await act(['--rename', target.id], title);
+          const titled2 = /^Renamed\./.test(renamed) ? await until(() => {
+            try { return fs.readFileSync(transcriptOf(target), 'utf8').includes(`"customTitle":"${title}"`); } catch (_) { return false; }
+          }, 20000, 500) : false;
+          check(/^Renamed\./.test(renamed) && !!titled2, 'the steward renames a conversation it manages, and Claude Code records the title', { renamed });
+          // Later steps find this conversation's tab by its own title.
+          if (/^Renamed\./.test(renamed)) await act(['--rename', target.id], target.title);
+          const first = 'Start a new piece of work, please.';
+          const opened = await act(['--open', profile.folder], first);
+          const newId = (/Session id: ([0-9a-f-]{36})/.exec(opened) || [])[1] || '';
+          const started = newId ? await until(() => {
+            try { return fs.readFileSync(transcriptOf({ id: newId }), 'utf8').includes(JSON.stringify(first).slice(1, -1)); } catch (_) { return false; }
+          }, 30000, 500) : false;
+          check(/^Opened: /.test(opened) && !!started, 'the steward opens a new conversation in this window\'s folder, which sends the first message', { opened });
+          if (newId) {
+            const managed = await until(() => {
+              try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(newId); } catch (_) { return false; }
+            }, 10000, 300);
+            let closed = '';
+            for (let i = 0; i < 15 && !/^Closed: /.test(closed); i++) {
+              closed = await act(['--close', newId]);
+              if (!/^Closed: /.test(closed)) await new Promise((r) => setTimeout(r, 2000));
+            }
+            check(!!managed && /^Closed: /.test(closed), 'the new conversation is the steward\'s, and the steward closes its tab once it is idle', { managed, closed });
+          }
+          await shot('steward-actions');
         } else note('the conversation ticked first is not one of the test conversations, so passing words on was not looked at');
         await frame.locator('button[data-act="none"]').click();
         const back = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, front.title)), 10000, 300);
@@ -831,8 +880,8 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           const rows = [...document.querySelectorAll('input[data-id]')];
           return rows.length && rows.every((b) => b.checked && b.disabled) ? rows.length : 0;
         }), 10000, 300) : 0;
-        const allTab = await until(async () => (await claudeTabs()).find((x) => x.label === 'Steward of all conversations \u{1F6CE}\uFE0F'), 10000, 300);
-        check(!!every && !!locked && !!allTab, 'the All box in the panel page reaches the extension: rows locked on, tab renamed for all',
+        const allTab = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
+        check(!!every && !!locked && !!allTab, 'the All box in the panel page reaches the extension: rows locked on, the tab keeps its bell',
           { every, locked, tabs: await claudeTabs() });
         await frame.locator('input[data-every]').click();
         await until(() => frame.evaluate(() => [...document.querySelectorAll('input[data-id]')].every((b) => !b.disabled)), 10000, 300);

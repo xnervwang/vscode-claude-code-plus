@@ -265,6 +265,11 @@ function createClaudeSource(deps) {
       } catch (_) { /* focus then comes from the other signals */ }
       if (id && panel.active) say(id);
     },
+    /* The tab showing the conversation, or null when it is in the sidebar or not shown here. */
+    panelFor(sessionId) {
+      for (const [panel, entry] of panels) if (sessionId && entry.sessionId === sessionId) return panel;
+      return null;
+    },
     freshAgents() {
       if (agentsLast.records && Date.now() - agentsAt < AGENTS_FRESH_MS) return Promise.resolve(agentsLast);
       if (!pidsAsk) pidsAsk = deps.listAgents().then((r) => { if (r.records) { agentsLast = r; agentsAt = Date.now(); } return r; })

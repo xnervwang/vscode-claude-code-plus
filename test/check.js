@@ -8636,22 +8636,22 @@ console.log('\nthe Steward panel');
       const auto = listed[0].customTitle, named = listed[2].customTitle;
       const after = sm.marked(entries, {}, marks, 2000);
       const later = sm.marked(entries, {}, marks, 2000 + 11 * 60000);
-      if (auto === 'Steward of 2 conversations ' + sm.BELL && listed[0].summary === 'Claude Code hover box' && listed[1] === entries[1]
+      if (auto === 'Claude Code hover box ' + sm.BELL && listed[0].summary === 'Claude Code hover box' && listed[1] === entries[1]
           && named === 'Night watch ' + sm.BELL && after[0].customTitle === 'Claude Code hover box' && later[0] === entries[0]
           && sm.marked(entries, {}, new Map()) === entries) {
-        ok('in the session list a steward is "Steward of N conversations" and a bell, or keeps the name you gave it with one bell, '
-          + 'and gets its own title back for a while once it manages nothing; others are left alone');
+        ok('in the session list a steward keeps its own title, or the name you gave it, with one bell after it, '
+          + 'and loses the bell for a while once it manages nothing; others are left alone');
       } else bad(`the list showed ${JSON.stringify([auto, named, after[0], later[0]])}`);
       const a = sm.tabTitle('Claude Code hover box', null, '', 2);
       const b = sm.tabTitle(a.title, a.kept, '', 3);
       const c = sm.tabTitle(b.title, b.kept, '', 0);
       const d = sm.tabTitle('Renamed by Claude Code', b.kept, 'Mine', 3);
-      const e = sm.tabTitle('Steward of 2 conversations ' + sm.BELL, null, '', 0, 'Claude Code hover box');
-      if (a.title === 'Steward of 2 conversations ' + sm.BELL && b.title === 'Steward of 3 conversations ' + sm.BELL
+      const e = sm.tabTitle('Claude Code hover box ' + sm.BELL, null, '', 0, 'Claude Code hover box');
+      if (a.title === 'Claude Code hover box ' + sm.BELL && b.title === 'Claude Code hover box ' + sm.BELL
           && c.title === 'Claude Code hover box' && c.kept === null && d.title === 'Mine ' + sm.BELL && d.kept.original === 'Renamed by Claude Code'
           && e.title === 'Claude Code hover box') {
-        ok('a steward\'s tab says so, follows the count, goes back to its own title when nothing is ticked, also when the panel '
-          + 'put the steward\'s title there, and a new title from Claude Code is the one it goes back to');
+        ok('a steward\'s tab keeps its title with a bell after it whatever the count, loses the bell when nothing is ticked, also when '
+          + 'the panel put the steward\'s title there, and a new title from Claude Code is the one it goes back to');
       } else bad(`the tab titles were ${JSON.stringify([a, b, c, d, e])}`);
       const allDir = path.join(root, 'plans-all');
       st.setManaged(S(1), [], {}, { dir: allDir, every: true });
@@ -8661,9 +8661,9 @@ console.log('\nthe Steward panel');
       const whole = sm.marked([{ sessionId: S(1), summary: 'x' }], st.read(allDir), new Map(), 0)[0].customTitle;
       const allTab = sm.tabTitle('x', null, '', sm.size(st.read(allDir)[S(1)]));
       st.setManaged(S(1), [], {}, { dir: allDir, every: false });
-      if (kept && kept.all === true && kept.manages.length === 0 && still === true && whole === 'Steward of all conversations ' + sm.BELL
+      if (kept && kept.all === true && kept.manages.length === 0 && still === true && whole === 'x ' + sm.BELL
           && allTab.title === whole && st.read(allDir)[S(1)] === undefined) {
-        ok('a steward with "all" set stays in the table with nothing open, keeps "all" when its list is rewritten, and is titled "Steward of all conversations"');
+        ok('a steward with "all" set stays in the table with nothing open, keeps "all" when its list is rewritten, and keeps its own title with a bell');
       } else bad(`managing all: ${JSON.stringify([kept, still, whole, allTab, st.read(allDir)])}`);
     }
 
@@ -8821,6 +8821,138 @@ console.log('\nthe Steward panel');
       if (ran.code === 0 && /^Sent: /.test(ran.out) && fs.readdirSync(path.join(sdir, relay.RELAY_DIR)).length === 0) {
         ok('steward-relay.py leaves the message as a request from this steward and prints the answer a window writes back');
       } else bad(`steward-relay.py: ${JSON.stringify(ran)}`);
+    }
+
+    /* A steward's renames, closes and new conversations (src/relay.js, hooks/steward-relay.py). */
+    {
+      const relay = require('../src/relay');
+      const adir = path.join(root, 'relay-actions'), tdir = path.join(root, 'relay-actions-transcripts');
+      fs.mkdirSync(path.join(adir, relay.RELAY_DIR), { recursive: true });
+      fs.mkdirSync(tdir, { recursive: true });
+      const now = Date.now(), iso = (ms) => new Date(ms).toISOString();
+      const transcript = path.join(tdir, S(1) + '.jsonl');
+      const call = (uuid, id, command) => ({ type: 'assistant', uuid, timestamp: iso(now - 30000), isSidechain: false,
+        message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command, description: 'x' } }] } });
+      const py = 'python3 /p/hooks/steward-relay.py';
+      fs.writeFileSync(transcript, [
+        call('b1', 'toolu_rename', `${py} --rename ${S(2)} <<'EOF'\nParser   rewrite\nEOF`),
+        call('b2', 'toolu_close', `${py} --close ${S(3)}`),
+        call('b3', 'toolu_open', `${py} --open /w/proj <<'EOF'\nStart on the parser\nEOF`),
+        call('b4', 'toolu_send', `${py} ${S(2)} <<'EOF'\nuse --close here\nEOF`),
+        call('b5', 'toolu_send2', `${py} ${S(2)} <<'EOF'\nOnly a message\nEOF`),
+      ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const by = (to, text, action, confirmed) => (relay.ranBy(transcript, to, text, now, action, confirmed) || {}).id || null;
+      const calls = [by(S(2), 'Parser   rewrite', 'rename'), by(S(3), '', 'close'), by(S(3), '', 'close', true), by('/w/proj', 'Start on the parser', 'open'),
+        by(S(2), 'use --close here', 'send'), by(S(2), 'Only a message', 'rename'), by(S(3), '', 'send')];
+      if (JSON.stringify(calls) === JSON.stringify(['toolu_rename', 'toolu_close', null, 'toolu_open', 'toolu_send', null, null])) {
+        ok('a rename, close or open request is the steward\'s only when the line that ran the script carries that flag, a confirmed close only with --confirmed, '
+          + 'and a flag inside a message does not make a plain message into one');
+      } else bad(`the steward's action calls read ${JSON.stringify(calls)}`);
+      const acted = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const fs = require('fs'), path = require('path');
+        const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
+        const dir = ${JSON.stringify(adir)}, S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, now = ${now};
+        const R = (n) => 'bbbbbbbb-0000-4000-8000-00000000000' + n;
+        const table = { [S(1)]: { manages: [S(2), S(3)], names: {}, at: 0, all: false } };
+        const put = (id, req) => fs.writeFileSync(path.join(dir, relay.RELAY_DIR, id + '.json'), JSON.stringify(Object.assign({ id, steward: S(1), at: now }, req)));
+        put(R(1), { action: 'rename', to: S(2), text: 'Parser   rewrite' });
+        put(R(2), { action: 'close', to: S(3), text: '' });
+        put(R(3), { action: 'close', to: S(3), text: '', confirmed: true });
+        put(R(4), { action: 'open', to: '/w/proj', text: 'Start on the parser' });
+        put(R(5), { action: 'open', to: '/w/other', text: 'Start on the parser' });
+        put(R(6), { to: S(2), text: 'use --close here' });
+        put(R(7), { action: 'rename', to: S(2), text: 'Only a message' });
+        put(R(8), { action: 'open', steward: S(9), to: '/w/proj', text: 'Start on the parser' });
+        put(R(9), { action: 'delete', to: S(2), text: '' });
+        const did = [];
+        const deps = { shownHere: () => true, hasFolder: (f) => f === '/w/proj', stewards: () => table,
+          transcriptOf: (id) => (id === S(1) || id === S(9) ? ${JSON.stringify(transcript)} : ''), pid: 78, now: () => now, sleep: async () => {},
+          deliver: async (id, text) => { did.push(['send', id, text]); return { outcome: 'submitted' }; },
+          rename: async (id, title) => { did.push(['rename', id, title]); return { outcome: 'submitted' }; },
+          close: async (id, confirmed) => { did.push(['close', id, confirmed]); return { outcome: 'submitted' }; },
+          open: async (folder, text) => { did.push(['open', folder, text]); return { outcome: 'submitted', sessionId: S(7) }; },
+          manage: (steward, id) => did.push(['manage', steward, id]) };
+        (async () => {
+          const results = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, [r.action, r.outcome, r.sessionId || '']]));
+          const left = fs.readdirSync(path.join(dir, relay.RELAY_DIR)).filter((n) => n.endsWith('.json') && !n.startsWith('sent')).sort();
+          process.stdout.write(JSON.stringify({ did, results, left }));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
+      const R = (n) => `bbbbbbbb-0000-4000-8000-00000000000${n}`;
+      const { did, results, left } = acted;
+      const want = [['rename', S(2), 'Parser rewrite'], ['close', S(3), false], ['open', '/w/proj', 'Start on the parser'], ['manage', S(1), S(7)],
+        ['send', S(2), 'use --close here']];
+      if (did && JSON.stringify(did) === JSON.stringify(want) && results[R(3)][1] === 'refused' && results[R(7)][1] === 'refused'
+          && results[R(8)][1] === 'refused' && results[R(9)][1] === 'refused' && results[R(4)][2] === S(7)
+          && left.includes(R(5) + '.json') && !left.includes(R(4) + '.json')) {
+        ok('a window renames, closes and opens for the steward that ran the script so, gives the new conversation\'s id back and adds it to the steward\'s list, '
+          + 'leaves an open for a folder it does not have to another window, and refuses a close not confirmed in the command, a title the steward did not send, '
+          + 'an open from a conversation that is no steward and an action there is none of');
+      } else bad(`steward actions gave ${JSON.stringify(acted)}`);
+
+      /* The script's new options: the action and confirmation in the request, the new id printed, and the open windows. */
+      const script = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
+      const odir = path.join(root, 'relay-options');
+      fs.mkdirSync(path.join(odir, relay.RELAY_DIR), { recursive: true });
+      fs.mkdirSync(path.join(odir, 'windows'), { recursive: true });
+      fs.writeFileSync(path.join(odir, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a', folders: ['/w/proj', '/w/lib'], sessions: [] }));
+      fs.writeFileSync(path.join(odir, 'windows', '1.json'), JSON.stringify({ pid: 999999999, at: Date.now() - 600000, name: 'gone', folders: ['/w/old'], sessions: [] }));
+      const env = Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: S(1) });
+      const listed = cp.spawnSync('python3', [script, '--windows', odir], { encoding: 'utf8', env });
+      const relative = cp.spawnSync('python3', [script, '--open', 'w/proj', odir], { encoding: 'utf8', env, input: 'x' });
+      const answer = (args, input) => cp.spawnSync(process.execPath, ['-e', `
+        const fs = require('fs'), path = require('path'), cp = require('child_process');
+        const dir = path.join(${JSON.stringify(odir)}, 'relay');
+        const kid = cp.spawn('python3', [${JSON.stringify(script)}, ...${JSON.stringify(args)}, ${JSON.stringify(odir)}], { env: ${JSON.stringify(env)} });
+        let out = '', req = null;
+        kid.stdout.on('data', (d) => { out += d; });
+        kid.stdin.end(${JSON.stringify(input)});
+        const t = setInterval(() => {
+          for (const n of fs.readdirSync(dir)) {
+            const m = /^([0-9a-f-]{36})\\.json$/.exec(n);
+            if (!m) continue;
+            req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
+            fs.unlinkSync(path.join(dir, n));
+            fs.writeFileSync(path.join(dir, m[1] + '.result.json'), JSON.stringify(req.action === 'open' ? { outcome: 'submitted', sessionId: ${JSON.stringify(S(7))} }
+              : req.confirmed ? { outcome: 'submitted' } : { outcome: 'refused', reason: 'busy: it is working' }));
+          }
+        }, 100);
+        kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, req })); });`], { encoding: 'utf8', timeout: 60000 });
+      const parse = (r) => { try { return JSON.parse(r.stdout); } catch (_) { return { error: r.stdout + r.stderr }; } };
+      const busy = parse(answer(['--close', S(3)], ''));
+      const sure = parse(answer(['--close', '--confirmed', S(3)], ''));
+      const opened = parse(answer(['--open', '/w/proj'], 'Start on the parser\n'));
+      if (listed.status === 0 && listed.stdout.trim() === 'proj-a: /w/proj, /w/lib' && relative.status === 2
+          && busy.code === 1 && /busy: it is working/.test(busy.out) && busy.req && busy.req.action === 'close' && busy.req.text === '' && !busy.req.confirmed
+          && sure.code === 0 && /^Closed: /.test(sure.out) && sure.req && sure.req.confirmed === true
+          && opened.code === 0 && opened.out.includes('Session id: ' + S(7)) && opened.req && opened.req.action === 'open' && opened.req.to === '/w/proj'
+          && opened.req.text === 'Start on the parser') {
+        ok('steward-relay.py lists the open windows and their folders, asks for a close, confirmed or not, and an open of a folder given in full, and prints the new conversation\'s id');
+      } else bad(`steward-relay.py options: ${JSON.stringify({ listed: [listed.status, listed.stdout], relative: relative.status, busy, sure, opened })}`);
+
+      /* The new tab's side (src/page/91-answer.js): only a panel with no conversation yet whose input holds exactly the
+         text sends it, once, and answers with the id its conversation then gets. */
+      const page = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const vm = require('vm'), fs = require('fs');
+        const read = (f) => fs.readFileSync(${JSON.stringify(path.join(__dirname, '..', 'src', 'page'))} + '/' + f, 'utf8');
+        const make = (text, sid) => {
+          const posted = [], session = { sessionId: { value: sid } };
+          const box = { textContent: text, focus() {}, dispatchEvent(e) { if (e.key === 'Enter') { this.textContent = ''; setTimeout(() => { session.sessionId.value = 'NEW-ID'; }, 300); } return true; } };
+          const ctx = { out: {}, window: { addEventListener() {}, KeyboardEvent: function(t, o) { Object.assign(this, o); }, getSelection: () => ({ removeAllRanges() {}, addRange() {} }) },
+            document: { querySelector: () => box, createRange: () => ({ selectNodeContents() {}, collapse() {} }), execCommand() {} },
+            setTimeout, sessionRef: session, acquireVsCodeApi: () => ({ postMessage: (m) => posted.push(m) }) };
+          new vm.Script('(function(){var sigValue = function(n){ var s = sessionRef && sessionRef[n]; return s ? s.value : undefined; };'
+            + read('91-answer.js') + '\\n;out.submitNew = submitNew;})()').runInNewContext(ctx);
+          return { submit: ctx.out.submitNew, posted, box };
+        };
+        const fresh = make('Start on the parser', undefined), other = make('Start on the parser', 'OLD-ID'), draft = make('something else', undefined);
+        for (const p of [fresh, other, draft]) { p.submit({ type: 'cce_submit', id: 'o1', text: 'Start on the parser' }); }
+        setTimeout(() => fresh.submit({ type: 'cce_submit', id: 'o1', text: 'Start on the parser' }), 100);
+        setTimeout(() => process.stdout.write(JSON.stringify({ fresh: fresh.posted, other: other.posted, draft: draft.posted, left: [other.box.textContent, draft.box.textContent] })), 1500);`],
+        { encoding: 'utf8', timeout: 30000 }));
+      if (JSON.stringify(page.fresh) === JSON.stringify([{ type: 'cce_submit_result', id: 'o1', sent: true, reason: '', sessionId: 'NEW-ID' }])
+          && page.other.length === 0 && page.draft.length === 0 && JSON.stringify(page.left) === JSON.stringify(['Start on the parser', 'something else'])) {
+        ok('a new tab sends the steward\'s first message once and answers with its conversation\'s id; a panel with a conversation, or other text in its input, does nothing');
+      } else bad(`a new tab's first message: ${JSON.stringify(page)}`);
     }
 
     /* What a steward's notices add (src/steward-watch.js): what a waiting conversation waits on, background work that

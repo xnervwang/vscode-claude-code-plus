@@ -116,6 +116,9 @@ const EDITS = [
       + `globalThis.__cceDeleteHook&&globalThis.__cceDeleteHook(${msg}.sessions)}`
       + `else if(${msg}&&${msg}.type==="cce_answer_result"&&typeof ${msg}.id==="string"){`
       + `globalThis.__cceAnswerHook&&globalThis.__cceAnswerHook(${msg}.id,${msg}.sent===true,typeof ${msg}.reason==="string"?${msg}.reason:"")}`
+      + `else if(${msg}&&${msg}.type==="cce_submit_result"&&typeof ${msg}.id==="string"){`
+      + `globalThis.__cceSubmitHook&&globalThis.__cceSubmitHook(${msg}.id,${msg}.sent===true,typeof ${msg}.reason==="string"?${msg}.reason:"",`
+      + `typeof ${msg}.sessionId==="string"?${msg}.sessionId:"")}`
       + `else if(${msg}&&${msg}.type==="cce_process_ask"&&typeof ${msg}.sessionId==="string"){`
       + `globalThis.__cceProcessHook&&globalThis.__cceProcessHook(${msg}.sessionId)}`
       + `else if(${msg}&&${msg}.type==="cce_page_focus"&&typeof ${msg}.sessionId==="string"){`
@@ -153,7 +156,9 @@ const EDITS = [
    * panel that the conversations on disk changed, which makes the session list read them again, used after a delete.
    * And a way to hand an answer to the panel showing a conversation, in a tab or in the sidebar (deliverAnswer in src/claude-source.js): asked
    * without text, it only says whether this window has such a panel. The same lookup sends the info box its process id
-   * (__cceToPanel). And a way to have every tab pick its icon again (__cceRefreshTabIcons).
+   * (__cceToPanel). And a way to have every tab pick its icon again (__cceRefreshTabIcons). For a steward
+   * (src/relay.js): renaming a conversation through the panel showing it, which tells its CLI too (__cceRename), and a
+   * message to every panel of this window (__cceToAllPanels), which a new tab with no conversation yet can answer.
    */
   {
     name: 'tab record at start',
@@ -173,6 +178,10 @@ const EDITS = [
       + 'globalThis.__cceToPanel=(cceId,cceMsg)=>{let cceP=this.sessionPanels.get(cceId),cceC=cceP?this.panelComms.get(cceP):void 0;'
       + 'if(!cceC&&this.sidebarComms&&this.sidebarChatShows?.()===cceId)cceC=this.sidebarComms;'
       + 'if(!cceC)return!1;cceC.send(cceMsg);return!0},'
+      + 'globalThis.__cceRename=(cceId,cceTitle)=>{let cceP=this.sessionPanels.get(cceId),cceC=cceP?this.panelComms.get(cceP):void 0;'
+      + 'if(!cceC&&this.sidebarComms&&this.sidebarChatShows?.()===cceId)cceC=this.sidebarComms;'
+      + 'if(!cceC||typeof cceC.renameSession!=="function")return null;return cceC.renameSession(cceId,cceTitle)},'
+      + 'globalThis.__cceToAllPanels=(cceMsg)=>{let cceN=0;for(let cceC of this.allComms)try{cceC.send(cceMsg),cceN++}catch(e){}return cceN},'
       + 'this.reconcileRememberedTabSessions()',
   },
   /*
