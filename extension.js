@@ -31,7 +31,7 @@ const stewardMarks = require('./src/steward-marks');
 const stewards = require('./src/stewards');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
-const { transcriptOf, claudeDir } = require('./src/claude-files');
+const { transcriptOf, claudeDir, writeAtomic } = require('./src/claude-files');
 const planInjections = require('./src/plan-injections');
 const tokenMode = require('./src/token-mode');
 const waiting = require('./src/waiting');
@@ -1108,6 +1108,19 @@ function start(context, log, renamed, handing = false) {
       if (JSON.stringify(dupsList(dupGroups)) !== was) writeLiveNow();
     } catch (e) { log.appendLine('conversations run twice: ' + ((e && e.message) || e)); }
   };
+  /* The steward hook (hooks/steward.py) cannot ask the editor, so the set is written to a file for it. Every window
+     finds the same set, so a window writes the file only when it holds a different set or its writer has exited. */
+  const WORKING_FILE = 'working.json';
+  const shareWorking = (set) => {
+    const file = path.join(planDir(), WORKING_FILE), ids = [...set].sort();
+    let d = null;
+    try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { /* none yet, or caught mid-write */ }
+    const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } };
+    if (d && Number.isInteger(d.pid) && alive(d.pid) && Array.isArray(d.sessions)
+        && JSON.stringify(d.sessions) === JSON.stringify(ids)) return;
+    try { writeAtomic(file, JSON.stringify({ at: Date.now(), pid: process.pid, sessions: ids }) + '\n'); }
+    catch (_) { /* the next scan */ }
+  };
   /* Each change of the set is logged, and a scan that takes long, so that a dot missing from a tab can be put down
      either to the scan or to the drawing. */
   const readBgWorking = async () => {
@@ -1120,6 +1133,7 @@ function start(context, log, renamed, handing = false) {
       readDuplicates();
     } finally { bgReading = false; }
     if (Date.now() - began > SLOW_SCAN_MS) log.appendLine(`work running: a scan took ${Math.round((Date.now() - began) / 1000)} s`);
+    if (!replaced() && !uninstalling() && !removed()) shareWorking(next);
     if (next.size === bgWorking.size && [...next].every((id) => bgWorking.has(id))) return;
     log.appendLine('work running: ' + ([...next].map((id) => id.slice(0, 8)).join(', ') || 'none'));
     bgWorking = next;

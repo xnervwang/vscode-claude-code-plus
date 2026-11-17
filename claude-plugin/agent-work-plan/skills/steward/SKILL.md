@@ -48,6 +48,21 @@ To pass something on:
    the script says it was not sent, say why in the same line; do not send it another way.
 4. Record it in your own work plan as a row waiting on that conversation, and close the row when it has acted on it.
 
+When the user has a message for several or all conversations, check the list at the start of this turn first. Pass the
+message only to conversations that still have work. A conversation has work if:
+
+- Its work plan has a real row in progress. A standing rule, such as "from now on, tell X when ...", does not count.
+- It is working or running a command.
+- The list says it has background work running.
+
+Leave out conversations that are idle with no work, have only questions waiting for the user, or have nothing to do.
+Each message makes a conversation run a whole turn and read its whole context again. One night, "I'm going to bed"
+went to 16 conversations, and 12 had no work.
+
+Apply the same rule to a message about a reload or restart, such as "the windows were reloaded, check your task
+status". Use your earlier lists to find which conversations had work in progress or background work before it
+happened. In the line saying what you sent and to whom, also say how many conversations you left out.
+
 Pass things on this way whenever you want a conversation to do something, and whenever the message carries an
 approval. To find out how a conversation is doing, read it with steward-peek.py first (below). If that does not answer
 your question, ask the conversation with `SendMessage`, and say in the question that it should put the answer in its

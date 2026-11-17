@@ -9237,6 +9237,23 @@ console.log('\nthe Steward panel');
     if (c3.startsWith(`A steward conversation (${S(1)}) watches this one`) && c3.includes('Do not send it status messages') && managed.status === 0) {
       ok('a managed conversation hears which steward watches it and is asked to leave questions in its plan, not message the steward');
     } else bad(`a managed conversation was told ${JSON.stringify(c3)}`);
+    /* Background work comes from the set the windows share, while the window that wrote it runs. */
+    const working = (pid) => fs.writeFileSync(path.join(data, 'working.json'), JSON.stringify({ at: Date.now(), pid, sessions: [S(2)] }));
+    working(process.pid);
+    const c7 = ctx(hook(S(1)));
+    const gone = cp.spawnSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8' }).stdout.trim();
+    working(Number(gone));
+    const c8 = ctx(hook(S(1)));
+    fs.rmSync(path.join(data, 'working.json'), { force: true });
+    if (c7.includes(`- "Two" (${S(2)}): idle; background work running; doing: Port the reader`)
+        && c8.includes(`- "Two" (${S(2)}): idle; doing: Port the reader`) && !c8.includes('background work')) {
+      ok('a conversation with background work running says so in the list, and not once the window that wrote the set is gone');
+    } else bad(`with background work the list said ${JSON.stringify([c7, c8])}`);
+    const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    if (/const WORKING_FILE = 'working\.json';/.test(ext) && /WORKING_FILE = "working\.json"/.test(fs.readFileSync(path.join(hooks, 'steward.py'), 'utf8'))
+        && /if \(!replaced\(\) && !uninstalling\(\) && !removed\(\)\) shareWorking\(next\);/.test(ext)) {
+      ok('every scan of the windows shares that set under the name the hook reads');
+    } else bad('extension.js does not share the background-work set where steward.py reads it');
     fs.mkdirSync(path.join(conf, 'projects', '-w'), { recursive: true });
     const rows = [
       { type: 'user', message: { content: 'earlier question' } },

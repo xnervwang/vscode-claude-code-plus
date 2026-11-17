@@ -10,8 +10,9 @@ Claude Code Plus's Steward panel keeps who manages whom in stewards.json in this
 (src/stewards.js in the extension).
 
 Each managed conversation gets one line: its state from Claude Code's session records, what its plan has in progress,
-and how many questions it has for the user. Then what changed since the steward's previous turn, kept in
-<steward>.steward-seen beside its plan.
+whether it has background work running, and how many questions it has for the user. Background work is what Claude Code
+Plus's windows last found (WORKING_FILE, written by extension.js), used only while the window that wrote it still
+runs. Then what changed since the steward's previous turn, kept in <steward>.steward-seen beside its plan.
 
 If nothing in the list changed since the steward's previous turn, it gets one sentence saying so: the list is already
 in its context, and a steward wakes many times with nothing new. After each compaction the whole list is sent again
@@ -36,6 +37,7 @@ MAX_DOING = 2
 TITLE_CHARS = 80
 STATE_WORDS = {"busy": "working", "shell": "running a command", "waiting": "waiting for the user", "idle": "idle"}
 STOPPED = "not running"
+WORKING_FILE = "working.json"
 
 
 def claude_dir():
@@ -79,6 +81,19 @@ def states():
         if out.get(sid) in (None, "idle"):
             out[sid] = word
     return out
+
+
+def background(directory):
+    """Session ids with background work running, from the set a Claude Code Plus window wrote; empty when no running
+    window wrote one."""
+    try:
+        with open(os.path.join(directory, WORKING_FILE), encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return set()
+    if not isinstance(d, dict) or not isinstance(d.get("pid"), int) or not alive(d["pid"]):
+        return set()
+    return {s.lower() for s in listed(d.get("sessions")) if isinstance(s, str) and SESSION_NAME.match(s)}
 
 
 def plan_summary(directory, sid):
@@ -142,10 +157,13 @@ def watched(stewards):
 
 def lines_of(ids, names, now, directory):
     lines = []
+    running = background(directory)
     for m in ids:
         name = str(names.get(m) or m)[:TITLE_CHARS]
         doing, questions = plan_summary(directory, m)
         parts = [now.get(m, STOPPED)]
+        if m in running:
+            parts.append("background work running")
         if doing:
             parts.append("doing: " + " / ".join(doing))
         if questions:
