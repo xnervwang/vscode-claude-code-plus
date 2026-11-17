@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from plan_common import OPEN_STATES, SESSION_NAME, children, listed, open_tail  # noqa: E402
 import plan_agent as A  # noqa: E402
+from proc_alive import alive  # noqa: E402
 
 TAIL_BYTES = 4 * 1024 * 1024
 MAX_REPLY_CHARS = 6000
@@ -41,13 +42,8 @@ def state_of(sid):
         except (OSError, ValueError):
             continue
         if isinstance(rec, dict) and str(rec.get("sessionId") or "").lower() == sid and isinstance(rec.get("pid"), int):
-            if os.name != "nt":
-                try:
-                    os.kill(rec["pid"], 0)
-                except PermissionError:
-                    pass
-                except OSError:
-                    continue
+            if not alive(rec["pid"]):
+                continue
             found.append(STATE_WORDS.get(rec.get("status"), "running"))
     if not found:
         return "not running"

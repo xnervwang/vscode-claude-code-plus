@@ -4524,6 +4524,14 @@ console.log('\none copy of what the hooks share');
   }
   if (!found.length) ok(`none of the ${scripts.length} other scripts keeps its own copy of what plan_path.py shares`);
   else bad(`copies outside plan_path.py: ${found.join('; ')}`);
+  /* On Windows os.kill(pid, 0) sends a Ctrl+C rather than checking, so only proc_alive.py may call it. */
+  const kills = scripts.filter((f) => f !== 'proc_alive.py' && /os\.kill\(/.test(fs.readFileSync(path.join(hooks, f), 'utf8')));
+  const probe = cp.spawnSync('python3', ['-c', 'import sys, subprocess; sys.path.insert(0, sys.argv[1]); import proc_alive as p; '
+    + 'd = subprocess.Popen([sys.executable, "-c", "pass"]); d.wait(); '
+    + 'print([p.alive(__import__("os").getpid()), p.alive(d.pid), p.alive(None), p.alive(True), p.alive(0)])', hooks], { encoding: 'utf8' });
+  if (!kills.length && probe.stdout.trim() === '[True, False, False, False, False]') {
+    ok('only proc_alive.py checks a process with os.kill, and it tells a running process from one that has exited');
+  } else bad(`os.kill outside proc_alive.py: ${JSON.stringify(kills)}; the check said ${JSON.stringify(probe.stdout + probe.stderr)}`);
 }
 
 /* ── 21. an uninstall puts Claude Code back at once ──

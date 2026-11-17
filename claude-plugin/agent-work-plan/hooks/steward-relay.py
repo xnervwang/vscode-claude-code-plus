@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from plan_path import SESSION_NAME, write_atomic  # noqa: E402
 import plan_agent as A  # noqa: E402
+from proc_alive import alive  # noqa: E402
 
 RELAY_DIR = "relay"
 # Claude Code Plus stops taking a request after 60 seconds; the answer panel waits up to 15 seconds for a send.
@@ -63,16 +64,6 @@ DONE = {
     "--close": "Closed: the conversation's tab was closed; it is not deleted and can be opened again from the session list.",
     "--open": "Opened: a new conversation was started and its first message sent.",
 }
-
-
-def alive(pid):
-    try:
-        os.kill(pid, 0)
-        return True
-    except PermissionError:
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
 
 
 def windows(directory):

@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from plan_common import (  # noqa: E402
     COMPACTED_SUFFIX, SESSION_NAME, children, data_dir, listed, read_payload, side_file, write_quietly,
 )
+from proc_alive import alive  # noqa: E402
 
 STEWARDS_FILE = "stewards.json"
 SEEN_SUFFIX = ".steward-seen"
@@ -42,20 +43,6 @@ WORKING_FILE = "working.json"
 
 def claude_dir():
     return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
-
-
-def alive(pid):
-    """Whether pid is a live process. On Windows os.kill(pid, 0) terminates the process, so there this returns True
-    without checking."""
-    if os.name == "nt":
-        return True
-    try:
-        os.kill(pid, 0)
-        return True
-    except PermissionError:
-        return True
-    except OSError:
-        return False
 
 
 def states():
