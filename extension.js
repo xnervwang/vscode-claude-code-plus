@@ -547,17 +547,15 @@ function start(context, log, renamed, handing = false) {
       await context.globalState.update(REMOVED_KEY, true);
       await sync({ interactive: true });
     }),
-    registerCommand('status', () => {
+    registerCommand('status', async () => {
       const lines = [];
       for (const adapter of ADAPTERS) for (const d of installs(adapter, true)) lines.push(`${adapter.name} ${path.basename(d)}: ${adapter.status(d)}`);
-      // Not awaited: a message with a button stays until it is answered, and the command returns at once.
-      vscode.window.showInformationMessage('Claude Code Plus — ' + (lines.join(' | ') || 'Claude Code is not installed')
-        + (removed() ? ' (removed)' : '') + ' | ' + tokenModeLine(), FULL_LIST).then((pick) => {
-        if (pick !== FULL_LIST) return;
-        log.appendLine('');
-        for (const line of footprintLines()) log.appendLine(line);
-        log.show(true);
-      }, () => {});
+      const pick = await vscode.window.showInformationMessage('Claude Code Plus — ' + (lines.join(' | ') || 'Claude Code is not installed')
+        + (removed() ? ' (removed)' : '') + ' | ' + tokenModeLine(), FULL_LIST);
+      if (pick !== FULL_LIST) return;
+      log.appendLine('');
+      for (const line of footprintLines()) log.appendLine(line);
+      log.show(true);
     }),
     /* Every setting this extension has, in the editor's own settings UI: search, per-workspace values, sync and a JSON
        view come with it, and none of it is ours to maintain. */
