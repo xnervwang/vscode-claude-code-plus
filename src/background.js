@@ -451,9 +451,50 @@ function noteWorkers(launchedBy, dir) {
 }
 
 /*
+ * The background work a conversation's Stop and SubagentStop hooks last reported
+ * (claude-plugin/agent-work-plan/hooks/record-background.py): background commands, subagents, monitors and workflows,
+ * on every platform, from Claude Code 2.1.326. It counts only while the claude process that wrote it runs, since that
+ * work lives in the process: a live record must name the conversation and have started before the file was written,
+ * and must have the file's pid when the file has one. Timers in the file are not counted; they wake the conversation
+ * later and run nothing until then.
+ */
+const TASKS_SUFFIX = '.tasks';
+const TASKS_FILE = /^[0-9a-f][0-9a-f-]{7,}\.tasks$/i;
+/* The record's start time and the file's are stamped by different processes. */
+const STARTED_SLACK_MS = 5000;
+const taskFiles = new Map();
+function readTasks(file) {
+  let st;
+  try { st = fs.statSync(file); } catch (_) { taskFiles.delete(file); return null; }
+  const was = taskFiles.get(file);
+  if (was && was.mtimeMs === st.mtimeMs && was.size === st.size) return was.d;
+  let d = null;
+  try { d = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return was ? was.d : null; }
+  if (!d || typeof d !== 'object' || !Array.isArray(d.tasks)) d = null;
+  taskFiles.set(file, { mtimeMs: st.mtimeMs, size: st.size, d });
+  return d;
+}
+function hookWork(dir, records) {
+  const out = new Set();
+  let names;
+  try { names = planNames.names(dir).filter((n) => TASKS_FILE.test(n)); } catch (_) { return out; }
+  for (const n of names) {
+    const d = readTasks(path.join(dir, n));
+    if (!d || !d.tasks.length || typeof d.at !== 'number') continue;
+    const session = n.slice(0, -TASKS_SUFFIX.length).toLowerCase();
+    const writer = records.some((r) => typeof r.sessionId === 'string' && r.sessionId.toLowerCase() === session
+      && (!Number.isInteger(d.pid) || r.pid === d.pid)
+      && !(typeof r.startedAt === 'number' && r.startedAt > d.at + STARTED_SLACK_MS));
+    if (writer) out.add(session);
+  }
+  return out;
+}
+
+/*
  * Session ids of the conversations with work running: a busy `claude --bg` session it started, a `claude -p` worker it
- * started, or a command it left running. While the conversation's process runs, a worker is tied to it
- * by CLAUDE_PID in the worker's environment; after that, by the link file and the workers its transcript names.
+ * started, a command it left running, or work its hooks reported (hookWork). While the conversation's process runs, a
+ * worker is tied to it by CLAUDE_PID in the worker's environment; after that, by the link file and the workers its
+ * transcript names.
  *
  * `shells` and `launchers` are what src/detached.js found. `write` false leaves the link files alone, for a window
  * that must not write shared files.
@@ -466,7 +507,7 @@ function working(opts = {}) {
   const busy = opts.busy || busyOf(records, shells);
   if (opts.write !== false && launchedBy.size) noteWorkers(launchedBy, dir);
   const live = new Set(records.filter((d) => isWorker(d) && d.status !== 'idle').map((d) => d.sessionId.toLowerCase()));
-  const out = new Set(shells);
+  const out = new Set([...shells, ...hookWork(dir, records)]);
   for (const [w, l] of launchedBy) if (live.has(w)) out.add(l);
   let names;
   try { names = planNames.names(dir).filter((n) => LINK_FILE.test(n)); } catch (_) { return out; }
@@ -515,6 +556,6 @@ async function workingNow(opts = {}) {
 }
 
 module.exports = {
-  scan, collect, readState, readLink, busyJobs, liveRecords, working, workingNow,
-  SUFFIX, LINK_FILE, MAX_SESSIONS, MAX_PER_SESSION, MAX_ENTRIES, PERSIST_EVERY, SNAPSHOT_FILE, SHARE_MS,
+  scan, collect, readState, readLink, busyJobs, liveRecords, working, workingNow, hookWork,
+  SUFFIX, TASKS_SUFFIX, LINK_FILE, MAX_SESSIONS, MAX_PER_SESSION, MAX_ENTRIES, PERSIST_EVERY, SNAPSHOT_FILE, SHARE_MS,
 };

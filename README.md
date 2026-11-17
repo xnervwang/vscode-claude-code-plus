@@ -137,7 +137,7 @@ Deleting an archived conversation removes its transcripts, sub-agent conversatio
 
 #### Work that keeps a dot green
 
-Work a conversation has running counts as working too, after its turn has ended: a `claude --bg` session or `claude -p` worker it started, a command it put in the background, or a shell it detached with `setsid` or `nohup` (read from /proc, so on Linux). A background command is the conversation's own process, so reloading the window ends it, and the dot goes gray.
+After a conversation's turn ends, work it still has running keeps the dot green. This includes a `claude --bg` session or `claude -p` worker it started, background commands, subagents, monitors and workflows, and shells detached with `setsid` or `nohup`. Detached shells are found through /proc, so they count only on Linux. With Claude Code 2.1.326 or later, Claude Code tells the work plan plugin what is running in the background at the end of each turn. When the plugin is loaded, background commands, subagents, monitors and workflows count on every platform. The plugin is not loaded in Interface features token mode. With Claude Code before 2.1.326 or when the plugin is not loaded, background commands count only on Linux, where they are found through /proc. In those cases, subagents, monitors and workflows do not count. Background commands, subagents, monitors and workflows run in the conversation's own process. Reloading the window ends them, and the dot goes gray.
 
 ### Background work
 

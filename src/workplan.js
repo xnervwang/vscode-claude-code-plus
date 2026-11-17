@@ -57,6 +57,7 @@ const { readBounded } = require('./bounded');
  *   .nudged      the Stop hook has reminded the conversation to reconcile its plan, so it does not say it again
  *   .settled     which `doing` rows the Stop hook last asked to move on, so it does not ask about them again
  *   .background  which detached sessions the conversation started (src/background.js)
+ *   .tasks       the background work its Stop and SubagentStop hooks last reported (hooks/record-background.py)
  *   .turn        which turn the conversation is in and how far it has got, left by the injection hook
  *   .watermark   which context marks have asked it to bring the plan up to date before a compaction
  *   .tz          what the time-zone hook last told it
@@ -68,8 +69,9 @@ const { readBounded } = require('./bounded');
  *
  * The row command also moves rows closed for a day to closed/<session id>.json (CLOSED_DIR), deleted with the rest.
  */
-const SIDE_SUFFIXES = ['.json', '.offered', '.nudged', '.settled', require('./background').SUFFIX, '.turn', '.watermark', '.tz',
-  '.compacted', '.briefed', '.injected', require('./efforts').SUFFIX, '.steward-seen'];
+const SIDE_SUFFIXES = ['.json', '.offered', '.nudged', '.settled', require('./background').SUFFIX,
+  require('./background').TASKS_SUFFIX, '.turn', '.watermark', '.tz', '.compacted', '.briefed', '.injected',
+  require('./efforts').SUFFIX, '.steward-seen'];
 const CLOSED_DIR = 'closed';
 const SIDE_FILE = new RegExp('^[0-9a-f][0-9a-f-]{7,}(?:' + SIDE_SUFFIXES.map((s) => s.replace('.', '\\.')).join('|') + ')$', 'i');
 const PLAN_FILE = /^[0-9a-f][0-9a-f-]{7,}\.json$/i;

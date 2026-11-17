@@ -8130,6 +8130,60 @@ console.log('\nconversations whose background sessions are busy');
       ok('busy bg sessions are found and mapped to the conversation that started them');
     } else bad(`busy ${JSON.stringify([...busy])}, conversations ${JSON.stringify([...conv])}`);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  /* Work a conversation's Stop and SubagentStop hooks reported (hooks/record-background.py), which counts while the
+     process that wrote it runs. */
+  const rootHooks = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-hookwork-'));
+  try {
+    const plans = path.join(rootHooks, 'plans');
+    fs.mkdirSync(plans);
+    const S = 'eeeeeeee-0000-4000-8000-000000000001';
+    const script = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'record-background.py');
+    const env = Object.assign({}, process.env);
+    delete env.CLAUDE_PID;
+    const hook = (input, pid) => cp.spawnSync('python3', [script, plans], { encoding: 'utf8',
+      input: typeof input === 'string' ? input : JSON.stringify(input), env: pid ? Object.assign({}, env, { CLAUDE_PID: pid }) : env });
+    const file = path.join(plans, S + bgr.TASKS_SUFFIX);
+    const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return null; } };
+    const stop = (o) => Object.assign({ session_id: S, hook_event_name: 'Stop', stop_hook_active: false }, o);
+    const r1 = hook(stop({ background_tasks: [{ id: 'b1', type: 'subagent', status: 'running', description: 'look into it',
+      agent_type: 'Explore' }], session_crons: [] }), '4242');
+    const d = read();
+    if (r1.status === 0 && r1.stdout === '' && d && d.pid === 4242 && typeof d.at === 'number' && d.event === 'Stop'
+        && d.tasks.length === 1 && d.tasks[0].type === 'subagent' && d.tasks[0].agent_type === 'Explore') {
+      ok('the Stop hook writes what is in flight, with the time and the claude pid, and prints nothing');
+    } else bad(`the hook exited ${r1.status}, printed ${JSON.stringify(r1.stdout)}, and wrote ${JSON.stringify(d)}`);
+    const at = d ? d.at : 0;
+    const rec = (o) => Object.assign({ pid: 4242, sessionId: S, startedAt: at - 60000, kind: 'interactive', status: 'idle' }, o);
+    const run = (records) => [...bgr.working({ dir: plans, records, write: false })];
+    const none = [run([]), run([rec({ pid: 99 })]), run([rec({ startedAt: at + 60000 })]),
+      run([rec({ sessionId: 'eeeeeeee-0000-4000-8000-000000000002' })])];
+    if (JSON.stringify(run([rec()])) === JSON.stringify([S]) && none.every((r) => !r.length)) {
+      ok('it counts while that process runs, and not once it has exited, its pid is another process\'s, or a new process took the conversation');
+    } else bad(`counted ${JSON.stringify(run([rec()]))}; with no writer ${JSON.stringify(none)}`);
+    hook(stop({ background_tasks: [{ id: 'b2', type: 'shell', status: 'running', description: 'build' }] }));
+    if (read() && read().pid === null && JSON.stringify(run([rec({ pid: 7 })])) === JSON.stringify([S])) {
+      ok('a hook given no CLAUDE_PID is tied to the conversation\'s process by start time alone');
+    } else bad(`without CLAUDE_PID the hook wrote ${JSON.stringify(read())}`);
+    hook(stop({ hook_event_name: 'SubagentStop', background_tasks: [],
+      session_crons: [{ id: 'c1', schedule: '*/5 * * * *', recurring: true, prompt: 'check on it' }] }), '4242');
+    const c = read();
+    if (c && !c.tasks.length && c.crons.length === 1 && c.crons[0].recurring === true && !run([rec()]).length) {
+      ok('a timer alone is kept in the file but is not work running');
+    } else bad(`with only a timer: ${JSON.stringify(c)}, counted ${JSON.stringify(run([rec()]))}`);
+    const r3 = hook(stop({ background_tasks: [], session_crons: [] }), '4242');
+    const gone = !fs.existsSync(file);
+    const r4 = hook(stop({}), '4242');
+    const r5 = hook('not json', '4242');
+    if (r3.status === 0 && gone && r4.status === 0 && !fs.existsSync(file)
+        && r5.status === 0 && r5.stdout === '' && r5.stderr === '') {
+      ok('with nothing in flight the file goes, a build without the fields leaves none, and bad input is ignored quietly');
+    } else bad(`nothing in flight: exit ${r3.status}, file gone ${gone}; no fields: exit ${r4.status}; bad input: exit ${r5.status} ${r5.stderr}`);
+    const registered = JSON.parse(fs.readFileSync(path.join(path.dirname(script), 'hooks.json'), 'utf8')).hooks;
+    const runs = (event) => (registered[event] || []).some((g) => (g.hooks || []).some((h) => /record-background\.py/.test(h.command || '')));
+    if (runs('Stop') && runs('SubagentStop') && require('../src/workplan').SIDE_SUFFIXES.includes(bgr.TASKS_SUFFIX)) {
+      ok('hooks.json runs it on Stop and SubagentStop, and deleting a conversation deletes its file');
+    } else bad('record-background.py is not registered on Stop and SubagentStop, or its file is not a work plan side file');
+  } finally { fs.rmSync(rootHooks, { recursive: true, force: true }); }
   /* `claude -p` workers: named by the launching conversation's transcript, or tied to it by the worker's CLAUDE_PID while
      that conversation's process runs, and written to its link file so that the tie outlasts a window reload. */
   const root2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-workers-'));
