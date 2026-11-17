@@ -31,7 +31,7 @@ const stewardMarks = require('./src/steward-marks');
 const stewards = require('./src/stewards');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
-const { transcriptOf, claudeDir, writeAtomic } = require('./src/claude-files');
+const { transcriptOf, writeAtomic } = require('./src/claude-files');
 const planInjections = require('./src/plan-injections');
 const tokenMode = require('./src/token-mode');
 const waiting = require('./src/waiting');
@@ -56,7 +56,6 @@ const ADAPTERS = require('./src/adapters');
 const removal = require('./src/removal');
 const buildDigest = require('./src/build-digest');
 const carryover = require('./src/carryover');
-const footprint = require('./src/footprint');
 const PACKAGE = require('./package.json');
 
 /* <publisher>.<name>, which is also how the editor names this extension's folders. Read from the manifest rather than
@@ -517,28 +516,6 @@ function start(context, log, renamed, handing = false) {
     if (unremoving) await sync({ interactive: true });
   };
 
-  /* The button on Show Status, and what it writes to the output channel (src/footprint.js). */
-  const FULL_LIST = 'Show Everything It Changed';
-  const footprintLines = () => {
-    const dirs = new Set();
-    for (const adapter of ADAPTERS) for (const d of installs(adapter, true)) dirs.add(d);
-    let location = '';
-    try {
-      const m = JSON.parse(fs.readFileSync(path.join(claudeDir(), 'plugins', 'known_marketplaces.json'), 'utf8'))[pluginInstall.MARKETPLACE];
-      location = (m && typeof m.installLocation === 'string' && m.installLocation) || '';
-    } catch (_) { /* not registered, or unreadable */ }
-    const titles = {};
-    for (const c of (context.extension.packageJSON.contributes || {}).commands || []) titles[c.command] = c.title;
-    return footprint.lines({
-      installs: [...dirs].map((dir) => ({ dir, files: footprint.installFiles(ADAPTERS, dir) })),
-      plugin: { listed: pluginInstall.listed(), enabled: pluginInstall.enabledIn(), ref: pluginInstall.REF,
-        marketplace: pluginInstall.MARKETPLACE, location,
-        unloadedByMode: fs.existsSync(path.join(planDir(), pluginInstall.UNLOADED_MARKER)) },
-      dataDir: planDir(),
-      pinsMoved: Object.keys(sessionPins.read(pinsFile()).times).length,
-      commands: { remove: titles['claudeCodePlus.remove'], disablePlugin: titles['claudeCodePlus.disableWorkPlanPlugin'] },
-    });
-  };
   context.subscriptions.push(
     registerCommand('enable', () => setEnabled(true)),
     registerCommand('disable', () => setEnabled(false)),
@@ -547,15 +524,11 @@ function start(context, log, renamed, handing = false) {
       await context.globalState.update(REMOVED_KEY, true);
       await sync({ interactive: true });
     }),
-    registerCommand('status', async () => {
+    registerCommand('status', () => {
       const lines = [];
       for (const adapter of ADAPTERS) for (const d of installs(adapter, true)) lines.push(`${adapter.name} ${path.basename(d)}: ${adapter.status(d)}`);
-      const pick = await vscode.window.showInformationMessage('Claude Code Plus — ' + (lines.join(' | ') || 'Claude Code is not installed')
-        + (removed() ? ' (removed)' : '') + ' | ' + tokenModeLine(), FULL_LIST);
-      if (pick !== FULL_LIST) return;
-      log.appendLine('');
-      for (const line of footprintLines()) log.appendLine(line);
-      log.show(true);
+      vscode.window.showInformationMessage('Claude Code Plus — ' + (lines.join(' | ') || 'Claude Code is not installed') + (removed() ? ' (removed)' : '')
+        + ' | ' + tokenModeLine());
     }),
     /* Every setting this extension has, in the editor's own settings UI: search, per-workspace values, sync and a JSON
        view come with it, and none of it is ours to maintain. */

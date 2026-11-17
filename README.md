@@ -262,7 +262,7 @@ Message appearance: `claudeCodePlus.userMessageColor` and `claudeCodePlus.userMe
 | `Claude Code Plus: Turn On` | Show them. |
 | `Claude Code Plus: Turn Off` | Hide them. |
 | `Claude Code Plus: Remove from Claude Code (restore original files)` | Restore Claude Code's files. |
-| `Claude Code Plus: Show Status` | Show patch status and what was patched. Its button lists in the output channel everything Claude Code Plus has changed outside its own folder, and how to undo each. |
+| `Claude Code Plus: Show Status` | Show patch status and what was patched. |
 | `Claude Code Plus: Show How Long Opening a Panel Took` | Show recorded panel-opening times. |
 
 ## Known limits
