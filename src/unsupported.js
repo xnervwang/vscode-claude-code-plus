@@ -4,17 +4,17 @@
 
 'use strict';
 /*
- * The warning for a Claude Code build whose code the patch no longer fits; src/edits.js ends that error with "build is
- * not supported yet". MESSAGE and DETAILS are vscode.l10n.t keys, translated in src/l10n/.
+ * The warning for a Claude Code build whose code the patch no longer fits (notSupported in src/edits.js). MESSAGE and
+ * DETAILS are vscode.l10n.t keys, translated in src/l10n/.
  */
 const fs = require('fs');
 const path = require('path');
+const { notSupported } = require('./edits');
 
-const UNSUPPORTED = / build is not supported yet$/;
-const MESSAGE = 'Claude Code Plus does not support Claude Code {0} yet. Its features are paused until Claude Code Plus is updated.';
+const MESSAGE = 'Claude Code Plus does not support Claude Code {0} yet. Its additions to Claude Code are paused until Claude Code Plus is updated.';
 const DETAILS = 'Show Details';
 
-const isUnsupported = (message) => UNSUPPORTED.test(String(message || ''));
+const isUnsupported = notSupported;
 
 /** The version in an install folder's package.json, or the folder's name when it cannot be read. */
 function versionOf(dir) {
