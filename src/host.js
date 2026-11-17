@@ -211,8 +211,9 @@ const EDITS = [
   },
   {
     name: 'sidebar showing or hiding updates the open conversations',
-    re: /onDidChangeVisibility\(\(\)=>\{([\w$]+)\.notifyVisibilityChange\(([\w$]+)\.visible\),this\.updateSidebarActiveState\(\)\}/g,
-    to: (m, comms, view) => `onDidChangeVisibility(()=>{${comms}.notifyVisibilityChange(${view}.visible),this.updateSidebarActiveState(),this.broadcastSessionStates()}`,
+    // 2.1.326 wraps the callback in a function of its own; earlier builds pass it bare.
+    re: /onDidChangeVisibility\(((?:[\w$]+\()?)\(\)=>\{([\w$]+)\.notifyVisibilityChange\(([\w$]+)\.visible\),this\.updateSidebarActiveState\(\)\}/g,
+    to: (m, wrap, comms, view) => `onDidChangeVisibility(${wrap}()=>{${comms}.notifyVisibilityChange(${view}.visible),this.updateSidebarActiveState(),this.broadcastSessionStates()}`,
   },
   /*
    * The colour of a tab's icon (src/tabdot.js says what it is for).
