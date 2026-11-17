@@ -78,6 +78,12 @@ jobs:
 
             let report = 'the check produced no report';
             try { report = fs.readFileSync('report.txt', 'utf8'); } catch (_) {}
+            // An issue body is capped at 65536 characters and the whole report is longer, so the issue quotes only the
+            // lines that failed and links the run, whose summary has the rest.
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let failing = report.split('\n').filter((l) => /\bFAIL\b|^marketplace is shipping|^A check failed/.test(l)).join('\n');
+            const LIMIT = 40000;
+            if (failing.length > LIMIT) failing = failing.slice(0, LIMIT) + '\n... cut here; the run summary has every line';
 
             const body = [
               `The upstream check ran against Claude Code **${version}** and failed. The report below says whether an edit did not`,
@@ -89,8 +95,10 @@ jobs:
               '',
               '### What the check said',
               '',
+              `The lines that failed are below; the whole report is in the summary of [the run](${run}).`,
+              '',
               '```',
-              report.trim(),
+              failing.trim() || report.trim().slice(-LIMIT),
               '```',
               '',
               '### Where to look',
