@@ -2241,17 +2241,20 @@ console.log('\ndetached commands in the agent map');
   const calls = [];
   const h = (type, props) => { calls.push({ type, props }); return { type, props }; };
   const offNow = { on: false };
+  const props = { '--cce-detached': `"${packed}"` };
   const make = (sid) => {
     const env = {
       window: {}, document: { documentElement: {} }, navigator: {},
-      getComputedStyle: () => ({ getPropertyValue: (name) => (name === '--cce-detached' ? `"${packed}"` : '') }),
+      getComputedStyle: () => ({ getPropertyValue: (name) => props[name] || '' }),
       atob: (x) => Buffer.from(x, 'base64').toString('binary'), TextDecoder, console,
       sigValue: (name) => (name === 'sessionId' ? sid : undefined),
       isOff: (k) => offNow.on && k === 'detachedCommands',
     };
     env.window.__cceSignal = (v) => ({ value: v });
-    new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '82-scheduled-tasks.js'), 'utf8')}})()`,
-      { filename: '82-scheduled-tasks.js' }).runInNewContext(env);
+    /* What src/page/05-page-setup.js does when a new stylesheet has loaded, before it calls __cceStyleArrived. */
+    new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '82-scheduled-tasks.js'), 'utf8')}`
+      + '\nwindow.__newSheet = function(){ propCache = {}; window.__cceStyleArrived(); };})()',
+    { filename: '82-scheduled-tasks.js' }).runInNewContext(env);
     return env.window;
   };
   const api = make(SID);
@@ -2277,6 +2280,16 @@ console.log('\ndetached commands in the agent map');
     fresh.__cceStyleArrived(); ticks.push(made && made.value);
     fresh.__cceStyleArrived(); ticks.push(made && made.value);
     same(ticks, [1, 1], 'a stylesheet with different commands makes the footer and the map render again, and one with the same commands does not');
+    /* A scheduled prompt of this conversation arriving in a later stylesheet redraws them too; another's does not. */
+    const sched = (session) => (webview.liveCss({ enabled: true, tasks: [{ id: 'a1b2c3d4', cron: '*/5 * * * *', recurring: true,
+      session, project: '/p', prompt: 'check the jobs' }] }).match(/--cce-schedule:("[A-Za-z0-9+/=]+")/) || [])[1] || '';
+    props['--cce-schedule'] = sched(OTHER);
+    fresh.__newSheet(); ticks.push(made && made.value);
+    props['--cce-schedule'] = sched(SID);
+    fresh.__newSheet(); ticks.push(made && made.value);
+    delete props['--cce-schedule'];
+    fresh.__newSheet(); ticks.push(made && made.value);
+    same(ticks.slice(2), [1, 2, 3], 'a scheduled prompt of this conversation coming or going in a later stylesheet redraws them as well, and another conversation\'s does not');
   }
   const other = make('abcdef01-0000-4000-8000-000000000003');
   offNow.on = true;
@@ -2755,40 +2768,21 @@ console.log('\none live stylesheet, several windows');
     ok(`at the cap of ${tasks.MAX_TASKS}, which tasks survive does not depend on that order either`);
   } else bad('at the cap, the surviving tasks still depend on the order the directories arrived in');
 
-  /* Directories to read, kept in a store shared by all windows. If each window put its own folders first, two windows
-     with different folders would rewrite the store on every refresh and, past the cap, keep different sets. Two windows
-     taking turns: */
+  /* Two windows with different folders open, or reading the session records in another order, must get one list. */
   {
-    const day = 86400000, t0 = Date.UTC(2026, 9, 29, 12);
-    const isDir = () => true;
-    const many = Array.from({ length: tasks.MAX_DIRS + 8 }, (_, i) => '/p/' + String(i).padStart(2, '0'));
-    const windowA = ['/p/a', ...many.slice(0, 20)], windowB = ['/p/b', ...many.slice(20)];
-    let store = ['/p/old-list', '/p/a'];
-    const writes = [], lists = [];
-    for (let round = 0; round < 4; round++) {
-      for (const [name, open] of [['A', windowA], ['B', windowB]]) {
-        const r = tasks.rememberDirs(store, open, { now: t0 + round * 60000, isDir });
-        if (r.changed) { writes.push(name + round); store = r.store; }
-        lists.push(JSON.stringify(r.dirs));
-      }
-    }
-    const settled = lists.slice(-4);
-    if (writes.length <= 2 && new Set(settled).size === 1 && JSON.parse(settled[0]).length === tasks.MAX_DIRS) {
-      ok(`two windows with different folders open settle on one list of ${tasks.MAX_DIRS} directories and stop rewriting the store`);
-    } else bad(`two windows taking turns wrote ${JSON.stringify(writes)} and read ${settled.map((l) => JSON.parse(l).length).join('/')} directories`);
-    const later = tasks.rememberDirs(store, windowA, { now: t0 + day, isDir });
-    const gone = tasks.rememberDirs({ '/p/a': 1, '/nowhere': 1 }, [], { now: t0, isDir: (d) => d !== '/nowhere' });
-    const legacy = tasks.rememberDirs(['/p/x', '/p/y'], [], { now: t0, isDir });
-    if (later.changed && gone.dirs.join() === '/p/a' && legacy.dirs.join() === '/p/x,/p/y' && legacy.changed) {
-      ok('the store changes again when a day turns, drops a directory that is gone, and reads the list an earlier build kept');
-    } else bad(`a day on changed ${later.changed}; with one gone ${JSON.stringify(gone.dirs)}; from a list ${JSON.stringify(legacy.dirs)}`);
-    /* Windows on an earlier build keep a plain list under the old key; both formats in one key would make the two
-       builds rewrite it in turn. */
+    const isDir = (d) => d !== '/gone';
+    const records = [{ cwd: '/w/repo' }, { cwd: '/w/other' }, { cwd: '/w/repo/sub' }, { cwd: '/w/repo' }, { cwd: 'relative' },
+      { cwd: '/gone' }, {}, null];
+    const one = tasks.taskDirs(records, { isDir }), two = tasks.taskDirs(records.slice().reverse(), { isDir });
+    const many = tasks.taskDirs(Array.from({ length: tasks.MAX_DIRS + 8 }, (_, i) => ({ cwd: '/p/' + String(i).padStart(2, '0') })), { isDir });
+    if (JSON.stringify(one) === JSON.stringify(['/w/other', '/w/repo', '/w/repo/sub']) && JSON.stringify(two) === JSON.stringify(one)
+      && many.length === tasks.MAX_DIRS && many[0] === '/p/00') {
+      ok(`every window reads the same list: the running sessions' own directories, a session in a subfolder included, sorted, capped at ${tasks.MAX_DIRS}`);
+    } else bad(`task directories ${JSON.stringify({ one, two, many: many.length })}`);
     const extDirs = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-    if (/const DIRS_KEY = 'claudeCodeExtras\.projectDirDays';/.test(extDirs) && /const OLD_DIRS_KEY = 'claudeCodeExtras\.projectDirs';/.test(extDirs)
-      && /context\.globalState\.update\(DIRS_KEY, r\.store\)/.test(extDirs) && !/update\(OLD_DIRS_KEY/.test(extDirs)) {
-      ok('the folders and their days are kept under a key of their own, started from the list an earlier build keeps');
-    } else bad('the remembered folders share a key with the list an earlier build writes');
+    if (/taskDirs\(background\.liveRecords\(\)\)/.test(extDirs) && !/projectDirDays|globalState\.update\(DIRS_KEY/.test(extDirs)) {
+      ok('the host takes the directories from the session records, not from what this window has open');
+    } else bad('the host still keeps its own list of directories for scheduled prompts');
   }
 
   const wv = path.join(root, 'webview');
@@ -5999,8 +5993,7 @@ console.log('\nnames the rename leaves alone');
     ['the marketplace, the plugin and the plan directory', pi.MARKETPLACE === 'claude-code-extras' && market.name === 'claude-code-extras'
       && pi.PLUGIN === 'agent-work-plan' && pi.DATA_DIR === 'agent-work-plan-claude-code-extras'
       && /"agent-work-plan-claude-code-extras"\)/.test(planPathSource())],
-    ['the state keys the old extension\'s last version exports', /const REMOVED_KEY = 'claudeCodeExtras\.removed';/.test(ext)
-      && /DIRS_KEY = 'claudeCodeExtras\.projectDirDays'/.test(ext)],
+    ['the state key the old extension\'s last version exports and this one reads', /const REMOVED_KEY = 'claudeCodeExtras\.removed';/.test(ext)],
   ];
   for (const [what, pass] of checks) (pass ? ok : bad)(pass ? what + ' keep their earlier names' : what + ' were renamed');
 }

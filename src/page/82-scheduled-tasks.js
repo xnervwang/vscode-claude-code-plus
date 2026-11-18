@@ -293,19 +293,19 @@
   };
   /* The panel renders the footer button and the agent map from its own state, which a new stylesheet does not touch.
      Reading a signal during those renders subscribes them to it, so bumping it redraws them when a stylesheet changes
-     the detached commands. */
-  var detachedTick = null, detachedSeen = null;
-  var detachedRenders = function(){
-    if (!detachedTick && typeof window.__cceSignal === 'function') detachedTick = window.__cceSignal(0);
-    return detachedTick ? detachedTick.value : 0;
+     what they show. */
+  var mapTick = null, mapSeen = null;
+  var mapRenders = function(){
+    if (!mapTick && typeof window.__cceSignal === 'function') mapTick = window.__cceSignal(0);
+    return mapTick ? mapTick.value : 0;
   };
   window.__cceStyleArrived = function(){
     try {
-      var now = JSON.stringify(myDetached());
-      if (now === detachedSeen) return;
-      detachedSeen = now;
+      var now = JSON.stringify([myDetached(), mySchedules(), myBackground()]);
+      if (now === mapSeen) return;
+      mapSeen = now;
       bgCountsAt = 0;
-      if (detachedTick) detachedTick.value = detachedTick.value + 1;
+      if (mapTick) mapTick.value = mapTick.value + 1;
     } catch (e) {}
   };
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -342,7 +342,7 @@
   window.__cceSchedule = function(h){
     try {
       if (typeof h !== 'function') return null;
-      detachedRenders();
+      mapRenders();
       var parts = [];
       var det = myDetached();
       if (det.length) parts.push(detachedSection(h, det));
@@ -366,7 +366,7 @@
     return m && typeof m.size === 'number' ? m.size : 0;
   };
   var ourCounts = function(){
-    detachedRenders();
+    mapRenders();
     var now = Date.now();
     if (now - bgCountsAt < 500) return bgCounts;
     bgCountsAt = now;

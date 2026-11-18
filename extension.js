@@ -23,7 +23,7 @@ const path = require('path');
 const webview = require('./src/webview');
 const host = require('./src/host');
 const { safeColor } = webview;
-const { readTasks, rememberDirs } = require('./src/tasks');
+const { readTasks, taskDirs } = require('./src/tasks');
 const background = require('./src/background');
 const planNames = require('./src/plan-names');
 const stewardView = require('./src/steward-view');
@@ -144,13 +144,6 @@ function installs(adapter, all = false) {
 let settings = null;
 const cfg = () => settings || (settings = vscode.workspace.getConfiguration());
 function enabled() { return cfg().get(SETTING, true); }
-
-/** Folders this window has open, which is where a session started here keeps its scheduled-prompt file. */
-function openDirs() {
-  return (vscode.workspace.workspaceFolders || [])
-    .filter((f) => f.uri && f.uri.scheme === 'file')
-    .map((f) => f.uri.fsPath);
-}
 
 async function offerReload(text) {
   const pick = await vscode.window.showInformationMessage(text, 'Reload Window');
@@ -367,27 +360,7 @@ function start(context, log, renamed, handing = false) {
   const uninstalling = () => standing() === 'uninstalling';
   const replaced = () => standing() === 'replaced';
 
-  /*
-   * Which project directories to look for scheduled prompts in - remembered across windows, not taken from this one.
-   *
-   * The stylesheet the page reads sits in Claude Code's own folder, so every window writes the SAME file. If each wrote
-   * only what its own open folders yielded, two windows would take turns adding and removing the section every refresh.
-   * Remembering the union, merged and ordered the same way by every window (rememberDirs in src/tasks.js), makes every
-   * window write the same content, so later writes change nothing.
-   *
-   * The known gap: a session started in a SUBdirectory of an open folder is not found, and its section simply does not
-   * appear. Walking directories would trade a certain cost for an uncertain gain, so it waits for a real case.
-   */
-  /* A key of its own: windows still on an earlier build read and write a plain list under the old one, and two formats
-     under one key would make the builds overwrite each other. The old list seeds the new key. */
-  const DIRS_KEY = 'claudeCodeExtras.projectDirDays';
-  const OLD_DIRS_KEY = 'claudeCodeExtras.projectDirs';
-  const knownDirs = perTick(() => {
-    const stored = context.globalState.get(DIRS_KEY);
-    const r = rememberDirs(stored !== undefined ? stored : context.globalState.get(OLD_DIRS_KEY, []), openDirs());
-    if (r.changed) context.globalState.update(DIRS_KEY, r.store);
-    return r.dirs;
-  });
+  const knownDirs = perTick(() => taskDirs(background.liveRecords()));
 
   /* One setting per switchable addition, named after it. Reading them here rather than in src/webview.js keeps that
      file free of the editor's API, which is what lets the tests run it. */

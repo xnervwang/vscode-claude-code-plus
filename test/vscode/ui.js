@@ -854,6 +854,32 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       await shot('reply-images');
     });
 
+    /* CronCreate keeps a durable scheduled prompt in a file in the project's own folder. The Agents button counts it
+       and the agent map lists it. Once the file is removed, both disappear without any other change in the panel. */
+    await step('a scheduled prompt in the agent map', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const dir = path.join(profile.folder, '.claude'), file = path.join(dir, 'scheduled_tasks.json');
+      fs.mkdirSync(dir, { recursive: true });
+      const prompt = 'Check the nightly build and report what failed.';
+      fs.writeFileSync(file, JSON.stringify({ tasks: [{ id: 'cafe1234', cron: '*/5 * * * *', prompt, createdAt: Date.now(), recurring: true,
+        createdBySessionId: tab0.id, createdInProject: profile.folder }] }, null, 2));
+      const button = conv.locator('button, [role="button"]').filter({ hasText: /\b1 timer\b/ }).first();
+      const counted = await until(() => button.isVisible().catch(() => false), 60000, 500);
+      check(!!counted, 'the Agents button counts the scheduled prompt as 1 timer', await conv.evaluate(() => document.body.innerText.slice(-400)));
+      if (counted) {
+        await button.click({ timeout: 5000 });
+        /* The prompt sits in a folded row, which innerText leaves out. */
+        const listed = await until(() => conv.evaluate((text) => /1 scheduled prompt/.test(document.body.innerText)
+          && [...document.querySelectorAll('details pre')].some((p) => p.textContent.includes(text)), prompt), 10000, 500);
+        check(!!listed, 'the agent map lists it, its prompt in the folded row', await conv.evaluate(() => document.body.innerText.slice(-600)));
+        await shot('agent-map-scheduled');
+        await page.keyboard.press('Escape');
+      }
+      fs.rmSync(file, { force: true });
+      const gone = await until(async () => !(await button.isVisible().catch(() => false)), 60000, 500);
+      check(!!gone, 'once the file is gone the count goes too, with nothing else redrawing the panel', await conv.evaluate(() => document.body.innerText.slice(-400)));
+    });
+
     await step('a closed tab', async () => {
       if (!list) throw new Error('the session list did not open');
       const closed = await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)});
