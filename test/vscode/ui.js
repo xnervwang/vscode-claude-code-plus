@@ -1220,6 +1220,14 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       await exec('claude-vscode.editor.open', front.id);
       await sleep(1500);
       await reloadAndWait();
+      const reopened = await conversation(front, 5000).catch(() => null);
+      const redrawn = reopened ? await until(() => reopened.evaluate((alt) => {
+        const img = [...document.querySelectorAll('[data-testid="assistant-message"] img')].filter((x) => x.getAttribute('alt') === alt).pop();
+        return img && img.complete && img.naturalWidth > 0 ? img.naturalWidth : null;
+      }, IMAGE_ALT), 30000, 500) : null;
+      check(redrawn === 8, 'after a reload, the image in a restored reply is drawn again',
+        reopened ? await reopened.evaluate(() => { const m = [...document.querySelectorAll('[data-testid="assistant-message"]')]
+          .find((x) => /red square|Here it is/.test(x.innerText)); return m ? m.innerText.slice(0, 400) : null; }) : 'the conversation did not reopen');
       await sleep(10000);
       const without = await loaded(behind);
       await setLoad(true);

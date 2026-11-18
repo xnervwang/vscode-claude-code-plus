@@ -2303,20 +2303,20 @@ console.log('\ndetached commands in the agent map');
 console.log('\nimages in replies, the page');
 {
   const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
-  const make = (off) => {
-    const posted = [], listeners = [];
+  const make = (off, sid = { v: 'abcdef01-0000-4000-8000-000000000009' }) => {
+    const posted = [], listeners = [], timers = [];
     let signal = null;
     const env = {
       window: { addEventListener: (type, fn) => { if (type === 'message') listeners.push(fn); } }, document: { documentElement: {} },
       acquireVsCodeApi: () => ({ postMessage: (m) => posted.push(m) }),
-      sigValue: (name) => (name === 'sessionId' ? 'abcdef01-0000-4000-8000-000000000009' : undefined),
-      isOff: (k) => off && k === 'replyImages', console,
+      sigValue: (name) => (name === 'sessionId' ? sid.v : undefined),
+      isOff: (k) => off && k === 'replyImages', console, setTimeout: (fn) => timers.push(fn),
     };
     env.window.__cceSignal = (v) => (signal = { value: v });
     new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '94-reply-images.js'), 'utf8')}})()`,
       { filename: '94-reply-images.js' }).runInNewContext(env);
     const answer = (m) => listeners.forEach((fn) => fn({ data: { type: 'from-extension', message: m } }));
-    return { api: env.window, posted, answer, tick: () => (signal ? signal.value : null) };
+    return { api: env.window, posted, answer, tick: () => (signal ? signal.value : null), timers };
   };
   const h = (type, props) => ({ type, props });
   const on = make(false);
@@ -2338,6 +2338,20 @@ console.log('\nimages in replies, the page');
     'while the host reads it the image waits without asking again, then the answer draws it, and a file that cannot be read says why');
   same([on.api.__cceImageSrc(png), on.api.__cceImageSrc('file:///tmp/a.png'), on.api.__cceImageSrc('/tmp/a.png'), on.api.__cceImageSrc('javascript:x'),
     on.api.__cceImage(h, 'notes.png', '')], [true, true, true, false, null], 'the link check keeps data: and local sources, and a relative path is left to Claude Code');
+  /* A panel with no conversation id yet, as after a reload. */
+  const sid = { v: undefined }, late = make(false, sid);
+  const early = late.api.__cceImage(h, '/tmp/late.png', 'chart');
+  const waited = late.timers.length;
+  late.timers.splice(0).forEach((fn) => fn());
+  sid.v = 'abcdef01-0000-4000-8000-000000000010';
+  late.api.__cceImage(h, '/tmp/late.png', 'chart');
+  const never = make(false, { v: undefined });
+  for (let i = 0; i < 41; i++) never.api.__cceImage(h, '/tmp/none.png', '');
+  const gaveUp = never.api.__cceImage(h, '/tmp/none.png', '');
+  same([early.type, JSON.stringify(early).includes('Loading'), waited, late.tick() > 0, late.posted.length, late.posted[0] && late.posted[0].sessionId,
+    never.posted.length, JSON.stringify(gaveUp).includes('no conversation yet')],
+    ['span', true, 1, true, 1, 'abcdef01-0000-4000-8000-000000000010', 0, true],
+    'an image drawn before the panel has its conversation waits and is asked for once the conversation is known, and gives up after about ten seconds');
   const offPage = make(true);
   const offData = offPage.api.__cceImage(h, png, 'chart'), offLocal = offPage.api.__cceImage(h, '/tmp/chart.png', 'weekly');
   same([offData.type, JSON.stringify(offData).includes('base64'), offLocal.type, JSON.stringify(offLocal).includes('/tmp/chart.png'), offPage.posted.length,
