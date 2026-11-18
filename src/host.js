@@ -125,6 +125,8 @@ const EDITS = [
       + `globalThis.__cceFocusHook&&globalThis.__cceFocusHook(${msg}.sessionId)}`
       + `else if(${msg}&&${msg}.type==="cce_open_session"&&typeof ${msg}.sessionId==="string"){`
       + `globalThis.__cceOpenSessionHook&&globalThis.__cceOpenSessionHook(${msg}.sessionId)}`
+      + `else if(${msg}&&${msg}.type==="cce_image"&&typeof ${msg}.id==="string"&&typeof ${msg}.src==="string"&&typeof ${msg}.sessionId==="string"){`
+      + `globalThis.__cceImageHook&&globalThis.__cceImageHook(${msg}.sessionId,${msg}.id,${msg}.src)}`
       + `else if(${msg}&&${msg}.type==="cce_alive"){globalThis.__cceAliveHook&&globalThis.__cceAliveHook()}}catch(e){}${rest}`,
   },
   /*

@@ -85,6 +85,7 @@ Verified against Claude Code 2.1.325 and 2.1.326.
 | --- | --- |
 | Timestamps | Times from the transcript on every message and reply block, and `start→result` on tool calls. Claude Code's own message times are hidden while these are on. |
 | Your time zone for Claude | When Claude runs on a machine in another time zone, as with Remote SSH, it is told yours, so it gives you times in your zone. |
+| Images in replies | An image Claude gives by absolute path or `file://` address (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) and a `data:` image are drawn in the reply; an image at a web address stays a link. Claude is told how to give one: save it in the conversation's own folder, and download an image from the web there first. `claudeCodePlus.show.replyImages` turns both off. |
 | Reply figures | `2m10s · ctx 33% · cost $0.42 · opus-5 high` on each reply shows turn duration, how much of the context window is in use, the conversation's cost so far, model and effort. |
 | Sub-agent tags and filters | Each sub-agent's messages are tagged with its task, such as `#look up tomorrow's weather`. A filter in the footer shows only the main thread or one sub-agent. |
 | Conversation navigation | A handle at the right edge of the panel opens a list of your messages by time and first words, with the compaction points marked. Filter the list, click a row to scroll there, step with the arrows or `,` and `.`, or jump to the top or bottom. |
@@ -212,6 +213,7 @@ In a running conversation, a mode change applies from the next message to work p
 | A steward notice | When a conversation a steward manages starts waiting for you, has a new question for you, finishes a turn while a row in the steward's own work plan names it, or has background work of its own that ended without finishing, at most once a minute for each steward. If the steward is idle, the notice starts a turn | About 210 characters, and about 100 more per conversation it names with a 40-character title, up to 380 more for one waiting on a prompt, up to 250 for each piece of background work that ended, and about 350 for each conversation run by two processes | Unticking them in the Steward panel |
 | A detached command has stopped | When a command a conversation left running outside Claude Code is gone, on Linux: one notice per conversation for the commands that stopped close together, in All features token mode or in Custom while `claudeCodePlus.detachedEndNotices` is on. If the conversation is idle, the notice starts a turn | About 200 characters, and up to 300 more per command | `claudeCodePlus.detachedEndNotices` |
 | Your time zone | When the panel reads in another time zone than this machine's: on the conversation's first message and after each compaction, then when either side's date turns over, the offset changes, or the context has grown by 100k tokens | About 300 characters | `claudeCodePlus.tellClaudeYourTimeZone` |
+| Images in replies | While `claudeCodePlus.show.replyImages` is on and the panel shows images: on the conversation's first message and after each compaction. Once it is off, one sentence on the next message of a conversation that was told | About 470 characters and the conversation's folder twice; the sentence is 69 characters | `claudeCodePlus.show.replyImages` |
 
 - The work plan is cut at 6,000 characters by the plugin. The reminders have no cut: each is fixed text with at most six row titles of 60 characters.
 - Rows closed more than a day ago are moved out of the plan file to `closed/<session ID>.json` beside it, so reading the plan after a compaction costs less too; Agent Plus's views read both files.
@@ -230,7 +232,7 @@ In a running conversation, a mode change applies from the next message to work p
 
 ## Settings
 
-Open `Claude Code Plus: Settings` for all 40 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
+Open `Claude Code Plus: Settings` for all 41 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
 
 **Work plan settings**
 

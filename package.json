@@ -263,6 +263,11 @@
           "default": true,
           "markdownDescription": "Show the commands a conversation left running outside Claude Code. The list includes a shell or `timeout` if it outlives the command that started it. Any other program started with `setsid` also qualifies because it leads its own session. These commands keep the conversation's dot green after its turn ends. The Agents button in the panel footer shows the count (for example, `1 detached`) and opens the agent map. The map shows each command's command line, PID and start time. The extension finds these commands through `/proc`, so this works only on Linux. Takes effect without a reload."
         },
+        "claudeCodePlus.show.replyImages": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show images in Claude's replies in the conversation panel. On by default. The panel shows `data:` images and local PNG, JPEG, GIF, WebP or SVG files up to 8 MB. Local files need an absolute path or a `file://` address. Web addresses stay as links. The panel does not fetch them.\n\nAt the start of a conversation and after each compaction, Claude is told that the panel shows images. The instructions say to save the image in the conversation's own folder and use its absolute path. For a web image, Claude is told to download it to that folder first. These instructions cost about 150 tokens each time.\n\nWhen off, the panel shows only the image's text and path. Claude gets no image instructions. A conversation that already received them gets one short sentence, once, saying the panel no longer shows images. Changes take effect without a reload."
+        },
         "claudeCodePlus.show.openInTabOrSidebar": {
           "type": "boolean",
           "default": true,

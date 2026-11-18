@@ -30,6 +30,7 @@ const stewardView = require('./src/steward-view');
 const stewardMarks = require('./src/steward-marks');
 const stewards = require('./src/stewards');
 const detachedEnds = require('./src/detachedends');
+const replyImages = require('./src/reply-images');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
 const { transcriptOf, writeAtomic } = require('./src/claude-files');
@@ -460,6 +461,9 @@ function start(context, log, renamed, handing = false) {
   let reloadOffered = false;
   /* Bring every install in line with the current settings. Only installing, upgrading or removing the patch itself
      asks for a reload; on and off and the color are picked up by an open panel within a couple of seconds. */
+  /* Whether every installed Claude Code panel carries this build's patch, which is what draws images in replies; the
+     last sync found it. */
+  let panelShowsImages = false;
   async function sync({ interactive = false } = {}) {
     if (replaced()) {
       log.appendLine('sync: this window runs a build that has since been installed again; leaving the files to the windows running it');
@@ -467,6 +471,7 @@ function start(context, log, renamed, handing = false) {
       return;
     }
     const patched = [], restored = [], problems = [], notSupported = new Set();
+    let panels = 0, panelsPatched = 0;
     const leaving = uninstalling();
     const restoring = removed() || leaving;
     /* The live stylesheet's options, computed once and only for the panel's bundle (the host bundle ignores them),
@@ -485,6 +490,7 @@ function start(context, log, renamed, handing = false) {
           } else {
             const r = adapter.apply(dir, adapter === webview ? (opts || (opts = options())) : undefined);
             log.appendLine(`${label}: ${r.message}${r.liveChanged ? ' (live settings updated)' : ''}`);
+            if (adapter === webview) { panels++; if (r.changed || r.current) panelsPatched++; }
             if (r.changed && !patched.includes(adapter.name)) patched.push(adapter.name);
             else if (!r.changed && !r.current) {
               if (unsupported.isUnsupported(r.message)) notSupported.add(unsupported.versionOf(dir));
@@ -498,6 +504,8 @@ function start(context, log, renamed, handing = false) {
       }
     }
     if (!found && interactive) vscode.window.showWarningMessage('Claude Code Plus: the Claude Code extension is not installed, so there is nothing to patch.');
+    const showing = !restoring && panels > 0 && panelsPatched === panels;
+    if (showing !== panelShowsImages) { panelShowsImages = showing; writeHookSettings(); }
     // Shown in the editor's display language; which rule failed is only in the output channel. Not awaited: a message
     // with a button stays open.
     if (notSupported.size) {
@@ -653,6 +661,10 @@ function start(context, log, renamed, handing = false) {
       else if (typeof v === 'number' && v >= 1) values[key] = Math.floor(v);
       else if (typeof v === 'string' && v) values[key] = v;
     }
+    /* One option, claudeCodePlus.show.replyImages, has the panel draw images and the model told how to give them. The
+       telling waits until every installed panel really draws them: patched by this build, which a Claude Code build it
+       does not fit leaves unpatched. */
+    values.replyImages = panelShowsImages && enabled() && !removed() && !uninstalling() && !switchedOff().includes('replyImages');
     /* planDir(), not PLAN_DIR: that one is only the directory's name, and joined on its own it resolves against the
        extension host's working directory - a config.json the hooks never read. Written only when it changes, and
        replaced whole (src/hook-settings.js). */
@@ -1387,6 +1399,16 @@ function start(context, log, renamed, handing = false) {
    * Called by the patched host inside its own message handling, so the work is deferred, as the pin hook's is: finding
    * what is on disk walks every project folder.
    */
+  /* An image file a reply shows (src/page/94-reply-images.js), read and sent back to the panel that asked. */
+  globalThis.__cceImageHook = (sessionId, id, src) => {
+    const answer = (r) => {
+      try { if (typeof globalThis.__cceToPanel === 'function') globalThis.__cceToPanel(sessionId, Object.assign({ type: 'cce_image', id }, r)); }
+      catch (_) { /* the panel is gone */ }
+    };
+    if (removed() || !enabled() || switchedOff().includes('replyImages')) { answer({ ok: false, reason: 'Images in replies are switched off.' }); return; }
+    replyImages.load(src).then(answer, () => answer({ ok: false, reason: 'The file could not be read.' }));
+  };
+  context.subscriptions.push({ dispose: () => { if (globalThis.__cceImageHook) delete globalThis.__cceImageHook; } });
   globalThis.__cceDeleteHook = (asked) => {
     setTimeout(() => deleteArchived(asked).catch((e) => log.appendLine('deleting archived conversations: ' + (e && e.message))), 0);
   };
@@ -1679,7 +1701,8 @@ function start(context, log, renamed, handing = false) {
   context.subscriptions.push(tokenMode.warnOutsideCustom(vscode, MODE_SWITCHES, { who: 'Claude Code Plus', log: (m) => log.appendLine(m) }));
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
     settings = null;
-    if (Object.values(HOOK_SETTINGS).some((k) => e.affectsConfiguration(k))) writeHookSettings();
+    if (Object.values(HOOK_SETTINGS).some((k) => e.affectsConfiguration(k)) || e.affectsConfiguration(SETTING)
+        || e.affectsConfiguration(PREFIX + 'show.replyImages')) writeHookSettings();
     if (e.affectsConfiguration(LATENCY_ON_SETTING)) loadWatchOff();
     /* A wider margin moves pinned files forward on the next pass, so that pass is not left waiting half an hour. */
     if (e.affectsConfiguration(PIN_MARGIN_SETTING) && !keepSoon) keepSoon = setTimeout(() => { keepSoon = 0; keepPinned(); }, 5000);
