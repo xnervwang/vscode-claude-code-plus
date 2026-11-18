@@ -59,6 +59,7 @@ const removal = require('./src/removal');
 const buildDigest = require('./src/build-digest');
 const carryover = require('./src/carryover');
 const unsupported = require('./src/unsupported');
+const sentCheck = require('./src/sent-check');
 const PACKAGE = require('./package.json');
 
 /* <publisher>.<name>, which is also how the editor names this extension's folders. Read from the manifest rather than
@@ -787,6 +788,8 @@ function start(context, log, renamed, handing = false) {
       try { return typeof globalThis.__cceAnswer === 'function' && globalThis.__cceAnswer(sessionId) === true; } catch (_) { return false; }
     },
     hand: (sessionId, text, key) => globalThis.__cceAnswer(sessionId, text, key) === true,
+    sentSince: (sessionId, text, since) => sentCheck.sentSince(transcriptOf(sessionId), text, since),
+    log: (line) => log.appendLine(line),
     /* An extension cannot raise another window, and opening the conversation here as well would start a second process on
        it. */
     reveal: async (sessionId) => {
@@ -978,7 +981,7 @@ function start(context, log, renamed, handing = false) {
     if (stewardWatch) { planNames.watching(''); try { stewardWatch.close(); } catch (_) { /* closed */ } }
   } });
 
-  globalThis.__cceAnswerHook = (key, sent, reason) => claude.answered(key, sent, reason);
+  globalThis.__cceAnswerHook = (key, sent, reason, detail) => claude.answered(key, sent, reason, detail);
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceAnswerHook) delete globalThis.__cceAnswerHook; } });
   coreLink.link(vscode, claude.source, { name: 'the Claude Code source', log: (m) => log.appendLine(m) }).then((r) => {
     if (!r.registered) return;

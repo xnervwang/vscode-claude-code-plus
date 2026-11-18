@@ -45,6 +45,9 @@ const NOT_RECEIVED = {
   insert: 'the answer could not be typed into the message input',
   'left-in-input': 'Enter did not send it, so it was taken back out of the message input',
 };
+/* Earlier than the hand-over, for a transcript entry stamped a moment before this host read its clock. */
+const SENT_SLACK_MS = 1000;
+
 function outcomeOf(sent, reason) {
   if (sent === true) return { outcome: 'submitted' };
   if (Object.prototype.hasOwnProperty.call(NOT_RECEIVED, reason)) return { outcome: 'notReceived', reason: NOT_RECEIVED[reason] };
@@ -83,6 +86,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   activeChat()                    the host's activeSessionId, or ''
  *   canDeliver(sessionId)           whether a panel in this window shows it
  *   hand(sessionId, text, key)      gives the answer to the panel; its result comes back through answered()
+ *   sentSince(sessionId, text, ms)  optional: Promise of 'sent', 'queued' or '' from the transcript (src/sent-check.js)
+ *   log(line)                       optional
  *   reveal(sessionId)               Promise<boolean>
  *   logo()                          { light, dark } Uris, or null
  *   timeZone()                      the zone a panel reported, or ''
@@ -108,17 +113,36 @@ function createClaudeSource(deps) {
 
   const ask = () => deps.listAgents().then((r) => { agentsLast = r; agentsAt = Date.now(); return r; });
 
+  const log = (line) => { try { if (deps.log) deps.log(line); } catch (_) { /* not logged */ } };
+  /* Called when the panel kept the answer in its input or did not report, since it may have been sent anyway. */
+  const recheck = async (sessionId, text, since, r) => {
+    if (typeof deps.sentSince !== 'function') return r;
+    let got = '';
+    try { got = await deps.sentSince(sessionId, text, since - SENT_SLACK_MS); } catch (_) { got = ''; }
+    if (got === 'sent') return { outcome: 'submitted' };
+    if (got === 'queued') {
+      return { outcome: 'uncertain', reason: 'the panel still showed it in the message input, but the conversation queued a message just then' };
+    }
+    return r;
+  };
   const deliver = (sessionId, text) => {
     const key = 'cc-' + Date.now().toString(36) + '-' + (++keys);
+    const since = Date.now();
     let handed = false;
     try { handed = deps.hand(sessionId, text, key) === true; } catch (_) { handed = false; }
     if (!handed) return Promise.resolve({ outcome: 'notReceived', reason: 'no Claude Code panel in this window shows the conversation' });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         pending.delete(key);
-        resolve({ outcome: 'uncertain', reason: `the panel did not report within ${ANSWER_WAIT_MS / 1000} seconds` });
+        resolve(recheck(sessionId, text, since,
+          { outcome: 'uncertain', reason: `the panel did not report within ${ANSWER_WAIT_MS / 1000} seconds` }));
       }, ANSWER_WAIT_MS);
-      pending.set(key, (sent, reason) => { clearTimeout(timer); resolve(outcomeOf(sent, reason)); });
+      pending.set(key, (sent, reason, detail) => {
+        clearTimeout(timer);
+        if (!sent && detail) log(`answer to ${sessionId}: ${reason || 'not sent'} (${detail})`);
+        const r = outcomeOf(sent, reason);
+        resolve(!sent && reason === 'left-in-input' ? recheck(sessionId, text, since, r) : r);
+      });
     });
   };
   /* Agent Plus can hand over one answer twice under the same delivery id; it is typed once, even while the first try runs.
@@ -205,11 +229,11 @@ function createClaudeSource(deps) {
       notice = next || null;
       if (JSON.stringify(notice) !== was) noticeChanged.fire();
     },
-    answered(key, sent, reason) {
+    answered(key, sent, reason, detail) {
       const done = pending.get(key);
       if (!done) return;
       pending.delete(key);
-      done(sent === true, typeof reason === 'string' ? reason : '');
+      done(sent === true, typeof reason === 'string' ? reason : '', typeof detail === 'string' ? detail.slice(0, 300) : '');
     },
     /* Returns whether the host's active session moved. The move is reported as focus only while the active tab is a
        Claude Code panel or there is none: the host keeps that id while another agent's tab is in front, as it is at

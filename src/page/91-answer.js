@@ -8,9 +8,9 @@
 // Fragment of the in-page script - see README.md in this folder.
 
   var ANSWER_INPUT = '[role="textbox"][aria-label="Message input"]';
-  var answerResult = function(id, sent, reason){
+  var answerResult = function(id, sent, reason, detail){
     /* The handle the panel's own bundle asked for, which src/panel-tz.js hands out again rather than asking twice. */
-    try { acquireVsCodeApi().postMessage({ type: 'cce_answer_result', id: id, sent: sent, reason: reason || '' }); }
+    try { acquireVsCodeApi().postMessage({ type: 'cce_answer_result', id: id, sent: sent, reason: reason || '', detail: detail || '' }); }
     catch (e) { /* the sender reports it as not sent when its wait runs out */ }
   };
   var inputText = function(box){ return String(box.textContent || '').replace(/\u200b/g, '').trim(); };
@@ -27,6 +27,23 @@
       document.execCommand('delete', false);
     } catch (e) { /* left as it is */ }
     if (inputText(box)) box.textContent = '';
+  };
+  /* Claude Code can replace the input element. It saves the old element's text in the session's composerDraft and fills
+     the new element with it. So the input is looked up again each time, and a kept draft that is just the answer is
+     dropped; otherwise the answer reappears after it was sent. */
+  var currentInput = function(box){ return document.querySelector(ANSWER_INPUT) || box; };
+  var dropDraft = function(text){
+    try {
+      if (sessionRef && typeof sessionRef.composerDraft === 'string' && squash(sessionRef.composerDraft) === squash(text)) {
+        sessionRef.composerDraft = '';
+      }
+    } catch (e) { /* the draft is kept */ }
+  };
+  /* For the host's log when Enter seemed not to send. */
+  var inputDetail = function(box, now){
+    var all = 0;
+    try { all = document.querySelectorAll(ANSWER_INPUT).length; } catch (e) { all = 0; }
+    return 'input replaced: ' + (now !== box ? 'yes' : 'no') + '; inputs on the page: ' + all + '; page hidden: ' + (document.hidden ? 'yes' : 'no');
   };
   /* The sidebar may have switched conversations since the host checked which one it shows. */
   var showsOther = function(m){
@@ -57,7 +74,7 @@
     }
     setTimeout(function(){
       if (showsOther(m)) { emptyInput(box); answerResult(m.id, false, 'not-shown'); return; }
-      pressSend(box, m.text, function(sent, reason){ answerResult(m.id, sent, reason); });
+      pressSend(box, m.text, function(sent, reason, detail){ answerResult(m.id, sent, reason, detail); });
     }, 60);
   };
   /* Presses Enter to send the input. Sent once the input is first seen empty; anything typed after that is left alone.
@@ -69,10 +86,12 @@
     } catch (e) { /* checked below */ }
     var waited = 0;
     var look = function(){
-      if (!inputText(box)) { done(true, ''); return; }
+      var now = currentInput(box);
+      if (!inputText(now)) { dropDraft(text); done(true, ''); return; }
       if ((waited += 50) < 800) { setTimeout(look, 50); return; }
-      if (squash(box.textContent) === squash(text)) emptyInput(box);
-      done(false, 'left-in-input');
+      if (squash(now.textContent) === squash(text)) emptyInput(now);
+      dropDraft(text);
+      done(false, 'left-in-input', inputDetail(box, now));
     };
     setTimeout(look, 50);
   };

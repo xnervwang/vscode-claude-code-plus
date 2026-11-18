@@ -9886,13 +9886,21 @@ console.log('\nanswering from the Conversations tab');
         + 'setTimeout(function(){ deaf = true; host("ignored", "a4"); }, 8500);'
         + 'setTimeout(function(){ deaf = false; slow = true; host("slow one", "a6");'
         + '  setTimeout(function(){ document.getElementById("box").textContent = "next"; }, 420); }, 9600);'
-        + 'setTimeout(function(){ var b = document.getElementById("box"); leftover = b.textContent; b.remove(); host("nowhere", "a5");'
-        + '  setTimeout(function(){ document.getElementById("out").textContent = "' + mark + '" + JSON.stringify({ posted: posted, sent: sent, leftover: leftover }); }, 1500); }, 10500);'
+        + 'setTimeout(function(){ var b = document.getElementById("box"); leftover = b.textContent; b.remove(); host("nowhere", "a5"); }, 10500);'
+        /* Sent, and then the input is replaced by a new one holding the text again, as Claude Code does with a kept draft. */
+        + 'var again = null;'
+        + 'setTimeout(function(){ var b = document.createElement("div"); b.setAttribute("role", "textbox"); b.setAttribute("aria-label", "Message input");'
+        + '  b.contentEditable = "plaintext-only"; document.body.appendChild(b);'
+        + '  b.addEventListener("keydown", function(e){ if (e.key !== "Enter") return; e.preventDefault(); var text = b.textContent; sent.push(text);'
+        + '    again = b.cloneNode(false); again.textContent = text; b.replaceWith(again); });'
+        + '  host("sent, then put back", "a7");'
+        + '  setTimeout(function(){ document.getElementById("out").textContent = "' + mark + '" + JSON.stringify({ posted: posted, sent: sent, leftover: leftover,'
+        + '    again: again ? again.textContent : null }); }, 1500); }, 11200);'
         + '</script></body></html>';
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-answer-page-'));
       const file = path.join(dir, 'panel.html');
       fs.writeFileSync(file, html);
-      const r = cp.spawnSync(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=16000', '--dump-dom',
+      const r = cp.spawnSync(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=18000', '--dump-dom',
         'file://' + file], { encoding: 'utf8', timeout: 120000 });
       fs.rmSync(dir, { recursive: true, force: true });
       const at = (r.stdout || '').indexOf(mark);
@@ -9902,12 +9910,16 @@ console.log('\nanswering from the Conversations tab');
           .replace(/&amp;/g, '&').replace(/&quot;/g, '"'));
       } catch (_) { got = null; }
       const results = got ? got.posted.filter((m) => m.type === 'cce_answer_result').map((m) => [m.id, m.sent, m.reason]) : [];
+      const put = got ? got.posted.find((m) => m.type === 'cce_answer_result' && m.id === 'a7') : null;
       if (got && JSON.stringify(results) === JSON.stringify([['a1', true, ''], ['a2', false, 'draft'], ['a3', true, ''],
-        ['a4', false, 'left-in-input'], ['a6', true, ''], ['a5', false, 'no-input']]) && got.leftover === 'next'
-        && got.sent.length === 3 && got.sent[0].replace(/\s+/g, ' ').trim() === 'Row 1, my answer: line two' && got.sent[1].trim() === 'with ctrl'
+        ['a4', false, 'left-in-input'], ['a6', true, ''], ['a5', false, 'no-input'], ['a7', false, 'left-in-input']]) && got.leftover === 'next'
+        && got.sent.length === 4 && got.sent[0].replace(/\s+/g, ' ').trim() === 'Row 1, my answer: line two' && got.sent[1].trim() === 'with ctrl'
         && got.sent[2].trim() === 'slow one') {
         ok('in a browser the panel types an answer into an empty input and sends it, Ctrl+Enter mode included, leaves text of yours alone, takes back one it could not send, and keeps what you type once a slow send has gone');
       } else bad(`answer in the page: ${at === -1 ? 'no result (exit ' + r.status + ')' : JSON.stringify(got)}`);
+      if (got && got.again === '' && put && /^input replaced: yes; inputs on the page: 1; page hidden: /.test(put.detail || '')) {
+        ok('when the input is replaced by one holding the answer again, the new one is emptied and the host is told the input was replaced');
+      } else bad(`answer put back into a new input: ${JSON.stringify(got && { again: got.again, put })}`);
     }
   }
 
@@ -10691,6 +10703,86 @@ const repo = path.join(__dirname, '..');
       eq([ri.fileOf('C:\\charts\\a.png', 'win32'), ri.fileOf('/a.png', 'win32'), ri.fileOf('/a.png', 'linux')], ['C:\\charts\\a.png', null, '/a.png'],
         'a Windows path is taken on Windows only, a POSIX path elsewhere');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  console.log('\nan answer the panel says it could not send, looked up in the transcript');
+  {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-sent-check-')));
+    try {
+      const S = require('../src/sent-check');
+      const at = (ms) => new Date(Date.parse('2026-11-18T05:19:36.000Z') + ms).toISOString();
+      const since = Date.parse('2026-11-18T05:19:36.000Z');
+      const line = (o) => JSON.stringify(o);
+      const user = (text, ms, extra) => line(Object.assign({ type: 'user', timestamp: at(ms), message: { role: 'user', content: text } }, extra || {}));
+      const cases = [
+        [[user('Please run it.', 50)], 'Please run it.', 'sent'],
+        [[user([{ type: 'text', text: 'Row 1:\nline two' }], 50)], 'Row 1: line two', 'sent'],
+        [[user('Please run it.', -5000)], 'Please run it.', ''],
+        [[user('Please run it.', 50, { isMeta: true })], 'Please run it.', ''],
+        [[line({ type: 'queue-operation', operation: 'enqueue', timestamp: at(20) })], 'Please run it.', 'queued'],
+        [[line({ type: 'queue-operation', operation: 'enqueue', timestamp: at(20) }),
+          line({ type: 'attachment', timestamp: at(900), attachment: { type: 'queued_command', prompt: [{ type: 'text', text: 'Please run it.' }] } })],
+        'Please run it.', 'sent'],
+        [[user('Something else.', 50), 'not json'], 'Please run it.', ''],
+      ];
+      const got = cases.map(([lines, text]) => S.seen(lines, text, since));
+      if (JSON.stringify(got) === JSON.stringify(cases.map((c) => c[2]))) {
+        ok('a transcript entry since the hand-over that carries the text, as a user message or a queued one, counts as sent; a queue entry alone as queued');
+      } else bad(`sent-check seen(): ${JSON.stringify(got)}`);
+      const file = path.join(home, 't.jsonl');
+      fs.writeFileSync(file, 'x'.repeat(40) + '\n' + user('First.', 10) + '\n');
+      const cut = S.tail(file, Buffer.byteLength(user('First.', 10)) + 5);
+      if (cut.length === 1 && JSON.parse(cut[0]).message.content === 'First.') ok('only complete lines are read from the end of a transcript');
+      else bad(`sent-check tail(): ${JSON.stringify(cut)}`);
+      let naps = 0;
+      const later = S.sentSince(file, 'Later.', since, { waits: [1, 1, 1], sleep: async () => {
+        if (++naps === 2) fs.appendFileSync(file, user('Later.', 100) + '\n');
+      } });
+      const none = S.sentSince('', 'Later.', since, { waits: [1], sleep: async () => {} });
+
+      const stub = path.join(home, 'vscode-stub.js');
+      fs.writeFileSync(stub, 'module.exports = { TabInputWebview: class {} };');
+      const script = `
+        const Module = require('module'), realResolve = Module._resolveFilename;
+        Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+        const { createClaudeSource } = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+        let keys = [], found = '', asked = [], logged = [];
+        const c = createClaudeSource({ planDir: () => '/plans', listAgents: async () => ({ records: [], error: '' }), folders: () => [],
+          readPlan: () => null, titles: () => ({}), since: () => 0, live: () => new Map(), unread: () => new Set(), activeChat: () => '',
+          logo: () => null, canDeliver: () => true, hand: (id, text, key) => { keys.push(key); return true; }, reveal: async () => false,
+          sentSince: async (id, text, ms) => { asked.push([id, text, typeof ms]); return found; }, log: (l) => logged.push(l) });
+        (async () => {
+          const out = {};
+          const one = async (say, reason, detail) => {
+            found = say;
+            const p = c.source.deliverAnswer('A', 'Please run it.', {});
+            await null;
+            c.answered(keys[keys.length - 1], false, reason, detail);
+            return p;
+          };
+          out.sent = await one('sent', 'left-in-input', 'input replaced: yes; inputs on the page: 1; page hidden: no');
+          out.queued = await one('queued', 'left-in-input', '');
+          out.none = await one('', 'left-in-input', '');
+          out.draft = await one('sent', 'draft', '');
+          out.asked = asked;
+          out.logged = logged;
+          process.stdout.write(JSON.stringify(out));
+        })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
+      const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
+      let o = {};
+      try { o = JSON.parse(r.stdout); } catch (_) { o = { threw: r.stdout + r.stderr }; }
+      const late = await later, nobody = await none;
+      if (late === 'sent' && naps === 2 && nobody === '') ok('the transcript is looked at again for a few seconds until the message shows up');
+      else bad(`sent-check sentSince(): ${JSON.stringify([late, naps, nobody])}`);
+      if (o.sent && o.sent.outcome === 'submitted' && o.queued && o.queued.outcome === 'uncertain' && /queued/.test(o.queued.reason || '')
+        && o.none && o.none.outcome === 'notReceived' && o.draft && o.draft.outcome === 'notReceived' && Array.isArray(o.asked) && o.asked.length === 3
+        && JSON.stringify(o.asked[0]) === JSON.stringify(['A', 'Please run it.', 'number'])) {
+        ok('an answer the panel kept in its input counts as sent when the transcript has it, as unclear when only a queue entry was written, and the other reasons are not looked up');
+      } else bad(`recheck of a kept answer: ${JSON.stringify(o).slice(0, 600)}`);
+      if (Array.isArray(o.logged) && o.logged.length === 1 && /^answer to A: left-in-input \(input replaced: yes;/.test(o.logged[0])) {
+        ok('what the panel saw when Enter seemed not to send goes into the log');
+      } else bad(`answer detail log: ${JSON.stringify(o.logged)}`);
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
   }
 
   /* The notice a conversation gets once a command it left running detached is no longer running. */

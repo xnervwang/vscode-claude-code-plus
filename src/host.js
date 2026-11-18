@@ -115,7 +115,8 @@ const EDITS = [
       + `else if(${msg}&&${msg}.type==="cce_delete_sessions"&&Array.isArray(${msg}.sessions)){`
       + `globalThis.__cceDeleteHook&&globalThis.__cceDeleteHook(${msg}.sessions)}`
       + `else if(${msg}&&${msg}.type==="cce_answer_result"&&typeof ${msg}.id==="string"){`
-      + `globalThis.__cceAnswerHook&&globalThis.__cceAnswerHook(${msg}.id,${msg}.sent===true,typeof ${msg}.reason==="string"?${msg}.reason:"")}`
+      + `globalThis.__cceAnswerHook&&globalThis.__cceAnswerHook(${msg}.id,${msg}.sent===true,typeof ${msg}.reason==="string"?${msg}.reason:"",`
+      + `typeof ${msg}.detail==="string"?${msg}.detail:"")}`
       + `else if(${msg}&&${msg}.type==="cce_submit_result"&&typeof ${msg}.id==="string"){`
       + `globalThis.__cceSubmitHook&&globalThis.__cceSubmitHook(${msg}.id,${msg}.sent===true,typeof ${msg}.reason==="string"?${msg}.reason:"",`
       + `typeof ${msg}.sessionId==="string"?${msg}.sessionId:"")}`
