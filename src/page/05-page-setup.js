@@ -172,6 +172,7 @@
       try { repaintPins(); } catch (e) { /* the next render of the list draws them anyway */ }
       try { paintColors(); } catch (e) { /* the next stylesheet draws them */ }
       try { paintTwice(); } catch (e) { /* the next stylesheet draws them */ }
+      try { if (typeof window.__cceStyleArrived === 'function') window.__cceStyleArrived(); } catch (e) { /* the next render reads it */ }
       schedule();
     };
     l.onerror = function(){

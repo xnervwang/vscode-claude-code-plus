@@ -18,8 +18,9 @@
  *   the dots       the dot on the tab's logo while a turn sent through fake-model.js runs, once its reply lands with the
  *                  tab in the background, and while Claude Code waits for permission to run a command
  *   work left running
- *                  the green dot kept after the turn ends while a command it put in the background runs, or a helper
- *                  (subagent) it started in the background, and gone once that has ended
+ *                  the green dot kept after the turn ends while a command it put in the background runs, a helper
+ *                  (subagent) it started in the background, or, on Linux, a program it left running with setsid, and
+ *                  gone once that has ended; the detached program in the agent map, and the notice once it is gone
  *   closed, sidebar, archived, commands
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation; Show
@@ -35,7 +36,7 @@ const win = require('./lib/window');
 const { baselines } = require('./lib/baseline');
 const pixels = require('./lib/pixels');
 const { folderName } = require('./lib/fake-home');
-const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, LINK_TEXT } = require('./lib/fake-model');
+const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, LINK_TEXT } = require('./lib/fake-model');
 const tabdot = require('../../src/tabdot');
 
 const { sleep, until } = win;
@@ -767,6 +768,58 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       check(!!cleared, 'once the helper has finished and the conversation has answered its notice, the dot goes', Object.assign(seen(), { dots: await dotsOn(t.label) }));
     });
 
+    /* A program started with setsid leads a session of its own, outside Claude Code's account of its background work.
+       It is found through /proc, so on Linux only: the dot stays green while it runs, the agent map lists it, and once
+       it is gone the conversation is told. */
+    await step('a command left running detached', async () => {
+      if (process.platform !== 'linux') { note('a detached command is found through /proc, so this runs on Linux only'); return; }
+      if (!conv) throw new Error('the conversation did not open');
+      const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
+      if (!t) throw new Error('the conversation\'s tab is gone');
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const status = () => {
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+        for (const n of names) {
+          try { const d = JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); if (d.sessionId === tab0.id) return d.status || null; } catch (_) { /* being written */ }
+        }
+        return null;
+      };
+      const before = model.seen.length;
+      await conv.locator('[contenteditable][role="textbox"]').first().click();
+      await page.keyboard.type(`Please ${ASK_TO_DETACH}.`);
+      await page.keyboard.press('Enter');
+      check(!!await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300), 'the fake model answers with a command left running with setsid', model.seen.slice(before));
+      const asking = await until(() => conv.evaluate(() => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes('setsid')), 8000, 500);
+      if (asking) await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+      const ended = await until(() => status() === 'idle', 60000, 500);
+      check(!!ended, 'the turn that started it ends while it runs', { status: status() });
+      const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && status() === 'idle' && d; }, 25000, 500);
+      check(!!green, 'with the turn over and the detached command running, the tab keeps its green dot', { status: status(), dots: await dotsOn(t.label) });
+      const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
+      check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      const button = conv.locator('button, [role="button"]').filter({ hasText: /\b1 detached\b/ }).first();
+      const labelled = await until(() => button.isVisible().catch(() => false), 20000, 500);
+      check(!!labelled, 'the Agents button counts it as 1 detached', await conv.evaluate(() => document.body.innerText.slice(-400)));
+      if (labelled) {
+        await button.click({ timeout: 5000 });
+        const listed = await until(() => conv.evaluate(() => {
+          const text = document.body.innerText;
+          return /1 detached command/.test(text) && /sleep 45/.test(text) && /pid \d+ · started \d\d:\d\d/.test(text);
+        }), 10000, 500);
+        check(!!listed, 'the agent map lists the command with its pid and when it started', await conv.evaluate(() => document.body.innerText.slice(-600)));
+        await shot('agent-map-detached');
+        await page.keyboard.press('Escape');
+      }
+      const told = await until(() => model.seen.slice(before).some((x) => /left running detached is no longer running/.test(x.ask || '')), 150000, 1000);
+      check(!!told, 'once it is gone, the conversation is told, which starts a turn', model.seen.slice(before).map((x) => (x.ask || '').slice(0, 120)));
+      const cleared = await until(async () => {
+        const d = await dotsOn(t.label);
+        return status() === 'idle' && d && d.running === 0 && d.waiting === 0 && d;
+      }, 60000, 1000);
+      check(!!cleared, 'and once that turn is answered, the dot goes', { status: status(), dots: await dotsOn(t.label) });
+    });
+
     await step('a closed tab', async () => {
       if (!list) throw new Error('the session list did not open');
       const closed = await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)});
@@ -1124,7 +1177,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       await exec('notifications.clearAll');
       await exec('claudeCodePlus.status');
       const status = await until(async () => (await toasts()).find((x) => x.startsWith('Claude Code Plus — ')) || '', 10000, 300);
-      check(/^Claude Code Plus — Claude Code panel anthropic\.claude-code-\S+: patched \| Claude Code host anthropic\.claude-code-\S+: patched \| Token mode: All features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief on$/.test(status),
+      check(/^Claude Code Plus — Claude Code panel anthropic\.claude-code-\S+: patched \| Claude Code host anthropic\.claude-code-\S+: patched \| Token mode: All features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief on, notices when a detached command stops on$/.test(status),
         'Show Status says both of Claude Code\'s files are patched, and the token mode', status);
       await shot('command-status');
       await exec('notifications.clearAll');
