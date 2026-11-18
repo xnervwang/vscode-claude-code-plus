@@ -17,10 +17,13 @@
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
  *   the dots       the dot on the tab's logo while a turn sent through fake-model.js runs, once its reply lands with the
  *                  tab in the background, and while Claude Code waits for permission to run a command
+ *   work left running
+ *                  the green dot kept after the turn ends while a command it put in the background runs, or a helper
+ *                  (subagent) it started in the background, and gone once that has ended
  *   closed, sidebar, archived, commands
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
- *                  session… on an archived conversation and its confirmation; Show Status, Settings and the confirmation
- *                  of Stop Loading the Work Plan Plugin
+ *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation; Show
+ *                  Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
  *
  * Every step saves a screenshot to <out>/shots, and crops of the parts this extension draws are compared with the
  * approved copies (lib/baseline.js). Claude Code's own parts are never cropped: where one of ours sits between two of
@@ -32,7 +35,7 @@ const win = require('./lib/window');
 const { baselines } = require('./lib/baseline');
 const pixels = require('./lib/pixels');
 const { folderName } = require('./lib/fake-home');
-const { ASK_TO_RUN, RUN, LINK_TEXT } = require('./lib/fake-model');
+const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, LINK_TEXT } = require('./lib/fake-model');
 const tabdot = require('../../src/tabdot');
 
 const { sleep, until } = win;
@@ -676,6 +679,94 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       await shot('tab-permission-answered');
     });
 
+    /* A command the conversation put in the background keeps its dot green after the turn is over: found in /proc on
+       Linux, and on macOS and Windows from what Claude Code's Stop hook tells the work plan plugin. */
+    await step('work left running after a turn', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
+      if (!t) throw new Error('the conversation\'s tab is gone');
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const status = () => {
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+        for (const n of names) {
+          try { const d = JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); if (d.sessionId === tab0.id) return d.status || null; } catch (_) { /* being written */ }
+        }
+        return null;
+      };
+      const tasks = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${tab0.id}.tasks`);
+      const seen = () => ({ dots: null, status: status(), tasksFile: fs.existsSync(tasks) });
+      const before = model.seen.length;
+      await conv.locator('[contenteditable][role="textbox"]').first().click();
+      await page.keyboard.type(`Please ${ASK_TO_BACKGROUND}.`);
+      await page.keyboard.press('Enter');
+      check(!!await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300), `the fake model answers with ${BG_RUN} put in the background`, model.seen.slice(before));
+      /* Claude Code runs a command it takes for read-only, such as sleep, without asking. */
+      const asking = await until(() => conv.evaluate((cmd) => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes(cmd), BG_RUN), 8000, 500);
+      if (asking) await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+      const started = Date.now();
+      const ended = await until(() => status() === 'idle' && Date.now() - started > 2000, 60000, 500);
+      check(!!ended, 'the turn that started the command ends while the command runs', seen());
+      /* The windows look for work running every ten seconds. */
+      const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && status() === 'idle' && d; }, 25000, 500);
+      check(!!green, 'with the turn over and the command still running, the tab keeps its green dot', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+      const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
+      check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      await shot('tab-dot-background-work');
+      /* The command ends 40 s after it started, Claude Code tells the conversation, and its answer ends that turn too. */
+      const cleared = await until(async () => {
+        const d = await dotsOn(t.label);
+        return Date.now() - started > 45000 && status() === 'idle' && d && d.running === 0 && d.waiting === 0 && d;
+      }, 120000, 1000);
+      check(!!cleared, 'once the command has ended and the conversation has answered its notice, the dot goes', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+      await shot('tab-dot-background-done');
+    });
+
+    /* A helper started in the background keeps the dot green after the conversation has sent its reply. Claude Code
+       2.1.326 keeps the session busy while the helper runs, and its Stop hook tells the plugin about the helper too. */
+    await step('a helper left running after a turn', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
+      if (!t) throw new Error('the conversation\'s tab is gone');
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const status = () => {
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+        for (const n of names) {
+          try { const d = JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); if (d.sessionId === tab0.id) return d.status || null; } catch (_) { /* being written */ }
+        }
+        return null;
+      };
+      const tasks = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${tab0.id}.tasks`);
+      const seen = () => ({ status: status(), tasksFile: fs.existsSync(tasks) ? fs.readFileSync(tasks, 'utf8').slice(0, 400) : null });
+      const turns = () => model.seen.slice(before).filter((x) => x.stream).map((x) => ({ helping: x.helping, tool: x.tool, parts: x.parts, result: x.result }));
+      model.holdHelper();
+      const before = model.seen.length;
+      try {
+        await conv.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(`Please ${ASK_FOR_HELPER}.`);
+        await page.keyboard.press('Enter');
+        check(!!await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300), 'the fake model answers with a helper started in the background', model.seen.slice(before));
+        const helping = await until(() => model.seen.slice(before).some((x) => x.helping), 30000, 300);
+        check(!!helping, 'Claude Code starts the helper, whose turns the fake model holds back', turns());
+        /* The conversation is told the helper was launched and answers that with text, which ends what it had to say. */
+        const replied = await until(() => model.seen.slice(before).some((x) => !x.helping && !x.tool && /Async agent launched/.test(x.result || '')), 30000, 300);
+        check(!!replied, 'Claude Code runs the helper in the background, and the conversation sends its reply while the helper runs', turns());
+        await sleep(5000);
+        const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
+        check(!!green, 'with the reply sent and the helper still running, the tab keeps its green dot', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+        const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
+        check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+        await shot('tab-dot-background-helper');
+      } finally { model.releaseHelper(); }
+      /* Released, the helper finishes, Claude Code tells the conversation, and its answer ends that turn too. */
+      const cleared = await until(async () => {
+        const d = await dotsOn(t.label);
+        return status() === 'idle' && d && d.running === 0 && d.waiting === 0 && d;
+      }, 90000, 1000);
+      check(!!cleared, 'once the helper has finished and the conversation has answered its notice, the dot goes', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+    });
+
     await step('a closed tab', async () => {
       if (!list) throw new Error('the session list did not open');
       const closed = await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)});
@@ -738,6 +829,23 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
     await step('an archived conversation', async () => {
       if (!list) throw new Error('the session list did not open');
       const t1 = threads[1];
+      const tabOf = async () => (await claudeTabs()).find((x) => titled(x.label, t1.title));
+      const live = () => {
+        const dir = path.join(profile.home, '.claude', 'sessions');
+        let names = [];
+        try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch (_) { return false; }
+        return names.some((n) => {
+          try {
+            const d = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
+            if (d.sessionId !== t1.id) return false;
+            try { process.kill(d.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
+          } catch (_) { return false; }
+        });
+      };
+      /* Archived while it is open in a tab, so that Delete session… meets a conversation that is open. */
+      await exec('claude-vscode.editor.open', t1.id);
+      const opened = !!await until(tabOf, 20000, 500);
+      if (!opened) note('the conversation did not open in a tab, so deleting an open one was not tried');
       retried(await pick(t1, ['Archive session']), 'Archive session');
       check(!!await until(() => list.evaluate(() => [...document.querySelectorAll('button, [role="button"]')].some((b) => /^Archived/.test(b.innerText.trim()))), 15000, 500),
         'Archive session moves the conversation under Archived sessions');
@@ -746,6 +854,23 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       await header.waitFor({ state: 'visible', timeout: 15000 });
       if (!await row(t1).isVisible().catch(() => false)) await header.click();
       await row(t1).waitFor({ state: 'visible', timeout: 15000 });
+      if (opened) {
+        await exec('notifications.clearAll');
+        retried(await pick(t1, ['Delete session…']), 'Delete session… on the open conversation');
+        const refused = await until(async () => (await toasts()).find((x) => /^Not deleted:/.test(x)) || '', 15000, 300);
+        const asked = await dialog();
+        check(!!refused && refused.includes(t1.title) && !asked && fs.existsSync(transcriptOf(t1)),
+          'Delete session… on an archived conversation open in a tab deletes nothing and says it is open', { refused, asked, toasts: await toasts(), tab: await tabOf() });
+        if (asked) await answerDialog('Cancel');
+        await exec('notifications.clearAll');
+        await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
+          && x.label && ${JSON.stringify(t1.title)}.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12);
+          if (t) await vscode.window.tabGroups.close(t); return !!t;`);
+        const gone = await until(async () => !(await tabOf()) && !live(), 30000, 500);
+        check(!!gone, 'closing its tab ends its Claude Code process', { tab: await tabOf(), running: live() });
+        if (!await row(t1).isVisible().catch(() => false)) await header.click();
+        await row(t1).waitFor({ state: 'visible', timeout: 15000 });
+      }
       const menu = await openMenu(t1);
       check(!!menu && menu[0].includes('Delete session…'), 'an archived conversation\'s menu has Delete session…', menu);
       await page.mouse.move(5, 880);

@@ -10510,14 +10510,35 @@ const repo = path.join(__dirname, '..');
     const asked = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: [{ type: 'text', text: `Please ${fakeModel.ASK_TO_RUN}.` }] }] })).text);
     eq([asked[1].content_block.type, asked[1].content_block.name, JSON.parse(asked[2].delta.partial_json).command, asked[4].delta.stop_reason],
       ['tool_use', 'Bash', fakeModel.RUN, 'tool_use'], 'a message asking to run the tests gets a Bash tool call');
+    const bg = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_TO_BACKGROUND}.` }] })).text);
+    const bgInput = JSON.parse(bg[2].delta.partial_json);
+    eq([bg[1].content_block.name, bgInput.command, bgInput.run_in_background], ['Bash', fakeModel.BG_RUN, true],
+      'a message asking for the long job gets a Bash call put in the background');
+    const helped = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_FOR_HELPER}.` }] })).text);
+    const helperInput = JSON.parse(helped[2].delta.partial_json);
+    m.holdHelper();
+    let helperDone = false;
+    const helperTurn = post('/v1/messages', { stream: true, messages: [{ role: 'user', content: fakeModel.HELPER_TASK }] }).then((r) => { helperDone = true; return r; });
+    await new Promise((r) => setTimeout(r, 300));
+    const heldBack = !helperDone;
+    m.releaseHelper();
+    const helperText = events((await helperTurn).text).find((e) => e.type === 'content_block_delta');
+    eq([helped[1].content_block.name, helperInput.prompt, helperInput.run_in_background, heldBack, helperText.delta.type],
+      ['Agent', fakeModel.HELPER_TASK, true, true, 'text_delta'], 'a message asking for a helper gets an Agent call put in the background, and the helper\'s turn is held until released');
     const after = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_TO_RUN}.` },
       { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'Bash', input: {} }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'denied', is_error: true }] }] })).text);
     eq(after[1].content_block.type, 'text', 'and the turn that brings the tool\'s result back gets text');
+    const refused = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_TO_RUN}.` },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'Bash', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'denied', is_error: true },
+        { type: 'text', text: `Please ${fakeModel.ASK_TO_BACKGROUND}.` }] }] })).text);
+    eq([refused[1].content_block.name, JSON.parse(refused[2].delta.partial_json).command], ['Bash', fakeModel.BG_RUN],
+      'a message typed after a refused tool call, which arrives with the refusal, is still answered');
     const counted = await post('/v1/messages/count_tokens', { messages: [] });
     const other = await post('/v1/models', {});
     eq([counted.status, JSON.parse(counted.text).input_tokens > 0, other.status], [200, true, 404], 'it counts tokens, and answers nothing else');
-    eq(m.turns(), 3, 'and counts only the streamed turns');
+    eq(m.turns(), 7, 'and counts only the streamed turns');
   } catch (e) {
     bad(`the fake model: ${(e && e.stack) || e}`);
   } finally { await m.close(); }
