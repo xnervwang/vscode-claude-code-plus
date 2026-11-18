@@ -36,7 +36,9 @@ const win = require('./lib/window');
 const { baselines } = require('./lib/baseline');
 const pixels = require('./lib/pixels');
 const { folderName } = require('./lib/fake-home');
-const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, LINK_TEXT } = require('./lib/fake-model');
+const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, LINK_TEXT, IMAGE_ALT, IMAGE_WEB } = require('./lib/fake-model');
+/* An 8x8 red PNG. */
+const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
 const tabdot = require('../../src/tabdot');
 
 const { sleep, until } = win;
@@ -818,6 +820,38 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         return status() === 'idle' && d && d.running === 0 && d.waiting === 0 && d;
       }, 60000, 1000);
       check(!!cleared, 'and once that turn is answered, the dot goes', { status: status(), dots: await dotsOn(t.label) });
+    });
+
+    /* The conversation was told to save an image in its own folder and link it by its absolute path. A reply that does
+       so is drawn; an image at a web address stays a link. */
+    await step('images in a reply', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const folder = path.join(profile.home, '.claude', 'scratch', folderName(profile.folder), tab0.id);
+      fs.mkdirSync(folder, { recursive: true });
+      fs.writeFileSync(path.join(folder, 'square.png'), Buffer.from(SQUARE_PNG, 'base64'));
+      const slashed = folder.replace(/\\/g, '/');
+      const before = model.seen.length;
+      await conv.locator('[contenteditable][role="textbox"]').first().click();
+      await page.keyboard.type(`Please show me the picture at ${slashed}/square.png`);
+      await page.keyboard.press('Enter');
+      const asked = await until(() => model.seen.slice(before).find((x) => x.picture), 30000, 300);
+      const same = (a, b) => (process.platform === 'win32' ? String(a).toLowerCase() === String(b).toLowerCase() : a === b);
+      check(!!asked && same(asked.imagesNote, slashed), 'the conversation was told to save an image to show in its own folder',
+        { told: asked && asked.imagesNote, folder: slashed });
+      const drawn = await until(() => conv.evaluate((alt) => {
+        const img = [...document.querySelectorAll('[data-testid="assistant-message"] img')].filter((x) => x.getAttribute('alt') === alt).pop();
+        return img && img.complete && img.naturalWidth > 0 ? { src: (img.getAttribute('src') || '').slice(0, 30), width: img.naturalWidth } : null;
+      }, IMAGE_ALT), 30000, 500);
+      check(!!drawn && /^data:image\/png;base64,/.test(drawn.src) && drawn.width === 8, 'an image file on this machine that a reply links is drawn',
+        drawn || await conv.evaluate(() => { const m = [...document.querySelectorAll('[data-testid="assistant-message"]')].pop(); return m ? m.innerHTML.slice(-800) : null; }));
+      const web = await conv.evaluate((url) => {
+        const last = [...document.querySelectorAll('[data-testid="assistant-message"]')].pop();
+        if (!last) return null;
+        const a = [...last.querySelectorAll('a')].find((x) => x.getAttribute('href') === url);
+        return { link: !!a, img: [...last.querySelectorAll('img')].some((x) => x.getAttribute('src') === url) };
+      }, IMAGE_WEB);
+      check(!!web && web.link && !web.img, 'an image at a web address is shown as a link and not fetched', web);
+      await shot('reply-images');
     });
 
     await step('a closed tab', async () => {

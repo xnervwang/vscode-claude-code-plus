@@ -1,5 +1,5 @@
 {
-  "core": "5f2aa7555b2cfa0641986736835d8f9bc0b25d9d",
+  "core": "e173e3471d49dd4e7b9e15a566443b0875dcbb81",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -74,7 +74,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_common.py",
       "from": "shared/plugin/hooks/plan_common.py",
-      "sha256": "01cd82929f74f81d852130beeb4dab5a25d0738b1e48e45d1a8ee3a373d18d1b"
+      "sha256": "04c95fda86b28629d978d1f9e1ce4925b8b6f4f257ec00bac6af810a74246664"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan-row.py",
@@ -102,6 +102,11 @@
       "sha256": "5742f560cd7585ba3b747115a216ef4db51a60a3beabe0d2e8f4ccc598ac1cb6"
     },
     {
+      "path": "claude-plugin/agent-work-plan/hooks/tell-reply-images.py",
+      "from": "shared/plugin/hooks/tell-reply-images.py",
+      "sha256": "d9f8129ba4dc697bddda64f60fc31762431536b3c40ecb7460f7d0d0de5643b0"
+    },
+    {
       "path": "claude-plugin/agent-work-plan/hooks/nudge-work-plan.py",
       "from": "shared/plugin/hooks/nudge-work-plan.py",
       "sha256": "8ba8895c44e6d66c3e03aa3939a5014aaf1243c530b0c43823fc60b70ddc65d5"
@@ -114,7 +119,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_agent.py",
       "from": "shared/plugin/claude/plan_agent.py",
-      "sha256": "b52580a7ef52ebafc8cd8d43e06dda236f6d579aced86a90f1a325d66f4b3bd3"
+      "sha256": "7f80ff6b8fd3a42fe7832f54b777efd63723ed206b5438023ff2e6bb4c8fcb33"
     },
     {
       "path": "claude-plugin/agent-work-plan/skills/maintain/SKILL.md",

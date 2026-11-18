@@ -253,6 +253,7 @@ const SWITCHES = [
   'footerMute',       // the button that silences the chimes
   'backgroundSessions', // the `claude --bg` sessions a conversation started, in its agent map
   'detachedCommands', // the commands a conversation left running detached, in its agent map
+  'replyImages',      // image files and data: images in a reply drawn as images
   'openSessions',     // OPEN SESSIONS at the top of the session list
   'openInTabOrSidebar', // New in tab / New in sidebar, and Resume in tab / Resume in sidebar on the session list
   'deleteArchived',   // Delete in the Archived sessions menu
@@ -606,7 +607,23 @@ const EDITS = [
        and clicking it did nothing. This lets that one form through. */
     name: 'steward links pass the link check',
     re: /function ([\w$]+)\(([\w$]+)\)\{(let [\w$]+=\2\.indexOf\(":"\),[\w$]+=\2\.indexOf\("\?"\),[\w$]+=\2\.indexOf\("#"\),[\w$]+=\2\.indexOf\("\/"\);)/g,
-    to: (m, fn, url, rest) => `function ${fn}(${url}){if(typeof ${url}==="string"&&${STEWARD_HREF}.test(${url}))return ${url};${rest}`,
+    to: (m, fn, url, rest) => `function ${fn}(${url},cceKey){if(typeof ${url}==="string"&&${STEWARD_HREF}.test(${url}))return ${url};`
+      + `if(cceKey==="src"&&typeof window.__cceImageSrc==="function"&&window.__cceImageSrc(${url}))return ${url};${rest}`,
+  },
+  {
+    /* On Windows the markdown link filter is a wrapper: it keeps local paths in links and passes everything else to the
+       filter above, but without the attribute name. */
+    name: 'image sources reach the link check on Windows',
+    re: /function ([\w$]+)\(([\w$]+),([\w$]+)\)\{if\(\3==="href"&&([\w$]+)\(\2\)!==null\)return \2;return ([\w$]+)\(\2\)\}/g,
+    to: (m, fn, url, key, local, check) => `function ${fn}(${url},${key}){if(${key}==="href"&&${local}(${url})!==null)return ${url};return ${check}(${url},${key})}`,
+  },
+  {
+    /* src/page/94-reply-images.js draws a reply's markdown images; when it returns null, Claude Code's own code below
+       runs. */
+    name: 'images in replies',
+    re: /img:\(\{src:([\w$]+),alt:([\w$]+)\}\)=>\{if\(\1\?\.startsWith\("data:"\)\)return ([\w$]+)\("img",/g,
+    to: (m, src, alt, h) => `img:({src:${src},alt:${alt}})=>{let cceImg=typeof window.__cceImage==="function"?window.__cceImage(${h},${src},${alt}):null;`
+      + `if(cceImg)return cceImg;if(${src}?.startsWith("data:"))return ${h}("img",`,
   },
 ];
 

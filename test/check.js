@@ -2285,6 +2285,53 @@ console.log('\ndetached commands in the agent map');
     'a conversation with none, or the switch off, shows and counts nothing');
 }
 
+/* Images in replies, the page side: a data: image drawn at once, a local file asked of the host and drawn from its
+   answer, a web address left a link, and with the option off, each one as its text. */
+console.log('\nimages in replies, the page');
+{
+  const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+  const make = (off) => {
+    const posted = [], listeners = [];
+    let signal = null;
+    const env = {
+      window: { addEventListener: (type, fn) => { if (type === 'message') listeners.push(fn); } }, document: { documentElement: {} },
+      acquireVsCodeApi: () => ({ postMessage: (m) => posted.push(m) }),
+      sigValue: (name) => (name === 'sessionId' ? 'abcdef01-0000-4000-8000-000000000009' : undefined),
+      isOff: (k) => off && k === 'replyImages', console,
+    };
+    env.window.__cceSignal = (v) => (signal = { value: v });
+    new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '94-reply-images.js'), 'utf8')}})()`,
+      { filename: '94-reply-images.js' }).runInNewContext(env);
+    const answer = (m) => listeners.forEach((fn) => fn({ data: { type: 'from-extension', message: m } }));
+    return { api: env.window, posted, answer, tick: () => (signal ? signal.value : null) };
+  };
+  const h = (type, props) => ({ type, props });
+  const on = make(false);
+  const png = 'data:image/png;base64,iVBORw0KGgo=';
+  const drawn = on.api.__cceImage(h, png, 'chart');
+  const web = on.api.__cceImage(h, 'https://example.com/a.png', 'a chart');
+  const first = on.api.__cceImage(h, '/tmp/chart.png', 'weekly');
+  same([drawn.type, drawn.props.src, web.type, web.props.href, web.props.children[0], first.type, on.posted.length, on.posted[0] && on.posted[0].src],
+    ['img', png, 'a', 'https://example.com/a.png', 'a chart', 'span', 1, '/tmp/chart.png'],
+    'a data: image is drawn at once, a web address is left a link and never asked for, and a local file is asked of the host once');
+  const again = on.api.__cceImage(h, '/tmp/chart.png', 'weekly');
+  on.answer({ type: 'cce_image', id: on.posted[0].id, ok: true, dataUrl: png });
+  const after = on.api.__cceImage(h, '/tmp/chart.png', 'weekly');
+  on.api.__cceImage(h, '/tmp/missing.png', '');
+  on.answer({ type: 'cce_image', id: on.posted[1].id, ok: false, reason: 'There is no such file.' });
+  const missing = on.api.__cceImage(h, '/tmp/missing.png', '');
+  same([again.type, on.posted.length, after.type, after.props.src, on.tick() > 0, missing.type, JSON.stringify(missing).includes('There is no such file.')],
+    ['span', 2, 'img', png, true, 'span', true],
+    'while the host reads it the image waits without asking again, then the answer draws it, and a file that cannot be read says why');
+  same([on.api.__cceImageSrc(png), on.api.__cceImageSrc('file:///tmp/a.png'), on.api.__cceImageSrc('/tmp/a.png'), on.api.__cceImageSrc('javascript:x'),
+    on.api.__cceImage(h, 'notes.png', '')], [true, true, true, false, null], 'the link check keeps data: and local sources, and a relative path is left to Claude Code');
+  const offPage = make(true);
+  const offData = offPage.api.__cceImage(h, png, 'chart'), offLocal = offPage.api.__cceImage(h, '/tmp/chart.png', 'weekly');
+  same([offData.type, JSON.stringify(offData).includes('base64'), offLocal.type, JSON.stringify(offLocal).includes('/tmp/chart.png'), offPage.posted.length,
+    offPage.api.__cceImage(h, 'https://example.com/a.png', '').type],
+    ['span', false, 'span', true, 0, 'a'], 'switched off, nothing is drawn or read: an image shows as its text and path, and a web address as a link');
+}
+
 console.log('\ninstalled copy');
 if (explicit.length) {
   /* Named bundles mean someone is asking about a build, not about this machine - the upstream check does exactly that.
@@ -9782,6 +9829,36 @@ console.log('\nanswering from the Conversations tab');
     } else bad(`the link check: ${JSON.stringify({ error: r.error, before, after })}`);
   }
 
+  {
+    /* Images in replies: the link check keeps an image's data: or local source for src only, the Windows wrapper passes
+       which attribute it is checking, and the image component asks the page first. Shapes from Claude Code 2.1.326. */
+    const { applyEdits } = require('../src/edits');
+    const check = 'function Tre(e){let t=e.indexOf(":"),n=e.indexOf("?"),i=e.indexOf("#"),o=e.indexOf("/");'
+      + 'if(t===-1||o!==-1&&t>o||n!==-1&&t>n||i!==-1&&t>i||Ckn.test(e.slice(0,t)))return e;return""}';
+    const linkEdit = webview.EDITS.find((e) => e.name === 'steward links pass the link check');
+    const r1 = applyEdits(check, [linkEdit]);
+    const keeps = (src) => /^(data:image\/|\/|file:\/\/)/.test(src);
+    const run = r1.error ? null : new Function('Ckn', 'window', `${r1.out};return Tre;`)(/^(https?|ircs?|mailto|xmpp)$/i, { __cceImageSrc: keeps });
+    const urls = ['data:image/png;base64,AAAA', 'file:///tmp/a.png', 'C:\\x.png', 'https://example.com/a.png', 'javascript:alert(1)'];
+    const asSrc = run ? urls.map((u) => run(u, 'src')) : [], asHref = run ? urls.map((u) => run(u, 'href')) : [];
+    if (JSON.stringify(asSrc) === JSON.stringify([urls[0], urls[1], '', urls[3], '']) && JSON.stringify(asHref) === JSON.stringify(['', '', '', urls[3], ''])) {
+      ok('the link check keeps a data: or local image source the page accepts, for an image\'s source only, and still empties the rest');
+    } else bad(`the link check for images: ${JSON.stringify({ error: r1.error, asSrc, asHref })}`);
+    const wrap = 'function YEn(e,t){if(t==="href"&&I8e(e)!==null)return e;return Fre(e)}';
+    const r2 = applyEdits(wrap, [webview.EDITS.find((e) => e.name === 'image sources reach the link check on Windows')]);
+    if (!r2.error && r2.out === 'function YEn(e,t){if(t==="href"&&I8e(e)!==null)return e;return Fre(e,t)}') ok('the Windows wrapper tells the link check which attribute it checks');
+    else bad(`the Windows wrapper: ${JSON.stringify(r2)}`);
+    const img = 'const c={img:({src:y,alt:b})=>{if(y?.startsWith("data:"))return m("img",{src:y,alt:b||""});'
+      + 'return m("span",{title:`Image blocked: ${y||"unknown"}`,children:"[Image]"})}};';
+    const r3 = applyEdits(img, [webview.EDITS.find((e) => e.name === 'images in replies')]);
+    const comp = (win) => new Function('m', 'window', `${r3.out};return c.img;`)((t, p) => ({ t, p }), win);
+    const drawn = r3.error ? null : comp({ __cceImage: (h, src, alt) => h('ours', { src, alt }) })({ src: '/a.png', alt: 'chart' });
+    const left = r3.error ? null : comp({ __cceImage: () => null })({ src: '/a.png', alt: '' });
+    if (drawn && drawn.t === 'ours' && drawn.p.src === '/a.png' && drawn.p.alt === 'chart' && left && left.t === 'span') {
+      ok('a reply\'s image is drawn by the page when it answers, and by Claude Code as before when it does not');
+    } else bad(`the image component: ${JSON.stringify({ error: r3.error, drawn, left })}`);
+  }
+
   /* In a browser, against an input built like Claude Code's: an editable box whose Enter sends, or with Ctrl+Enter
      only when set so, and Shift+Enter a new line. The script under test is the one that ships. */
   {
@@ -10590,6 +10667,31 @@ const repo = path.join(__dirname, '..');
   await require('./shared-copies.js')(t, repo);
   console.log('\nthe package');
   await require('./pack-check.js')(t, repo);
+
+  /* The image files a reply shows: read only when they are images, by their bytes, and small enough. */
+  console.log('\nimages in replies, read by the extension');
+  {
+    const ri = require('../src/reply-images');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-images-'));
+    try {
+      const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16)]);
+      const put = (name, data) => { const f = path.join(dir, name); fs.writeFileSync(f, data); return f; };
+      const a = put('chart.png', png), svg = put('d.svg', '<?xml version="1.0"?>\n<!-- made by hand -->\n<svg xmlns="http://www.w3.org/2000/svg"/>');
+      const fake = put('fake.png', 'not an image'), txt = put('notes.txt', 'hello');
+      fs.mkdirSync(path.join(dir, 'folder.png'));
+      const big = path.join(dir, 'big.png');
+      fs.writeFileSync(big, Buffer.concat([png, Buffer.alloc(ri.MAX_BYTES)]));
+      const got = await Promise.all([a, 'file://' + a, svg, fake, txt, path.join(dir, 'folder.png'), big, path.join(dir, 'none.png'), 'chart.png', 'https://example.com/a.png']
+        .map((src) => ri.load(src)));
+      const kinds = 'PNG, JPEG, GIF, WebP or SVG image', only = 'Only an absolute path or a file:// address is shown as an image.';
+      eq(got.map((g) => (g.ok ? g.dataUrl.slice(0, g.dataUrl.indexOf(',')) : g.reason)),
+        ['data:image/png;base64', 'data:image/png;base64', 'data:image/svg+xml;base64', `The file is not a ${kinds}.`, `This is not a ${kinds} file.`,
+          'This is not a file.', 'The file is 8.0 MB; images up to 8 MB are shown.', 'There is no such file.', only, only],
+        'an absolute path or file:// to a PNG or SVG is read as a data: URL; a misnamed file, another type, a folder, a file over the cap, a missing one, a relative path and a web address are not');
+      eq([ri.fileOf('C:\\charts\\a.png', 'win32'), ri.fileOf('/a.png', 'win32'), ri.fileOf('/a.png', 'linux')], ['C:\\charts\\a.png', null, '/a.png'],
+        'a Windows path is taken on Windows only, a POSIX path elsewhere');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
 
   /* The notice a conversation gets once a command it left running detached is no longer running. */
   console.log('\ndetached commands that are no longer running');

@@ -71,7 +71,7 @@ const { readBounded } = require('./bounded');
  */
 const SIDE_SUFFIXES = ['.json', '.offered', '.nudged', '.settled', require('./background').SUFFIX,
   require('./background').TASKS_SUFFIX, '.turn', '.watermark', '.tz', '.compacted', '.briefed', '.injected',
-  require('./efforts').SUFFIX, '.steward-seen'];
+  require('./efforts').SUFFIX, '.steward-seen', '.images-told'];
 const CLOSED_DIR = 'closed';
 const SIDE_FILE = new RegExp('^[0-9a-f][0-9a-f-]{7,}(?:' + SIDE_SUFFIXES.map((s) => s.replace('.', '\\.')).join('|') + ')$', 'i');
 const PLAN_FILE = /^[0-9a-f][0-9a-f-]{7,}\.json$/i;
