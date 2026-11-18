@@ -6,7 +6,7 @@ The plan is stored in a file outside the conversation, and Claude gets its open 
 
 Agent Plus's Conversations tab in the VS Code panel lists running Claude Code conversations in this window's workspace folders. Stopped conversations also appear if their plan still has open rows and was written in the last 7 days. A row that waits for your answer carries a question; the question appears under its conversation, and an answer entered in the Answer view next to the Conversations tab goes into that conversation's message input.
 
-Claude Code Plus also adds message timestamps and reply details (duration, context share, cost and model), session-list controls for open sessions, pins, text colors and deleting archived conversations, green tab dots while work runs, red ones when a turn finishes while you are away, and views of background sessions and scheduled prompts; see [Other features](#other-features). With [Steward](#steward), one conversation passes your messages to others and tells you when they need you.
+Claude Code Plus also adds message timestamps and reply details (duration, context share, cost and model), session-list controls for open sessions, pins, text colors and deleting archived conversations, green tab dots while work runs, red ones when a turn finishes while you are away, and views of background sessions, scheduled prompts and commands a conversation left running outside Claude Code; see [Other features](#other-features). With [Steward](#steward), one conversation passes your messages to others and tells you when they need you.
 
 Requires Anthropic's Claude Code extension, Agent Plus and VS Code 1.96 or later. The work plan also needs Python 3.7 or later. On Windows without Python, the extension offers to download it from python.org (11 MB).
 
@@ -137,12 +137,15 @@ Deleting an archived conversation removes its transcripts, sub-agent conversatio
 
 #### Work that keeps a dot green
 
-After a conversation's turn ends, work it still has running keeps the dot green. This includes a `claude --bg` session or `claude -p` worker it started, background commands, subagents, monitors and workflows, and shells detached with `setsid` or `nohup`. Detached shells are found through /proc, so they count only on Linux. With Claude Code 2.1.326 or later, Claude Code tells the work plan plugin what is running in the background at the end of each turn. When the plugin is loaded, background commands, subagents, monitors and workflows count on every platform. The plugin is not loaded in Interface features token mode. With Claude Code before 2.1.326 or when the plugin is not loaded, background commands count only on Linux, where they are found through /proc. In those cases, subagents, monitors and workflows do not count. Background commands, subagents, monitors and workflows run in the conversation's own process. Reloading the window ends them, and the dot goes gray.
+A conversation's dot stays green if it leaves work running after a turn. That includes a `claude --bg` session or `claude -p` worker it started. On Linux, Claude Code Plus also checks `/proc` for commands the conversation left running outside Claude Code. A shell or `timeout` counts as long as it outlives the command that started it, as can happen with `setsid` or `nohup`. Any other program started with `setsid` counts because it leads its own session. For example, `setsid nohup bash -c 'python3 job.py'` leaves `python3` itself as the session leader. Programs that detach without starting their own session do not count, including servers a build leaves running this way. The agent map, opened from the Agents button in the footer, lists these commands with their command lines, PIDs and start times. In All features token mode, Claude Code Plus notifies the conversation that started the command when it stops, but cannot report its exit code. Custom mode sends the same notices while `claudeCodePlus.detachedEndNotices` is on.
+
+Claude Code runs background commands, subagents, monitors and workflows in the conversation's own process. Starting in version 2.1.326, Claude Code reports this work to the work plan plugin at the end of each turn. With the plugin loaded, this work keeps the dot green on every platform. Interface features token mode skips the plugin. Without the plugin or on Claude Code versions before 2.1.326, only background commands can keep the dot green. That works only on Linux, where Claude Code Plus finds them through `/proc`. Reloading the window ends the work in the conversation's process, and the dot goes gray.
 
 ### Background work
 
 | Feature | What it shows |
 | --- | --- |
+| Detached commands | On Linux, the agent map lists the commands this conversation left running outside Claude Code, each with its command line, PID and start time, and the Agents button counts them, as in `1 detached`. |
 | Background sessions | The agent map, opened from the Agents button in the footer, lists this conversation's `claude --bg` sessions, each state in its own color and counted at the top, with what each waits for, its result, and the attach and logs commands. |
 | Scheduled prompts | The agent map also lists the timers this conversation set through Claude Code's scheduled tasks, with each schedule, last-fired time and prompt. |
 | Background commands | The footer shows a count such as `1 task` while a background build, test run or `sleep` timer runs, with the list one click away. |
@@ -159,7 +162,7 @@ When Claude Code runs a conversation in more than one process at once, as after 
 
 ## What it costs in tokens
 
-Claude Code Plus adds text to what Claude Code sends the model. All of it comes from the work plan plugin Claude Code Plus registers with Claude Code; what Claude Code Plus draws in VS Code sends nothing to the model. The exception is the steward notice, which the extension itself posts to the steward conversation. Text added to a conversation stays in context and goes with every later model call until compaction replaces the conversation with a summary. A token is about four characters of English.
+Claude Code Plus adds text to what Claude Code sends the model. All of it comes from the work plan plugin Claude Code Plus registers with Claude Code; what Claude Code Plus draws in VS Code sends nothing to the model. There are two exceptions. The extension itself posts the steward notice to the steward conversation. When a command left running outside Claude Code is no longer running, the extension posts a notice to the conversation that started it. Text added to a conversation stays in context and goes with every later model call until compaction replaces the conversation with a summary. A token is about four characters of English.
 
 ### Typical values
 
@@ -179,12 +182,13 @@ Measured on 2026-11-15 on one machine, with the brief on.
 | Work plan | Off, plugin not loaded | On | On | `claudeCodePlus.workPlan` |
 | Time zone | Off | On | On | `claudeCodePlus.tellClaudeYourTimeZone` |
 | Conversation brief | Off | Off | On | `claudeCodePlus.conversationBrief` |
+| Detached-command notices | Off | Off | On | `claudeCodePlus.detachedEndNotices` |
 
-Claude Code Plus follows Agent Plus's `agentPlus.tokenMode` setting, which defaults to All features. Outside Custom, the three settings in the table's Custom column have no effect, and changing modes leaves their values as they are. Changing one of those settings outside Custom shows a notice with a Switch to Custom button.
+Claude Code Plus follows Agent Plus's `agentPlus.tokenMode` setting, which defaults to All features. Outside Custom, the settings in the table's Custom column have no effect, and changing modes leaves their values as they are. Changing one of those settings outside Custom shows a notice with a Switch to Custom button.
 
 In Interface features, Claude Code does not load the work plan plugin, just as when you run `Claude Code Plus: Stop Loading the Work Plan Plugin`. Choosing another mode loads it again unless you stopped loading it yourself. Changes to plugin loading and the work plan skill in Claude Code's list of skills apply only to conversations started after the mode change.
 
-In a running conversation, a mode change applies from the next message to work plan injection and reminders, conversation brief requests, and the time zone. `Claude Code Plus: Show Status` shows the mode and which of the three features run. The information button in the footer of a Claude Code conversation names the mode.
+In a running conversation, a mode change applies from the next message to work plan injection and reminders, conversation brief requests, and the time zone. `Claude Code Plus: Show Status` shows the mode and which of these features run. The information button in the footer of a Claude Code conversation names the mode.
 
 ### Added to every message
 
@@ -206,6 +210,7 @@ In a running conversation, a mode change applies from the next message to work p
 | The offer of a plan | Once, in a conversation with no plan, after your third message and a turn of 25 tool calls | About 390 characters and the plan's path | `claudeCodePlus.workPlan`; `claudeCodePlus.workPlanOfferMinTurns`, `claudeCodePlus.workPlanOfferMinToolCalls` |
 | A write to the plan, refused | When Claude writes or edits the plan file with a row description longer than the view shows, or a question that asks more than one thing | About 450 characters | `claudeCodePlus.workPlan` |
 | A steward notice | When a conversation a steward manages starts waiting for you, has a new question for you, finishes a turn while a row in the steward's own work plan names it, or has background work of its own that ended without finishing, at most once a minute for each steward. If the steward is idle, the notice starts a turn | About 210 characters, and about 100 more per conversation it names with a 40-character title, up to 380 more for one waiting on a prompt, up to 250 for each piece of background work that ended, and about 350 for each conversation run by two processes | Unticking them in the Steward panel |
+| A detached command has stopped | When a command a conversation left running outside Claude Code is gone, on Linux: one notice per conversation for the commands that stopped close together, in All features token mode or in Custom while `claudeCodePlus.detachedEndNotices` is on. If the conversation is idle, the notice starts a turn | About 200 characters, and up to 300 more per command | `claudeCodePlus.detachedEndNotices` |
 | Your time zone | When the panel reads in another time zone than this machine's: on the conversation's first message and after each compaction, then when either side's date turns over, the offset changes, or the context has grown by 100k tokens | About 300 characters | `claudeCodePlus.tellClaudeYourTimeZone` |
 
 - The work plan is cut at 6,000 characters by the plugin. The reminders have no cut: each is fixed text with at most six row titles of 60 characters.
@@ -225,7 +230,7 @@ In a running conversation, a mode change applies from the next message to work p
 
 ## Settings
 
-Open `Claude Code Plus: Settings` for all 38 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
+Open `Claude Code Plus: Settings` for all 40 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
 
 **Work plan settings**
 

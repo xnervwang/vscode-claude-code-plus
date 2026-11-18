@@ -529,33 +529,38 @@ function working(opts = {}) {
  */
 const SNAPSHOT_FILE = 'detached.json';
 const SHARE_MS = 9000;
+/* A window running an earlier build writes no jobs; such a file is read again from /proc rather than taken to mean that
+   every job has stopped. */
 async function sharedSnapshot(records, opts) {
   if (opts.proc) return detached.snapshot({ proc: opts.proc, records });
   const file = path.join(opts.dir || planDir(), SNAPSHOT_FILE), now = Date.now();
   try {
     const d = JSON.parse(fs.readFileSync(file, 'utf8'));
-    // A build that counted only detached commands wrote the set as `outside`.
-    const list = Array.isArray(d.shells) ? d.shells : d.outside;
-    if (d.at <= now && now - d.at < SHARE_MS && Array.isArray(list) && Array.isArray(d.launchers)) {
-      return { shells: new Set(list), launchers: new Map(d.launchers) };
+    if (d.at <= now && now - d.at < SHARE_MS && Array.isArray(d.shells) && Array.isArray(d.launchers) && Array.isArray(d.jobs)) {
+      return { shells: new Set(d.shells), launchers: new Map(d.launchers), jobs: d.jobs };
     }
   } catch (_) { /* none yet, or caught mid-write */ }
   const snap = await detached.snapshot({ records });
   if (opts.write !== false) {
-    try { writeAtomic(file, JSON.stringify({ at: Date.now(), shells: [...snap.shells], launchers: [...snap.launchers] }) + '\n'); }
-    catch (_) { /* the next window reads /proc itself */ }
+    try {
+      writeAtomic(file, JSON.stringify({ at: Date.now(), shells: [...snap.shells], launchers: [...snap.launchers], jobs: snap.jobs }) + '\n');
+    } catch (_) { /* the next window reads /proc itself */ }
   }
   return snap;
 }
 
+let lastJobs = null;
+const jobsNow = () => lastJobs;
+
 /* Reads /proc, or what another window read from it a moment ago, then calls working(). */
 async function workingNow(opts = {}) {
   const records = liveRecords(opts.sessions);
-  const { shells, launchers } = await sharedSnapshot(records, opts);
+  const { shells, launchers, jobs } = await sharedSnapshot(records, opts);
+  lastJobs = Array.isArray(jobs) ? jobs : [];
   return working(Object.assign({}, opts, { records, shells, launchers }));
 }
 
 module.exports = {
-  scan, collect, readState, readLink, busyJobs, liveRecords, working, workingNow, hookWork,
+  scan, collect, readState, readLink, busyJobs, liveRecords, working, workingNow, jobsNow, hookWork,
   SUFFIX, TASKS_SUFFIX, LINK_FILE, MAX_SESSIONS, MAX_PER_SESSION, MAX_ENTRIES, PERSIST_EVERY, SNAPSHOT_FILE, SHARE_MS,
 };

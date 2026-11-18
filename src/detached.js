@@ -12,15 +12,22 @@
  * keeps the environment it started with in /proc/<pid>/environ. A command started with `setsid`, or with
  * `nohup ... &` from a shell that has since exited, is under no claude process any more but still carries both.
  *
- * Only shells and `timeout` are counted, going by argv[0] rather than the name in stat: `setsid nohup bash -c '...'`,
- * a script, a Bash tool shell. Programs that detach themselves, such as Brazil's Java server, the OpenTelemetry server
- * Codex starts, Xvfb, a database server or a `tail -F` nobody stopped, stay running long after the work that started
- * them, and mfns names its namespace holders mfns-holder rather than bash.
+ * Shells and `timeout` are counted, going by argv[0] rather than the name in stat: `setsid nohup bash -c '...'`, a
+ * script, a Bash tool shell. Outside every claude process, so is any program that leads its own session, which is what
+ * `setsid` makes of a command. `setsid nohup bash -c 'python3 job.py'` ends up as python3 itself: bash runs the last
+ * command of a -c string in its own place. Programs that detach themselves without starting a session, such as
+ * Brazil's Java server or a `tail -F` nobody stopped, stay running long after the work that started them and are not
+ * counted. The agent map shows the command of each counted process, so a server that does lead a session can be told
+ * apart from the work it outlived.
  *
  * Below a claude process, where the MCP servers and hooks also run, only the Bash tool's own shell counts. The CLI
  * has every Bash command run a shell snapshot first, so that shell's command line names one. It lives as long as the
  * background command it holds; a foreground command is gone once the turn ends. A `claude -p` worker is found from its
  * own session record instead.
+ *
+ * Those outside the claude processes are also listed as jobs, for the agent map and for the notice a
+ * conversation gets when one of them is gone (src/detachedends.js): only the top of each tree, since the processes a
+ * detached script starts belong to that script.
  */
 const fs = require('fs');
 const path = require('path');
@@ -62,7 +69,8 @@ async function readStat(file, slot) {
 const FULL_EVERY = 6;
 const scans = new Map();
 
-/* pid -> { comm, state, ppid, start } for every process whose stat can be read; start is in clock ticks since boot. */
+/* pid -> { comm, state, ppid, session, start } for every process whose stat can be read; start is in clock ticks since
+   boot. */
 async function processes(proc, { fresh = new Set() } = {}) {
   const out = new Map();
   let names;
@@ -82,7 +90,7 @@ async function processes(proc, { fresh = new Set() } = {}) {
     const open = s.indexOf('('), close = s.lastIndexOf(')');
     if (open < 0 || close < open) return;
     const f = s.slice(close + 2).split(' ');
-    out.set(Number(n), { comm: s.slice(open + 1, close), state: f[0], ppid: Number(f[1]), start: f[19] });
+    out.set(Number(n), { comm: s.slice(open + 1, close), state: f[0], ppid: Number(f[1]), session: Number(f[3]), start: f[19] });
   });
   scans.set(proc, { count: last.count + 1, byPid: out });
   return out;
@@ -123,44 +131,93 @@ function claudeTest(procs, claudePids) {
 
 /*
  * What is running now, given the live session records (src/background.js):
- * - shells: session ids of the conversations with a shell or `timeout` of their own still running;
- * - launchers: worker session id -> launching session id, for the live `claude -p` workers whose launcher still runs.
+ * - shells: session ids of the conversations with a shell, `timeout` or session leader of their own still running;
+ * - launchers: worker session id -> launching session id, for the live `claude -p` workers whose launcher still runs;
+ * - jobs: { session, pid, start, startedAt, kind, command } for the jobs outside the claude processes, by session id
+ *   and pid. startedAt is in ms, or null when the boot time cannot be read; kind is shell or leader.
  *   A worker's CLAUDE_PID names the claude process whose Bash tool started it. A pid can be reused, so the process now
  *   holding it counts only if it started before the worker.
  */
-/* Session id per process: the CLAUDE_CODE_SESSION_ID in its environment if argv[0] is one of STARTERS, else ''.
-   Keyed by pid, start time and name, which together change when the pid is reused or the process runs another
-   program, so each process is read once rather than on every snapshot. */
+/* Each process's kind and conversation, or NONE. Keyed by pid, start time, name and session, which together
+   change when the pid is reused, the process runs another program or starts a session, so a process is read again only
+   when one of them changes. */
+const NONE = Object.freeze({ id: '' });
 const startedBy = new Map();
+/* A program started through the dynamic loader by hand, as the AWS CLI's wrapper does, is shown without the loader and
+   its options, which would otherwise fill the start of the line. */
+const MAX_COMMAND = 1000;
+const LOADER = /^ld(-linux)?[\w.-]*\.so(\.\d+)*$/;
+const LOADER_OPTIONS = new Set(['--library-path', '--argv0', '--preload', '--audit', '--glibc-hwcaps-prepend', '--glibc-hwcaps-mask']);
+const commandOf = (args) => {
+  let a = args.split('\0').filter(Boolean);
+  if (a.length > 1 && LOADER.test(path.basename(a[0]))) {
+    let i = 1;
+    while (i < a.length && a[i].startsWith('--')) i += LOADER_OPTIONS.has(a[i]) ? 2 : 1;
+    if (i < a.length) a = a.slice(i);
+  }
+  return a.join(' ').replace(/\s+/g, ' ').trim().slice(0, MAX_COMMAND);
+};
+/* Clock ticks per second in /proc/<pid>/stat: USER_HZ, which is 100 on every architecture Linux runs VS Code on. */
+const TICKS = 100;
+/* The boot time of each /proc root, in ms, from the btime line of its stat file. */
+const boots = new Map();
+async function bootMs(proc) {
+  if (boots.has(proc)) return boots.get(proc);
+  const m = /^btime (\d+)$/m.exec((await read(path.join(proc, 'stat'), 'latin1')) || '');
+  const ms = m ? Number(m[1]) * 1000 : null;
+  boots.set(proc, ms);
+  return ms;
+}
 
 /* Per /proc root, the pids that were counted as running shells in the last snapshot: their state is read every time. */
 const shellPids = new Map();
 async function snapshot({ proc = '/proc', records = [] } = {}) {
-  const shells = new Set(), launchers = new Map(), counted = new Set();
+  const shells = new Set(), launchers = new Map(), counted = new Set(), jobs = [];
   const procs = await processes(proc, { fresh: shellPids.get(proc) });
-  if (!procs.size) return { shells, launchers };
+  if (!procs.size) return { shells, launchers, jobs };
   const { isClaude, under } = claudeTest(procs, new Set(records.map((r) => r.pid)));
   const candidates = [...procs].filter(([pid, p]) => p.state !== 'Z' && p.state !== 'X' && !isClaude(pid));
-  const keep = new Map();
+  const keep = new Map(), outside = new Map();
   await inBatches(candidates, async ([pid, p]) => {
     // Whether it is below a claude process is part of the key: a process reparented to init is read again.
     const below = under(p.ppid);
-    const key = proc + '\0' + pid + ':' + p.start + ':' + p.comm + (below ? ':c' : '');
-    let id = startedBy.get(key);
-    if (id === undefined) {
-      id = '';
-      const found = envValue(await read(path.join(proc, String(pid), 'environ')), SESSION_KEY);
-      if (SESSION.test(found)) {
+    const key = proc + '\0' + pid + ':' + p.start + ':' + p.comm + ':' + p.session + (below ? ':c' : '');
+    let found = startedBy.get(key);
+    if (found === undefined) {
+      found = NONE;
+      const sid = envValue(await read(path.join(proc, String(pid), 'environ')), SESSION_KEY);
+      if (SESSION.test(sid)) {
         const args = (await read(path.join(proc, String(pid), 'cmdline'), 'latin1')) || '';
-        if (STARTERS.has(path.basename(args.split('\0')[0])) && (!below || SNAPSHOT.test(args))) id = found.toLowerCase();
+        const shell = STARTERS.has(path.basename(args.split('\0')[0]));
+        const kind = shell && (!below || SNAPSHOT.test(args)) ? 'shell' : !shell && !below && p.session === pid ? 'leader' : '';
+        if (kind) found = { id: sid.toLowerCase(), kind, command: commandOf(args) };
       }
     }
-    keep.set(key, id);
-    if (id) { shells.add(id); counted.add(pid); }
+    keep.set(key, found);
+    if (!found.id) return;
+    shells.add(found.id);
+    counted.add(pid);
+    if (!below) outside.set(pid, found);
   });
   shellPids.set(proc, counted);
   startedBy.clear();
   for (const [k, v] of keep) startedBy.set(k, v);
+  const boot = outside.size ? await bootMs(proc) : null;
+  for (const [pid, f] of outside) {
+    let top = true;
+    for (let q = procs.get(pid).ppid, hops = 0; q > 1 && hops < MAX_DEPTH; hops++) {
+      const o = outside.get(q);
+      if (o && o.id === f.id) { top = false; break; }
+      const info = procs.get(q);
+      if (!info) break;
+      q = info.ppid;
+    }
+    if (!top) continue;
+    const start = procs.get(pid).start;
+    jobs.push({ session: f.id, pid, start: String(start), startedAt: boot === null ? null : boot + Math.round(Number(start) * 1000 / TICKS),
+      kind: f.kind, command: f.command });
+  }
+  jobs.sort((a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : a.pid - b.pid));
   const byPid = new Map(records.map((r) => [r.pid, r]));
   await inBatches(records, async (r) => {
     if (!/^sdk-/.test(r.entrypoint || '') || r.kind === 'bg' || !SESSION.test(r.sessionId || '')) return;
@@ -170,7 +227,7 @@ async function snapshot({ proc = '/proc', records = [] } = {}) {
     if (!a || !b || !(Number(a.start) <= Number(b.start))) return;
     launchers.set(r.sessionId.toLowerCase(), launcher.sessionId.toLowerCase());
   });
-  return { shells, launchers };
+  return { shells, launchers, jobs };
 }
 
 module.exports = { snapshot, processes, STARTERS, SNAPSHOT };

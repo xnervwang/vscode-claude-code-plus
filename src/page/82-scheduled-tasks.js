@@ -2,7 +2,8 @@
 // Copyright (c) 2026, Xnerv Wang
 // All rights reserved.
 
-// This session's scheduled prompts and the detached sessions it started, as sections of the official agent map.
+// Sections added to the official agent map: the commands this session left running detached, its scheduled prompts, and
+// the `claude --bg` sessions it started.
 // Fragment of the in-page script - see README.md in this folder.
 
   // Everything here runs inside the panel's own render, so a throw would take the dialog - and on past evidence the
@@ -273,12 +274,78 @@
     return h('div', { style: { marginBottom: '16px' }, children: kids });
   };
 
+  /*
+   * The commands this conversation left running detached, which the extension host finds among the machine's processes
+   * (src/detached.js). Claude Code keeps no account of them, and they are what keeps the conversation's dot green once
+   * its turn is over; the command line shows whether one is the work itself or, say, a server a build left behind.
+   */
+  var myDetached = function(){
+    if (isOff('detachedCommands')) return [];
+    var sid = sigValue('sessionId');
+    if (!sid) return [];
+    var all = readProp('--cce-detached'), out = [];
+    for (var i = 0; i < all.length; i++) {
+      var j = all[i];
+      if (j && j.session === sid && typeof j.pid === 'number') out.push(j);
+    }
+    out.sort(function(a, b){ return (b.startedAt || 0) - (a.startedAt || 0); });
+    return out;
+  };
+  /* The panel renders the footer button and the agent map from its own state, which a new stylesheet does not touch.
+     Reading a signal during those renders subscribes them to it, so bumping it redraws them when a stylesheet changes
+     the detached commands. */
+  var detachedTick = null, detachedSeen = null;
+  var detachedRenders = function(){
+    if (!detachedTick && typeof window.__cceSignal === 'function') detachedTick = window.__cceSignal(0);
+    return detachedTick ? detachedTick.value : 0;
+  };
+  window.__cceStyleArrived = function(){
+    try {
+      var now = JSON.stringify(myDetached());
+      if (now === detachedSeen) return;
+      detachedSeen = now;
+      bgCountsAt = 0;
+      if (detachedTick) detachedTick.value = detachedTick.value + 1;
+    } catch (e) {}
+  };
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var startText = function(ms){
+    var d = new Date(ms), now = new Date();
+    var t = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    return d.toDateString() === now.toDateString() ? t : MONTHS[d.getMonth()] + ' ' + d.getDate() + ' ' + t;
+  };
+  var DETACHED_CUT = 120;
+  var detachedRow = function(h, j){
+    var cmd = String(j.command || '');
+    var shown = cmd.length > DETACHED_CUT ? cmd.slice(0, DETACHED_CUT - 1) + '\u2026' : cmd;
+    var when = j.startedAt > 0 ? ' · started ' + startText(j.startedAt) + ' (' + bgSpan(Date.now() - j.startedAt) + ' ago)' : '';
+    return h('div', { style: { margin: '6px 0' }, title: cmd, children: [
+      h('code', { style: { wordBreak: 'break-all', fontSize: '0.92em' }, children: [shown || '(command line not read)'] }),
+      h('div', { style: { color: DIM }, children: ['pid ' + j.pid + when] }),
+    ] });
+  };
+  var DETACHED_NOTE = 'This conversation left these commands running outside Claude Code: a shell or script that outlasted '
+                    + 'the command that started it, or a program started with setsid. They keep the conversation\'s dot green. '
+                    + 'Claude Code does not wake the conversation when one stops.';
+  var detachedSection = function(h, list){
+    var kids = [h('div', {
+      style: { color: DIM, fontSize: '1em', marginBottom: '4px' },
+      title: DETACHED_NOTE,
+      children: [list.length + (list.length === 1 ? ' detached command' : ' detached commands') + ' · running, started from this conversation'],
+    })];
+    for (var i = 0; i < list.length; i++) kids.push(detachedRow(h, list[i]));
+    return h('div', { style: { marginBottom: '16px' }, children: kids });
+  };
+
   // Called by the panel with its own element factory, so this returns a real element tree rather than text. null is how
   // a child says it has nothing to add, which is the ordinary case.
   window.__cceSchedule = function(h){
     try {
       if (typeof h !== 'function') return null;
+      detachedRenders();
       var parts = [];
+      var det = myDetached();
+      if (det.length) parts.push(detachedSection(h, det));
       var sched = mySchedules();
       if (sched.length) parts.push(scheduleSection(h, sched));
       var bgs = myBackground();
@@ -289,7 +356,7 @@
   };
 
   // The footer asks for these on every one of its renders, so the answer is held briefly rather than recomputed each time.
-  var bgCountsAt = 0, bgCounts = { timers: 0, bg: 0, live: 0, waiting: 0, tasks: 0 };
+  var bgCountsAt = 0, bgCounts = { detached: 0, timers: 0, bg: 0, live: 0, waiting: 0, tasks: 0 };
   /* The commands running in the background - a build, a test run, a `sleep` used as a timer. The official agent map
      already lists them under its own heading, but its button appears only once the conversation has started an agent,
      so a conversation whose only background work is a command had no way to the list short of typing /tasks. The
@@ -299,6 +366,7 @@
     return m && typeof m.size === 'number' ? m.size : 0;
   };
   var ourCounts = function(){
+    detachedRenders();
     var now = Date.now();
     if (now - bgCountsAt < 500) return bgCounts;
     bgCountsAt = now;
@@ -307,13 +375,14 @@
       if (bgLive(bgs[i])) live++;
       if (bgs[i].state === 'blocked') waiting++;
     }
-    bgCounts = { timers: mySchedules().length, bg: bgs.length, live: live, waiting: waiting, tasks: runningTasks() };
+    bgCounts = { detached: myDetached().length, timers: mySchedules().length, bg: bgs.length, live: live, waiting: waiting,
+      tasks: runningTasks() };
     return bgCounts;
   };
   // Opens the footer button: anything of ours to show is reason enough, finished sessions included, since their results
   // are what someone comes to read.
   window.__cceScheduleCount = function(){
-    try { var c = ourCounts(); return c.timers + c.bg + c.tasks; } catch (e) { return 0; }
+    try { var c = ourCounts(); return c.detached + c.timers + c.bg + c.tasks; } catch (e) { return 0; }
   };
 
   // The button's own label counts agents, so on a session with only our kinds it would read "0 agents". Detached
@@ -322,10 +391,12 @@
     try {
       if (typeof official !== 'string') return official;
       var c = ourCounts(), extra = [];
+      // Running work first.
+      if (c.detached) extra.push(c.detached + ' detached');
       if (c.timers) extra.push(c.timers + (c.timers === 1 ? ' timer' : ' timers'));
       if (c.tasks) extra.push(c.tasks + (c.tasks === 1 ? ' task' : ' tasks'));
       if (c.live) extra.push(c.live + ' bg' + (c.waiting ? ' (' + c.waiting + ' waiting)' : ''));
-      else if (c.bg && !(count > 0) && !c.timers && !c.tasks) extra.push(c.bg + ' bg done');
+      else if (c.bg && !(count > 0) && !c.timers && !c.tasks && !c.detached) extra.push(c.bg + ' bg done');
       if (!extra.length) return official;
       return count > 0 ? official + ' · ' + extra.join(' · ') : extra.join(' · ');
     } catch (e) { return official; }

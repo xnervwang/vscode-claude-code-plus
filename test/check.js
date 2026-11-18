@@ -1600,7 +1600,7 @@ console.log('\nscheduled prompts');
     for (let i = 0; i < 5; i++) sb.window.__cceSchedule(h);
     const setup = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '05-page-setup.js'), 'utf8');
     const cleared = (setup.match(/pinsCache = null; propCache = \{\};/g) || []).length;
-    if (reads === 2 && cleared === 2) ok('five renders of the agent map read each of its two properties once, and a stylesheet arriving clears them');
+    if (reads === 3 && cleared === 2) ok('five renders of the agent map read each of its three properties once, and a stylesheet arriving clears them');
     else bad(`five renders read the computed style ${reads} times; the two ways a stylesheet arrives clear the reads ${cleared} time(s)`);
   }
 
@@ -2218,6 +2218,71 @@ console.log('\nbackground sessions');
   else bad('the switch left the section or the count in place');
 
   fs.rmSync(root, { recursive: true, force: true });
+}
+
+/* The commands a conversation left running detached, host to page: carried in the stylesheet, listed in that
+   conversation's agent map with the command, pid and start, and counted on the Agents button. */
+console.log('\ndetached commands in the agent map');
+{
+  const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+  const SID = 'abcdef01-0000-4000-8000-000000000001', OTHER = 'abcdef01-0000-4000-8000-000000000002';
+  const long = 'python3 scripts/driver.py ' + 'x'.repeat(200);
+  const jobs = [
+    { session: SID, pid: 4242, start: '9', startedAt: Date.now() - 25 * 60000, kind: 'leader', command: 'java -jar build-server.jar' },
+    { session: SID, pid: 4343, start: '9', startedAt: Date.now() - 2 * 60000, kind: 'shell', command: long },
+    { session: OTHER, pid: 4444, start: '9', startedAt: Date.now(), kind: 'leader', command: 'sleep 99' },
+  ];
+  const css = webview.liveCss({ enabled: true, detached: jobs });
+  const off = webview.liveCss({ enabled: true, detached: jobs, off: ['detachedCommands'] });
+  const packed = (css.match(/--cce-detached:"([A-Za-z0-9+/=]+)"/) || [])[1] || '';
+  const carried = packed ? JSON.parse(Buffer.from(packed, 'base64').toString('utf8')) : [];
+  same([!!packed, off.includes('--cce-detached'), Object.keys(carried[0] || {}).sort()], [true, false, ['command', 'pid', 'session', 'startedAt']],
+    'the jobs ride in the stylesheet with only what the page shows, and the switch keeps them out');
+  const calls = [];
+  const h = (type, props) => { calls.push({ type, props }); return { type, props }; };
+  const offNow = { on: false };
+  const make = (sid) => {
+    const env = {
+      window: {}, document: { documentElement: {} }, navigator: {},
+      getComputedStyle: () => ({ getPropertyValue: (name) => (name === '--cce-detached' ? `"${packed}"` : '') }),
+      atob: (x) => Buffer.from(x, 'base64').toString('binary'), TextDecoder, console,
+      sigValue: (name) => (name === 'sessionId' ? sid : undefined),
+      isOff: (k) => offNow.on && k === 'detachedCommands',
+    };
+    env.window.__cceSignal = (v) => ({ value: v });
+    new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '82-scheduled-tasks.js'), 'utf8')}})()`,
+      { filename: '82-scheduled-tasks.js' }).runInNewContext(env);
+    return env.window;
+  };
+  const api = make(SID);
+  const tree = api.__cceSchedule(h);
+  const flat = JSON.stringify(calls);
+  const codes = calls.filter((c) => c.type === 'code').map((c) => c.props.children[0]);
+  const lines = calls.filter((c) => c.type === 'div' && Array.isArray(c.props.children) && /^pid \d+/.test(c.props.children[0])).map((c) => c.props.children[0]);
+  same([!!tree, flat.includes('2 detached commands'), (codes[0] || '').length, (codes[0] || '').endsWith('\u2026'), codes[1], flat.includes('sleep 99')],
+    [true, true, 120, true, 'java -jar build-server.jar', false],
+    'the section lists this conversation\'s commands, newest first, a long one cut short, and none of another conversation\'s');
+  same([/^pid 4343 · started \d\d:\d\d \(2 min ago\)$/.test(lines[0] || ''), /^pid 4242 · started \d\d:\d\d \(25 min ago\)$/.test(lines[1] || ''),
+    calls.some((c) => c.props && c.props.title === long)], [true, true, true], 'each row gives the pid and when it started, with the whole command on hover');
+  const bare = calls.filter((c) => c.props && 'children' in c.props && !Array.isArray(c.props.children));
+  same([bare.length, api.__cceAgentsLabel('3 agents', 3), api.__cceAgentsLabel('0 agents', 0), api.__cceScheduleCount()],
+    [0, '3 agents · 2 detached', '2 detached', 2], 'the Agents button counts them first and opens for them alone');
+  {
+    // The signal the footer reads during its render; each stylesheet with different commands moves it.
+    let made = null;
+    const fresh = make(SID);
+    fresh.__cceSignal = (v) => (made = { value: v });
+    fresh.__cceScheduleCount();
+    const ticks = [];
+    fresh.__cceStyleArrived(); ticks.push(made && made.value);
+    fresh.__cceStyleArrived(); ticks.push(made && made.value);
+    same(ticks, [1, 1], 'a stylesheet with different commands makes the footer and the map render again, and one with the same commands does not');
+  }
+  const other = make('abcdef01-0000-4000-8000-000000000003');
+  offNow.on = true;
+  const offApi = make(SID);
+  same([other.__cceSchedule(h), offApi.__cceSchedule(h), offApi.__cceAgentsLabel('3 agents', 3)], [null, null, '3 agents'],
+    'a conversation with none, or the switch off, shows and counts nothing');
 }
 
 console.log('\ninstalled copy');
@@ -8371,27 +8436,32 @@ console.log('\nconversations whose background sessions are busy');
         const third = await d.snapshot({ proc, records });
         const plans = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cce-share-'));
         const sessions = path.join(plans, 'sessions');
-        fs.writeFileSync(path.join(plans, bg.SNAPSHOT_FILE), JSON.stringify({ at: Date.now(), shells: ['ffffffff-0000-4000-8000-000000000009'], launchers: [] }));
+        fs.writeFileSync(path.join(plans, bg.SNAPSHOT_FILE), JSON.stringify({ at: Date.now(), shells: ['ffffffff-0000-4000-8000-000000000009'], launchers: [],
+          jobs: [{ session: 'ffffffff-0000-4000-8000-000000000009', pid: 42, start: '7', startedAt: null, kind: 'leader', command: 'python3 job.py' }] }));
         const shared = await bg.workingNow({ dir: plans, sessions });
-        // A file from a build that wrote the set under the old key.
+        const sharedJobs = bg.jobsNow();
+        // A file from a build that listed no jobs, under the key this build writes and under the one before it.
+        fs.writeFileSync(path.join(plans, bg.SNAPSHOT_FILE), JSON.stringify({ at: Date.now(), shells: ['ffffffff-0000-4000-8000-000000000008'], launchers: [] }));
+        const noJobs = await bg.workingNow({ dir: plans, sessions });
         fs.writeFileSync(path.join(plans, bg.SNAPSHOT_FILE), JSON.stringify({ at: Date.now(), outside: ['ffffffff-0000-4000-8000-000000000008'], launchers: [] }));
         const older = await bg.workingNow({ dir: plans, sessions });
-        fs.writeFileSync(path.join(plans, bg.SNAPSHOT_FILE), JSON.stringify({ at: Date.now() - 60000, shells: ['ffffffff-0000-4000-8000-000000000009'], launchers: [] }));
+        fs.writeFileSync(path.join(plans, bg.SNAPSHOT_FILE), JSON.stringify({ at: Date.now() - 60000, shells: ['ffffffff-0000-4000-8000-000000000009'], launchers: [], jobs: [] }));
         const fresh = await bg.workingNow({ dir: plans, sessions });
         const rewritten = JSON.parse(fs.readFileSync(path.join(plans, bg.SNAPSHOT_FILE), 'utf8'));
         fs.rmSync(plans, { recursive: true, force: true });
         process.stdout.write(JSON.stringify({ reread, second: [...second.shells].sort(), third: [...third.shells].sort(),
-          shared: [...shared], older: [...older], fresh: fresh.has('ffffffff-0000-4000-8000-000000000009'),
-          rewrittenAge: Date.now() - rewritten.at }));
+          shared: [...shared], sharedJobs: sharedJobs.map((j) => j.pid), noJobs: noJobs.has('ffffffff-0000-4000-8000-000000000008'),
+          older: older.has('ffffffff-0000-4000-8000-000000000008'), fresh: fresh.has('ffffffff-0000-4000-8000-000000000009'),
+          rewrittenAge: Date.now() - rewritten.at, rewrittenJobs: Array.isArray(rewritten.jobs) }));
       })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 60000 }));
     if (cachedRun.reread === 0 && JSON.stringify(cachedRun.second) === JSON.stringify([S(1), S(2), S(4), S(5)])
         && JSON.stringify(cachedRun.third) === JSON.stringify([S(1), S(4), S(5)])) {
       ok('a process\'s environment is read on the first snapshot only, and again when its pid is reused');
     } else bad(`reading environments again: ${JSON.stringify(cachedRun)}`);
-    if (JSON.stringify(cachedRun.shared) === JSON.stringify(['ffffffff-0000-4000-8000-000000000009']) && cachedRun.fresh === false
-        && JSON.stringify(cachedRun.older) === JSON.stringify(['ffffffff-0000-4000-8000-000000000008'])
-        && cachedRun.rewrittenAge >= 0 && cachedRun.rewrittenAge < 30000) {
-      ok('a /proc snapshot under 9 s old from another window is reused, under either the key this build writes or the one before it; an older one is replaced with a new reading');
+    if (JSON.stringify(cachedRun.shared) === JSON.stringify(['ffffffff-0000-4000-8000-000000000009']) && JSON.stringify(cachedRun.sharedJobs) === '[42]'
+        && cachedRun.fresh === false && cachedRun.noJobs === false && cachedRun.older === false
+        && cachedRun.rewrittenAge >= 0 && cachedRun.rewrittenAge < 30000 && cachedRun.rewrittenJobs) {
+      ok('a /proc snapshot under 9 s old from another window is reused with its jobs; one without jobs, from an earlier build, or an older one, is replaced with a new reading');
     } else bad(`the shared /proc snapshot: ${JSON.stringify(cachedRun)}`);
     /* Which stat files each snapshot reads. The first snapshot and every sixth after it read all of them; the others
        read only new processes, those whose parent is gone, and those counted as running shells. */
@@ -8425,6 +8495,43 @@ console.log('\nconversations whose background sessions are busy');
       ok('a /proc snapshot reads every stat on the first and every sixth one after; otherwise only new processes, reparented ones and those counted as running shells');
     } else bad(`stat files read by each snapshot: ${JSON.stringify(statRun)}`);
   } finally { fs.rmSync(root3, { recursive: true, force: true }); }
+  /* A program started with setsid leads a session of its own; outside every claude process it counts too, and the
+     counted processes there are listed as jobs, the top of each tree only. */
+  const root4 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-proc-jobs-'));
+  try {
+    const S = (n) => `eeeeeeee-0000-4000-8000-0000000000${n}`;
+    const put = (pid, { comm, ppid = 1, sid = 0, start = 100, argv, env = {} }) => {
+      const d = path.join(root4, String(pid));
+      fs.mkdirSync(d);
+      fs.writeFileSync(path.join(d, 'stat'), `${pid} (${comm}) S ${ppid} 0 ${sid} ${Array(15).fill(0).join(' ')} ${start} 0 0\n`);
+      fs.writeFileSync(path.join(d, 'cmdline'), (argv || [comm]).join('\0') + '\0');
+      fs.writeFileSync(path.join(d, 'environ'), Object.entries(Object.assign({ HOME: '/h' }, env)).map(([k, v]) => `${k}=${v}`).join('\0') + '\0');
+    };
+    fs.writeFileSync(path.join(root4, 'stat'), 'cpu 0 0 0 0\nbtime 1700000000\n');
+    put(100, { comm: 'claude' });
+    put(900, { comm: 'python3', sid: 900, start: 120, argv: ['python3', 'job.py', '--all'], env: { CLAUDE_CODE_SESSION_ID: S('0a') } });
+    put(901, { comm: 'python3', ppid: 900, sid: 900, argv: ['python3', '-c', 'work()'], env: { CLAUDE_CODE_SESSION_ID: S('0a') } });
+    put(902, { comm: 'node', ppid: 100, sid: 902, argv: ['node', 'mcp.js'], env: { CLAUDE_CODE_SESSION_ID: S('09') } });
+    put(903, { comm: 'java', sid: 1, argv: ['/jdk/bin/java', '-jar', 'server.jar'], env: { CLAUDE_CODE_SESSION_ID: S('0b') } });
+    put(905, { comm: 'bash', argv: ['bash', 'run.sh'], env: { CLAUDE_CODE_SESSION_ID: S('0c') } });
+    put(904, { comm: 'sleep', ppid: 905, sid: 904, argv: ['sleep', '99'], env: { CLAUDE_CODE_SESSION_ID: S('0c') } });
+    put(906, { comm: 'ld-linux-x86-64', sid: 906, argv: ['/lib64/ld-linux-x86-64.so.2', '--library-path', '/x/lib', '/x/bin/python3', '/x/aws', 'bedrock'],
+      env: { CLAUDE_CODE_SESSION_ID: S('0d') } });
+    put(907, { comm: 'python3', sid: 907, argv: ['python3', 'mine.py'] });
+    const got = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+      require(${JSON.stringify(path.join(__dirname, '..', 'src', 'detached.js'))})
+        .snapshot(${JSON.stringify({ proc: root4, records: [] })})
+        .then((r) => process.stdout.write(JSON.stringify({ shells: [...r.shells].sort(), jobs: r.jobs })))
+        .catch((e) => process.stdout.write(JSON.stringify({ error: e.message })));`], { encoding: 'utf8' }));
+    if (JSON.stringify(got.shells) === JSON.stringify([S('0a'), S('0c'), S('0d')])) {
+      ok('a program that leads its own session outside every claude process counts as work running, under the conversation it carries');
+    } else bad(`with session leaders, the shells were ${JSON.stringify(got)}`);
+    const jobs = (got.jobs || []).map((j) => [j.session.slice(-2), j.pid, j.kind, j.start, j.startedAt, j.command]);
+    if (JSON.stringify(jobs) === JSON.stringify([['0a', 900, 'leader', '120', 1700000001200, 'python3 job.py --all'],
+      ['0c', 905, 'shell', '100', 1700000001000, 'bash run.sh'], ['0d', 906, 'leader', '100', 1700000001000, '/x/bin/python3 /x/aws bedrock']])) {
+      ok('the jobs list the top process of each tree with its command and start, the dynamic loader left out of the command; not a process below a claude process, one that leads no session, or one with no conversation');
+    } else bad(`the jobs were ${JSON.stringify(jobs)}`);
+  } finally { fs.rmSync(root4, { recursive: true, force: true }); }
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   if (/i && i\.state === 'idle' && bgWorking\.has\(i\.sessionId\) \? Object\.assign\(\{\}, i, \{ state: 'running' \}\)/.test(ext)
       && /globalThis\.__cceRefreshTabIcons\(\)/.test(ext) && /globalThis\.__cceSendSessionStates\(\)/.test(ext)
@@ -10316,7 +10423,7 @@ console.log('\nthe token mode');
       && JSON.stringify(told[0][1]) === '["Switch to Custom"]') {
       ok('outside Custom, changing a feature\'s own setting says once that it has no effect, with a button to switch to Custom');
     } else bad(`the notices were ${JSON.stringify(told)}`);
-    if (typeof r.status === 'string' && /^Token mode: Essential features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief off$/.test(r.status)) {
+    if (typeof r.status === 'string' && /^Token mode: Essential features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief off, notices when a detached command stops off$/.test(r.status)) {
       ok('Show Status names the mode and what it leaves running');
     } else bad(`Show Status says ${JSON.stringify(r.status)}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
@@ -10368,7 +10475,7 @@ console.log('\nthe token mode');
   const tm = require('../src/token-mode');
   const mine = tm.SWITCHES.filter((x) => x.key.startsWith('claudeCodePlus.')).map((x) => x.key);
   const short = mine.filter((k) => !props[k] || !String(props[k].markdownDescription || '').trim().endsWith(tm.ONLY_IN_CUSTOM));
-  if (mine.length === 3 && !short.length) ok('each of the three features\' settings ends its description saying it is used only in Custom');
+  if (mine.length === 4 && !short.length) ok('each of the four features\' settings ends its description saying it is used only in Custom');
   else bad(`settings without the Custom sentence: ${JSON.stringify(short)} of ${JSON.stringify(mine)}`);
   const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
   const sec = readme.slice(readme.indexOf('## What it costs in tokens'));
@@ -10376,7 +10483,7 @@ console.log('\nthe token mode');
   const cols = head.split('|').map((c) => c.trim()).filter(Boolean).slice(1);
   const custom = lines.filter((l) => l.startsWith('| ') && l.trim().endsWith('|')).map((l) => l.split('|').map((c) => c.trim()).filter(Boolean)).filter((c) => c.length === 5).map((c) => c[4]);
   if (JSON.stringify(cols) === JSON.stringify(tm.MODES.map((m) => m.label)) && mine.every((k) => custom.includes('`' + k + '`'))) {
-    ok('the README\'s token section opens with the four modes, its Custom column naming the three settings');
+    ok('the README\'s token section opens with the four modes, its Custom column naming the four settings');
   } else bad(`the README's mode table has columns ${JSON.stringify(cols)} and Custom ${JSON.stringify(custom)}`);
 }
 
@@ -10483,6 +10590,65 @@ const repo = path.join(__dirname, '..');
   await require('./shared-copies.js')(t, repo);
   console.log('\nthe package');
   await require('./pack-check.js')(t, repo);
+
+  /* The notice a conversation gets once a command it left running detached is no longer running. */
+  console.log('\ndetached commands that are no longer running');
+  {
+    const de = require('../src/detachedends');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-ends-'));
+    try {
+      const A = 'aaaaaaaa-1111-4111-8111-000000000001', B = 'aaaaaaaa-1111-4111-8111-000000000002';
+      const job = (session, pid, start, command, startedAt) => ({ session, pid, start: String(start), startedAt, kind: 'leader', command });
+      const t0 = 1800000000000;
+      const j1 = job(A, 10, 5, 'python3 a.py', t0 - 3600e3), j2 = job(A, 11, 6, 'python3 b.py', t0 - 60e3), j3 = job(B, 12, 7, 'sleep 99', t0);
+      const reused = Object.assign({}, j2, { start: '99', command: 'vim' });
+      const first = de.update({ dir, jobs: [j1, j2, j3], now: t0 });
+      const second = de.update({ dir, jobs: [reused, j3], now: t0 + 10e3 });
+      const stale = de.update({ dir, jobs: [j1, reused, j3], now: t0 + 12e3 });
+      const third = de.update({ dir, jobs: [reused, j3], now: t0 + 20e3 });
+      eq([first.length, second.map((e) => e.pid), stale.length, third.length], [0, [10, 11], 0, 0],
+        'a job missing from the scan is recorded once, a reused pid counts as the old job ending, and a stale scan from another window records nothing again');
+      const posts = [];
+      let answer = true;
+      const post = async (address, text) => { posts.push([address, text]); return answer; };
+      const inbox = (id) => (id === A ? '/run/a.sock' : id === B && answer !== 'b-off' ? '/run/b.sock' : null);
+      const early = await de.deliver({ dir, inbox, post, now: t0 + 15e3 });
+      answer = false;
+      const refused = await de.deliver({ dir, inbox, post, now: t0 + 26e3 });
+      answer = true;
+      const later = await de.deliver({ dir, inbox, post, now: t0 + 27e3 });
+      const twice = await de.deliver({ dir, inbox, post, now: t0 + 40e3 });
+      eq([early.length, refused.length, later.map((n) => [n.session, n.ends.map((e) => e.pid).sort()]), twice.length, posts.length],
+        [0, 0, [[A, [10, 11]]], 0, 2], 'the ends wait until none has come in for a while, go out in one notice, are tried again when the inbox refuses, and are sent once');
+      const text = posts[1] && posts[1][1];
+      eq([posts[1] && posts[1][0], /^Claude Code Plus notice, not a message from the user: commands this conversation left running detached are no longer running\. Their exit codes cannot be known; look at their output if you need the result\.\n/.test(text || ''),
+        (text || '').includes('- `python3 a.py` (pid 10, started 2027-01-15 07:00 UTC, ran for about 60 min, found gone 2027-01-15 08:00 UTC)'),
+        (text || '').includes('`python3 b.py` (pid 11,')],
+        ['/run/a.sock', true, true, true], 'the notice says it is not from the user, that the exit codes are unknown, and names each command with its pid and times');
+      eq(de.noticeText([{ pid: 3, command: 'x', goneAt: t0 }]).split('\n')[0],
+        'Claude Code Plus notice, not a message from the user: a command this conversation left running detached is no longer running. Its exit code cannot be known; look at its output if you need the result.',
+        'one command is named in the singular');
+      // B's job ends while B is not running: kept, then sent once it runs; one recorded with the notices off is never sent.
+      answer = 'b-off';
+      de.update({ dir, jobs: [reused], now: t0 + 50e3 });
+      const waiting = await de.deliver({ dir, inbox, post, now: t0 + 70e3 });
+      answer = true;
+      const woke = await de.deliver({ dir, inbox, post, now: t0 + 80e3 });
+      de.update({ dir, jobs: [reused, job(B, 13, 8, 'sleep 5', t0)], now: t0 + 90e3 });
+      de.update({ dir, jobs: [reused], now: t0 + 100e3, claim: false });
+      const quiet = await de.deliver({ dir, inbox, post, now: t0 + 200e3 });
+      eq([waiting.length, woke.map((n) => [n.session, n.ends.map((e) => e.pid)]), quiet.length], [0, [[B, [12]]], 0],
+        'a conversation that is not running gets its ends once it runs again, and an end seen while the notices are off is not sent later');
+      // An end older than a day is dropped unsent, and every record goes after two days.
+      de.update({ dir, jobs: [reused, job(B, 14, 9, 'sleep 6', t0)], now: t0 + 300e3 });
+      de.update({ dir, jobs: [reused], now: t0 + 310e3 });
+      const dropped = await de.deliver({ dir, inbox, post, now: t0 + 310e3 + de.MAX_PENDING_MS + 1000 });
+      const left = fs.readdirSync(path.join(dir, de.GONE_DIR)).filter((n) => n.endsWith('.json')).length;
+      await de.deliver({ dir, inbox, post, now: t0 + 310e3 + de.MAX_KEEP_MS + 1000 });
+      const gone = fs.readdirSync(path.join(dir, de.GONE_DIR)).filter((n) => n.endsWith('.json')).length;
+      eq([dropped.length, left > 0, gone], [0, true, 0], 'an end older than a day is not sent, and the records are removed after two days');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
 
   /* The stand-in for the model that the window test sends its turns to: the streamed events Claude Code's CLI reads, a
      Bash tool call for a message that asks for one, and text again once the tool's result comes back. */

@@ -158,6 +158,12 @@ function backgroundProperty(list) {
   return `:root{--cce-background:"${Buffer.from(JSON.stringify(list), 'utf8').toString('base64')}";}\n`;
 }
 
+function detachedProperty(list) {
+  if (!Array.isArray(list) || !list.length) return '';
+  const rows = list.map((j) => ({ session: j.session, pid: j.pid, startedAt: j.startedAt, command: j.command }));
+  return `:root{--cce-detached:"${Buffer.from(JSON.stringify(rows), 'utf8').toString('base64')}";}\n`;
+}
+
 /*
  * The pinned conversations, for the pins on the session list - same encoding. Written while pinning is on, even with
  * nothing pinned, because its presence is what tells the page to draw the pins: a stylesheet without it comes from a
@@ -246,6 +252,7 @@ const SWITCHES = [
   'footerViewFilter', // main thread versus one sub-agent
   'footerMute',       // the button that silences the chimes
   'backgroundSessions', // the `claude --bg` sessions a conversation started, in its agent map
+  'detachedCommands', // the commands a conversation left running detached, in its agent map
   'openSessions',     // OPEN SESSIONS at the top of the session list
   'openInTabOrSidebar', // New in tab / New in sidebar, and Resume in tab / Resume in sidebar on the session list
   'deleteArchived',   // Delete in the Archived sessions menu
@@ -277,11 +284,12 @@ function liveCss(opts = {}) {
      and a build that predates a switch treats it as on. Written in SWITCHES order so that every window produces the
      same bytes.
 
-     `on` switches only the marks; the off flags, the agent map's scheduled prompts and background sessions, the pins
-     and the text colors below are written either way. */
+     `on` switches only the marks; the off flags, the agent map's detached commands, scheduled prompts and background
+     sessions, the pins and the text colors below are written either way. */
   if (off.length) css += ':root{' + off.map((k) => `--cce-off-${k}:1;`).join('') + '}\n';
   css += scheduleProperty(opts.tasks);
   if (!off.includes('backgroundSessions')) css += backgroundProperty(opts.background);
+  if (!off.includes('detachedCommands')) css += detachedProperty(opts.detached);
   css += pinsProperty(opts.pins);
   if (!off.includes('sessionColors')) css += colorsProperty(opts.colors);
   css += duplicatesProperty(opts.dups);

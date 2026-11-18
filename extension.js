@@ -29,6 +29,7 @@ const planNames = require('./src/plan-names');
 const stewardView = require('./src/steward-view');
 const stewardMarks = require('./src/steward-marks');
 const stewards = require('./src/stewards');
+const detachedEnds = require('./src/detachedends');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
 const { transcriptOf, writeAtomic } = require('./src/claude-files');
@@ -407,6 +408,7 @@ function start(context, log, renamed, handing = false) {
       off,
       tasks: readTasks(knownDirs()),
       background: off.includes('backgroundSessions') ? [] : background.collect(),
+      detached: off.includes('detachedCommands') ? [] : background.jobsNow() || [],
       pins: pinsOn() ? sessionPins.pageData(sessionPins.read(pinsFile()), sessionPins.retentionDays(), pinMargin()) : null,
       colors: off.includes('sessionColors') || removed() ? null : sessionColors.read(colorsFile()),
       dups: removed() ? [] : dupsList(dupGroups),
@@ -1102,6 +1104,36 @@ function start(context, log, renamed, handing = false) {
     try { writeAtomic(file, JSON.stringify({ at: Date.now(), pid: process.pid, sessions: ids }) + '\n'); }
     catch (_) { /* the next scan */ }
   };
+  /* The notice that a detached command has stopped (src/detachedends.js) adds to the agent's context, so the token mode
+     decides whether it is sent. */
+  const DETACHED_NOTICES = PREFIX + 'detachedEndNotices';
+  const endNoticesOn = () => !!runs(DETACHED_NOTICES);
+  /* A `claude -p` worker is left out: it would take the notice for its next task. */
+  const inboxOf = (id) => {
+    const rec = background.liveRecords().find((r) => r && r.sessionId === id && typeof r.messagingSocketPath === 'string'
+      && !/^sdk-/.test(r.entrypoint || ''));
+    return rec ? rec.messagingSocketPath : null;
+  };
+  let detachedListed = '', delivering = false;
+  const noteDetached = () => {
+    const jobs = background.jobsNow();
+    if (!Array.isArray(jobs)) return;
+    const listed = switchedOff().includes('detachedCommands') ? '' : JSON.stringify(jobs);
+    if (listed !== detachedListed) { detachedListed = listed; writeLiveNow(); }
+    const on = endNoticesOn();
+    try { detachedEnds.update({ dir: planDir(), jobs, claim: on }); } catch (e) { log.appendLine('detached commands: ' + ((e && e.message) || e)); }
+    if (!on || delivering) return;
+    delivering = true;
+    detachedEnds.deliver({ dir: planDir(), inbox: inboxOf, post: (address, text) => stewards.post(address, text) })
+      .then((sent) => {
+        for (const n of sent) {
+          log.appendLine(`told ${n.session} that ${n.ends.length === 1 ? 'a detached command has' : n.ends.length + ' detached commands have'}`
+            + ` stopped: ${n.ends.map((e) => 'pid ' + e.pid).join(', ')}`);
+        }
+      })
+      .catch((e) => log.appendLine('detached command notices: ' + ((e && e.message) || e)))
+      .finally(() => { delivering = false; });
+  };
   /* Each change of the set is logged, and a scan that takes long, so that a dot missing from a tab can be put down
      either to the scan or to the drawing. */
   const readBgWorking = async () => {
@@ -1115,6 +1147,7 @@ function start(context, log, renamed, handing = false) {
     } finally { bgReading = false; }
     if (Date.now() - began > SLOW_SCAN_MS) log.appendLine(`work running: a scan took ${Math.round((Date.now() - began) / 1000)} s`);
     if (!replaced() && !uninstalling() && !removed()) shareWorking(next);
+    if (!replaced() && !uninstalling() && !removed()) noteDetached();
     if (next.size === bgWorking.size && [...next].every((id) => bgWorking.has(id))) return;
     log.appendLine('work running: ' + ([...next].map((id) => id.slice(0, 8)).join(', ') || 'none'));
     bgWorking = next;

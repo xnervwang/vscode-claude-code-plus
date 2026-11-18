@@ -12,7 +12,8 @@
  * A turn whose message contains ASK_TO_RUN is answered with a Bash tool call of RUN instead of text, so that Claude Code
  * stops to ask for permission to run it; the turn that carries the tool's result is answered with text again. One whose
  * message contains ASK_TO_BACKGROUND gets a Bash call of BG_RUN with run_in_background, so the turn can end while the
- * command still runs. One whose message contains ASK_FOR_HELPER gets an Agent call run in the background, whose prompt is
+ * command still runs. One whose message contains ASK_TO_DETACH gets a Bash call of DETACH_RUN, which leaves a program
+ * running in a session of its own, outside Claude Code's account of its background work. One whose message contains ASK_FOR_HELPER gets an Agent call run in the background, whose prompt is
  * HELPER_TASK; the helper's own turns are held until releaseHelper(), so it keeps running for as long as a test needs.
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation.
@@ -26,6 +27,8 @@ const RUN = 'npm test';
 const ASK_TO_BACKGROUND = 'start the long job in the background';
 const BG_RUN = 'sleep 40';
 const ASK_FOR_HELPER = 'ask a helper in the background';
+const ASK_TO_DETACH = 'start the long job detached';
+const DETACH_RUN = 'setsid nohup sleep 45 > /dev/null 2>&1 &';
 const HELPER_TASK = 'Look through notes.txt for the retry delay.';
 
 function sse(res, type, payload) {
@@ -57,6 +60,7 @@ function resultText(ask) {
 const asksToRun = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_RUN); };
 const asksToBackground = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_BACKGROUND); };
 const asksForHelper = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_HELPER); };
+const asksToDetach = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH); };
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
@@ -75,11 +79,12 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const background = asksToBackground(ask);
       const helper = asksForHelper(ask);
       const helping = !helper && isHelper(ask);
-      const tool = background || helper || asksToRun(ask);
+      const detach = asksToDetach(ask);
+      const tool = background || helper || detach || asksToRun(ask);
       const linked = linkAsked(ask);
       const reply = linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).` : plain;
       seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping,
-        parts: lastParts(ask).map((p) => (p && p.type) || typeof p), result: resultText(ask) });
+        parts: lastParts(ask).map((p) => (p && p.type) || typeof p), result: resultText(ask), ask: (lastAsk(ask) || '').slice(0, 400) });
       if (req.method === 'POST' && /\/v1\/messages\/count_tokens$/.test(url)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ input_tokens: 1200 }));
@@ -95,6 +100,7 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const usage = { input_tokens: 1200, cache_creation_input_tokens: 0, cache_read_input_tokens: 40000, output_tokens: 40 };
       const input = helper ? { description: 'Look through the notes', prompt: HELPER_TASK, subagent_type: 'general-purpose', run_in_background: true }
         : background ? { command: BG_RUN, description: 'Start the long job', run_in_background: true }
+          : detach ? { command: DETACH_RUN, description: 'Start the long job detached' }
           : { command: RUN, description: 'Run the test suite' };
       const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name: helper ? 'Agent' : 'Bash', input } : { type: 'text', text: reply };
       const stop = tool ? 'tool_use' : 'end_turn';
@@ -131,4 +137,4 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
     turns: () => seen.filter((s) => s.method === 'POST' && s.stream && /\/v1\/messages(\?|$)/.test(s.url)).length };
 }
 
-module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, LINK_TEXT };
+module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, LINK_TEXT };
