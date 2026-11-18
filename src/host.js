@@ -153,6 +153,19 @@ const EDITS = [
     to: (m, how, where, open) => `if(${how})return{target:(${how}==="cce-pin-to-sidebar"||${how}==="honor-preferred-location"&&${where}==="sidebar")&&!${open}?"sidebar":"panel",`,
   },
   /*
+   * Claude Code hands the sidebar its conversation once the sidebar's page is ready. When the page is created by this
+   * request, it can miss the conversation and start a new one (seen on macOS with Claude Code 2.1.327). So if the
+   * sidebar shows another conversation a few seconds later, the conversation is sent to it once more.
+   */
+  {
+    name: 'a sidebar open that the new sidebar missed is asked again',
+    re: /if\(([\w$]+)\.target==="sidebar"\)\{let ([\w$]+)=([\w$]+)\.activateInSidebar\(([\w$]+),([\w$]+)\);try\{await ([\w$]+)\.commands\.executeCommand\(([^()]*)\)\}catch\(([\w$]+)\)\{throw \3\.clearPendingSidebarActivation\(\2\),\8\}return\}/g,
+    to: (m, r, pend, c, sid, prompt, api, cmd, err) => `if(${r}.target==="sidebar"){let ${pend}=${c}.activateInSidebar(${sid},${prompt});`
+      + `try{await ${api}.commands.executeCommand(${cmd})}catch(${err}){throw ${c}.clearPendingSidebarActivation(${pend}),${err}}`
+      + `if(${sid})setTimeout(()=>{try{if(${c}.sidebarComms&&${c}.sidebarChatShows?.()!==${sid})${c}.activateInSidebar(${sid},${prompt})}catch(cceE){}},4000);`
+      + 'return}',
+  },
+  /*
    * Claude Code's record of the conversations in its tabs, as it reads it at start and before it drops the entries whose
    * tab is missing, and a way to ask which conversations are shown now - in a tab, a restored tab, the sidebar or another
    * window - and which of them are running in another window. This extension reopens the tabs VS Code did not bring back (src/droppedtabs.js). Also a way to tell every

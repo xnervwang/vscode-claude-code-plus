@@ -10778,6 +10778,29 @@ const repo = path.join(__dirname, '..');
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   }
 
+  console.log('\na conversation opened in the sidebar');
+  {
+    /* The sidebar branch of the open command, shaped as in 2.1.327. */
+    const sb = 'async function OP(w,A){let O={target:"sidebar"};if(O.target==="sidebar"){let M=c.activateInSidebar(w,A);try{await Pe.commands.executeCommand(f?"claudeVSCodeSidebarSecondary.focus":"claudeVSCodeSidebar.focus")}catch(V){throw c.clearPendingSidebarActivation(M),V}return}}';
+    const sr = require('../src/edits').applyEdits(sb, [require('../src/host').EDITS.find((e) => e.name === 'a sidebar open that the new sidebar missed is asked again')]);
+    if (sr.error) bad('the sidebar retry edit did not apply: ' + sr.error);
+    else {
+      const run = async (shows) => {
+        const asked = [], timers = [];
+        const senv = { f: true, Pe: { commands: { executeCommand: async () => {} } }, setTimeout: (fn, ms) => { timers.push(ms); fn(); },
+          c: { sidebarComms: {}, sidebarChatShows: () => shows, activateInSidebar: (id, p) => { asked.push(id); return {}; }, clearPendingSidebarActivation() {} } };
+        vm.createContext(senv);
+        vm.runInContext(sr.out, senv);
+        await senv.OP('S1', undefined);
+        return [asked, timers];
+      };
+      const missed = await run('NEW'), shown = await run('S1');
+      if (JSON.stringify(missed) === JSON.stringify([['S1', 'S1'], [4000]]) && JSON.stringify(shown) === JSON.stringify([['S1'], [4000]])) {
+        ok('a sidebar that shows another conversation 4 s after the open is asked once more, and one that shows it is not');
+      } else bad(`the sidebar retry: ${JSON.stringify({ missed, shown })}`);
+    }
+  }
+
   /* The notice a conversation gets once a command it left running detached is no longer running. */
   console.log('\ndetached commands that are no longer running');
   {
