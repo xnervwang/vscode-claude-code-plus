@@ -51,15 +51,25 @@
       imgRedraw();
     });
   };
+  /* A panel reopening a conversation draws its replies before it has the conversation's id, which the host needs to send
+     the image back. Until then the image is asked for again every IMG_SID_WAIT ms, IMG_SID_TRIES times at most. */
+  var IMG_SID_WAIT = 250, IMG_SID_TRIES = 40, imgNoSid = {};
   var imgAsk = function(src){
     var sid = sigValue('sessionId');
-    if (!sid) { imgKeep(src, { state: 'error', reason: 'This panel has no conversation yet.' }); return; }
+    if (!sid) {
+      imgNoSid[src] = (imgNoSid[src] || 0) + 1;
+      if (imgNoSid[src] <= IMG_SID_TRIES) { setTimeout(imgRedraw, IMG_SID_WAIT); return { state: 'loading' }; }
+      imgKeep(src, { state: 'error', reason: 'This panel has no conversation yet.' });
+      return imgFound[src];
+    }
+    delete imgNoSid[src];
     imgWire();
     var id = 'img' + (++imgSeq);
     imgWaiting[id] = src;
     imgKeep(src, { state: 'loading' });
     try { acquireVsCodeApi().postMessage({ type: 'cce_image', id: id, src: src, sessionId: sid }); }
     catch (e) { delete imgWaiting[id]; imgKeep(src, { state: 'error', reason: 'The extension could not be asked for it.' }); }
+    return imgFound[src];
   };
   var imgNote = function(h, src, text){
     return h('span', { style: IMG_BOX, title: src, children: [
@@ -93,7 +103,7 @@
       if (IMG_DATA.test(src)) return h('img', { src: src, alt: label, style: IMG_STYLE });
       if (!IMG_LOCAL.test(src)) return null;
       var got = imgFound[src];
-      if (!got) { imgAsk(src); got = imgFound[src]; }
+      if (!got) got = imgAsk(src);
       if (got.state === 'ok') return h('img', { src: got.url, alt: label, title: label || src, style: IMG_STYLE });
       return imgNote(h, src, got.state === 'loading' ? 'Loading the image…' : got.reason);
     } catch (e) { return null; }
