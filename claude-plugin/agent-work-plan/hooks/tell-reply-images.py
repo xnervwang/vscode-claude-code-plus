@@ -4,22 +4,21 @@
 # All rights reserved.
 # Source: vscode-agent-plus shared/plugin/hooks/tell-reply-images.py; sync-shared.js copies it, so edit it there.
 
-"""Tell the model that the panel shows images in its replies, how to write them, and when that stops being true.
+"""Tell the model that the panel shows images in its replies, and how to link one.
 
-A model does not know the panel draws an image a reply links to, so without this it never draws a chart for the user.
-It is told once a conversation starts, and again after a compaction, which summarises the telling away: where to save
-the file (the conversation's own folder, spelled out, since a model cannot work out the folder name), that the link
-takes an absolute path, and that an image from the web is to be downloaded into that folder first. The panels show an
-image link to a web address only as a plain link and never fetch it, so that an address a page slipped into a reply
-cannot carry anything out; a downloaded copy is how a web image is shown.
+Without it a model never makes a chart for the user. It is told when a conversation starts, and again after a
+compaction, since the summary drops it: where to save the file, naming the conversation's own folder in full because a
+model cannot derive it, that the link takes an absolute path, and that an image from the web is to be downloaded into
+that folder first. The panels show an image link to a web address only as a plain link and never fetch it, so that an
+address a page slipped into a reply cannot carry anything out.
 
 It is said only while all of this holds, so that a model is never told to write links that nothing will draw:
   - the extension wrote `replyImages` on in config.json, which it does only while its option for images in replies is
     on and its panel really draws them (the panel patch is in place, or the agent's build is one the extension has
-    checked). The same option decides whether the panel draws them, so the two are on and off together;
+    checked);
   - the conversation is one the VS Code panel shows (plan_agent.in_panel), not `claude -p`, `codex exec` or a terminal.
-While it does not hold, nothing is said, so the option off costs no tokens. The one exception is a conversation told
-the note since its last compaction: its next message gets a single short sentence saying images are no longer shown.
+Otherwise nothing is said, and the option off costs no tokens. The one exception is a conversation that was given the
+note since its last compaction: its next message gets a single short sentence saying images are no longer shown.
 
 What was said is kept per conversation beside its plan (IMAGES_TOLD_SUFFIX), swept with it.
 """
@@ -48,11 +47,10 @@ def folder_for(payload):
 
 
 def note(folder):
-    return ("This panel shows images in your replies. To show one (a chart, a diagram, a screenshot), save it as a PNG "
-            "or SVG file with an ASCII name in %s (create the folder if it is missing) and put "
-            "![what it shows](%s/<name>.png) in the reply, with that absolute path; do not use relative paths or data: "
-            "URLs. To show an image from the web, download it into that folder with a command and link the local file; "
-            "an image link to a web address is shown only as a link." % (folder, folder))
+    return ("This panel shows images in your replies. To show a chart, diagram or screenshot, save it as a PNG or SVG "
+            "file with an ASCII name in %s (create the folder if needed) and write ![what it shows](<the file's "
+            "absolute path>); do not use relative paths or data: URLs. For an image from the web, download it there "
+            "first: an image link to a web address shows only as a link." % folder)
 
 
 def told_file(payload, directory=None):
@@ -153,7 +151,7 @@ def selftest():
         check("  naming the conversation's own folder", folder and folder in said and folder.endswith(
             "/scratch/-work-repo/5e000000-0000-0000-0000-000000000000"))
         check("  and asking for an absolute path, and for an image from the web to be downloaded first",
-              "absolute path" in said and "download it into that folder" in said)
+              "absolute path" in said and "download it there first" in said)
         check("the next message is not told again", respond(message, tmp) == "")
         check("a compaction tells it again", respond(compacted, tmp).startswith("This panel shows images"))
         check("and the message after it is not told a third time", respond(message, tmp) == "")

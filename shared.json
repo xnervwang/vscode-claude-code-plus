@@ -1,5 +1,5 @@
 {
-  "core": "e173e3471d49dd4e7b9e15a566443b0875dcbb81",
+  "core": "caef4945da313a363ed9ffa11f5064d275edad1d",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -104,7 +104,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/tell-reply-images.py",
       "from": "shared/plugin/hooks/tell-reply-images.py",
-      "sha256": "d9f8129ba4dc697bddda64f60fc31762431536b3c40ecb7460f7d0d0de5643b0"
+      "sha256": "627411cf038a108671440a0dd1e53ed73e88c6291e6fe9becbaaacc329842fd9"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/nudge-work-plan.py",
