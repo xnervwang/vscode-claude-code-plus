@@ -316,8 +316,8 @@
   };
   var DETACHED_CUT = 120;
   var detachedRow = function(h, j){
-    var cmd = String(j.command || '');
-    var shown = cmd.length > DETACHED_CUT ? cmd.slice(0, DETACHED_CUT - 1) + '\u2026' : cmd;
+    var cmd = String(j.command || ''), text = String(j.label || cmd);
+    var shown = text.length > DETACHED_CUT ? text.slice(0, DETACHED_CUT - 1) + '\u2026' : text;
     var when = j.startedAt > 0 ? ' · started ' + startText(j.startedAt) + ' (' + bgSpan(Date.now() - j.startedAt) + ' ago)' : '';
     return h('div', { style: { margin: '6px 0' }, title: cmd, children: [
       h('code', { style: { wordBreak: 'break-all', fontSize: '0.92em' }, children: [shown || '(command line not read)'] }),

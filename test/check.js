@@ -2291,6 +2291,26 @@ console.log('\ndetached commands in the agent map');
     fresh.__newSheet(); ticks.push(made && made.value);
     same(ticks.slice(2), [1, 2, 3], 'a scheduled prompt of this conversation coming or going in a later stylesheet redraws them as well, and another conversation\'s does not');
   }
+  {
+    /* perl -e and the like: the row shows the arguments after the program, the hover the whole command. */
+    const det = require('../src/detached');
+    const relay = ['perl', '-e', 'use strict;\nmy ($port, $path) = @ARGV;', '2014', '/w/.mfns/pe/cache.sock', 'mfns-cache-relay:pe:'].join('\0');
+    const label = det.labelOf(relay);
+    same([label, det.labelOf(['bash', '-c', 'python3 job.py'].join('\0')), det.labelOf(['python3', '-c', 'print(1)'].join('\0')),
+      det.labelOf(['node', 'server.js', '--port', '8080'].join('\0'))],
+    ['perl -e \u2026 2014 /w/.mfns/pe/cache.sock mfns-cache-relay:pe:', '', '', ''],
+    'an interpreter\'s inline program is left out of the row, a shell\'s -c command and ordinary arguments are not');
+    const one = [{ session: SID, pid: 5151, start: '9', startedAt: Date.now() - 60000, kind: 'leader', command: 'perl -e use strict; my ($port) = @ARGV; 2014 /w/.mfns/pe/cache.sock', label }];
+    const packedOne = (webview.liveCss({ enabled: true, detached: one }).match(/--cce-detached:"([A-Za-z0-9+/=]+)"/) || [])[1] || '';
+    const saved = props['--cce-detached'];
+    props['--cce-detached'] = `"${packedOne}"`;
+    calls.length = 0;
+    make(SID).__cceSchedule(h);
+    props['--cce-detached'] = saved;
+    const code = calls.find((c) => c.type === 'code');
+    const row = calls.find((c) => c.type === 'div' && c.props && c.props.title === one[0].command);
+    same([code && code.props.children[0], !!row], [label, true], 'the row shows that shorter text, and the whole command line on hover');
+  }
   const other = make('abcdef01-0000-4000-8000-000000000003');
   offNow.on = true;
   const offApi = make(SID);
