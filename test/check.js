@@ -10064,8 +10064,14 @@ console.log('\nthe workflow in a real VS Code window');
       'and that folder is kept as an artifact whether the run passed or not');
     expect(runner.includes("process.env.CLAUDE_CODE_PLUS_UI_OFFLINE === 'require'"), 'run.js reads the variable the workflow sets to require the network cut off');
     const screens = (text) => [...new Set((text.match(/-screen 0 \d+x\d+x\d+/g) || []))];
-    expect(JSON.stringify(screens(contributing)) === JSON.stringify(screens(ui)) && screens(ui).length === 1,
-      'CONTRIBUTING.md starts Xvfb with the screen the workflow uses', JSON.stringify([screens(ui), screens(contributing)]));
+    /* readme-shots.js needs a larger screen, given in its usage line. */
+    const shotLines = (text) => text.split('\n').filter((l) => l.includes('readme-shots.js')).join('\n');
+    const testLines = contributing.split('\n').filter((l) => !l.includes('readme-shots.js')).join('\n');
+    expect(JSON.stringify(screens(testLines)) === JSON.stringify(screens(ui)) && screens(ui).length === 1,
+      'CONTRIBUTING.md starts Xvfb with the screen the workflow uses', JSON.stringify([screens(ui), screens(testLines)]));
+    const shooter = fs.readFileSync(path.join(__dirname, 'vscode', 'readme-shots.js'), 'utf8');
+    expect(screens(shotLines(contributing)).length === 1 && JSON.stringify(screens(shotLines(contributing))) === JSON.stringify(screens(shotLines(shooter))),
+      'and the README screenshots with the screen readme-shots.js asks for', JSON.stringify([screens(shotLines(shooter)), screens(shotLines(contributing))]));
   }
 }
 

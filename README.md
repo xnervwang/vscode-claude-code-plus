@@ -47,6 +47,8 @@ A row's number is its position in the plan file, so it does not change: finishin
 
 Work you ask Claude to do now goes straight to `doing`. Work Claude suggests on its own starts as `discussing` and becomes `todo` only when you agree.
 
+![The work plan view with rows in each state, three levels deep](images/shots/work-plan.png)
+
 ### How Claude gets the plan
 
 The extension registers a Claude Code plugin whose hooks hand the plan to Claude on each turn and around compactions. Its skill holds the rules Claude follows to keep the plan up to date.
@@ -95,6 +97,16 @@ Verified against Claude Code 2.1.325, 2.1.326, 2.1.327 and 2.1.328.
 | Session information | A footer button that shows the session ID, Claude's process ID, starting directory, transcript location and size, and the token mode. Click a value to copy it. |
 | Token mode | Agent Plus's `agentPlus.tokenMode`, set from its entry in the status bar, decides which of the work plan, the time-zone note and the conversation brief (a summary, and a status saying where the conversation stands; see [Settings](#settings)) are added to Claude's context. Each one's own setting applies only in Custom. See [What it costs in tokens](#what-it-costs-in-tokens). |
 
+![Times on messages and tool calls, with each reply's duration, model and effort](images/shots/reply-figures.png)
+
+![A chart Claude drew, shown in its reply](images/shots/images-in-replies.png)
+
+![The list of your messages, opened from the handle at the panel's right edge](images/shots/navigation.png)
+
+![The context meter's breakdown, two seconds after the pointer rests on it](images/shots/context-meter.png)
+
+![The session information box](images/shots/session-info.png)
+
 ### In the session list
 
 | Feature | What it shows |
@@ -109,6 +121,8 @@ Verified against Claude Code 2.1.325, 2.1.326, 2.1.327 and 2.1.328.
 | Text colors | Right-click a conversation and choose **Text color** to give its title one of the colors of Claude Code's `/color`. The color shows wherever the conversation is listed. |
 | Delete archived conversations | **Delete session…** in an archived conversation's right-click menu permanently deletes it from disk once you confirm. |
 | Background sessions left out | The list skips sessions started with `claude --bg` or `claude -p`, and empty transcripts. Turn off `claudeCodePlus.hideBackgroundSessions` to see them. |
+
+![Open sessions, a pinned conversation, a colored title, session dates and a session ID on hover](images/shots/session-list.png)
 
 #### Opening in a tab or the sidebar
 
@@ -150,6 +164,8 @@ Claude Code runs background commands, subagents, monitors and workflows in the c
 | Background sessions | The agent map, opened from the Agents button in the footer, lists this conversation's `claude --bg` sessions, each state in its own color and counted at the top, with what each waits for, its result, and the attach and logs commands. |
 | Scheduled prompts | The agent map also lists the timers this conversation set through Claude Code's scheduled tasks, with each schedule, last-fired time and prompt. |
 | Background commands | The footer shows a count such as `1 task` while a background build, test run or `sleep` timer runs, with the list one click away. |
+
+![The agent map with a detached command and a scheduled prompt](images/shots/agent-map.png)
 
 ## Steward
 

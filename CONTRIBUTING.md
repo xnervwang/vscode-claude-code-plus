@@ -133,6 +133,14 @@ DISPLAY=:94 NODE_PATH=<folder>/node_modules node test/vscode/run.js <the .vsix> 
 
 The runner refuses to start outside CI unless given `--local`. `--vscode` uses an executable already on disk instead of downloading VS Code. `CLAUDE_CODE_PLUS_UI_KEEP=1` keeps the temporary root so you can open the same profile by hand. On a development machine, a run takes about 2.5 minutes, including the marketplace install of Claude Code.
 
+### README screenshots
+
+To retake the screenshots in `images/shots/`, run `test/vscode/readme-shots.js` with the same dependencies. `--pack` is a folder holding a demo project and demo conversations.
+
+```sh
+NODE_PATH=<folder>/node_modules xvfb-run -a -s '-screen 0 3200x2000x24' node test/vscode/readme-shots.js --pack <demo pack> --vsix <the .vsix> [<shot> ...]
+```
+
 ## The record of verified builds
 
 `supported-versions.json` records the Claude Code builds **this commit** was verified to patch. Someone using an older build can use the record to find a commit that works with it.
