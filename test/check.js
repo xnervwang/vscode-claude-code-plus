@@ -2294,13 +2294,13 @@ console.log('\ndetached commands in the agent map');
   {
     /* perl -e and the like: the row shows the arguments after the program, the hover the whole command. */
     const det = require('../src/detached');
-    const relay = ['perl', '-e', 'use strict;\nmy ($port, $path) = @ARGV;', '2014', '/w/.mfns/pe/cache.sock', 'mfns-cache-relay:pe:'].join('\0');
+    const relay = ['perl', '-e', 'use strict;\nmy ($port, $path) = @ARGV;', '2014', '/w/.sandbox/demo/cache.sock', 'cache-relay:demo:'].join('\0');
     const label = det.labelOf(relay);
     same([label, det.labelOf(['bash', '-c', 'python3 job.py'].join('\0')), det.labelOf(['python3', '-c', 'print(1)'].join('\0')),
       det.labelOf(['node', 'server.js', '--port', '8080'].join('\0'))],
-    ['perl -e \u2026 2014 /w/.mfns/pe/cache.sock mfns-cache-relay:pe:', '', '', ''],
+    ['perl -e \u2026 2014 /w/.sandbox/demo/cache.sock cache-relay:demo:', '', '', ''],
     'an interpreter\'s inline program is left out of the row, a shell\'s -c command and ordinary arguments are not');
-    const one = [{ session: SID, pid: 5151, start: '9', startedAt: Date.now() - 60000, kind: 'leader', command: 'perl -e use strict; my ($port) = @ARGV; 2014 /w/.mfns/pe/cache.sock', label }];
+    const one = [{ session: SID, pid: 5151, start: '9', startedAt: Date.now() - 60000, kind: 'leader', command: 'perl -e use strict; my ($port) = @ARGV; 2014 /w/.sandbox/demo/cache.sock', label }];
     const packedOne = (webview.liveCss({ enabled: true, detached: one }).match(/--cce-detached:"([A-Za-z0-9+/=]+)"/) || [])[1] || '';
     const saved = props['--cce-detached'];
     props['--cce-detached'] = `"${packedOne}"`;
@@ -8455,7 +8455,7 @@ console.log('\nconversations whose background sessions are busy');
     put(201, { comm: 'codex', ppid: 200, env: { CLAUDE_CODE_SESSION_ID: S(2) } });
     put(300, { comm: 'tail', argv: ['tail', '-F', 'x.log'], env: { CLAUDE_CODE_SESSION_ID: S(3) } });
     put(301, { comm: 'java', argv: ['/jdk/bin/java', '-jar', 'server.jar'], env: { CLAUDE_CODE_SESSION_ID: S(3) } });
-    put(302, { comm: 'bash', argv: ['mfns-holder:x', '-c', 'sleep infinity & wait'], env: { CLAUDE_CODE_SESSION_ID: S(3) } });
+    put(302, { comm: 'bash', argv: ['sandbox-holder:x', '-c', 'sleep infinity & wait'], env: { CLAUDE_CODE_SESSION_ID: S(3) } });
     put(303, { comm: 'bash', state: 'Z', argv: ['bash'], env: { CLAUDE_CODE_SESSION_ID: S(3) } });
     put(304, { comm: 'claude', argv: ['ugrep', '-r', 'x'], env: { CLAUDE_CODE_SESSION_ID: S(3) } });                // Claude's own helper
     put(400, { comm: 'run.sh', argv: ['/bin/bash', './run.sh'], env: { CLAUDE_CODE_SESSION_ID: S(4) } });            // a script
@@ -8475,7 +8475,7 @@ console.log('\nconversations whose background sessions are busy');
       ok('a Bash tool shell under a claude process, a detached shell, a script and a timeout count as work running, under the conversation they carry');
     } else bad(`shells still running: ${JSON.stringify(snap)}`);
     if (snap.shells && !snap.shells.includes(S(9)) && !snap.shells.includes(S(3))) {
-      ok('a claude process\'s MCP server, whether or not a shell started it, a forgotten tail -F, a Java server, an mfns holder, a zombie and Claude\'s own helper do not');
+      ok('a claude process\'s MCP server, whether or not a shell started it, a forgotten tail -F, a Java server, a sandbox holder, a zombie and Claude\'s own helper do not');
     } else bad(`something that is not work running counted: ${JSON.stringify(snap.shells)}`);
     if (JSON.stringify(snap.launchers) === JSON.stringify([[S(6), S(7)]])) {
       ok('a worker is tied to the claude process named by its CLAUDE_PID, and not to one that started after it');
