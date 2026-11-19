@@ -160,7 +160,8 @@ function backgroundProperty(list) {
 
 function detachedProperty(list) {
   if (!Array.isArray(list) || !list.length) return '';
-  const rows = list.map((j) => ({ session: j.session, pid: j.pid, startedAt: j.startedAt, command: j.command }));
+  const rows = list.map((j) => ({ session: j.session, pid: j.pid, startedAt: j.startedAt, command: j.command,
+    ...(typeof j.label === 'string' && j.label ? { label: j.label } : {}) }));
   return `:root{--cce-detached:"${Buffer.from(JSON.stringify(rows), 'utf8').toString('base64')}";}\n`;
 }
 

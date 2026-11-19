@@ -148,14 +148,25 @@ const startedBy = new Map();
 const MAX_COMMAND = 1000;
 const LOADER = /^ld(-linux)?[\w.-]*\.so(\.\d+)*$/;
 const LOADER_OPTIONS = new Set(['--library-path', '--argv0', '--preload', '--audit', '--glibc-hwcaps-prepend', '--glibc-hwcaps-mask']);
-const commandOf = (args) => {
+const argvOf = (args) => {
   let a = args.split('\0').filter(Boolean);
   if (a.length > 1 && LOADER.test(path.basename(a[0]))) {
     let i = 1;
     while (i < a.length && a[i].startsWith('--')) i += LOADER_OPTIONS.has(a[i]) ? 2 : 1;
     if (i < a.length) a = a.slice(i);
   }
-  return a.join(' ').replace(/\s+/g, ' ').trim().slice(0, MAX_COMMAND);
+  return a;
+};
+const oneLine = (a) => a.join(' ').replace(/\s+/g, ' ').trim().slice(0, MAX_COMMAND);
+const commandOf = (args) => oneLine(argvOf(args));
+/* A program given inline to an interpreter (perl -e, python -c, node -e) fills the start of its command line, and the
+   arguments after it are what tell one such command from another. The agent map shows those, with the program left to
+   the full command line on hover. A shell's -c string is the command itself and is shown as it is. */
+const INLINE = new Set(['-e', '-E', '-c', '--eval']);
+const labelOf = (args) => {
+  const a = argvOf(args);
+  if (a.length < 4 || !INLINE.has(a[1]) || STARTERS.has(path.basename(a[0]))) return '';
+  return oneLine([path.basename(a[0]), a[1], '\u2026', ...a.slice(3)]);
 };
 /* Clock ticks per second in /proc/<pid>/stat: USER_HZ, which is 100 on every architecture Linux runs VS Code on. */
 const TICKS = 100;
@@ -190,7 +201,7 @@ async function snapshot({ proc = '/proc', records = [] } = {}) {
         const args = (await read(path.join(proc, String(pid), 'cmdline'), 'latin1')) || '';
         const shell = STARTERS.has(path.basename(args.split('\0')[0]));
         const kind = shell && (!below || SNAPSHOT.test(args)) ? 'shell' : !shell && !below && p.session === pid ? 'leader' : '';
-        if (kind) found = { id: sid.toLowerCase(), kind, command: commandOf(args) };
+        if (kind) found = { id: sid.toLowerCase(), kind, command: commandOf(args), label: labelOf(args) };
       }
     }
     keep.set(key, found);
@@ -215,7 +226,7 @@ async function snapshot({ proc = '/proc', records = [] } = {}) {
     if (!top) continue;
     const start = procs.get(pid).start;
     jobs.push({ session: f.id, pid, start: String(start), startedAt: boot === null ? null : boot + Math.round(Number(start) * 1000 / TICKS),
-      kind: f.kind, command: f.command });
+      kind: f.kind, command: f.command, ...(f.label ? { label: f.label } : {}) });
   }
   jobs.sort((a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : a.pid - b.pid));
   const byPid = new Map(records.map((r) => [r.pid, r]));
@@ -230,4 +241,4 @@ async function snapshot({ proc = '/proc', records = [] } = {}) {
   return { shells, launchers, jobs };
 }
 
-module.exports = { snapshot, processes, STARTERS, SNAPSHOT };
+module.exports = { snapshot, processes, labelOf, STARTERS, SNAPSHOT };
