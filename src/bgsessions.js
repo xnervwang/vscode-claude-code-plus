@@ -14,15 +14,19 @@
  * A transcript with a cost or a last prompt but no message is left out as well: opening it shows nothing. Some
  * background sessions leave such files.
  *
- * A session's kind does not change, so each is read once.
+ * A session's kind does not change, so each is read once. Claude Code rewrites a transcript with its metadata records
+ * first, so a read can catch the file part written: a record counts only once it is whole, and a file holding only
+ * metadata counts as empty only once it has not changed for SETTLED_MS. Neither answer is kept until it is certain.
  */
 const fs = require('fs');
 const path = require('path');
 const { projectsDir, transcriptOf, SESSION } = require('./claude-files');
 
 const HEAD_BYTES = 65536;
-const KIND = /"sessionKind":"([^"]*)"/;
-const SDK = /"entrypoint":"sdk-(?:cli|ts|py)"/;
+/* A first record longer than HEAD_BYTES, such as a large attachment, is read up to this much. */
+const MAX_BYTES = 1 << 20;
+const SETTLED_MS = 10000;
+const SDK = /^sdk-(?:cli|ts|py)$/;
 const RAN = /"type":"(?:cost-state|last-prompt)"/;
 const HIDDEN = new Set(['bg', 'daemon', 'daemon-worker', 'sdk', 'empty']);
 const kinds = new Map();
@@ -35,21 +39,35 @@ function folderName(cwd) {
 
 /*
  * What the first record with a parent link says: its sessionKind ('' when it has none), or 'sdk' for an SDK entry point.
- * With no such record, 'empty' when the whole file shows the session ran, and null for a session not started yet or a
- * file that cannot be read.
+ * With no such record, 'empty' when the whole file shows the session ran and has settled, and null for a session not
+ * started yet, a record still being written, or a file that cannot be read.
  */
-function kindOf(file) {
+function kindOf(file, now = Date.now()) {
   let fd;
   try {
     fd = fs.openSync(file, 'r');
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const read = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
-    const head = buf.toString('utf8', 0, read);
-    const line = head.split('\n').find((l) => l.includes('"parentUuid":'));
-    if (line === undefined) return read < HEAD_BYTES && RAN.test(head) ? 'empty' : null;
-    if (SDK.test(line)) return 'sdk';
-    const m = KIND.exec(line);
-    return m ? m[1] : '';
+    const st = fs.fstatSync(fd);
+    let size = Math.min(st.size, HEAD_BYTES), head = '', lines = [], at = -1;
+    for (;;) {
+      const buf = Buffer.alloc(size);
+      const read = fs.readSync(fd, buf, 0, size, 0);
+      head = buf.toString('utf8', 0, read);
+      lines = head.split('\n');
+      at = lines.findIndex((l) => l.includes('"parentUuid":'));
+      const whole = read >= st.size;
+      if ((at >= 0 && at < lines.length - 1) || whole || size >= MAX_BYTES) {
+        if (at < 0) return whole && RAN.test(head) && now - st.mtimeMs >= SETTLED_MS ? 'empty' : null;
+        break;
+      }
+      size = Math.min(st.size, MAX_BYTES);
+    }
+    /* The last piece of what was read has no line end: it may be a record still being written. */
+    if (at === lines.length - 1) return null;
+    let rec;
+    try { rec = JSON.parse(lines[at]); } catch (_) { return null; }
+    if (!rec || typeof rec !== 'object') return null;
+    if (SDK.test(String(rec.entrypoint || ''))) return 'sdk';
+    return typeof rec.sessionKind === 'string' ? rec.sessionKind : '';
   } catch (_) {
     return null;
   } finally {
@@ -65,7 +83,8 @@ function isBackground(id, cwd, projects = projectsDir()) {
   if (!file || !fs.existsSync(file)) file = transcriptOf(id, projects);
   const kind = file ? kindOf(file) : null;
   if (kind === null) return false;
-  kinds.set(id, kind);
+  /* A transcript with no message can still get one, when the session is resumed. */
+  if (kind !== 'empty') kinds.set(id, kind);
   return HIDDEN.has(kind);
 }
 
@@ -77,4 +96,4 @@ function withoutBackground(entries, cwd, projects = projectsDir()) {
   });
 }
 
-module.exports = { withoutBackground, isBackground, kindOf, folderName };
+module.exports = { withoutBackground, isBackground, kindOf, folderName, SETTLED_MS };

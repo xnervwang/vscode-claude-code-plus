@@ -8246,6 +8246,8 @@ console.log('\nbackground sessions left out of the session list');
       + rec({ parentUuid: null, type: 'user', entrypoint: 'sdk-cli', message: { content: 'read the brief' } }));
     fs.writeFileSync(path.join(dir, G + '.jsonl'), rec({ type: 'cost-state', totalCostUSD: 3 })
       + rec({ type: 'last-prompt', lastPrompt: 'read the brief' }) + rec({ type: 'ai-title', aiTitle: 'brief' }));
+    const settled = new Date(Date.now() - bg.SETTLED_MS - 5000);
+    fs.utimesSync(path.join(dir, G + '.jsonl'), settled, settled);
     const elsewhere = path.join(root, 'elsewhere');
     fs.mkdirSync(elsewhere);
     fs.writeFileSync(path.join(elsewhere, E + '.jsonl'), rec({ parentUuid: null, type: 'user', sessionKind: 'bg' }));
@@ -8263,6 +8265,37 @@ console.log('\nbackground sessions left out of the session list');
     if (JSON.stringify(more) === JSON.stringify([B]) && JSON.stringify(again) === JSON.stringify([B])) {
       ok('claude -p sessions and transcripts with no messages are left out, the second time they are listed too');
     } else bad(`with an SDK session and an empty transcript, left in ${JSON.stringify(more)}, then ${JSON.stringify(again)}`);
+
+    /* Claude Code rewrites a transcript with its metadata first, so a read can find it part written. */
+    const H = '11111111-bbbb-cccc-dddd-eeeeeeeeeeee', I = '22222222-bbbb-cccc-dddd-eeeeeeeeeeee', J = '33333333-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const K = '44444444-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const meta = rec({ type: 'last-prompt', leafUuid: 'x', sessionId: H }) + rec({ type: 'mode', mode: 'normal' })
+      + rec({ type: 'permission-mode', permissionMode: 'auto' }) + rec({ type: 'file-history-snapshot', snapshot: {} });
+    fs.writeFileSync(path.join(dir, H + '.jsonl'), meta);
+    const lead = JSON.stringify({ parentUuid: null, isSidechain: false, type: 'attachment', uuid: 'u1', timestamp: '2026-11-19T21:32:37.785Z',
+      sessionKind: 'bg', userType: 'external', entrypoint: 'cli' });
+    fs.writeFileSync(path.join(dir, I + '.jsonl'), meta + lead.slice(0, lead.indexOf('"sessionKind"')));
+    const midway = [bg.isBackground(H, cwd, root), bg.isBackground(I, cwd, root)];
+    fs.writeFileSync(path.join(dir, H + '.jsonl'), meta + lead + '\n');
+    fs.writeFileSync(path.join(dir, I + '.jsonl'), meta + lead + '\n');
+    const written = [bg.isBackground(H, cwd, root), bg.isBackground(I, cwd, root)];
+    if (JSON.stringify([midway, written]) === JSON.stringify([[false, false], [true, true]])) {
+      ok('a transcript caught while Claude Code rewrites it, with only its metadata or a first record cut short, keeps its row until it is whole, and is then left out');
+    } else bad(`part written, then whole: ${JSON.stringify([midway, written])}`);
+    const kept = bg.kindOf(path.join(dir, H + '.jsonl'));
+    fs.writeFileSync(path.join(dir, K + '.jsonl'), meta);
+    const fresh = bg.isBackground(K, cwd, root);
+    fs.utimesSync(path.join(dir, K + '.jsonl'), settled, settled);
+    const old = bg.isBackground(K, cwd, root);
+    fs.appendFileSync(path.join(dir, K + '.jsonl'), rec({ parentUuid: null, type: 'user', entrypoint: 'claude-vscode', message: { content: 'go on' } }));
+    const resumed = bg.isBackground(K, cwd, root);
+    if (kept === 'bg' && JSON.stringify([fresh, old, resumed]) === JSON.stringify([false, true, false])) {
+      ok('a file of metadata alone counts as empty only once it has stopped changing, and a conversation it later turns into is listed');
+    } else bad(`metadata only, fresh then settled then resumed: ${JSON.stringify([kept, fresh, old, resumed])}`);
+    const big = JSON.stringify({ parentUuid: null, type: 'attachment', attachment: { content: 'x'.repeat(90000) }, sessionKind: 'bg', entrypoint: 'cli' });
+    fs.writeFileSync(path.join(dir, J + '.jsonl'), meta + big + '\n' + rec({ parentUuid: 'u1', type: 'user', sessionKind: 'bg' }));
+    if (bg.kindOf(path.join(dir, J + '.jsonl')) === 'bg') ok('a first record longer than the first 64 KB is still read whole');
+    else bad(`a long first record read as ${JSON.stringify(bg.kindOf(path.join(dir, J + '.jsonl')))}`);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 
   const he = host.EDITS.find((x) => x.name === 'session list leaves out background sessions');
