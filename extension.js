@@ -1262,11 +1262,22 @@ function start(context, log, renamed, handing = false) {
     pinsWatch.on('error', () => { try { pinsWatch.close(); } catch (_) { /* closed */ } pinsWatch = null; });
   } catch (_) { /* the periodic refresh still carries a change across */ }
   /* Read by the patched host each time it builds the session list (src/bgsessions.js). */
+  /* The first few lists a window builds, and any later one this extension is slow on, are logged with the time, to set
+     against the moment Claude Code's log shows the panel asking for the list. */
+  let listsLogged = 0;
   globalThis.__cceListedSessions = (entries, cwd) => {
     if (removed()) return entries;
+    const t0 = Date.now();
     const listed = cfg().get(HIDE_BG_SETTING, true) === false ? entries : bgSessions.withoutBackground(entries, cwd);
-    return enabled() ? stewardMarks.marked(listed, stewardTable(), stewardListed, Date.now(),
+    const out = enabled() ? stewardMarks.marked(listed, stewardTable(), stewardListed, Date.now(),
       (id) => (readTitles.titles({ sessionId: id }) || {}).custom || '') : listed;
+    const ms = Date.now() - t0;
+    if (listsLogged < 8 || ms >= 200) {
+      listsLogged++;
+      log.appendLine(`${new Date().toISOString().slice(11, 23)} session list built: ${Array.isArray(entries) ? entries.length : '?'} sessions, `
+        + `${Array.isArray(out) ? out.length : '?'} shown, ${ms} ms in this extension`);
+    }
+    return out;
   };
   /* Read by the patched host each time it works out which conversations are in use and so not to be archived. */
   globalThis.__ccePinnedIds = () => {

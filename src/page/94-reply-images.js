@@ -18,7 +18,10 @@
   var IMG_LOCAL = /^(?:file:\/\/|\/|[A-Za-z]:[\\/])/;
   var IMG_WEB = /^https?:\/\//i;
   var IMG_KEEP = 80;
-  var IMG_STYLE = { maxWidth: '100%', height: 'auto', display: 'block', margin: '6px 0', borderRadius: '4px' };
+  /* Matplotlib's default figure is 640 by 480 px at 100 dpi, so a chart saved at a higher dpi shrinks to that size with
+     its text still readable. */
+  var IMG_STYLE = { maxWidth: 'min(100%, 640px)', maxHeight: 'min(480px, 70vh)', width: 'auto', height: 'auto', display: 'block',
+    margin: '6px 0', borderRadius: '4px' };
   var IMG_BOX = {
     display: 'block', margin: '6px 0', padding: '8px 10px', fontSize: '0.92em', lineHeight: '1.5', borderRadius: '4px',
     background: 'var(--vscode-textCodeBlock-background, rgba(255,255,255,0.05))',
@@ -72,6 +75,48 @@
     catch (e) { delete imgWaiting[id]; imgKeep(src, { state: 'error', reason: 'The extension could not be asked for it.' }); }
     return imgFound[src];
   };
+  /* Clicking a scaled-down image shows it over the conversation, as large as the panel allows, until another click or
+     Escape. That Escape never reaches the panel, where it would stop the running turn. */
+  var IMG_VIEW = null;
+  var imgShrunk = function(img){
+    return !!img && img.naturalWidth > 0 && (img.naturalWidth > img.clientWidth + 1 || img.naturalHeight > img.clientHeight + 1);
+  };
+  var imgClose = function(){ if (IMG_VIEW) IMG_VIEW.style.display = 'none'; };
+  var imgOpen = function(src, alt){
+    if (!IMG_VIEW) {
+      IMG_VIEW = document.createElement('div');
+      IMG_VIEW.id = 'cce-img-view';
+      IMG_VIEW.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483000;display:none;align-items:center;'
+        + 'justify-content:center;background:rgba(0,0,0,0.78);cursor:zoom-out;';
+      var shown = document.createElement('img');
+      shown.style.cssText = 'max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);object-fit:contain;border-radius:4px;';
+      IMG_VIEW.appendChild(shown);
+      IMG_VIEW.addEventListener('click', imgClose);
+      window.addEventListener('keydown', function(ev){
+        if (!IMG_VIEW || IMG_VIEW.style.display === 'none' || ev.key !== 'Escape') return;
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        imgClose();
+      }, true);
+      document.body.appendChild(IMG_VIEW);
+    }
+    IMG_VIEW.firstChild.src = src;
+    IMG_VIEW.firstChild.alt = alt || '';
+    IMG_VIEW.style.display = 'flex';
+  };
+  var imgDrawn = function(h, src, label, title){
+    return h('img', { src: src, alt: label, title: title, style: IMG_STYLE,
+      onMouseEnter: function(ev){ try { var t = ev.currentTarget; t.style.cursor = imgShrunk(t) ? 'zoom-in' : ''; } catch (e) {} },
+      onClick: function(ev){
+        try {
+          var t = ev.currentTarget;
+          if (!imgShrunk(t)) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          imgOpen(t.currentSrc || t.src, t.alt);
+        } catch (e) {}
+      } });
+  };
   var imgNote = function(h, src, text){
     return h('span', { style: IMG_BOX, title: src, children: [
       h('span', { style: { display: 'block' }, children: [text] }),
@@ -101,11 +146,11 @@
       if (IMG_WEB.test(src)) return h('a', { href: src, title: src, children: [label || src] });
       if (isOff('replyImages')) return IMG_DATA.test(src) || IMG_LOCAL.test(src) ? imgText(h, src, label) : null;
       imgRenders();
-      if (IMG_DATA.test(src)) return h('img', { src: src, alt: label, style: IMG_STYLE });
+      if (IMG_DATA.test(src)) return imgDrawn(h, src, label, void 0);
       if (!IMG_LOCAL.test(src)) return null;
       var got = imgFound[src];
       if (!got) got = imgAsk(src);
-      if (got.state === 'ok') return h('img', { src: got.url, alt: label, title: label || src, style: IMG_STYLE });
+      if (got.state === 'ok') return imgDrawn(h, got.url, label, label || src);
       return imgNote(h, src, got.state === 'loading' ? 'Loading the image…' : got.reason);
     } catch (e) { return null; }
   };

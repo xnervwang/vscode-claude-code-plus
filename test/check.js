@@ -2326,10 +2326,13 @@ console.log('\nimages in replies, the page');
 {
   const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
   const make = (off, sid = { v: 'abcdef01-0000-4000-8000-000000000009' }) => {
-    const posted = [], listeners = [], timers = [];
+    const posted = [], listeners = [], timers = [], keys = [], body = [];
     let signal = null;
+    const node = (tag) => { const n = { tag, style: {}, children: [], on: {} }; n.appendChild = (c) => { n.children.push(c); n.firstChild = n.children[0]; };
+      n.addEventListener = (type, fn) => { n.on[type] = fn; }; return n; };
     const env = {
-      window: { addEventListener: (type, fn) => { if (type === 'message') listeners.push(fn); } }, document: { documentElement: {} },
+      window: { addEventListener: (type, fn, capture) => { if (type === 'message') listeners.push(fn); if (type === 'keydown') keys.push({ fn, capture }); } },
+      document: { documentElement: {}, createElement: node, body: { appendChild: (n) => body.push(n) } },
       acquireVsCodeApi: () => ({ postMessage: (m) => posted.push(m) }),
       sigValue: (name) => (name === 'sessionId' ? sid.v : undefined),
       isOff: (k) => off && k === 'replyImages', console, setTimeout: (fn) => timers.push(fn),
@@ -2338,7 +2341,7 @@ console.log('\nimages in replies, the page');
     new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '94-reply-images.js'), 'utf8')}})()`,
       { filename: '94-reply-images.js' }).runInNewContext(env);
     const answer = (m) => listeners.forEach((fn) => fn({ data: { type: 'from-extension', message: m } }));
-    return { api: env.window, posted, answer, tick: () => (signal ? signal.value : null), timers };
+    return { api: env.window, posted, answer, tick: () => (signal ? signal.value : null), timers, keys, body };
   };
   const h = (type, props) => ({ type, props });
   const on = make(false);
@@ -2379,6 +2382,23 @@ console.log('\nimages in replies, the page');
   same([offData.type, JSON.stringify(offData).includes('base64'), offLocal.type, JSON.stringify(offLocal).includes('/tmp/chart.png'), offPage.posted.length,
     offPage.api.__cceImage(h, 'https://example.com/a.png', '').type],
     ['span', false, 'span', true, 0, 'a'], 'switched off, nothing is drawn or read: an image shows as its text and path, and a web address as a link');
+  const sized = make(false);
+  const img = sized.api.__cceImage(h, png, 'chart');
+  const st = img.props.style;
+  const el = (w, cw) => ({ naturalWidth: w, naturalHeight: w / 2, clientWidth: cw, clientHeight: cw / 2, src: png, alt: 'chart', style: {} });
+  const click = (t) => { const ev = { currentTarget: t, stopped: 0, preventDefault() {}, stopPropagation() { ev.stopped++; } }; img.props.onClick(ev); return ev; };
+  const fits = el(400, 400), big = el(1600, 640);
+  img.props.onMouseEnter({ currentTarget: fits });
+  img.props.onMouseEnter({ currentTarget: big });
+  const small = click(fits), large = click(big);
+  const view = sized.body[0];
+  const shownAt = view && view.style.display, shownSrc = view && view.firstChild.src;
+  const esc = { key: 'Escape', stopped: false, preventDefault() {}, stopImmediatePropagation() { esc.stopped = true; } };
+  sized.keys.forEach((k) => k.fn(esc));
+  same([st.maxWidth, st.maxHeight, st.width, st.height, fits.style.cursor, big.style.cursor, small.stopped, sized.body.length, large.stopped, shownAt, shownSrc,
+    sized.keys.length === 1 && sized.keys[0].capture === true, esc.stopped, view && view.style.display],
+    ['min(100%, 640px)', 'min(480px, 70vh)', 'auto', 'auto', '', 'zoom-in', 0, 1, 1, 'flex', png, true, true, 'none'],
+    'an image is shown at most 640 by 480, one shown smaller than it is opens over the conversation on a click, and Escape closes it without reaching the panel');
 }
 
 console.log('\ninstalled copy');
@@ -8321,7 +8341,7 @@ console.log('\nbackground sessions left out of the session list');
   }
   const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const setting = require('../package.json').contributes.configuration.properties['claudeCodePlus.hideBackgroundSessions'];
-  if (/globalThis\.__cceListedSessions = \(entries, cwd\) => \{\s*if \(removed\(\)\) return entries;\s*const listed = cfg\(\)\.get\(HIDE_BG_SETTING, true\) === false \? entries : bgSessions\.withoutBackground\(entries, cwd\);/.test(extSrc)
+  if (/globalThis\.__cceListedSessions = \(entries, cwd\) => \{\s*if \(removed\(\)\) return entries;\s*(?:const t0 = Date\.now\(\);\s*)?const listed = cfg\(\)\.get\(HIDE_BG_SETTING, true\) === false \? entries : bgSessions\.withoutBackground\(entries, cwd\);/.test(extSrc)
       && /if \(e\.affectsConfiguration\(HIDE_BG_SETTING\)\) \{\s*try \{ if \(typeof globalThis\.__cceSessionsChanged === 'function'\) globalThis\.__cceSessionsChanged\(\);/.test(extSrc)
       && setting && setting.default === true) {
     ok('background sessions are left out by default, a setting turns that off, and flipping it makes every panel read the list again');
