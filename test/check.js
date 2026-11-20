@@ -2265,7 +2265,9 @@ console.log('\ndetached commands in the agent map');
   same([!!tree, flat.includes('2 detached commands'), (codes[0] || '').length, (codes[0] || '').endsWith('\u2026'), codes[1], flat.includes('sleep 99')],
     [true, true, 120, true, 'java -jar build-server.jar', false],
     'the section lists this conversation\'s commands, newest first, a long one cut short, and none of another conversation\'s');
-  same([/^pid 4343 · started \d\d:\d\d \(2 min ago\)$/.test(lines[0] || ''), /^pid 4242 · started \d\d:\d\d \(25 min ago\)$/.test(lines[1] || ''),
+  /* Just after midnight these start times fall on the previous day, and a row then shows the date as well. */
+  const started = (pid, ago) => new RegExp(`^pid ${pid} · started (?:[A-Z][a-z]{2} \\d{1,2} )?\\d\\d:\\d\\d \\(${ago} ago\\)$`);
+  same([started(4343, '2 min').test(lines[0] || ''), started(4242, '25 min').test(lines[1] || ''),
     calls.some((c) => c.props && c.props.title === long)], [true, true, true], 'each row gives the pid and when it started, with the whole command on hover');
   const bare = calls.filter((c) => c.props && 'children' in c.props && !Array.isArray(c.props.children));
   same([bare.length, api.__cceAgentsLabel('3 agents', 3), api.__cceAgentsLabel('0 agents', 0), api.__cceScheduleCount()],

@@ -1463,9 +1463,11 @@ function start(context, log, renamed, handing = false) {
     try {
       recentList = recentClosed.record(recentList, id);
       Promise.resolve(context.workspaceState.update(recentClosed.KEY, recentList)).catch(() => {});
+      log.appendLine(`recently closed: ${String(id).slice(0, 8)} recorded, ${recentList.length} kept`);
     } catch (_) { /* the list stays as it was */ }
   };
   globalThis.__cceRecentClosed = () => recentClosed.pageData(recentList, enabled() && !removed() ? cfg().get(RECENT_SETTING, 10) : 0);
+  log.appendLine(`recently closed: ${globalThis.__cceRecentClosed().ids.length} kept for this workspace, up to ${globalThis.__cceRecentClosed().max} shown`);
   context.subscriptions.push({ dispose: () => {
     if (globalThis.__cceClosedHook) delete globalThis.__cceClosedHook;
     if (globalThis.__cceRecentClosed) delete globalThis.__cceRecentClosed;
