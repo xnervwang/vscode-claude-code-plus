@@ -6338,12 +6338,14 @@ console.log('\nwhat a tick and a change of setting cost');
       global.setInterval = (fn, ms) => { timers.push({ fn, ms }); return keep(() => {}, 1 << 30); };
       const SID = 'abababab-1111-4222-8333-444444444444';
       (async () => {
-        const out = { threw: '' };
+        const out = { threw: '', sent: [] };
+        globalThis.__cceSendSessionStates = () => out.sent.push(typeof globalThis.__cceRecentClosed);
         try {
           await ext.activate({ subscriptions: subs, extensionPath: ${JSON.stringify(root)}, globalState: memo(), workspaceState: memo(),
             extension: { id: 'x.y', packageJSON: require(${JSON.stringify(path.join(root, 'package.json'))}) },
             globalStorageUri: { fsPath: store }, logUri: { fsPath: path.join(store, 'logs', 'exthost1', 'x.y') } });
           out.listeners = vs.listeners.config.length;
+          out.sentAtStart = out.sent.slice();
           out.timers = timers.map((t) => t.ms).sort((a, b) => a - b);
           for (const fn of vs.listeners.config) fn({ affectsConfiguration: () => true });
           for (const t of timers) t.fn();
@@ -6367,8 +6369,9 @@ console.log('\nwhat a tick and a change of setting cost');
     delete env.CLAUDE_CONFIG_DIR;
     try { r = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000, env })); }
     catch (e) { r = { threw: e.message }; }
-    if (!r.threw && r.listeners === 2 && JSON.stringify(r.timers) === JSON.stringify([1000, 5000, 10000, 30000, 1800000]) && JSON.stringify(r.recent) === JSON.stringify(['abababab-1111-4222-8333-444444444444'])) {
-      ok('activation, a change of setting, every timer, the hooks and deactivation run against a stand-in editor without throwing');
+    if (!r.threw && r.listeners === 2 && JSON.stringify(r.timers) === JSON.stringify([1000, 5000, 10000, 30000, 1800000]) && JSON.stringify(r.recent) === JSON.stringify(['abababab-1111-4222-8333-444444444444'])
+        && (r.sentAtStart || []).includes('function')) {
+      ok('activation, a change of setting, every timer, the hooks and deactivation run against a stand-in editor without throwing, and the start sends the session list the closed tabs');
     } else bad(`against a stand-in editor: ${JSON.stringify(r).slice(0, 600)}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }

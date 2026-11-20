@@ -1468,6 +1468,8 @@ function start(context, log, renamed, handing = false) {
   };
   globalThis.__cceRecentClosed = () => recentClosed.pageData(recentList, enabled() && !removed() ? cfg().get(RECENT_SETTING, 10) : 0);
   log.appendLine(`recently closed: ${globalThis.__cceRecentClosed().ids.length} kept for this workspace, up to ${globalThis.__cceRecentClosed().max} shown`);
+  /* Claude Code can send the session list its first state before this extension starts, and that state has no closed tabs. */
+  try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next update */ }
   context.subscriptions.push({ dispose: () => {
     if (globalThis.__cceClosedHook) delete globalThis.__cceClosedHook;
     if (globalThis.__cceRecentClosed) delete globalThis.__cceRecentClosed;
