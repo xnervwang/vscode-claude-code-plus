@@ -342,7 +342,7 @@
           "scope": "application",
           "type": "boolean",
           "default": true,
-          "markdownDescription": "When a command listed under `#claudeCodePlus.show.detachedCommands#` stops, notify the conversation that started it. If the conversation is idle, the notice starts a turn. Claude Code does not wake it on its own. The extension cannot report the exit code because the command is not its child process. Used only while `#agentPlus.tokenMode#` is Custom."
+          "markdownDescription": "When a command listed under `#claudeCodePlus.show.detachedCommands#` stops, notify the conversation that started it. The extension cannot report the command's exit code. Notify the conversation that started a `claude --bg` session when the session finishes, fails, is stopped, dies, or waits for an answer. When the extension stops an idle editor process and another process runs the same conversation, tell the remaining process which background commands, monitors and subagents stopped with the idle process. An idle conversation starts a turn on each notice. Claude Code does not wake it on its own. Used only while `#agentPlus.tokenMode#` is Custom."
         }
       }
     }

@@ -30,6 +30,8 @@ const stewardView = require('./src/steward-view');
 const stewardMarks = require('./src/steward-marks');
 const stewards = require('./src/stewards');
 const detachedEnds = require('./src/detachedends');
+const bgEnds = require('./src/bgends');
+const stoppedWork = require('./src/stoppedwork');
 const replyImages = require('./src/reply-images');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
@@ -808,7 +810,7 @@ function start(context, log, renamed, handing = false) {
     const group = dupGroups.get(sessionId);
     if (!group) return null;
     const p = duplicates.oldOne(group);
-    return duplicates.stop(sessionId, p, 'button', { dir: planDir() }) ? p : null;
+    return stopProcess(sessionId, p, 'button') ? p : null;
   };
   /*
    * Rename, close and open requests from a steward (src/relay.js). A rename goes through the panel showing the
@@ -1065,6 +1067,16 @@ function start(context, log, renamed, handing = false) {
   let bgReading = false;
   /* Stops the processes src/duplicates.js allows to be stopped without asking. All windows do this from the same data;
      stop() skips a process that another window has already stopped. */
+  /* Read before the stop: the work ends with the process (src/stoppedwork.js). */
+  function stopProcess(id, p, how) {
+    let work = [];
+    try { if (endNoticesOn()) work = stoppedWork.lost({ session: id, p, dir: planDir() }); } catch (_) { /* stopped without the notice */ }
+    if (!duplicates.stop(id, p, how, { dir: planDir() })) return false;
+    if (work.length && stoppedWork.record({ dir: planDir(), session: id, p, work })) {
+      log.appendLine(`background work that stopped with process ${p.pid} of conversation ${id}: ${work.map((w) => w.id).join(', ')}`);
+    }
+    return true;
+  }
   const readDuplicates = () => {
     try {
       const was = JSON.stringify(dupsList(dupGroups));
@@ -1072,7 +1084,7 @@ function start(context, log, renamed, handing = false) {
       if (!replaced() && !uninstalling() && !removed()) {
         for (const [id, group] of dupGroups) {
           for (const p of duplicates.autoStops(group)) {
-            if (duplicates.stop(id, p, 'auto', { dir: planDir() })) log.appendLine(`stopped process ${p.pid} of conversation ${id}: its window is gone and it was idle`);
+            if (stopProcess(id, p, 'auto')) log.appendLine(`stopped process ${p.pid} of conversation ${id}: its window is gone and it was idle`);
           }
         }
       }
@@ -1096,30 +1108,40 @@ function start(context, log, renamed, handing = false) {
      decides whether it is sent. */
   const DETACHED_NOTICES = PREFIX + 'detachedEndNotices';
   const endNoticesOn = () => !!runs(DETACHED_NOTICES);
-  /* A `claude -p` worker is left out: it would take the notice for its next task. */
-  const inboxOf = (id) => {
+  /* A `claude -p` worker is left out: it would take the notice for its next task. So is a process in `avoid`. */
+  const inboxOf = (id, avoid = []) => {
     const rec = background.liveRecords().find((r) => r && r.sessionId === id && typeof r.messagingSocketPath === 'string'
-      && !/^sdk-/.test(r.entrypoint || ''));
+      && !/^sdk-/.test(r.entrypoint || '') && !avoid.includes(r.pid));
     return rec ? rec.messagingSocketPath : null;
   };
   let detachedListed = '', delivering = false;
   const noteDetached = () => {
     const jobs = background.jobsNow();
-    if (!Array.isArray(jobs)) return;
-    const listed = switchedOff().includes('detachedCommands') ? '' : JSON.stringify(jobs);
-    if (listed !== detachedListed) { detachedListed = listed; writeLiveNow(); }
     const on = endNoticesOn();
-    try { detachedEnds.update({ dir: planDir(), jobs, claim: on }); } catch (e) { log.appendLine('detached commands: ' + ((e && e.message) || e)); }
+    if (Array.isArray(jobs)) {
+      const listed = switchedOff().includes('detachedCommands') ? '' : JSON.stringify(jobs);
+      if (listed !== detachedListed) { detachedListed = listed; writeLiveNow(); }
+      try { detachedEnds.update({ dir: planDir(), jobs, claim: on, ran: (id, command) => detachedEnds.ranBy(transcriptOf(id), command) }); } catch (e) { log.appendLine('detached commands: ' + ((e && e.message) || e)); }
+    }
+    try { bgEnds.update({ dir: planDir(), records: background.liveRecords(), claim: on }); }
+    catch (e) { log.appendLine('background sessions: ' + ((e && e.message) || e)); }
     if (!on || delivering) return;
     delivering = true;
-    detachedEnds.deliver({ dir: planDir(), inbox: inboxOf, post: (address, text) => stewards.post(address, text) })
-      .then((sent) => {
-        for (const n of sent) {
-          log.appendLine(`told ${n.session} that ${n.ends.length === 1 ? 'a detached command has' : n.ends.length + ' detached commands have'}`
-            + ` stopped: ${n.ends.map((e) => 'pid ' + e.pid).join(', ')}`);
-        }
-      })
-      .catch((e) => log.appendLine('detached command notices: ' + ((e && e.message) || e)))
+    const dir = planDir(), post = (address, text) => stewards.post(address, text);
+    (async () => {
+      for (const n of await detachedEnds.deliver({ dir, inbox: inboxOf, post })) {
+        log.appendLine(`told ${n.session} that ${n.ends.length === 1 ? 'a detached command has' : n.ends.length + ' detached commands have'}`
+          + ` stopped: ${n.ends.map((e) => 'pid ' + e.pid).join(', ')}`);
+      }
+      for (const n of await detachedEnds.deliver({ dir, inbox: inboxOf, post, sub: bgEnds.ENDS_DIR, text: bgEnds.noticeText })) {
+        log.appendLine(`told ${n.session} about its background sessions: ${n.ends.map((e) => `${e.job} ${e.kind}`).join(', ')}`);
+      }
+      for (const n of await detachedEnds.deliver({ dir, inbox: (id, ends) => inboxOf(id, ends.map((e) => e.pid)), post,
+        sub: stoppedWork.STOPPED_WORK_DIR, text: stoppedWork.noticeText })) {
+        log.appendLine(`told ${n.session} what stopped with its other process: ${n.ends.map((e) => (e.work || []).map((w) => w.id).join(', ')).join('; ')}`);
+      }
+    })()
+      .catch((e) => log.appendLine('notices of ended work: ' + ((e && e.message) || e)))
       .finally(() => { delivering = false; });
   };
   /* Each change of the set is logged, and a scan that takes long, so that a dot missing from a tab can be put down
@@ -1262,8 +1284,8 @@ function start(context, log, renamed, handing = false) {
     pinsWatch.on('error', () => { try { pinsWatch.close(); } catch (_) { /* closed */ } pinsWatch = null; });
   } catch (_) { /* the periodic refresh still carries a change across */ }
   /* Read by the patched host each time it builds the session list (src/bgsessions.js). */
-  /* The first few lists a window builds, and any later one this extension is slow on, are logged with the time, to set
-     against the moment Claude Code's log shows the panel asking for the list. */
+  /* Logs, with the time, the first eight lists a window builds and any later one that takes this extension 200 ms or
+     more, to set against when Claude Code's log shows the panel asking for the list. */
   let listsLogged = 0;
   globalThis.__cceListedSessions = (entries, cwd) => {
     if (removed()) return entries;

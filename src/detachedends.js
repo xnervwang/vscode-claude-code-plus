@@ -39,11 +39,53 @@ const keyOf = (j) => `${j.pid}-${j.start}`;
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return null; } };
 const validJob = (j) => !!j && SESSION.test(j.session || '') && Number.isInteger(j.pid) && /^\d+$/.test(String(j.start || ''));
 
+/* Launchers and interpreters: the program they run is the word after them. */
+const LAUNCHERS = new Set(['bash', 'sh', 'dash', 'zsh', 'ksh', 'timeout', 'nohup', 'setsid', 'env', 'nice', 'stdbuf',
+  'python', 'python3', 'node', 'perl', 'ruby']);
+const RAN_BYTES = 2 * 1024 * 1024;
+
+/*
+ * Whether the conversation's own Bash commands mention the program a detached job runs. A tool those commands ran can
+ * leave a program of its own detached, such as an uploader of usage data, and it carries the conversation's id as well.
+ * True when the transcript cannot be read.
+ */
+function ranBy(file, command) {
+  const words = String(command).split(/\s+/).filter((w) => w && !w.startsWith('-') && !/^\d+[smhd]?$/.test(w));
+  const names = [];
+  for (const w of words.slice(0, 4)) {
+    const base = path.basename(w);
+    if (base.length > 1) names.push(base);
+    if (!LAUNCHERS.has(base)) break;
+  }
+  const own = names.filter((n) => !LAUNCHERS.has(n));
+  if (!file || !own.length) return true;
+  let text = '';
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size, from = Math.max(0, size - RAN_BYTES);
+    const buf = Buffer.alloc(size - from);
+    text = buf.toString('utf8', 0, fs.readSync(fd, buf, 0, buf.length, from));
+  } catch (_) { return true; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (_) { /* closed */ } }
+  for (const line of text.split('\n')) {
+    if (line.indexOf('"tool_use"') === -1) continue;
+    let r;
+    try { r = JSON.parse(line); } catch (_) { continue; }
+    const content = r && r.message && Array.isArray(r.message.content) ? r.message.content : [];
+    for (const b of content) {
+      const c = b && b.type === 'tool_use' && b.input && typeof b.input.command === 'string' ? b.input.command : '';
+      if (c && own.some((n) => c.includes(n))) return true;
+    }
+  }
+  return false;
+}
+
 /*
  * `jobs` is every job running now. `claim` is false while the notices are off: nothing is recorded then, so turning them
- * on does not report commands that stopped in the meantime.
+ * on does not report commands that stopped in the meantime. `ran(session, command)` is false for a job the
+ * conversation did not start (ranBy).
  */
-function update({ dir, jobs, now = Date.now(), claim = true }) {
+function update({ dir, jobs, now = Date.now(), claim = true, ran = () => true }) {
   if (!Array.isArray(jobs)) return [];
   const seenFile = path.join(dir, SEEN_FILE);
   const before = readJson(seenFile);
@@ -60,7 +102,7 @@ function update({ dir, jobs, now = Date.now(), claim = true }) {
       if (!SESSION.test(session) || !Array.isArray(list)) continue;
       const still = new Set((cur[session] || []).map(keyOf));
       for (const j of list) {
-        if (!j || !Number.isInteger(j.pid) || still.has(keyOf(j))) continue;
+        if (!j || !Number.isInteger(j.pid) || still.has(keyOf(j)) || !ran(session, String(j.command || ''))) continue;
         const end = { session, pid: j.pid, start: String(j.start), startedAt: j.startedAt || null, command: String(j.command || ''), goneAt: now };
         try {
           fs.mkdirSync(path.join(dir, GONE_DIR), { recursive: true });
@@ -77,12 +119,12 @@ function update({ dir, jobs, now = Date.now(), claim = true }) {
   return recorded;
 }
 
-function recorded(dir) {
+function recorded(dir, sub = GONE_DIR) {
   const by = new Map();
   let names = [];
-  try { names = fs.readdirSync(path.join(dir, GONE_DIR)).filter((n) => n.endsWith('.json')); } catch (_) { return by; }
+  try { names = fs.readdirSync(path.join(dir, sub)).filter((n) => n.endsWith('.json')); } catch (_) { return by; }
   for (const n of names) {
-    const file = path.join(dir, GONE_DIR, n);
+    const file = path.join(dir, sub, n);
     const e = readJson(file);
     if (!e || !SESSION.test(e.session || '') || !(e.goneAt > 0)) continue;
     if (!by.has(e.session)) by.set(e.session, []);
@@ -122,8 +164,8 @@ function noticeText(ends, { who = WHO } = {}) {
 
 /* A send holds the lock for at most the inbox post's timeout, well under LOCK_STALE_MS, so an older lock was left by a
    window that stopped. */
-function lock(dir, session, now) {
-  const at = path.join(dir, GONE_DIR, `${session}.lock`);
+function lock(dir, session, now, sub = GONE_DIR) {
+  const at = path.join(dir, sub, `${session}.lock`);
   try { fs.mkdirSync(at); return at; } catch (_) { /* held */ }
   try {
     if (now - fs.statSync(at).mtimeMs > LOCK_STALE_MS) { fs.rmSync(at, { recursive: true, force: true }); fs.mkdirSync(at); return at; }
@@ -132,12 +174,13 @@ function lock(dir, session, now) {
 }
 
 /*
- * `inbox(session)` gives the conversation's inbox socket, or null when it is not running or should not be woken;
- * `post(address, text)` resolves to whether the inbox took the text.
+ * `inbox(session, ends)` gives the conversation's inbox socket, or null when it is not running or should not be woken;
+ * `post(address, text)` resolves to whether the inbox took the text. Other notices queued the same way (src/bgends.js,
+ * src/stoppedwork.js) give their own folder and wording.
  */
-async function deliver({ dir, inbox, post, now = Date.now(), who = WHO }) {
+async function deliver({ dir, inbox, post, now = Date.now(), who = WHO, sub = GONE_DIR, text = noticeText }) {
   const sent = [];
-  for (const [session, ends] of recorded(dir)) {
+  for (const [session, ends] of recorded(dir, sub)) {
     for (const e of ends) {
       if (now - e.goneAt > MAX_KEEP_MS) { try { fs.rmSync(e.file, { force: true }); } catch (_) { /* gone */ } }
     }
@@ -150,19 +193,19 @@ async function deliver({ dir, inbox, post, now = Date.now(), who = WHO }) {
     if (!open.length) continue;
     const newest = Math.max(...open.map((e) => e.goneAt)), oldest = Math.min(...open.map((e) => e.goneAt));
     if (now - newest < BATCH_QUIET_MS && now - oldest < BATCH_MAX_MS) continue;
-    const address = inbox(session);
+    const address = inbox(session, open);
     if (!address) continue;
-    const held = lock(dir, session, now);
+    const held = lock(dir, session, now, sub);
     if (!held) continue;
     try {
       // Read again under the lock: another window may have sent them since.
       const mine = open.filter((e) => { const d = readJson(e.file); return d && !d.sentAt && !d.dropped; });
       if (!mine.length) continue;
-      if (!await post(address, noticeText(mine, { who }))) continue;
+      if (!await post(address, text(mine, { who }))) continue;
       for (const e of mine) {
         try { writeAtomic(e.file, JSON.stringify(Object.assign({}, e, { file: undefined, sentAt: now })) + '\n'); } catch (_) { /* sent */ }
       }
-      sent.push({ session, ends: mine.map((e) => ({ pid: e.pid, command: e.command })) });
+      sent.push({ session, ends: mine });
     } finally {
       try { fs.rmSync(held, { recursive: true, force: true }); } catch (_) { /* gone */ }
     }
@@ -170,5 +213,5 @@ async function deliver({ dir, inbox, post, now = Date.now(), who = WHO }) {
   return sent;
 }
 
-module.exports = { update, deliver, noticeText, recorded, SEEN_FILE, GONE_DIR, BATCH_QUIET_MS, BATCH_MAX_MS, MAX_PENDING_MS,
+module.exports = { update, deliver, noticeText, recorded, ranBy, SEEN_FILE, GONE_DIR, BATCH_QUIET_MS, BATCH_MAX_MS, MAX_PENDING_MS,
   MAX_KEEP_MS };

@@ -81,7 +81,10 @@ function knownFolders(projects) {
   return foldersList;
 }
 
-/** The transcript of one conversation, or '' when there is none. */
+/**
+ * The transcript of one conversation, or '' when there is none. A conversation continued from another working directory
+ * has a transcript in each of their folders; only the newest is still written.
+ */
 function transcriptOf(session, projects = projectsDir(), now = Date.now()) {
   if (!SESSION.test(String(session || ''))) return '';
   const key = projects + '\0' + session;
@@ -90,10 +93,14 @@ function transcriptOf(session, projects = projectsDir(), now = Date.now()) {
   found.delete(key);
   const miss = missed.get(key);
   if (miss && now - miss.at < miss.wait) return '';
+  let best = '', at = -1;
   for (const dir of knownFolders(projects) || []) {
     const file = path.join(dir, session + '.jsonl');
-    if (fs.existsSync(file)) { missed.delete(key); found.set(key, file); return file; }
+    let t;
+    try { t = fs.statSync(file).mtimeMs; } catch (_) { continue; }
+    if (t > at) { best = file; at = t; }
   }
+  if (best) { missed.delete(key); found.set(key, best); return best; }
   if (missed.size > 500) missed.clear();
   missed.set(key, { at: now, wait: miss ? Math.min(miss.wait * 2, MISS_MAX_MS) : MISS_MS });
   return '';

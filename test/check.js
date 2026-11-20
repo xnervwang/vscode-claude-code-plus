@@ -1704,15 +1704,15 @@ console.log("\nClaude Code's directory, read the same way everywhere");
     const projects = path.join(cfg, 'projects');
     const missing = 'cdcdcdcd-1111-4222-8333-444444444444';
     let walks = 0, searches = 0;
-    const realReaddir = fs.readdirSync, realExists = fs.existsSync;
+    const realReaddir = fs.readdirSync, realStat = fs.statSync;
     fs.readdirSync = function (p, ...rest) { if (String(p) === projects) walks++; return realReaddir.call(fs, p, ...rest); };
-    fs.existsSync = function (p) { if (String(p).endsWith(missing + '.jsonl')) searches++; return realExists.call(fs, p); };
+    fs.statSync = function (p, ...rest) { if (String(p).endsWith(missing + '.jsonl')) searches++; return realStat.call(fs, p, ...rest); };
     let got;
     try {
       const t0 = Date.now(), W = cf.MISS_MS;
       const at = (t) => { cf.transcriptOf(missing, projects, t); return searches; };
       got = [at(t0), at(t0 + 1000), at(t0 + W + 1), at(t0 + W + 1 + W), at(t0 + W + 1 + 2 * W + 1), walks];
-    } finally { fs.readdirSync = realReaddir; fs.existsSync = realExists; }
+    } finally { fs.readdirSync = realReaddir; fs.statSync = realStat; }
     if (JSON.stringify(got) === JSON.stringify([1, 1, 2, 2, 3, 1])) {
       ok('a missing transcript is searched for again after 10 s, then 20 s, and so on; the project folder list is read once until it changes');
     } else bad(`looking for a missing transcript gave ${JSON.stringify(got)}`);
@@ -10955,6 +10955,140 @@ const repo = path.join(__dirname, '..');
       await de.deliver({ dir, inbox, post, now: t0 + 310e3 + de.MAX_KEEP_MS + 1000 });
       const gone = fs.readdirSync(path.join(dir, de.GONE_DIR)).filter((n) => n.endsWith('.json')).length;
       eq([dropped.length, left > 0, gone], [0, true, 0], 'an end older than a day is not sent, and the records are removed after two days');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  /* A detached program counts for a notice only if a command the conversation ran names it. */
+  {
+    const de = require('../src/detachedends');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-ranby-'));
+    try {
+      const file = path.join(dir, 't.jsonl');
+      const call = (command) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'x', name: 'Bash', input: { command } }] } });
+      fs.writeFileSync(file, [call("setsid nohup bash -c 'python3 job.py' > out 2>&1 &"), call('nohup ./run.sh &')].join('\n') + '\n');
+      eq([de.ranBy(file, 'python3 job.py'), de.ranBy(file, '/bin/bash ./run.sh'), de.ranBy(file, '/opt/tools/usage-uploader -t ada -d /tmp/x'),
+        de.ranBy(file, 'bash -c'), de.ranBy('', 'anything')],
+        [true, true, false, true, true],
+        'a detached program is the conversation\'s when a command it ran names it, a launcher alone says nothing, and an unreadable transcript keeps it');
+      const t0 = 1800000000000;
+      const job = (pid, command) => ({ session: 'aaaaaaaa-1111-4111-8111-00000000000c', pid, start: '5', startedAt: t0, kind: 'leader', command });
+      de.update({ dir, jobs: [job(20, 'python3 job.py'), job(21, '/opt/tools/usage-uploader -t ada')], now: t0 });
+      const ends = de.update({ dir, jobs: [], now: t0 + 10e3, ran: (id, command) => de.ranBy(file, command) });
+      eq(ends.map((e) => e.pid), [20], 'a program the conversation did not start is not reported when it stops');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  /* A conversation continued from another folder has a transcript in each; the newest is the one still written. */
+  {
+    const cf = require('../src/claude-files');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-twofolders-'));
+    try {
+      const id = 'aaaaaaaa-1111-4111-8111-00000000000d';
+      for (const [d, t] of [['-old', 1700000000], ['-new', 1800000000]]) {
+        fs.mkdirSync(path.join(root, d));
+        fs.writeFileSync(path.join(root, d, id + '.jsonl'), '{}\n');
+        fs.utimesSync(path.join(root, d, id + '.jsonl'), t, t);
+      }
+      eq(path.basename(path.dirname(cf.transcriptOf(id, root))), '-new', 'of two transcripts of one conversation, the newest is used');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+
+  /* The notice a conversation gets about a `claude --bg` session it started. */
+  console.log('\nbackground sessions that ended or wait for an answer');
+  {
+    const be = require('../src/bgends');
+    const de = require('../src/detachedends');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-bgends-'));
+    const jobs = path.join(dir, 'jobs');
+    try {
+      const A = 'aaaaaaaa-1111-4111-8111-00000000000a';
+      const t0 = Date.parse('2027-01-15T08:00:00Z');
+      const iso = (ms) => new Date(ms).toISOString();
+      const job = (id, d) => { fs.mkdirSync(path.join(jobs, id), { recursive: true }); fs.writeFileSync(path.join(jobs, id, 'state.json'), JSON.stringify(Object.assign({ createdAt: iso(t0 - 3600e3) }, d))); };
+      const ids = ['a0000001', 'a0000002', 'a0000003', 'a0000004', 'a0000005', 'a0000006'];
+      fs.writeFileSync(path.join(dir, A + '.background'), JSON.stringify({ ids: ids.slice(0, 4) }));
+      for (const id of ids.slice(0, 4)) job(id, { state: 'working', name: 'job ' + id, updatedAt: iso(t0) });
+      const live = (...js) => js.map((j, i) => ({ kind: 'bg', jobId: j, pid: 100 + i }));
+      const stopCall = path.join(dir, 'a.jsonl');
+      fs.writeFileSync(stopCall, JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'claude stop a0000004' } }] } }) + '\n');
+      const transcript = () => stopCall;
+      const up = (now, records, claim = true) => be.update({ dir, jobs, records, now, claim, transcript });
+      const first = up(t0, live(...ids.slice(0, 4)));
+      job('a0000001', { state: 'done', name: 'Test 6', output: { result: 'all within noise' }, updatedAt: iso(t0 + 60e3), lastTerminalAt: iso(t0 + 60e3) });
+      job('a0000002', { state: 'blocked', needs: 'Which bucket?', updatedAt: iso(t0 + 60e3) });
+      job('a0000003', { state: 'working', updatedAt: iso(t0) });
+      job('a0000004', { state: 'stopped', updatedAt: iso(t0 + 60e3), lastTerminalAt: iso(t0 + 60e3) });
+      const second = up(t0 + 70e3, live('a0000002'));
+      const again = up(t0 + 80e3, live('a0000002'));
+      const dead = up(t0 + 70e3 + be.DEAD_AFTER_MS + 10e3, live('a0000002'));
+      eq([first.length, second.map((e) => `${e.job} ${e.kind}`).sort(), again.length, dead.map((e) => `${e.job} ${e.kind}`)],
+        [0, ['a0000001 done', 'a0000002 blocked'], 0, ['a0000003 died']],
+        'nothing is reported on the first look; then a finished session and one waiting for an answer once each, one with no process after two minutes as died, and none the conversation stopped itself');
+      // A session first seen already finished counts only if it finished after the last look; nothing is recorded while the notices are off.
+      fs.writeFileSync(path.join(dir, A + '.background'), JSON.stringify({ ids }));
+      job('a0000005', { state: 'done', updatedAt: iso(t0 - 7200e3), lastTerminalAt: iso(t0 - 7200e3) });
+      job('a0000006', { state: 'failed', detail: 'API error 429', updatedAt: iso(t0 + 200e3), lastTerminalAt: iso(t0 + 200e3) });
+      const late = up(t0 + 210e3, live('a0000002'));
+      job('a0000001', { state: 'done', updatedAt: iso(t0 + 300e3), lastTerminalAt: iso(t0 + 300e3) });
+      const off = up(t0 + 310e3, live('a0000002'), false);
+      eq([late.map((e) => `${e.job} ${e.kind}`), off.length], [['a0000006 failed'], 0],
+        'a session found already ended counts only when it ended after the last look, and nothing is recorded while the notices are off');
+      const posts = [];
+      const post = async (address, text) => { posts.push([address, text]); return true; };
+      const sent = await de.deliver({ dir, inbox: (id) => (id === A ? '/run/a.sock' : null), post, now: t0 + 400e3, sub: be.ENDS_DIR, text: be.noticeText });
+      const text = (posts[0] || [])[1] || '';
+      eq([sent.length, posts.length, text.split('\n')[0], text.includes('- "Test 6" (a0000001) finished at 2027-01-15 08:01 UTC. Its result: all within noise'),
+        text.includes('(a0000002) is waiting for an answer: Which bucket?'), text.includes('(a0000003) stopped running before it finished'),
+        text.includes('(a0000006) failed at 2027-01-15 08:03 UTC: API error 429'), text.includes('a0000004')],
+        [1, 1, 'Claude Code Plus notice, not a message from the user: news of `claude --bg` sessions this conversation started.', true, true, true, true, false],
+        'the launching conversation gets one notice naming each session, with its result, what it waits for, or why it failed');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  /* What stops with an editor process that is stopped because another process runs its conversation. */
+  console.log('\nbackground work that stops with a stopped process');
+  {
+    const sw = require('../src/stoppedwork');
+    const de = require('../src/detachedends');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-stopwork-'));
+    try {
+      const S = 'aaaaaaaa-1111-4111-8111-00000000000b';
+      const file = path.join(dir, 't.jsonl');
+      const use = (id, command, description) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command, description, run_in_background: true } }] } });
+      const res = (id, task) => JSON.stringify({ type: 'user', toolUseResult: { backgroundTaskId: task }, message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'running' }] } });
+      const note = (task, status) => JSON.stringify({ type: 'queue-operation', content: `<task-notification>\n<task-id>${task}</task-id>\n<status>${status}</status>\n</task-notification>` });
+      fs.writeFileSync(file, [use('u1', 'sleep 2700; echo check', 'Fallback timer'), res('u1', 'b1'), use('u2', 'make all', 'Build'), res('u2', 'b2'),
+        note('b1', 'stopped'), note('b2', 'completed')].join('\n') + '\n');
+      fs.writeFileSync(path.join(dir, S + '.tasks'), JSON.stringify({ at: 1, pid: 42, event: 'Stop', tasks: [
+        { id: 'b1', type: 'shell', status: 'running', description: 'Fallback timer' }, { id: 'b2', type: 'shell', status: 'running', description: 'Build' },
+        { id: 'a9', type: 'agent', status: 'running', description: 'Review the patch' }] }));
+      const proc = path.join(dir, 'proc');
+      const pr = (pid, ppid, cmd) => { fs.mkdirSync(path.join(proc, String(pid)), { recursive: true });
+        fs.writeFileSync(path.join(proc, String(pid), 'stat'), `${pid} (x) S ${ppid} 0 0`); fs.writeFileSync(path.join(proc, String(pid), 'cmdline'), cmd.split(' ').join('\0')); };
+      pr(42, 1, 'claude');
+      pr(43, 42, `/bin/bash -c source /h/.claude/shell-snapshots/snapshot-bash-1.sh && eval 'sleep 2700; echo check' && pwd -P`);
+      pr(44, 43, 'sleep 2700');
+      pr(45, 42, 'node mcp-server.js');
+      pr(46, 1, `/bin/bash -c source /h/.claude/shell-snapshots/snapshot-bash-2.sh && eval 'echo other' && pwd -P`);
+      const opts = { session: S, dir, transcript: () => file, proc };
+      const fromHook = sw.lost(Object.assign({ p: { pid: 42 } }, opts));
+      const fromProc = sw.lost(Object.assign({ p: { pid: 47 } }, opts));
+      pr(47, 1, 'claude'); pr(48, 47, `/bin/bash -c source /h/.claude/shell-snapshots/snapshot-bash-3.sh && eval 'grep '"'"'a b'"'"' f' && pwd -P`);
+      const quoted = sw.lost(Object.assign({ p: { pid: 47 } }, opts));
+      eq([fromHook.map((w) => [w.id, w.type, w.command]), fromProc, quoted.map((w) => w.command)],
+        [[['b1', 'shell', 'sleep 2700; echo check'], ['a9', 'agent', '']], [], ["grep 'a b' f"]],
+        'the work is what the process\'s own Stop hook reported, less what has since completed, and without that, the shells under the process');
+      const p = { pid: 42, procStart: '7', window: 'proj', windowless: true };
+      const recorded = sw.record({ dir, session: S, p, work: fromHook, now: Date.parse('2027-01-15T08:00:00Z') });
+      const twice = sw.record({ dir, session: S, p, work: fromHook });
+      const posts = [], asked = [];
+      const sent = await de.deliver({ dir, post: async (a, t) => { posts.push([a, t]); return true; }, now: Date.parse('2027-01-15T08:01:00Z'),
+        inbox: (id, ends) => { asked.push(ends.map((e) => e.pid)); return '/run/b.sock'; }, sub: sw.STOPPED_WORK_DIR, text: sw.noticeText });
+      const text = (posts[0] || [])[1] || '';
+      eq([recorded, twice, sent.length, asked[0], /^Claude Code Plus notice, not a message from the user: another process was also running this conversation/.test(text),
+        text.includes('Process 42 whose window was gone, stopped 2027-01-15 08:00 UTC:'), text.includes('- shell b1 - Fallback timer: `sleep 2700; echo check`'),
+        text.includes('- agent a9 - Review the patch')],
+        [true, false, 1, [42], true, true, true, true],
+        'a stop is recorded once, and the conversation\'s other process is told what stopped with it');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
