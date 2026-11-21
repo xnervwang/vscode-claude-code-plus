@@ -42,6 +42,9 @@
    * meter has no denominator and draws nothing, and the per-reply figure has no share to show. This writes only while
    * the panel has no window of its own, and the first real one replaces it.
    *
+   * A panel that starts another conversation keeps the last one's window until the new one's first turn closes. When
+   * the tokens already exceed that window it cannot be this conversation's, and it is replaced the same way.
+   *
    * Two sizes, told apart by the [1m] marker on the model that was picked. A table like that goes stale without saying
    * so; it is acceptable here only because it is shown until the first turn closes and no longer. Over 200,000 tokens
    * already settles it whatever the model says: a standard window cannot hold that many.
@@ -63,11 +66,11 @@
   var fillWindow = function(){
     if (!isOn() || (isOff('contextMeter') && isOff('contextShare'))) return;
     var sig = sessionRef && sessionRef.usageData, u = sig && sig.value;
-    if (!u || u.contextWindow > 0 || !(u.totalTokens > 0)) return;
+    if (!u || !(u.totalTokens > 0) || (u.contextWindow > 0 && u.totalTokens <= u.contextWindow)) return;
     var info = sessionRef.currentModelInfo && sessionRef.currentModelInfo.value;
     var pick = info && typeof info.resolvedModel === 'string' ? info.resolvedModel : '';
     var win = u.totalTokens > STANDARD_WINDOW || /\[1m\]$/i.test(pick) ? LARGE_WINDOW : pick ? STANDARD_WINDOW : 0;
-    if (!win) return;
+    if (!win || win < u.totalTokens) return;
     sig.value = Object.assign({}, u, {
       contextWindow: win,
       maxOutputTokens: u.maxOutputTokens > 0 ? u.maxOutputTokens : Number.MAX_SAFE_INTEGER,

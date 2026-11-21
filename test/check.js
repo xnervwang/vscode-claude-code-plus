@@ -968,6 +968,13 @@ console.log('\na reopened conversation');
   if (r0 >= 1e6 && r1 === 32000) ok('a missing reserve is filled above any cap, and a real one is kept');
   else bad(`the reserve came out ${r0} when missing and ${r1} when it was 32000`);
 
+  // A window left by the panel's previous conversation, smaller than what this one already holds.
+  const stale = fill({ totalTokens: 214652, contextWindow: 200000, maxOutputTokens: 32000 }, 'claude-opus-5-5');
+  const plausible = fill({ totalTokens: 169604, contextWindow: 200000, maxOutputTokens: 32000 }, 'claude-opus-5-5');
+  if (stale.contextWindow === 1000000 && stale.maxOutputTokens === 32000 && plausible.contextWindow === 200000) {
+    ok('a window smaller than the tokens already held is replaced, and one that could hold them is left alone');
+  } else bad(`a stale window came out ${stale.contextWindow}, a plausible one ${plausible.contextWindow}`);
+
   box.sessionRef = session({ totalTokens: 500000, contextWindow: 1000000 }, 'x[1m]');
   const had = box.sessionRef.usageData.value;
   box.out.fillWindow();
