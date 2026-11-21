@@ -537,8 +537,15 @@ const EDITS = [
     // meter switch is on; the check that hides it until a real window size has arrived stays, since the figure means
     // nothing without one.
     name: 'context meter always visible',
-    // Two shapes: 2.1.317 dropped the debug override around both checks.
+    // Three shapes: 2.1.317 dropped the debug override around both checks, and 2.1.330 hides the meter while the share
+    // used is at or below a threshold its caller passes.
     shapes: [
+      {
+        note: '2.1.330 and later: one check against the threshold',
+        re: /if\(([\w$]+)===0\|\|([\w$]+)<=([\w$]+)\)return null;return ([\w$]+)\(([\w$]+),\{percentageUsed:/g,
+        to: (m, window, used, limit, make, meter) =>
+          `if(${window}===0||!${METER_KEPT}&&${used}<=${limit})return null;return ${make}(${meter},{percentageUsed:`,
+      },
       {
         note: '2.1.317 and later: the checks stand alone',
         re: /if\(([\w$]+)===0\)return null;if\(([\w$]+)>=(\d+)\)return null;return ([\w$]+)\(([\w$]+),\{percentageUsed:/g,
