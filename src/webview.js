@@ -420,15 +420,29 @@ const EDITS = [
     // Text color before Archive in a conversation's menu (84-session-colors.js); the page returning null leaves it out.
     name: 'text color in the session list menu',
     re: /if\(([\w$]+)\.archiveSelection\)([\w$]+)\.push\(\{label:([\w$]+)\.length>1\?`Archive \$\{\3\.length\} sessions`:"Archive session",/g,
-    to: (m, act, items, keys) => `{let cceC=typeof window.__cceColorItem==="function"?window.__cceColorItem(${keys},${items}.length>0):null;`
+    to: (m, act, items, keys) => `{let cceC=typeof window.__cceColorItem==="function"?window.__cceColorItem(${keys},${items}.length>0,${act}.cceClearSelection):null;`
       + `if(cceC)${items}.push(cceC)}${m}`,
   },
   {
     // The same in the Archived sessions menu, before Unarchive.
     name: 'text color in the archived list menu',
     re: /if\(([\w$]+)\.unarchiveSelection\)([\w$]+)\.push\(\{label:([\w$]+)\.length>1\?`Unarchive \$\{\3\.length\} sessions`:"Unarchive session",/g,
-    to: (m, act, items, keys) => `{let cceC=typeof window.__cceColorItem==="function"?window.__cceColorItem(${keys},${items}.length>0):null;`
+    to: (m, act, items, keys) => `{let cceC=typeof window.__cceColorItem==="function"?window.__cceColorItem(${keys},${items}.length>0,${act}.cceClearSelection):null;`
       + `if(cceC)${items}.push(cceC)}${m}`,
+  },
+  {
+    // A right-click selects the row it is on, and Claude Code's own menu items clear that selection once they have run.
+    // The list's menu is handed a way to do the same, for Text color, which would otherwise leave the row outlined as
+    // selected.
+    name: 'row menu can clear the selection',
+    re: /(\{resumeSession:\(\)=>\{([\w$]+)\(new Set\),([\w$]+)\([\w$]+\),[\w$]+\([\w$]+,[\w$]+\([\w$]+\)\)\},)(createGroupFromSelection:)/g,
+    to: (m, head, set, anchor, next) => `${head}cceClearSelection:()=>{${set}(new Set),${anchor}(null)},${next}`,
+  },
+  {
+    // The same for the Archived sessions menu.
+    name: 'archived row menu can clear the selection',
+    re: /(\{resumeSession:\(\)=>\{([\w$]+)\(new Set\),([\w$]+)\([\w$]+\),[\w$]+\([\w$]+,[\w$]+\([\w$]+\)\)\},)(unarchiveSelection:)/g,
+    to: (m, head, set, anchor, next) => `${head}cceClearSelection:()=>{${set}(new Set),${anchor}(null)},${next}`,
   },
   {
     // The panel's open request, carrying where the session list's two buttons and two Resume items asked for.

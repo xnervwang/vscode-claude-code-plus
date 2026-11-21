@@ -107,8 +107,9 @@
   };
 
   // The Text color entry for the selected conversations, with Default and the eight colors under it; null leaves the
-  // menu as it is. Remote conversations are skipped, as for Delete: they are not on this machine's disk.
-  window.__cceColorItem = function(keys, after){
+  // menu as it is. Remote conversations are skipped, as for Delete: they are not on this machine's disk. `clear` ends
+  // the list's selection once a color is picked, as Claude Code's own items do.
+  window.__cceColorItem = function(keys, after, clear){
     try {
       if (isOff('sessionColors') || !Array.isArray(keys)) return null;
       var d = colorsNow();
@@ -117,7 +118,12 @@
       if (!ids.length) return null;
       var current = colorOf(ids[0], d);
       for (var i = 1; i < ids.length; i++) if (colorOf(ids[i], d) !== current) { current = void 0; break; }
-      var pick = function(name){ return function(){ sendColor(ids, name); }; };
+      var pick = function(name){
+        return function(){
+          sendColor(ids, name);
+          try { if (typeof clear === 'function') clear(); } catch (e) {}
+        };
+      };
       var sub = [{ label: colorLabel(null, current === null), onSelect: pick(null) }];
       for (var j = 0; j < COLOR_NAMES.length; j++) {
         var n = COLOR_NAMES[j];

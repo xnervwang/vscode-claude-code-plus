@@ -8254,6 +8254,22 @@ console.log('\ntext colors in the session list');
     if (JSON.stringify(got) === JSON.stringify(wantM)) ok('Text color comes before Archive in a conversation\'s menu and before Unarchive in Archived sessions, with Delete still after it, and goes with the switch off');
     else bad(`the menus were ${JSON.stringify(got)}, expected ${JSON.stringify(wantM)}`);
   }
+  // A right-click selects its row; picking a text color then ends that selection, as Claude Code's own items do.
+  const clearEdits = ['row menu can clear the selection', 'archived row menu can clear the selection'].map((n) => webview.EDITS.find((x) => x.name === n));
+  const lists = 'function se(){return dF(xr,E,{resumeSession:()=>{Ro(new Set),Hn(On),c(Mt,Ot(Mt))},createGroupFromSelection:()=>{},archiveSelection:()=>{}},{})}'
+    + 'function sa(){return uF(xr,{resumeSession:()=>{Ro(new Set),Hn(On),c(Mt,Ot(Mt))},unarchiveSelection:()=>{}},{})}';
+  const cr = clearEdits.every(Boolean) && !mr.error ? applyEdits(lists, clearEdits) : { error: 'no such edit' };
+  if (cr.error) bad('the selection edits did not apply: ' + cr.error);
+  else {
+    const senv = { window: env.window, xr: [A], E: [], On: A, Mt: {}, sel: [], Ro: (s) => senv.sel.push(['set', s.size]), Hn: (k) => senv.sel.push(['anchor', k]),
+      c() {}, Ot() {}, out: null };
+    vm.createContext(senv);
+    vm.runInContext(mr.out + ';' + cr.out + ';out=[se(),sa()].map((m)=>m.find((x)=>x.label==="Text color"));', senv);
+    senv.out.forEach((m) => m.submenu[1].onSelect());
+    if (JSON.stringify(senv.sel) === JSON.stringify([['set', 0], ['anchor', null], ['set', 0], ['anchor', null]])) {
+      ok('picking a text color from either list\'s menu ends the selection the right-click made');
+    } else bad(`picking a text color left the selection calls ${JSON.stringify(senv.sel)}`);
+  }
   const me = host.EDITS.find((x) => x.name === 'panel messages');
   const hr = applyEdits('function eT($,J){let Q=`Received message from webview: ${bl0(J)}`;$.info(Q)}', [me]);
   const asked = [];
