@@ -212,9 +212,9 @@ const EDITS = [
    * minute. The states pass through this extension first, which may mark an idle conversation running
    * (__cceWithBackground in extension.js).
    *
-   * From 2.1.330 an argument can depend on the panel it goes to (the session list is sent one more open conversation),
-   * so each panel's arguments are worked out inside the loop. The extension hears the arguments any other panel gets,
-   * worked out with the loop's variable left undefined.
+   * From 2.1.330 one argument depends on the panel it goes to (the session list gets one more open conversation), so
+   * each panel's arguments are computed inside the loop. The extension is handed the ones a panel with no special case
+   * gets, computed with the loop variable unset.
    */
   {
     name: 'session states say whether the sidebar is shown',
