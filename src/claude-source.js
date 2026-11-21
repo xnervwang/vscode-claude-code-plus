@@ -7,7 +7,9 @@
  * Claude Code as a conversation source of Agent Plus (xnervwang.agent-plus, protocol 1; its docs/protocol.md).
  *
  *   conversations    `claude agents --json` for the running ones (src/waiting.js), recent plans with open rows for the
- *                    stopped ones (src/conversations.js), states from the patched host (src/host.js)
+ *                    stopped ones (src/conversations.js), states from the patched host (src/host.js); for Agent Plus's
+ *                    notices, every running one on the machine (listAllConversations)
+ *   open             in this window, or in the window that shows the conversation (src/steward-view.js open)
  *   plans            <session id>.json in the companion plugin's data directory (src/workplan.js)
  *   focus            a change of the host's activeSessionId; a panel's onDidChangeViewState; sessionForTab(); and the
  *                    page getting focus (src/page/92-focus.js), the only signal a sidebar conversation gives
@@ -89,6 +91,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   sentSince(sessionId, text, ms)  optional: Promise of 'sent', 'queued' or '' from the transcript (src/sent-check.js)
  *   log(line)                       optional
  *   reveal(sessionId)               Promise<boolean>
+ *   shown()                         optional: ids of the conversations open in this window
+ *   open(sessionId)                 optional: Promise of 'here', 'sent' or 'nowhere'
  *   logo()                          { light, dark } Uris, or null
  *   timeZone()                      the zone a panel reported, or ''
  *   isBackground(id, cwd)           optional, for tests
@@ -112,6 +116,21 @@ function createClaudeSource(deps) {
   const say = (sessionId) => { front = sessionId; focused.fire({ sessionId }); };
 
   const ask = () => deps.listAgents().then((r) => { agentsLast = r; agentsAt = Date.now(); return r; });
+  const freshAgents = () => {
+    if (agentsLast.records && Date.now() - agentsAt < AGENTS_FRESH_MS) return Promise.resolve(agentsLast);
+    if (!pidsAsk) pidsAsk = deps.listAgents().then((r) => { if (r.records) { agentsLast = r; agentsAt = Date.now(); } return r; })
+      .finally(() => { pidsAsk = null; });
+    return pidsAsk;
+  };
+  const listed = (s, on, live, unread) => ({
+    sessionId: s.sessionId,
+    title: conversations.claudeTitle(s, deps.titles(s), () => deps.readPlan(s.sessionId)),
+    cwd: s.cwd,
+    state: on ? conversations.stateOf(s, live, unread) : 'idle',
+    running: on,
+    lastActiveAt: deps.since(s) || 0,
+    hasPlan: false,
+  });
 
   const log = (line) => { try { if (deps.log) deps.log(line); } catch (_) { /* not logged */ } };
   /* Called when the panel kept the answer in its input or did not report, since it may have been sent anyway. */
@@ -195,21 +214,35 @@ function createClaudeSource(deps) {
         stoppedLast = enabled() ? conversations.stoppedWithOpenRows(folders, new Set(all.keys()), { readPlan: deps.readPlan }) : new Map();
       }
       const live = deps.live(), unread = deps.unread();
-      const one = (s, on) => ({
-        sessionId: s.sessionId,
-        title: conversations.claudeTitle(s, deps.titles(s), () => deps.readPlan(s.sessionId)),
-        cwd: s.cwd,
-        state: on ? conversations.stateOf(s, live, unread) : 'idle',
-        running: on,
-        lastActiveAt: deps.since(s) || 0,
-        hasPlan: false,
-      });
-      const out = [...running.values()].map((s) => one(s, true)).concat([...stoppedLast.values()].map((s) => one(s, false)));
+      const out = [...running.values()].map((s) => listed(s, true, live, unread))
+        .concat([...stoppedLast.values()].map((s) => listed(s, false, live, unread)));
       if (!records) out.problem = error;
       return out;
     },
 
+    /*
+     * Like listConversations, but for every folder: Agent Plus uses it for the notices it shows in every window. An
+     * unread reply counts only for a conversation this window shows. The host reads its unread set once at start-up, so
+     * the set can still hold a conversation that another window shows and the user has since read there.
+     */
+    async listAllConversations() {
+      const { records, error } = await freshAgents();
+      if (!records) { const none = []; none.problem = error; return none; }
+      const all = waiting.foreground(waiting.merge(records), deps.isBackground ? { isBackground: deps.isBackground } : undefined);
+      let mine = null;
+      try { mine = typeof deps.shown === 'function' ? new Set(deps.shown()) : null; } catch (_) { mine = null; }
+      const unread = new Set([...deps.unread()].filter((id) => !mine || mine.has(id)));
+      const live = deps.live();
+      return [...all.values()].map((s) => listed(s, true, live, unread));
+    },
+
     reveal: (sessionId) => deps.reveal(sessionId),
+
+    open(sessionId) {
+      if (typeof deps.open !== 'function') return Promise.resolve('nowhere');
+      return Promise.resolve().then(() => deps.open(sessionId))
+        .then((r) => (r === 'here' || r === 'sent' ? r : 'nowhere'), () => 'nowhere');
+    },
 
     canDeliver: (sessionId) => deps.canDeliver(sessionId) === true,
 
@@ -294,12 +327,7 @@ function createClaudeSource(deps) {
       for (const [panel, entry] of panels) if (sessionId && entry.sessionId === sessionId) return panel;
       return null;
     },
-    freshAgents() {
-      if (agentsLast.records && Date.now() - agentsAt < AGENTS_FRESH_MS) return Promise.resolve(agentsLast);
-      if (!pidsAsk) pidsAsk = deps.listAgents().then((r) => { if (r.records) { agentsLast = r; agentsAt = Date.now(); } return r; })
-        .finally(() => { pidsAsk = null; });
-      return pidsAsk;
-    },
+    freshAgents,
     dispose() {
       focused.dispose();
       changed.dispose();

@@ -124,6 +124,15 @@ function inFolders(sessions, folders, { isBackground = bgSessions.isBackground }
   return out;
 }
 
+/** Drops background sessions. */
+function foreground(sessions, { isBackground = bgSessions.isBackground } = {}) {
+  const out = new Map();
+  for (const [id, s] of sessions) {
+    if (s.kind !== 'background' && s.cwd && !isBackground(id, s.cwd)) out.set(id, s);
+  }
+  return out;
+}
+
 /**
  * The titles a transcript carries near its end: the one the user gave, and the one Claude Code generated. Claude Code
  * writes both again every turn, so the last few hundred kilobytes hold the current ones however long the file is.
@@ -185,5 +194,5 @@ function reader() {
 }
 
 module.exports = {
-  parseAgents, listAgents, isDefaultName, merge, pidsOf, folderTest, inFolders, transcriptTitles, reader,
+  parseAgents, listAgents, isDefaultName, merge, pidsOf, folderTest, inFolders, foreground, transcriptTitles, reader,
 };

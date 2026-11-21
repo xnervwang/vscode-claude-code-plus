@@ -43,6 +43,12 @@ const until = async (test, ms) => {
 };
 
 async function run() {
+  /* Both extensions write under HOME: plans, the shared folder, a stand-in Claude Code. */
+  const tmp = fs.realpathSync(os.tmpdir());
+  if (!fs.realpathSync(os.homedir()).startsWith(tmp + path.sep)) {
+    bad(`refusing to run with HOME at ${os.homedir()}: test/check.js runs this with an empty HOME under ${tmp}`);
+    return;
+  }
   const core = process.env.AGENT_WORK_PLAN_DIR || path.join(root, '..', 'vscode-agent-plus');
   if (!fs.existsSync(path.join(core, 'src', 'host.js')) || !fs.existsSync(path.join(core, 'test', 'fake-vscode.js'))) {
     note(`no Agent Plus checkout at ${core}: the two were not run together`);
@@ -64,7 +70,10 @@ async function run() {
   const bin = path.join(claudeExt, 'resources', 'native-binary', 'claude');
   fs.mkdirSync(path.dirname(bin), { recursive: true });
   fs.writeFileSync(path.join(claudeExt, 'resources', 'claude-logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
-  const agents = JSON.stringify([{ sessionId: SID, id: 'aaaa1111', kind: 'interactive', cwd: ws, name: 'Asks two questions', status: 'idle' }]);
+  /* The second runs in a folder no window here has open, and waits for a permission. */
+  const SID2 = 'cdcdcdcd-1111-4222-8333-444444444444';
+  const agents = JSON.stringify([{ sessionId: SID, id: 'aaaa1111', kind: 'interactive', cwd: ws, name: 'Asks two questions', status: 'idle' },
+    { sessionId: SID2, id: 'cccc1111', kind: 'interactive', cwd: path.join(home, 'elsewhere'), name: 'Runs elsewhere', status: 'waiting', waitingFor: 'permission' }]);
   fs.writeFileSync(bin, `#!/bin/sh\nif [ "$1" = agents ]; then printf '%s\\n' '${agents}'; exit 0; fi\nexit 1\n`, { mode: 0o755 });
 
   /* Its plan, with two questions for the user. */
@@ -169,12 +178,21 @@ async function run() {
     const open = () => control.state.handlers['agentPlus.openConversation']({ sourceId: 'claude-code', sessionId: SID, title: 'Asks two questions', cwd: ws });
     const said = control.state.said.length;
     await open();
-    eq(control.state.said.slice(said).map((m) => /could not be brought to front/.test(m.message)), [true],
-      'a conversation not shown in this window gets Agent Plus\'s message that it could not be brought to front');
+    eq(control.state.said.slice(said).map((m) => /^"Asks two questions" is not open in any VS Code window on this machine\.$/.test(m.message)), [true],
+      'a conversation no window shows gets Agent Plus\'s message that it is not open in any window');
     globalThis.__cceSessionsShown = () => [SID];
     await open();
     eq([control.state.said.length - said, control.state.commands.some((c) => c[0] === 'claude-vscode.editor.open' && c[1] === SID)], [1, true],
       'a conversation shown in this window is brought to front with no message');
+
+    /* Notices: this window's unread reply, and a permission prompt in a folder no window here has open. */
+    globalThis.__cceStatesHook([], '', [], [SID]);
+    const bell = () => control.state.status.find((i) => i.id === 'agentPlus.attention' && !i.disposed);
+    await until(() => bell() && bell().shown && /\b2$/.test(bell().text), 15000);
+    const b = bell();
+    eq([b && b.shown, b && /\b2$/.test(b.text), b && /Waiting: Runs elsewhere/.test(b.tooltip), b && /Finished: Asks two questions/.test(b.tooltip)],
+      [true, true, true, true],
+      'Agent Plus counts this window\'s unread reply and a conversation waiting in a folder no window here has open');
 
     /* Answers: the first is sent by the panel, the second finds the input already holding text. */
     const conv = () => tree.getChildren().find((e) => e.kind === 'conversation');

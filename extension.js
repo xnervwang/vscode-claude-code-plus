@@ -735,6 +735,11 @@ function start(context, log, renamed, handing = false) {
     if (globalThis.__cceProcessHook) delete globalThis.__cceProcessHook;
   } });
 
+  /* Conversations with a panel or tab in this window, except those the host sees running in another window. */
+  const panelList = (name) => { try { const f = globalThis[name]; return typeof f === 'function' ? f() || [] : []; } catch (_) { return []; } };
+  const shownList = () => { const elsewhere = panelList('__cceSessionsElsewhere'); return panelList('__cceSessionsShown').filter((id) => !elsewhere.includes(id)); };
+  /* Assigned after the Steward panel is created below, which itself needs the source. */
+  let openAnywhere = null;
   /* The list of running conversations, shared between windows (listAgents in src/waiting.js). A shared list is at most
      20 seconds old when a window takes it, and src/claude-source.js caches it for that window like any other. */
   const AGENTS_FILE = 'agents.json', AGENTS_SHARE_MS = 20000;
@@ -768,13 +773,12 @@ function start(context, log, renamed, handing = false) {
     /* An extension cannot raise another window, and opening the conversation here as well would start a second process on
        it. */
     reveal: async (sessionId) => {
-      const list = (name) => { try { const f = globalThis[name]; return typeof f === 'function' ? f() || [] : []; } catch (_) { return []; } };
-      const elsewhere = list('__cceSessionsElsewhere');
-      const here = list('__cceSessionsShown').filter((id) => !elsewhere.includes(id));
-      if (!here.includes(sessionId)) return false;
+      if (!shownList().includes(sessionId)) return false;
       await vscode.commands.executeCommand('claude-vscode.editor.open', sessionId);
       return true;
     },
+    shown: () => shownList(),
+    open: (sessionId) => (openAnywhere ? openAnywhere(sessionId) : 'nowhere'),
   });
   context.subscriptions.push(claude);
   /* The other agent's conversation tab that came to the front last; null once a Claude Code panel comes to the front.
@@ -801,8 +805,6 @@ function start(context, log, renamed, handing = false) {
   }
 
   /* The Steward panel, and the notices it sends a steward when a conversation it manages stops (src/steward-view.js). */
-  const panelList = (name) => { try { const f = globalThis[name]; return typeof f === 'function' ? f() || [] : []; } catch (_) { return []; } };
-  const shownList = () => { const elsewhere = panelList('__cceSessionsElsewhere'); return panelList('__cceSessionsShown').filter((id) => !elsewhere.includes(id)); };
   const shownHere = (sessionId) => shownList().includes(sessionId);
   globalThis.__cceAliveHook = () => { pageAt = Date.now(); };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceAliveHook) delete globalThis.__cceAliveHook; } });
@@ -892,6 +894,7 @@ function start(context, log, renamed, handing = false) {
     windowName: () => vscode.workspace.name || '', windowFolders: () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath),
   });
   context.subscriptions.push(steward);
+  openAnywhere = (sessionId) => steward.open(sessionId);
   otherChanged = () => steward.refresh();
   /*
    * Brings this window to the front. The API has no call for this, so this window's own `code` CLI opens the folder or

@@ -10448,6 +10448,72 @@ console.log('\nClaude Code\'s own source');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
+console.log('\nClaude Code\'s source for notices from every window');
+{
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-claude-all-')));
+  try {
+    const stub = path.join(home, 'vscode-stub.js');
+    fs.writeFileSync(stub, `module.exports = { TabInputWebview: class { constructor(v) { this.viewType = v; } } };`);
+    const script = `
+      const Module = require('module'), realResolve = Module._resolveFilename;
+      Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+      const C = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+      const id = (n) => n + n + n + n + n + n + n + n + '-1111-4222-8333-444444444444';
+      const records = [
+        { sessionId: id('a'), cwd: '/w/one', status: 'waiting', waitingFor: 'permission' },
+        { sessionId: id('b'), cwd: '/w/two', status: 'busy' },
+        { sessionId: id('c'), cwd: '/other', status: 'idle' },
+        { sessionId: id('d'), cwd: '/other', status: 'idle' },
+        { sessionId: id('e'), cwd: '/other', status: 'busy', kind: 'background' },
+        { sessionId: id('f'), cwd: '/other', status: 'waiting' },
+      ];
+      let agents = { records, error: '' }, shown = () => [id('c')], opened = [], openAs = 'sent';
+      const make = (extra) => C.createClaudeSource(Object.assign({ planDir: () => '/plans', enabled: () => false,
+        listAgents: async () => agents, folders: () => ['/w'], readPlan: () => null, titles: () => ({ custom: '', ai: '' }),
+        since: () => 0, live: () => new Map(), unread: () => new Set([id('c'), id('d')]), activeChat: () => '', logo: () => null,
+        canDeliver: () => false, hand: () => false, reveal: async () => false, isBackground: (sid) => sid === id('f'),
+        shown: () => shown(), open: (sid) => { opened.push(sid); if (openAs === 'throw') throw new Error('x'); return openAs; } }, extra));
+      const states = (list) => list.map((c) => c.sessionId.slice(0, 1) + ':' + c.state).sort().join(' ');
+      (async () => {
+        const out = {};
+        const c = make({});
+        out.all = states(await c.source.listAllConversations());
+        out.here = states(await c.source.listConversations());
+        shown = () => { throw new Error('no host'); };
+        out.unknownShown = states(await c.source.listAllConversations());
+        out.open = [];
+        for (const how of ['sent', 'here', 'nowhere', 'weird', 'throw']) { openAs = how; out.open.push(await c.source.open(id('c'), { title: 't', cwd: '/other' })); }
+        out.opened = opened.length;
+        const bare = make({ open: undefined });
+        out.bare = await bare.source.open(id('c'));
+        agents = { records: null, error: 'no cli' };
+        const failed = make({});
+        const none = await failed.source.listAllConversations();
+        out.failed = [none.length, none.problem];
+        process.stdout.write(JSON.stringify(out));
+      })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
+    const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
+    let o = {};
+    try { o = JSON.parse(r.stdout); } catch (_) { o = { threw: r.stdout + r.stderr }; }
+    if (o.all === 'a:prompt b:working c:unread d:idle' && o.here === 'a:prompt b:working') {
+      ok('listAllConversations() lists conversations from every folder, with no background ones');
+    } else bad(`every conversation ${JSON.stringify(o)}`);
+    if (o.all === 'a:prompt b:working c:unread d:idle' && o.unknownShown === 'a:prompt b:working c:unread d:unread') {
+      ok('listAllConversations() counts an unread reply only for a conversation this window shows');
+    } else bad(`unread replies in the full list ${JSON.stringify([o.all, o.unknownShown])}`);
+    if (JSON.stringify(o.open) === '["sent","here","nowhere","nowhere","nowhere"]' && o.opened === 5 && o.bare === 'nowhere') {
+      ok('open() returns the steward\'s answer, and nowhere for anything else');
+    } else bad(`open ${JSON.stringify([o.open, o.opened, o.bare])}`);
+    if (JSON.stringify(o.failed) === '[0,"no cli"]') {
+      ok('listAllConversations() reports a failed `claude agents` as its problem');
+    } else bad(`full list when claude agents fails ${JSON.stringify(o.failed)}`);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  if (/shown: \(\) => shownList\(\),/.test(ext) && /openAnywhere = \(sessionId\) => steward\.open\(sessionId\);/.test(ext)) {
+    ok('the source opens a conversation through the Steward panel\'s open, the one the open links use');
+  } else bad('the source\'s shown() or open() is not wired to the window\'s list and the Steward panel');
+}
+
 console.log('\nClaude Code\'s source and closed panels');
 {
 
