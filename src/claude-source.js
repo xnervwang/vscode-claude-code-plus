@@ -222,8 +222,9 @@ function createClaudeSource(deps) {
 
     /*
      * Like listConversations, but for every folder: Agent Plus uses it for the notices it shows in every window. An
-     * unread reply counts only for a conversation this window shows. The host reads its unread set once at start-up, so
-     * the set can still hold a conversation that another window shows and the user has since read there.
+     * unread reply counts only for a conversation this window shows. The host rereads the shared unread set only when it
+     * changes a mark itself or matches up its tabs, so its copy can still hold a conversation that another window shows
+     * and the user has since read there.
      */
     async listAllConversations() {
       const { records, error } = await freshAgents();
