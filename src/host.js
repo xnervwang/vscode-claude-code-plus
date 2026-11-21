@@ -211,15 +211,21 @@ const EDITS = [
    * yet, for the Conversations view. It comes the moment something changes, where `claude agents` is asked every half
    * minute. The states pass through this extension first, which may mark an idle conversation running
    * (__cceWithBackground in extension.js).
+   *
+   * From 2.1.330 an argument can depend on the panel it goes to (the session list is sent one more open conversation),
+   * so each panel's arguments are worked out inside the loop. The extension hears the arguments any other panel gets,
+   * worked out with the loop's variable left undefined.
    */
   {
     name: 'session states say whether the sidebar is shown',
     re: /for\(let ([\w$]+) of this\.allComms\)\1\.sendSessionStates\(([^;]*?),\1===([\w$]+)\?void 0:([\w$]+)\)/g,
-    to: (m, c, args, side, ids) => `let cceArgs=[${args}];try{let cceF=globalThis.__cceWithBackground;`
-      + 'if(typeof cceF==="function")cceArgs[0]=cceF(cceArgs[0])}catch(cceE){}'
-      + '(()=>{try{globalThis.__cceStatesHook&&globalThis.__cceStatesHook(...cceArgs)}catch(cceE){}})();'
-      + `for(let ${c} of this.allComms)${c}.sendSessionStates(...cceArgs,${c}===${side}?void 0:${ids},`
-      + `${side}!==void 0&&[...this.webviews].some((cceV)=>cceV.comms===${side}&&cceV.isVisible()))`,
+    to: (m, c, args, side, ids) => 'let cceF=globalThis.__cceWithBackground,cceBg=(cceA)=>{try{if(typeof cceF==="function")'
+      + 'cceA[0]=cceF(cceA[0])}catch(cceE){}return cceA},cceArgs=null;'
+      + `{let ${c};try{cceArgs=cceBg([${args}])}catch(cceE){}}`
+      + 'if(cceArgs)(()=>{try{globalThis.__cceStatesHook&&globalThis.__cceStatesHook(...cceArgs)}catch(cceE){}})();'
+      + `for(let ${c} of this.allComms){let cceOwn=[${args}];cceOwn[0]=cceArgs?cceArgs[0]:cceBg(cceOwn)[0];`
+      + `${c}.sendSessionStates(...cceOwn,${c}===${side}?void 0:${ids},`
+      + `${side}!==void 0&&[...this.webviews].some((cceV)=>cceV.comms===${side}&&cceV.isVisible()))}`,
   },
   {
     name: 'session states message carries whether the sidebar is shown',

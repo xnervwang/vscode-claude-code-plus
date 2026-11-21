@@ -7580,6 +7580,22 @@ console.log('\na hidden sidebar in open sessions');
     if (JSON.stringify(states) === '["running","idle"]' && JSON.stringify(hooked) === '["running","idle"]') {
       ok('session states go through __cceWithBackground, and are sent unchanged if it throws');
     } else bad(`states sent ${JSON.stringify(states)}, heard ${JSON.stringify(hooked)}`);
+    // 2.1.330: the session list is sent its own list of open conversations, chosen inside the loop.
+    const loop330 = 'function b3(){let z=this.sidebarComms,u=this.listComms,G=["S"],t=["A"],d=["A","S"];for(let p of this.allComms)p.sendSessionStates([{sessionId:"A",state:"idle"}],this.activeSessionId,p===u?d:t,[],[],p===z?void 0:G);return 1}';
+    const l3 = applyEdits(loop330, [hedit('session states say whether the sidebar is shown')]);
+    if (l3.error) bad('the sidebar edit did not apply to the 2.1.330 shape: ' + l3.error);
+    else {
+      vm.runInContext(l3.out + ';this.b3=b3;', env);
+      const sb = new env.C(), ls = new env.C(), heard = [];
+      env.__cceStatesHook = (st, active, open) => heard.push(open);
+      env.__cceWithBackground = undefined;
+      let threw = '';
+      try { env.b3.call({ sidebarComms: sb, listComms: ls, allComms: [sb, ls], activeSessionId: 'A', webviews: new Set() }); } catch (e) { threw = e.message; }
+      const got330 = JSON.stringify([threw, ls.sent[0] && ls.sent[0].request.openSessionIds, sb.sent[0] && sb.sent[0].request.openSessionIds, heard]);
+      if (got330 === JSON.stringify(['', ['A', 'S'], ['A'], [['A']]])) {
+        ok('on 2.1.330 each panel still gets its own open conversations, and the extension hears the ones any other panel gets');
+      } else bad(`the 2.1.330 broadcast gave ${got330}`);
+    }
     let handler = null, broadcasts = 0;
     env.r.call({ updateSidebarActiveState() {}, broadcastSessionStates() { broadcasts++; }, disposables: [] },
       { onDidChangeVisibility: (f) => { handler = f; }, visible: false }, { notifyVisibilityChange() {} });
