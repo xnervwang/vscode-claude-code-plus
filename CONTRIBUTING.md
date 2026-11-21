@@ -62,19 +62,26 @@ Keep the early exit in the injected script's React fiber tree loop. It runs for 
 
 ## Publishing
 
-- Package for the marketplaces with vsce, not `build/pack.sh`. `pack.sh` copies `images/` whole, so the README screenshots (about 1.2 MB) ship too, and it leaves the README's relative links as they are. Nothing reports either difference.
-- Commit and push first, then package against that commit so the README's images and links point at it:
+- Set `version` in `package.json`, commit the change, and push it to `main`. Tag that commit and push the tag to start `.github/workflows/release.yml`, replacing `<version>` with the value from `package.json`:
+
+  ```sh
+  git tag v<version> && git push origin v<version>
+  ```
+
+- The workflow runs `node test/check.js`, then checks that the tagged commit is on `main` and that the tag matches `v` followed by the `package.json` version. For a new release, the version must be higher than the highest version listed by either the Visual Studio Marketplace or Open VSX. After these checks, it packages the extension with `@vscode/vsce` 4.1.1 and keeps the `.vsix` as a run artifact. The `--baseImagesUrl` and `--baseContentUrl` settings point the README images and links on both store pages to the tagged commit on GitHub. It then publishes the same `.vsix` to the Visual Studio Marketplace with `vsce publish --oidc` and to Open VSX with `ovsx publish --trusted-publishing`.
+- Each registry exchanges the job's GitHub OIDC token for a short-lived credential. No publishing token is stored.
+- Each registry has a trusted publisher entry for `xnervwang/vscode-claude-code-plus` and `release.yml`. If you rename the workflow file, update both entries: the `xnervwang` publisher's Trusted Publishing page on the Marketplace and Settings > Trusted Publishers on `open-vsx.org`.
+- If the run publishes to one registry but fails on the other, re-run it in GitHub Actions. A rerun accepts a version already listed by one registry and skips the upload there.
+- Neither registry accepts a version that was already published, even after it was removed.
+- Use `build/pack.sh` for a local trial install, not for a marketplace package. It copies all of `images/`, including about 1.2 MB of README screenshots, and leaves relative README links as they are.
+- To build the workflow's `.vsix` locally, run this from a clean checkout of the tagged commit. On Node 22.11, set `NODE_OPTIONS=--experimental-require-module` in the environment first.
 
   ```sh
   SHA=$(git rev-parse HEAD)
-  npx --yes @vscode/vsce@latest package --out xnervwang.claude-code-plus-<version>.vsix \
+  npx --yes @vscode/vsce@4.1.1 package --out xnervwang.claude-code-plus-<version>.vsix \
     --baseImagesUrl "https://github.com/xnervwang/vscode-claude-code-plus/raw/$SHA/" \
     --baseContentUrl "https://github.com/xnervwang/vscode-claude-code-plus/blob/$SHA/"
   ```
-
-- On Node 22.11, vsce needs `NODE_OPTIONS=--experimental-require-module`.
-- Raise `version` before every upload. Neither the Visual Studio Marketplace nor Open VSX accepts a version that was already published, even after it was removed.
-- Upload the same `.vsix` to both. For Open VSX: `npx ovsx publish <file> -p <token>`.
 
 ## Watching for upstream changes
 
