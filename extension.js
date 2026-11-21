@@ -35,7 +35,7 @@ const stoppedWork = require('./src/stoppedwork');
 const replyImages = require('./src/reply-images');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
-const { transcriptOf, writeAtomic } = require('./src/claude-files');
+const { transcriptOf, projectsDir, writeAtomic } = require('./src/claude-files');
 const planInjections = require('./src/plan-injections');
 const tokenMode = require('./src/token-mode');
 const waiting = require('./src/waiting');
@@ -1114,6 +1114,16 @@ function start(context, log, renamed, handing = false) {
       && !/^sdk-/.test(r.entrypoint || '') && !avoid.includes(r.pid));
     return rec ? rec.messagingSocketPath : null;
   };
+  /* The cached search can miss a transcript written since, so the project folder for the process's working directory
+     is checked too. */
+  const transcriptNow = (id) => {
+    const found = transcriptOf(id);
+    if (found) return found;
+    const rec = background.liveRecords().find((r) => r && r.sessionId === id && typeof r.cwd === 'string');
+    const folder = rec ? bgSessions.folderName(rec.cwd) : '';
+    const file = folder ? path.join(projectsDir(), folder, id + '.jsonl') : '';
+    return file && fs.existsSync(file) ? file : '';
+  };
   let detachedListed = '', delivering = false;
   const noteDetached = () => {
     const jobs = background.jobsNow();
@@ -1121,7 +1131,7 @@ function start(context, log, renamed, handing = false) {
     if (Array.isArray(jobs)) {
       const listed = switchedOff().includes('detachedCommands') ? '' : JSON.stringify(jobs);
       if (listed !== detachedListed) { detachedListed = listed; writeLiveNow(); }
-      try { detachedEnds.update({ dir: planDir(), jobs, claim: on, ran: (id, command) => detachedEnds.ranBy(transcriptOf(id), command) }); } catch (e) { log.appendLine('detached commands: ' + ((e && e.message) || e)); }
+      try { detachedEnds.update({ dir: planDir(), jobs, claim: on, ran: (id, command, at) => detachedEnds.ranBy(transcriptNow(id), command, at) }); } catch (e) { log.appendLine('detached commands: ' + ((e && e.message) || e)); }
     }
     try { bgEnds.update({ dir: planDir(), records: background.liveRecords(), claim: on }); }
     catch (e) { log.appendLine('background sessions: ' + ((e && e.message) || e)); }

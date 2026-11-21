@@ -10967,13 +10967,21 @@ const repo = path.join(__dirname, '..');
       const call = (command) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'x', name: 'Bash', input: { command } }] } });
       fs.writeFileSync(file, [call("setsid nohup bash -c 'python3 job.py' > out 2>&1 &"), call('nohup ./run.sh &')].join('\n') + '\n');
       eq([de.ranBy(file, 'python3 job.py'), de.ranBy(file, '/bin/bash ./run.sh'), de.ranBy(file, '/opt/tools/usage-uploader -t ada -d /tmp/x'),
-        de.ranBy(file, 'bash -c'), de.ranBy('', 'anything')],
-        [true, true, false, true, true],
-        'a detached program is the conversation\'s when a command it ran names it, a launcher alone says nothing, and an unreadable transcript keeps it');
+        de.ranBy(file, 'bash -c'), de.ranBy('', 'anything'), de.ranBy(path.join(dir, 'none.jsonl'), 'anything')],
+        [true, true, false, true, false, false],
+        'a detached program is the conversation\'s when a command it ran names it, a launcher alone says nothing, and a conversation with no transcript yet ran nothing');
+      const timed = path.join(dir, 'timed.jsonl');
+      const at = Date.parse('2027-01-15T08:00:00Z');
+      const callAt = (command, ms) => JSON.stringify({ type: 'assistant', timestamp: new Date(ms).toISOString(), message: { content: [{ type: 'tool_use', id: 'x', name: 'Bash', input: { command } }] } });
+      fs.writeFileSync(timed, [callAt('grep usage-uploader notes.txt', at - 2 * 3600e3), callAt('setsid nohup ./train.sh &', at - 1000), callAt('python3 later.py', at + 60e3)].join('\n') + '\n');
+      eq([de.ranBy(timed, '/opt/tools/usage-uploader -t ada', at), de.ranBy(timed, 'bash ./train.sh', at), de.ranBy(timed, 'python3 later.py', at),
+        de.ranBy(timed, '/opt/tools/usage-uploader -t ada', 0)],
+        [false, true, false, true],
+        'only a command issued in the half hour before the job started counts, and without a start time any command does');
       const t0 = 1800000000000;
       const job = (pid, command) => ({ session: 'aaaaaaaa-1111-4111-8111-00000000000c', pid, start: '5', startedAt: t0, kind: 'leader', command });
       de.update({ dir, jobs: [job(20, 'python3 job.py'), job(21, '/opt/tools/usage-uploader -t ada')], now: t0 });
-      const ends = de.update({ dir, jobs: [], now: t0 + 10e3, ran: (id, command) => de.ranBy(file, command) });
+      const ends = de.update({ dir, jobs: [], now: t0 + 10e3, ran: (id, command, at) => de.ranBy(file, command, at) });
       eq(ends.map((e) => e.pid), [20], 'a program the conversation did not start is not reported when it stops');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }

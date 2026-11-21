@@ -44,12 +44,17 @@ const LAUNCHERS = new Set(['bash', 'sh', 'dash', 'zsh', 'ksh', 'timeout', 'nohup
   'python', 'python3', 'node', 'perl', 'ruby']);
 const RAN_BYTES = 2 * 1024 * 1024;
 
+/* The command that detaches a job runs at most this long before the job starts. */
+const RAN_BEFORE_MS = 30 * 60000;
+const RAN_SLACK_MS = 5000;
+
 /*
- * Whether the conversation's own Bash commands mention the program a detached job runs. A tool those commands ran can
- * leave a program of its own detached, such as an uploader of usage data, and it carries the conversation's id as well.
- * True when the transcript cannot be read.
+ * Whether one of the conversation's Bash commands from the half hour before the job started names the program the job
+ * runs. Tools those commands run, and hooks run as a conversation starts, can leave programs of their own detached,
+ * such as an uploader of usage data, and those carry the conversation's id too. False when the conversation has no
+ * transcript yet, true when one exists but cannot be read.
  */
-function ranBy(file, command) {
+function ranBy(file, command, startedAt = 0) {
   const words = String(command).split(/\s+/).filter((w) => w && !w.startsWith('-') && !/^\d+[smhd]?$/.test(w));
   const names = [];
   for (const w of words.slice(0, 4)) {
@@ -58,7 +63,8 @@ function ranBy(file, command) {
     if (!LAUNCHERS.has(base)) break;
   }
   const own = names.filter((n) => !LAUNCHERS.has(n));
-  if (!file || !own.length) return true;
+  if (!own.length) return true;
+  if (!file) return false;
   let text = '';
   let fd;
   try {
@@ -66,11 +72,13 @@ function ranBy(file, command) {
     const size = fs.fstatSync(fd).size, from = Math.max(0, size - RAN_BYTES);
     const buf = Buffer.alloc(size - from);
     text = buf.toString('utf8', 0, fs.readSync(fd, buf, 0, buf.length, from));
-  } catch (_) { return true; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (_) { /* closed */ } }
+  } catch (e) { return !(e && e.code === 'ENOENT'); } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (_) { /* closed */ } }
   for (const line of text.split('\n')) {
     if (line.indexOf('"tool_use"') === -1) continue;
     let r;
     try { r = JSON.parse(line); } catch (_) { continue; }
+    const at = Date.parse(r && r.timestamp);
+    if (startedAt > 0 && isFinite(at) && (at > startedAt + RAN_SLACK_MS || at < startedAt - RAN_BEFORE_MS)) continue;
     const content = r && r.message && Array.isArray(r.message.content) ? r.message.content : [];
     for (const b of content) {
       const c = b && b.type === 'tool_use' && b.input && typeof b.input.command === 'string' ? b.input.command : '';
@@ -82,7 +90,7 @@ function ranBy(file, command) {
 
 /*
  * `jobs` is every job running now. `claim` is false while the notices are off: nothing is recorded then, so turning them
- * on does not report commands that stopped in the meantime. `ran(session, command)` is false for a job the
+ * on does not report commands that stopped in the meantime. `ran(session, command, startedAt)` is false for a job the
  * conversation did not start (ranBy).
  */
 function update({ dir, jobs, now = Date.now(), claim = true, ran = () => true }) {
@@ -102,7 +110,7 @@ function update({ dir, jobs, now = Date.now(), claim = true, ran = () => true })
       if (!SESSION.test(session) || !Array.isArray(list)) continue;
       const still = new Set((cur[session] || []).map(keyOf));
       for (const j of list) {
-        if (!j || !Number.isInteger(j.pid) || still.has(keyOf(j)) || !ran(session, String(j.command || ''))) continue;
+        if (!j || !Number.isInteger(j.pid) || still.has(keyOf(j)) || !ran(session, String(j.command || ''), j.startedAt || 0)) continue;
         const end = { session, pid: j.pid, start: String(j.start), startedAt: j.startedAt || null, command: String(j.command || ''), goneAt: now };
         try {
           fs.mkdirSync(path.join(dir, GONE_DIR), { recursive: true });
