@@ -351,8 +351,14 @@ function pageFragments() {
 }
 
 /** What the extension decides and the page cannot: the mark attribute, the live stylesheet, the fallback rules. */
+/* The marks src/title-marks.js takes off a title, each with its variation selector: the page strips a title typed in the
+   session list's rename box the same way (84-row-marks.js). The page itself names no mark, since the envelope it draws
+   comes from the stylesheet in the form for the theme. */
+const TITLE_MARKS = String.raw`(?:\u{1F451}|\u{1F6CE}|\u2709)[\uFE0E\uFE0F]?`;
+
 function configBlock() {
   return [
+    `  var TITLE_MARKS = new RegExp(${JSON.stringify(TITLE_MARKS)}, 'gu');`,
     `  var ATTR = ${JSON.stringify(ATTR)};`,
     `  var STAMP_CSS = ${JSON.stringify(STAMP_CSS)};`,
     `  var EDGE_CSS = ${JSON.stringify(EDGE_CSS)};`,
@@ -430,6 +436,15 @@ const EDITS = [
       + `jsx:${jsx},Dot:${dot},session:${session},state:${state},`
       + `where:${state}==="running"||${state}==="waiting"||${state}==="idle"?${title}("idle",${where}):""})`
       + `||${state}&&${jsx}(${dot},{state:${state},ring:${where}!==void 0&&${state}!=="unread",title:${title}(${state},${where})})),`,
+  },
+  {
+    /* A rename typed in the session list's box is shown at once, before the title is stored, and the stored one replaces
+       it only when the list is next read back, which does not happen when the title stored is the one it had. So the
+       marks this extension draws are taken off what is shown too (84-row-marks.js), as the host takes them off what is
+       stored (src/host.js). */
+    name: 'session list renames show no marks',
+    re: /renameSession\(([\w$]+),([\w$]+)\)\{this\.lastLocalRenameAt\.set\(\1,Date\.now\(\)\);/g,
+    to: (m, id, title) => `${m}${title}=typeof window.__cceCleanTitle==="function"?window.__cceCleanTitle(${title}):${title};`,
   },
   {
     /* The panel's report of its conversation's state carries whether a turn runs and whether background tasks run,
@@ -917,7 +932,7 @@ function findInstalls(extensionsDir) {
 module.exports = {
   SWITCHES,
   id: 'anthropic.claude-code', name: 'Claude Code panel',
-  VERSION, MARK, ANY_MARK, BACKUP_SUFFIX, EDITS, SCRIPT,
+  VERSION, MARK, ANY_MARK, BACKUP_SUFFIX, EDITS, SCRIPT, TITLE_MARKS,
   safeColor, patchSource, status: target.status, apply, restore: target.restore, wholeScript, findInstalls, webviewFile, targetFile: webviewFile,
   writeLive, liveCss,
   writeEffort, pruneEfforts, EFFORT_PREFIX, pinsProperty,

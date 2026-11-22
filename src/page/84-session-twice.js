@@ -6,7 +6,9 @@
 // Fragment of the in-page script - see README.md in this folder.
 
   // The host puts them in the live stylesheet as [[session ID, number of processes], ...] (src/duplicates.js). The mark
-  // is a rule after the title, like a text color (84-session-colors.js), so no node of ours goes into the list's rows.
+  // is a rule, like a text color (84-session-colors.js), so no node of ours goes into the list's rows: the row's own
+  // ::after, placed with the envelope's order between the title and the time and never shrunk, so that a long title cut
+  // short does not cut the mark off with it.
   var TWICE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   var twiceStyle = null;
   var paintTwice = function(){
@@ -14,8 +16,8 @@
     for (var i = 0; i < (Array.isArray(d) ? d.length : 0); i++) {
       var p = d[i];
       if (!p || typeof p[0] !== 'string' || !TWICE_ID.test(p[0]) || !(p[1] > 1)) continue;
-      css += '[class*="sessionItem_"][id$="' + p[0] + '"] span[class*="sessionName_"]::after{content:" \u00b7 ' + Math.floor(p[1])
-        + ' processes";color:var(--vscode-errorForeground,#f14c4c);font-weight:normal}';
+      css += '[class*="sessionItem_"][id$="' + p[0] + '"]::after{content:"\u00b7 ' + Math.floor(p[1])
+        + ' processes";order:1;flex:none;white-space:nowrap;color:var(--vscode-errorForeground,#f14c4c);font-weight:normal}';
     }
     if (!css && !twiceStyle) return;
     if (!twiceStyle) {

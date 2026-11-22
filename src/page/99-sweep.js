@@ -141,9 +141,23 @@
       if (promptTs.length && pts < promptTs[promptTs.length - 1]) ordered = false;
       promptTs.push(pts);
     }
-    /* Document order is the order they were sent in, so this is sorted already and the sort was work with no result.
-       The check stays because the binary search in turnStartFor depends on the order: an assumption that quietly stopped
-       holding would hand every reply the wrong turn start, with nothing to show it had. */
+    /* A message that came through the inbox (a steward's notice, a handoff, another session's message) starts a turn as
+       well, and Claude Code draws no user box for it, or nothing at all for one a script posted. Without its time a
+       reply to it was timed from the last message typed, hours or days before. One folded into a turn already running
+       starts none. */
+    var inbox = sessionRef && sessionRef.messages && sessionRef.messages.value;
+    if (Array.isArray(inbox)) {
+      for (var li = 0; li < inbox.length; li++) {
+        var lm = inbox[li];
+        if (!lm || lm.type !== 'user' || !lm.origin || lm.origin.kind !== 'peer' || lm.foldedIntoTurn || lm.notAPrompt) continue;
+        if (typeof lm.timestamp !== 'number') continue;
+        ordered = false;
+        promptTs.push(lm.timestamp);
+      }
+    }
+    /* Document order is the order the boxes were sent in, so their times come sorted; the inbox's are merged in by the
+       sort. The binary search in turnStartFor depends on the order: an assumption that quietly stopped holding would hand
+       every reply the wrong turn start, with nothing to show it had. */
     if (!ordered) promptTs.sort(function(a, b){ return a - b; });
     var tC = clock();
     var msgs = document.querySelectorAll(ASSIST);
