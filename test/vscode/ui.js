@@ -11,7 +11,8 @@
  *                  tab bar keeps the one Claude button, Claude Code's own, before the reload and after it
  *   session list   Claude Code's session list as the patch changes it: New in tab and New in sidebar, a pin and the dates
  *                  on every row, the right-click menu's Resume in tab, Resume in sidebar and Text color, a pin clicked,
- *                  and the hover text of a row
+ *                  the hover text of a row, and claude --bg, claude -p and daemon sessions left out, and the first two
+ *                  listed once claudeCodePlus.hideBackgroundSessions is off
  *   a tab          a conversation resumed in a tab: its title, the times on every message and reply, the bar on your
  *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
@@ -51,6 +52,7 @@ const fakeHome = require('./lib/fake-home');
 const { folderName } = fakeHome;
 const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB,
   ASK_FOR_WORKER, WORKER_NAME, WORKER_SCRIPT } = require('./lib/fake-model');
+const { ASK_FOR_BG_SESSION, BG_SESSION_NAME, BG_SESSION_SCRIPT } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
 const tabdot = require('../../src/tabdot');
@@ -457,6 +459,28 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       const hover = await labelOf(list, row(threads[2]).locator('span[class*="sessionName_"]').first());
       check(hover.text === `Group: Ungrouped\nSession ID: ${threads[2].id}`, 'resting on a row shows its group and its session ID', hover.text);
       if (hover.png) base.compare('row-hover-label', hover.png);
+
+      /* The transcripts of a `claude --bg`, a `claude -p` and a daemon session that lib/fake-home.js wrote with the
+         others. claudeCodePlus.hideBackgroundSessions, on by default, leaves all three out; turned off, without a reload,
+         the first two are listed and the daemon session still is not. */
+      const titles = () => list.evaluate(() => [...document.querySelectorAll('[class*="sessionItem_"] span[class*="sessionName_"]')].map((e) => e.textContent.trim()));
+      const backgroundShown = async () => { const got = await titles(); return background.filter((b) => got.includes(b.title)).map((b) => b.title); };
+      const setHide = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('hideBackgroundSessions', arg === null ? undefined : arg,
+        vscode.ConfigurationTarget.Global); return true;`, v);
+      const listedWhenShown = background.filter((b) => b.listedWhenShown).map((b) => b.title);
+      check(background.length === 3 && !(await backgroundShown()).length,
+        'with claudeCodePlus.hideBackgroundSessions on, the list leaves out the claude --bg, claude -p and daemon sessions', await backgroundShown());
+      await setHide(false);
+      try {
+        const shown = await until(async () => { const b = await backgroundShown(); return listedWhenShown.every((x) => b.includes(x)) && b; }, 30000, 500);
+        check(!!shown && JSON.stringify(shown.slice().sort()) === JSON.stringify(listedWhenShown.slice().sort()),
+          'turned off, without a reload, the list shows the claude --bg and claude -p sessions, and still not the daemon session', shown || await backgroundShown());
+        await page.mouse.move(5, 880);
+        await sleep(300);
+        await shot('session-list-background-shown');
+      } finally { await setHide(null); }
+      const hiddenAgain = await until(async () => !(await backgroundShown()).length, 30000, 500);
+      check(!!hiddenAgain, 'and turned back on, it leaves them out again', await backgroundShown());
     });
 
     const tab0 = threads[0];
@@ -943,6 +967,115 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       check(!!m && m.own.state === 'idle' && !m.own.ring && !/worker · claude -p/.test(m.text), 'and the map\'s own row is grey, with no worker listed', m && m.own);
       await shot('agent-map-work-ended');
       await page.keyboard.press('Escape');
+    });
+
+    /* The live session records under ~/.claude/sessions whose processes run, as `claude agents` lists them. */
+    const liveRecords = () => {
+      const dir = path.join(profile.home, '.claude', 'sessions');
+      let names = [];
+      try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+      return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } })
+        .filter((d) => d && Number.isInteger(d.pid) && (() => { try { process.kill(d.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } })());
+    };
+    /* The status of the conversation's own Claude Code process (not a `claude -p` or `claude --bg` one), or null. */
+    const sessionStatus = (id) => {
+      const r = liveRecords().find((d) => d.sessionId === id && d.kind !== 'bg' && !/^sdk-/.test(d.entrypoint || ''));
+      return r ? r.status || null : null;
+    };
+    /* Claude Code's own command line in this run's extensions, and the environment that sends its turns to the fake model. */
+    const claudeCli = () => {
+      const dir = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
+      return dir ? path.join(profile.exts, dir, 'resources', 'native-binary', process.platform === 'win32' ? 'claude.exe' : 'claude') : '';
+    };
+    const modelEnv = () => Object.assign({}, env, { ANTHROPIC_BASE_URL: model.url, ANTHROPIC_API_KEY: fakeHome.KEY,
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_AUTOUPDATER: '1' });
+
+    /* A `claude --bg` session the conversation starts, through the stand-in of lib/fake-model.js (BG_SESSION_SCRIPT):
+       a session record of kind "bg" and the job's state under ~/.claude/jobs. Nothing here reads /proc, so it runs on every
+       platform. */
+    await step('a claude --bg session', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
+      if (!t) throw new Error('the conversation\'s tab is gone');
+      const SECONDS = 60;
+      const bin = path.join(profile.home, 'fake-bg');
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(path.join(bin, 'claude'), BG_SESSION_SCRIPT(SECONDS), { mode: 0o755 });
+      const GREEN = `rgb(${DOTS.running.join(', ')})`;
+      const pill = () => conv.evaluate(() => {
+        const b = document.querySelector('button[data-agents-dot]');
+        if (!b) return null;
+        const dot = b.querySelector('[data-status-dot]');
+        return { dot: b.getAttribute('data-agents-dot'), label: b.getAttribute('aria-label') || '', colour: dot ? getComputedStyle(dot).backgroundColor : '' };
+      });
+      const map = () => conv.evaluate(() => {
+        const own = document.querySelector('[class*="rowMain_"] [data-status-dot]'), s = own && getComputedStyle(own);
+        return { text: document.body.innerText.slice(-3000), own: own ? { state: own.getAttribute('data-status-dot'),
+          ring: /statusDotElsewhere/.test(own.className), border: s.borderTopColor } : null };
+      });
+      const jobs = () => { try { return fs.readdirSync(path.join(profile.home, '.claude', 'jobs')); } catch (_) { return []; } };
+      const before = model.seen.length, jobsBefore = jobs();
+      await conv.locator('[contenteditable][role="textbox"]').first().click();
+      await page.keyboard.type(`Please ${ASK_FOR_BG_SESSION}.`);
+      await page.keyboard.press('Enter');
+      check(!!await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300), 'the fake model answers with a Bash call of claude --bg', model.seen.slice(before));
+      const asking = await until(() => conv.evaluate(() => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes('--bg')), 8000, 500);
+      if (asking) await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+      const started = Date.now();
+      const job = await until(() => jobs().find((j) => !jobsBefore.includes(j)), 30000, 500);
+      const ended = await until(() => sessionStatus(tab0.id) === 'idle' && model.seen.slice(before).some((x) => x.stream && !x.tool && (x.parts || []).includes('tool_result')), 60000, 500);
+      check(!!job && !!ended, 'the turn that started the session ends while it runs', { job, status: sessionStatus(tab0.id), bg: liveRecords().filter((r) => r.kind === 'bg') });
+      const running = await until(async () => { const f = await pill(); return f && f.dot === 'running' && /\b1 bg\b/.test(f.label) && f; }, 40000, 500);
+      check(!!running && running.colour === GREEN, 'with the turn over, the agents button counts it as 1 bg, and its dot is the tabs\' green', await pill());
+      const ring = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
+      check(!!ring, 'and the tab\'s logo carries the green ring', await dotsOn(t.label));
+      const listRing = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
+      check(!!listRing, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      await shot('agents-button-bg-running');
+      if (running) {
+        await conv.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+        const listed = await until(async () => { const m = await map(); return /1 background session · 1 running · started from this conversation/.test(m.text) && m.text.includes(BG_SESSION_NAME) && m; }, 10000, 500);
+        check(!!listed && listed.text.includes(job) && !!listed.own && listed.own.state === 'running' && listed.own.ring && listed.own.border === GREEN,
+          'the agent map lists the session by name and job id as running, and the map\'s own row has a green ring', listed ? { text: listed.text.slice(-900), own: listed.own } : await map());
+        await shot('agent-map-bg-running');
+        await page.keyboard.press('Escape');
+        await sleep(500);
+      }
+      /* The session ends SECONDS after it started; the conversation is told through its inbox, which native Windows does
+         not offer (src/stewards.js post()). */
+      const notice = /notice, not a message from the user: news of a `claude --bg` session this conversation started/;
+      if (process.platform !== 'win32') {
+        const told = await until(() => model.seen.slice(before).some((x) => notice.test(x.ask || '')), started + SECONDS * 1000 - Date.now() + 90000, 1000);
+        check(!!told, 'once it has finished, the conversation is told, which starts a turn', model.seen.slice(before).map((x) => (x.ask || '').slice(0, 160)));
+      }
+      const done = await until(async () => {
+        const f = await pill(), d = await dotsOn(t.label);
+        return Date.now() - started > SECONDS * 1000 && sessionStatus(tab0.id) === 'idle' && d && d.running === 0 && f && f.dot !== 'running' && /\b1 bg done\b/.test(f.label) && { f, d };
+      }, started + SECONDS * 1000 - Date.now() + 120000, 1000);
+      check(!!done && done.f.colour !== GREEN, 'once it has finished, the agents button says 1 bg done and its dot is grey, and the tab\'s dot is gone',
+        { pill: await pill(), dots: await dotsOn(t.label), status: sessionStatus(tab0.id) });
+      if (process.platform === 'win32') note(`on native Windows the conversation is not told that the session ended: ${model.seen.slice(before).some((x) => notice.test(x.ask || '')) ? 'it was told' : 'it was not told'}`);
+      await shot('agents-button-bg-done');
+      if (done) {
+        await conv.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+        /* The result is in the session's folded row, which innerText leaves out. */
+        const result = () => conv.evaluate(() => [...document.querySelectorAll('details pre')].some((p) => p.textContent.includes('The nightly report is written')));
+        const over = await until(async () => { const m = await map(); return /1 background session · 1 done/.test(m.text) && await result() && m; }, 10000, 500);
+        check(!!over && !!over.own && over.own.state === 'idle' && !over.own.ring, 'the map keeps it, done, with its result, and the map\'s own row is grey',
+          over ? { text: over.text.slice(-900), own: over.own } : await map());
+        await shot('agent-map-bg-done');
+        await page.keyboard.press('Escape');
+        await sleep(500);
+      }
+      /* claudeCodePlus.show.backgroundSessions off leaves the session out of the button and the map. */
+      const setShow = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('show.backgroundSessions', arg === null ? undefined : arg,
+        vscode.ConfigurationTarget.Global); return true;`, v);
+      await setShow(false);
+      try {
+        const gone = await until(async () => { const f = await pill(); return (!f || !/\bbg\b/.test(f.label)) && { f }; }, 20000, 500);
+        check(!!gone, 'with claudeCodePlus.show.backgroundSessions off, the agents button no longer counts it', await pill());
+      } finally { await setShow(null); }
+      check(!!await until(async () => { const f = await pill(); return f && /\b1 bg done\b/.test(f.label); }, 20000, 500), 'and turned back on, it does again', await pill());
     });
 
     /* The conversation was told to save an image in its own folder and link it by its absolute path. A reply that does

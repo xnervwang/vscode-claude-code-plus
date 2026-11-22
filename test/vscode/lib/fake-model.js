@@ -17,7 +17,9 @@
  * DETACH_SHORT_RUN, which ends sooner. One whose message contains ASK_FOR_HELPER gets an Agent call run in the background, whose prompt is
  * HELPER_TASK; the helper's own turns are held until releaseHelper(), so it keeps running for as long as a test needs.
  * One whose message contains ASK_FOR_WORKER gets a Bash call of WORKER_RUN, which starts $HOME/fake-bin/claude as a
- * `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT).
+ * `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT). One whose message contains
+ * ASK_FOR_BG_SESSION gets a Bash call of BG_SESSION_RUN, which starts a `claude --bg` session with the stand-in at
+ * $HOME/fake-bg/claude (BG_SESSION_SCRIPT).
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
@@ -42,6 +44,53 @@ const ASK_FOR_WORKER = 'start a worker detached';
 const WORKER_RUN = 'setsid nohup bash -c \'"$HOME/fake-bin/claude" -p "Draft the release notes" --output-format stream-json'
   + ' > "$HOME/worker.jsonl" 2>&1; echo done\' > /dev/null 2>&1 < /dev/null &';
 const WORKER_NAME = 'release-notes-worker';
+const ASK_FOR_BG_SESSION = 'start the nightly report as a background session';
+const BG_SESSION_RUN = '"$HOME/fake-bg/claude" --bg "Write the nightly report from the build logs"';
+const BG_SESSION_NAME = 'nightly-report';
+/*
+ * A stand-in for the CLI's `claude --bg`, a Node script at $HOME/fake-bg/claude, so that it runs the same on Linux,
+ * macOS and Windows (where Claude Code's Bash tool is Git Bash). Asked for --bg, it writes the job's record under
+ * ~/.claude/jobs/<id>/state.json as working, prints the CLI's `backgrounded · <id>` line and its three hints, and leaves
+ * a process of its own running, with no terminal and in a process group of its own. That process writes a session record
+ * of kind "bg" for the job, busy, keeps the job's record fresh, and after `seconds` records the job as done with a result,
+ * removes its session record and exits. The session's own transcript says it is a `claude --bg` session.
+ */
+const BG_SESSION_SCRIPT = (seconds) => `#!/usr/bin/env node
+'use strict';
+const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process'), crypto = require('crypto');
+const claude = path.join(os.homedir(), '.claude');
+const [flag, ...rest] = process.argv.slice(2);
+const stateFile = (id) => path.join(claude, 'jobs', id, 'state.json');
+const write = (file, d) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file + '.tmp', JSON.stringify(d)); fs.renameSync(file + '.tmp', file); };
+if (flag === '--bg') {
+  const id = crypto.randomBytes(4).toString('hex'), session = crypto.randomUUID(), now = new Date().toISOString();
+  write(stateFile(id), { id, name: ${JSON.stringify(BG_SESSION_NAME)}, state: 'working', detail: 'Reading the build logs', intent: rest.join(' '),
+    sessionId: session, createdAt: now, updatedAt: now });
+  const folder = path.join(claude, 'projects', process.cwd().replace(/[^a-zA-Z0-9]/g, '-'));
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, session + '.jsonl'), JSON.stringify({ parentUuid: null, isSidechain: false, userType: 'external',
+    entrypoint: 'cli', sessionKind: 'bg', cwd: process.cwd(), sessionId: session, type: 'user', uuid: crypto.randomUUID(), timestamp: now,
+    message: { role: 'user', content: rest.join(' ') } }) + '\\n');
+  cp.spawn(process.execPath, [__filename, '--run', id, session], { detached: true, stdio: 'ignore', cwd: process.cwd(), windowsHide: true }).unref();
+  console.log('backgrounded \u00b7 ' + id);
+  console.log('  claude attach ' + id + '   open in this terminal');
+  console.log('  claude logs ' + id + '     show recent output');
+  console.log('  claude stop ' + id + '     stop this session');
+} else if (flag === '--run') {
+  const [id, session] = rest, record = path.join(claude, 'sessions', process.pid + '.json');
+  write(record, { pid: process.pid, sessionId: session, cwd: process.cwd(), startedAt: Date.now(), kind: 'bg', jobId: id, entrypoint: 'cli',
+    status: 'busy', statusUpdatedAt: Date.now() });
+  const fresh = setInterval(() => { try { const d = JSON.parse(fs.readFileSync(stateFile(id), 'utf8')); d.updatedAt = new Date().toISOString(); write(stateFile(id), d); } catch (_) {} }, 5000);
+  setTimeout(() => {
+    clearInterval(fresh);
+    const d = JSON.parse(fs.readFileSync(stateFile(id), 'utf8')), now = new Date().toISOString();
+    write(stateFile(id), Object.assign(d, { state: 'done', detail: '', updatedAt: now, firstTerminalAt: now, lastTerminalAt: now,
+      output: { result: 'The nightly report is written: 2 failed tests, both in the export job.' } }));
+    try { fs.unlinkSync(record); } catch (_) {}
+    process.exit(0);
+  }, ${Number(seconds) || 60} * 1000);
+}
+`;
 /*
  * A stand-in for the CLI's `claude -p`, at $HOME/fake-bin/claude: it writes a session record of the CLI's shape for
  * its own process, as a worker started with --output-format stream-json does, and runs for `seconds`.
@@ -95,6 +144,7 @@ const asksForHelper = (ask) => { const t = lastAsk(ask); return t !== null && t.
 const asksToDetach = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH); };
 const asksToDetachShort = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH_SHORT); };
 const asksForWorker = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_WORKER); };
+const asksForBgSession = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_BG_SESSION); };
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
@@ -135,8 +185,8 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const helper = asksForHelper(ask);
       const helping = !helper && isHelper(ask);
       const detach = asksToDetach(ask), detachShort = asksToDetachShort(ask);
-      const worker = asksForWorker(ask);
-      const tool = background || helper || detach || detachShort || worker || asksToRun(ask);
+      const worker = asksForWorker(ask), bgSession = asksForBgSession(ask);
+      const tool = background || helper || detach || detachShort || worker || bgSession || asksToRun(ask);
       const linked = linkAsked(ask), picture = imageAsked(ask);
       const reply = linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
         : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain;
@@ -162,6 +212,7 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
           : detach ? { command: DETACH_RUN, description: 'Start the long job detached' }
           : detachShort ? { command: DETACH_SHORT_RUN, description: 'Start the short job detached' }
           : worker ? { command: WORKER_RUN, description: 'Start a worker detached' }
+          : bgSession ? { command: BG_SESSION_RUN, description: 'Start the nightly report in a background session' }
           : { command: RUN, description: 'Run the test suite' };
       const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name: helper ? 'Agent' : 'Bash', input } : { type: 'text', text: reply };
       const stop = tool ? 'tool_use' : 'end_turn';
@@ -200,4 +251,5 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
 
 module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
   DETACH_SHORT_RUN, LINK_TEXT,
-  IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT };
+  IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_BG_SESSION, BG_SESSION_RUN, BG_SESSION_NAME,
+  BG_SESSION_SCRIPT };
