@@ -1484,11 +1484,15 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           await shot('steward-row-unread');
           /* Renamed through its session list row while the reply is unread, with envelopes and a crown typed: the title is
              stored without them, its tab ends in one envelope, and its rows have one envelope after the title. */
-          const envRows = (id) => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"], [class*="sessionItem_"]:has([data-cce-pin="${id}"])`)].map((r) => {
-            const name = r.querySelector('span[class*="sessionName_"]'), envs = [...r.querySelectorAll('[data-cce-envelope]')];
-            return { envs: envs.length, crowns: r.querySelectorAll('[data-cce-crown]').length, name: name ? name.textContent : null,
-              after: !!name && envs.length === 1 && !name.contains(envs[0]) && !!(name.compareDocumentPosition(envs[0]) & Node.DOCUMENT_POSITION_FOLLOWING) };
-          }), id);
+          /* The row's marks come before its title in the page and the envelope is drawn after it, so where it stands is read
+             from the screen. Rows in a folded section have no box. */
+          const envRows = (id) => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"], [class*="sessionItem_"]:has([data-cce-pin="${id}"])`)]
+            .filter((r) => r.getClientRects().length).map((r) => {
+              const name = r.querySelector('span[class*="sessionName_"]'), envs = [...r.querySelectorAll('[data-cce-envelope]')];
+              const nb = name && name.getBoundingClientRect(), eb = envs[0] && envs[0].getBoundingClientRect();
+              return { envs: envs.length, crowns: r.querySelectorAll('[data-cce-crown]').length, name: name ? name.textContent : null,
+                after: !!nb && envs.length === 1 && !name.contains(envs[0]) && eb.width > 0 && eb.left >= nb.right - 1 };
+            }), id);
           let heldT = null, errT = '';
           try { heldT = await viaRow(target.id, `${ENVELOPE.trim()} ${target.title} ${ENVELOPE.trim()} ${CROWN}`); } catch (e) { errT = String((e && e.message) || e).split('\n')[0]; }
           const kept = !errT && await until(async () => {
@@ -1753,10 +1757,6 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
         && x.label && arg.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, t.title);
       check(!!await until(() => !of(t.id).length, 30000, 500), 'with its tab closed, no process runs the conversation', of(t.id));
-      const host = await call('return require("fs").readFileSync("/proc/" + process.pid + "/cmdline", "latin1").split("\\0").join(" ").slice(0, 300);');
-      note(`the extension host's command line: ${host}`);
-      const env2 = await call('return process.env.VSCODE_CRASH_REPORTER_PROCESS_TYPE || "";');
-      note(`the extension host's kind in its environment: ${env2 || '(none)'}`);
       /* Its tab first: Claude Code starts no process of its own for a conversation another process runs. */
       await exec('claude-vscode.editor.open', t.id);
       const own = await until(() => { const r = of(t.id); return r.length === 1 && r[0]; }, 60000, 500);
