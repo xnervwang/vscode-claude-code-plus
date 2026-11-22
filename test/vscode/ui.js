@@ -116,9 +116,9 @@ const CROWN = '\u{1F451}', BELL = '\u{1F6CE}\uFE0F';
 const MARK_RE = /\u{1F451}|\u{1F6CE}|\u2709/u;
 /* Conversations a steward opens again: one started in a folder below the window's, one in a folder no window has open. */
 const FOLDER_THREADS = [
-  { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f6', title: 'Tidy the helper scripts in the sub folder', days: 0,
+  { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fa', title: 'Tidy the helper scripts in the sub folder', days: 0,
     turns: [['Tidy the helper scripts in the sub folder.', 'Moved the two helpers into scripts/ and removed the unused one.']] },
-  { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f7', title: 'Draft the migration notes for the other project', days: 0,
+  { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fb', title: 'Draft the migration notes for the other project', days: 0,
     turns: [['Draft the migration notes for the other project.', 'Drafted them in docs/migration.md.']] },
 ];
 
@@ -2617,9 +2617,9 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       /* Real paths, as Claude Code names a conversation's folder after the real one: on macOS the temporary folder is
          under a symbolic link, and on Windows it can carry a short name. */
       const [folderR, folderQ] = ['ws-r', 'ws-q'].map((d) => fs.realpathSync.native(path.join(base, d)));
-      const Z = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f8', title: 'Carry the parser work over to the new folder', days: 0,
+      const Z = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fc', title: 'Carry the parser work over to the new folder', days: 0,
         turns: [['Carry the parser work over to the new folder.', 'Moved it; the tests pass in the new folder.'], ['Anything left?', 'Only the docs.']] };
-      const W = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f9', title: 'Notes kept in the third folder', days: 0,
+      const W = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fd', title: 'Notes kept in the third folder', days: 0,
         turns: [['Write down the notes for the third folder.', 'Written to notes.md.']] };
       fakeHome.writeThreads(profile.home, folderR, [Z]);
       fakeHome.writeThreads(profile.home, folderQ, [W]);
