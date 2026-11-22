@@ -1554,6 +1554,43 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           } else {
             check(handoff.startsWith('Handed off to the steward ') && handoff.includes(`(${front.id})`) && !!await until(arrivedHand, 30000, 1000),
               'a managed conversation hands something off: the answer names the steward, which gets it as a notice from Claude Code Plus', { handoff, seen: model.seen.slice(handed).map((x) => (x.ask || '').slice(0, 160)) });
+            /* Claude Code draws no row for what arrives through the inbox, so the turn the handoff starts begins at no
+               message on the page; its reply's duration still runs from the handoff, not from the last message typed. */
+            const replyTo = () => {
+              let recs = [];
+              try { recs = fs.readFileSync(transcriptOf(front), 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (_) { return {}; } }); } catch (_) { return null; }
+              const at = recs.findIndex((r) => r.type === 'user' && JSON.stringify(r.message || '').includes(`(${target.id}), passed on by Claude Code Plus`));
+              const reply = at < 0 ? null : recs.slice(at + 1).find((r) => r.type === 'assistant' && r.message && Array.isArray(r.message.content)
+                && r.message.content.some((b) => b.type === 'text' && b.text.trim()));
+              return reply && { from: Date.parse(recs[at].timestamp), at: Date.parse(reply.timestamp), uuid: reply.uuid };
+            };
+            const answer = await until(replyTo, 30000, 500);
+            const page2 = answer ? await conversation(front, 30000) : null;
+            /* The reply's first line, found by its time, and the duration on it as the page writes one (75-turn-stats.js dur). */
+            const stampOf = () => page2 ? page2.evaluate((at) => {
+              const fmt = (ms) => { const d = new Date(ms), p = (n) => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+              return [...document.querySelectorAll('[data-testid="assistant-message"] [data-cce-ts]')].map((e) => e.getAttribute('data-cce-ts').replace(/\u2060/g, ''))
+                .find((x) => x.includes(fmt(at))) || null;
+            }, answer.at) : null;
+            const took = (ms) => {
+              if (!(ms > 0)) return '';
+              const s = Math.round(ms / 1000); if (s < 60) return `${s}s`;
+              const mi = Math.floor(s / 60); return mi < 60 ? `${mi}m${s % 60 ? `${s % 60}s` : ''}` : `${Math.floor(mi / 60)}h${mi % 60}m`;
+            };
+            const want2 = answer ? took(answer.at - answer.from) : '';
+            const timed = (x) => !!x && (want2 ? new RegExp(`\\s${want2}(\\s|$)`).test(x) : !/\s\d+(h\d+m|m(\d+s)?|s)(\s|$)/.test(x.replace(/^\S+/, '')));
+            const shown2 = answer && await until(async () => { const x = await stampOf(); return timed(x) && x; }, 30000, 500);
+            const listed = () => page2 && page2.evaluate(() => {
+              const node = document.querySelector('[data-testid="assistant-message"]');
+              const key = node && Object.keys(node).find((k) => k.startsWith('__reactFiber'));
+              for (let f = key && node[key], i = 0; f && i < 80; f = f.return, i++) {
+                const pr = f.memoizedProps, list = pr && pr.session && pr.session.messages && pr.session.messages.value;
+                if (Array.isArray(list)) return list.filter((m) => m && m.type === 'user').slice(-4).map((m) => ({ ts: m.timestamp, origin: m.origin && m.origin.kind, folded: m.foldedIntoTurn, notAPrompt: m.notAPrompt }));
+              }
+              return null;
+            });
+            check(!!shown2, 'the steward\'s reply to the handoff, which Claude Code draws no row for, is timed from the handoff',
+              { shown: await stampOf(), want: want2, answer, listed: await listed() });
           }
           const listedWindows = await act(['--windows']);
           const sameAs = (a, b) => (process.platform === 'win32' ? String(a).toLowerCase().includes(String(b).toLowerCase()) : String(a).includes(b));
