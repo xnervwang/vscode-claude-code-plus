@@ -28,7 +28,7 @@ const { applyEdits, shapesOf } = require('./edits');
 const { writeAtomic } = require('./files');
 const { patchTarget } = require('./patch-target');
 
-const VERSION = 19;
+const VERSION = 20;
 const ANY_MARK = '/* CLAUDE-CODE-EXTRAS-HOST v';
 const BACKUP_SUFFIX = '.claude-code-extras-host.bak';
 const TMP_SUFFIX = '.claude-code-extras-host.tmp';
@@ -342,6 +342,18 @@ const EDITS = [
    * It does so after every source has added to the list, so it covers both of Claude Code's listing paths and the
    * entries it adds for unreadable files.
    */
+  /*
+   * Claude Code's own listing drops `claude -p` sessions, by their SDK entry point, unless claudeCode.claudeProcessWrapper
+   * is set. So with claudeCodePlus.hideBackgroundSessions off they could not be shown at all. The getter the listing
+   * asks is also true while this extension says so (__cceListProgrammatic); with the setting on the getter is as it was,
+   * and src/bgsessions.js still leaves out daemon sessions when it is off.
+   */
+  {
+    name: 'session list keeps programmatic sessions on request',
+    re: /get includeProgrammaticSessions\(\)\{return Boolean\(([\w$]+)\("claudeProcessWrapper"\)\)\}/g,
+    to: (m, get) => `get includeProgrammaticSessions(){return Boolean(${get}("claudeProcessWrapper"))||(()=>{try{let cceF=globalThis.__cceListProgrammatic;`
+      + 'return typeof cceF==="function"&&cceF()===!0}catch(cceE){return!1}})()}',
+  },
   {
     name: 'session list leaves out background sessions',
     re: /(await this\.attachSessionPermissionModes\(([\w$]+)\),)\2\}/g,

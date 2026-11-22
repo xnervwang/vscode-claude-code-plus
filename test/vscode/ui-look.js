@@ -303,17 +303,21 @@ async function live(d) {
   else { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
   return d.liveFrame;
 }
-/* Before the window opens: a transcript as Claude Code's CLI writes one for `claude --bg`, which this extension leaves
-   out of the session list while claudeCodePlus.hideBackgroundSessions is on. Not one for `claude -p`: Claude Code 2.1.330
-   leaves those out itself, whatever the setting says. */
+/* Before the window opens: transcripts as Claude Code's CLI writes them for `claude --bg`, for `claude -p` and for
+   one of its daemon sessions. This extension leaves all three out of the session list while
+   claudeCodePlus.hideBackgroundSessions is on, and with it off lists the first two. */
 const BACKGROUND_TITLE = 'Nightly report run in the background';
+const PRINT_TITLE = 'Weekly digest written by claude -p';
+const DAEMON_TITLE = 'Daemon session never listed';
 function prepare({ projects, threads }) {
   const t = threads[2];
   const src = fs.readFileSync(path.join(projects, `${t.id}.jsonl`), 'utf8');
   /* Every record id of the conversation it is copied from starts with that conversation's first 24 characters. */
-  const head = '5b0d1c2e-9a8f-4c6b-8d7e-', id = head + t.id.slice(24);
-  fs.writeFileSync(path.join(projects, `${id}.jsonl`), src.split(t.id.slice(0, 24)).join(head)
-    .split('"entrypoint":"claude-vscode"').join('"entrypoint":"cli","sessionKind":"bg"').split(t.title).join(BACKGROUND_TITLE));
+  const copy = (head, entry, title) => fs.writeFileSync(path.join(projects, `${head + t.id.slice(24)}.jsonl`),
+    src.split(t.id.slice(0, 24)).join(head).split('"entrypoint":"claude-vscode"').join(entry).split(t.title).join(title));
+  copy('5b0d1c2e-9a8f-4c6b-8d7e-', '"entrypoint":"cli","sessionKind":"bg"', BACKGROUND_TITLE);
+  copy('6c1e2d3f-0b9a-4d7c-9e8f-', '"entrypoint":"sdk-cli"', PRINT_TITLE);
+  copy('7d2f3e4a-1c0b-4e8d-af90-', '"entrypoint":"cli","sessionKind":"daemon"', DAEMON_TITLE);
 }
 
 /* The steps. */
@@ -887,21 +891,22 @@ const STEPS = [
   {
     name: 'background-hidden', features: ['hide-background-sessions'],
     expect: 'The dialog is gone and "Why does the nightly export skip archived rows?" is back among the rows. The folder of '
-      + 'transcripts also holds one of a session started with claude --bg, titled "' + BACKGROUND_TITLE + '", written before '
-      + 'the window opened; the list does not show it.',
+      + 'transcripts also holds, written before the window opened, one of a session started with claude --bg, titled "'
+      + BACKGROUND_TITLE + '", one started with claude -p, titled "' + PRINT_TITLE + '", and one of Claude Code\'s daemon '
+      + 'sessions, titled "' + DAEMON_TITLE + '"; the list shows none of them.',
     unchanged: 'The rows are as before the archiving.',
     act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
   },
   {
     name: 'background-shown', features: ['hide-background-sessions'], ...off('claudeCodePlus.hideBackgroundSessions'),
-    expect: 'With the setting that hides background sessions turned off, the list now also shows "Nightly report run in the '
-      + 'background" without a reload; the other rows are unchanged.',
+    expect: 'With the setting that hides background sessions turned off, the list now also shows "' + BACKGROUND_TITLE + '" and "'
+      + PRINT_TITLE + '" without a reload, and still not "' + DAEMON_TITLE + '"; the other rows are unchanged.',
     unchanged: 'Every row of the previous picture is still there.',
     area: async (d) => { await sessionList(d); await d.sleep(3000); await d.away(); return d.sidebar(); },
   },
   {
     name: 'off-session-pins', features: ['session-pins'], ...off('claudeCodePlus.sessionPins'),
-    expect: 'The background session is hidden again. The pins at the start of the rows are gone; the titles start where the '
+    expect: 'The two background sessions are hidden again. The pins at the start of the rows are gone; the titles start where the '
       + 'pins were or a little further left, without overlapping anything.',
     unchanged: 'The same rows in the same order.',
     area: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },

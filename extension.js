@@ -1448,10 +1448,14 @@ function start(context, log, renamed, handing = false) {
   /* Logs, with the time, the first eight lists a window builds and any later one that takes this extension 200 ms or
      more, to set against when Claude Code's log shows the panel asking for the list. */
   let listsLogged = 0;
+  const showBackground = () => cfg().get(HIDE_BG_SETTING, true) === false;
+  /* Read by the patched host each time it lists sessions: with background sessions shown, Claude Code's listing keeps
+     its `claude -p` sessions as well (src/host.js). */
+  globalThis.__cceListProgrammatic = () => !removed() && showBackground();
   globalThis.__cceListedSessions = (entries, cwd) => {
     if (removed()) return entries;
     const t0 = Date.now();
-    const listed = cfg().get(HIDE_BG_SETTING, true) === false ? entries : bgSessions.withoutBackground(entries, cwd);
+    const listed = showBackground() ? bgSessions.withoutDaemons(entries, cwd) : bgSessions.withoutBackground(entries, cwd);
     const out = enabled() ? stewardMarks.cleaned(listed) : listed;
     const ms = Date.now() - t0;
     if (listsLogged < 8 || ms >= 200) {
@@ -1473,6 +1477,7 @@ function start(context, log, renamed, handing = false) {
     if (globalThis.__ccePinHook) delete globalThis.__ccePinHook;
     if (globalThis.__cceColorHook) delete globalThis.__cceColorHook;
     if (globalThis.__cceListedSessions) delete globalThis.__cceListedSessions;
+    if (globalThis.__cceListProgrammatic) delete globalThis.__cceListProgrammatic;
     if (globalThis.__ccePinnedIds) delete globalThis.__ccePinnedIds;
   } });
   /*

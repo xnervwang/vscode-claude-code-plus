@@ -11,6 +11,10 @@
  * claudeCode.claudeProcessWrapper is set. So the patched host hands the finished list here instead, and this module
  * reads both fields as Claude Code does, leaving out `claude --bg`, `claude -p` and daemon sessions.
  *
+ * With the setting off, the patched host has Claude Code keep its SDK and daemon sessions too (src/host.js), so that
+ * `claude -p` sessions can be listed; daemon sessions are left out still. They are Claude Code's own background
+ * processes, not anything a person started.
+ *
  * A transcript with a cost or a last prompt but no message is left out as well: opening it shows nothing. Some
  * background sessions leave such files.
  *
@@ -29,6 +33,7 @@ const SETTLED_MS = 10000;
 const SDK = /^sdk-(?:cli|ts|py)$/;
 const RAN = /"type":"(?:cost-state|last-prompt)"/;
 const HIDDEN = new Set(['bg', 'daemon', 'daemon-worker', 'sdk', 'empty']);
+const DAEMON = new Set(['daemon', 'daemon-worker']);
 const kinds = new Map();
 
 /* Claude Code's folder name for a working directory; one longer than 200 characters gets a hash it computes itself. */
@@ -75,25 +80,34 @@ function kindOf(file, now = Date.now()) {
   }
 }
 
-/* A session whose kind cannot be read yet is treated as an ordinary one, and read again next time. */
-function isBackground(id, cwd, projects = projectsDir()) {
-  if (kinds.has(id)) return HIDDEN.has(kinds.get(id));
+/* A session's kind, or null while it cannot be read; such a session is treated as an ordinary one and read again next
+   time. */
+function kindFor(id, cwd, projects) {
+  if (kinds.has(id)) return kinds.get(id);
   const dir = folderName(cwd);
   let file = dir ? path.join(projects, dir, id + '.jsonl') : '';
   if (!file || !fs.existsSync(file)) file = transcriptOf(id, projects);
   const kind = file ? kindOf(file) : null;
-  if (kind === null) return false;
   /* A transcript with no message can still get one, when the session is resumed. */
-  if (kind !== 'empty') kinds.set(id, kind);
-  return HIDDEN.has(kind);
+  if (kind !== null && kind !== 'empty') kinds.set(id, kind);
+  return kind;
 }
 
-function withoutBackground(entries, cwd, projects = projectsDir()) {
+function isBackground(id, cwd, projects = projectsDir()) {
+  return HIDDEN.has(kindFor(id, cwd, projects));
+}
+
+function leaving(entries, cwd, projects, hidden) {
   if (!Array.isArray(entries)) return entries;
   return entries.filter((e) => {
     const id = e && (e.id || e.sessionId);
-    return !(typeof id === 'string' && SESSION.test(id) && isBackground(id, cwd, projects));
+    return !(typeof id === 'string' && SESSION.test(id) && hidden.has(kindFor(id, cwd, projects)));
   });
 }
 
-module.exports = { withoutBackground, isBackground, kindOf, folderName, SETTLED_MS };
+function withoutBackground(entries, cwd, projects = projectsDir()) { return leaving(entries, cwd, projects, HIDDEN); }
+
+/* What the list keeps when background sessions are shown. */
+function withoutDaemons(entries, cwd, projects = projectsDir()) { return leaving(entries, cwd, projects, DAEMON); }
+
+module.exports = { withoutBackground, withoutDaemons, isBackground, kindOf, folderName, SETTLED_MS };

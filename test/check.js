@@ -8544,6 +8544,14 @@ console.log('\nbackground sessions left out of the session list');
     if (JSON.stringify(more) === JSON.stringify([B]) && JSON.stringify(again) === JSON.stringify([B])) {
       ok('claude -p sessions and transcripts with no messages are left out, the second time they are listed too');
     } else bad(`with an SDK session and an empty transcript, left in ${JSON.stringify(more)}, then ${JSON.stringify(again)}`);
+    const W = '55555555-bbbb-cccc-dddd-eeeeeeeeeeee', X = '66666666-bbbb-cccc-dddd-eeeeeeeeeeee';
+    fs.writeFileSync(path.join(dir, W + '.jsonl'), rec({ parentUuid: null, type: 'user', entrypoint: 'cli', sessionKind: 'daemon', message: { content: 'x' } }));
+    fs.writeFileSync(path.join(dir, X + '.jsonl'), rec({ parentUuid: null, type: 'user', entrypoint: 'cli', sessionKind: 'daemon-worker', message: { content: 'x' } }));
+    const shown = typeof bg.withoutDaemons === 'function'
+      ? ids(bg.withoutDaemons([{ id: A }, { id: F }, { id: G }, { id: W }, { id: X }, { id: B }, { id: D }], cwd, root)) : null;
+    if (JSON.stringify(shown) === JSON.stringify([A, F, G, B, D])) {
+      ok('with background sessions shown, claude --bg and claude -p sessions and empty transcripts are listed, and Claude Code\'s daemon sessions are not');
+    } else bad(`with background sessions shown, listed ${JSON.stringify(shown)}`);
 
     /* Claude Code rewrites a transcript with its metadata first, so a read can find it part written. */
     const H = '11111111-bbbb-cccc-dddd-eeeeeeeeeeee', I = '22222222-bbbb-cccc-dddd-eeeeeeeeeeee', J = '33333333-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -8593,12 +8601,37 @@ console.log('\nbackground sessions left out of the session list');
       ok('the patched host hands its finished list and its folder to this extension, and keeps the list as it was when that fails or is missing');
     } else bad(`the patched list was ${child.stdout || child.stderr}`);
   }
+  /* Claude Code's own listing drops `claude -p` sessions unless its getter says to keep them, which it does only for
+     claudeProcessWrapper; the patched getter also asks this extension. */
+  {
+    const pe = host.EDITS.find((x) => x.name === 'session list keeps programmatic sessions on request');
+    const gsrc = 'var wrap="";function Pt(k){return k==="claudeProcessWrapper"?wrap:void 0}'
+      + 'class S{get includeProgrammaticSessions(){return Boolean(Pt("claudeProcessWrapper"))}}';
+    const gr = pe ? applyEdits(gsrc, [pe]) : { error: 'no such edit' };
+    if (gr.error) bad('the programmatic-session edit did not apply: ' + gr.error);
+    else {
+      const env = {};
+      env.globalThis = env;
+      vm.createContext(env);
+      vm.runInContext(gr.out + ';var s=new S(),seen=[];seen.push(s.includeProgrammaticSessions);'
+        + 'globalThis.__cceListProgrammatic=()=>true;seen.push(s.includeProgrammaticSessions);'
+        + 'globalThis.__cceListProgrammatic=()=>false;seen.push(s.includeProgrammaticSessions);'
+        + 'globalThis.__cceListProgrammatic=()=>{throw new Error("x")};seen.push(s.includeProgrammaticSessions);'
+        + 'globalThis.__cceListProgrammatic=()=>"yes";seen.push(s.includeProgrammaticSessions);'
+        + 'delete globalThis.__cceListProgrammatic;wrap="/bin/wrap";seen.push(s.includeProgrammaticSessions);', env);
+      if (JSON.stringify(env.seen) === '[false,true,false,false,false,true]') {
+        ok('the patched host keeps claude -p sessions in its listing while this extension asks, and otherwise as before');
+      } else bad(`includeProgrammaticSessions read ${JSON.stringify(env.seen)}`);
+    }
+  }
   const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const setting = require('../package.json').contributes.configuration.properties['claudeCodePlus.hideBackgroundSessions'];
-  if (/globalThis\.__cceListedSessions = \(entries, cwd\) => \{\s*if \(removed\(\)\) return entries;\s*(?:const t0 = Date\.now\(\);\s*)?const listed = cfg\(\)\.get\(HIDE_BG_SETTING, true\) === false \? entries : bgSessions\.withoutBackground\(entries, cwd\);/.test(extSrc)
+  if (/const showBackground = \(\) => cfg\(\)\.get\(HIDE_BG_SETTING, true\) === false;/.test(extSrc)
+      && /globalThis\.__cceListProgrammatic = \(\) => !removed\(\) && showBackground\(\);/.test(extSrc)
+      && /globalThis\.__cceListedSessions = \(entries, cwd\) => \{\s*if \(removed\(\)\) return entries;\s*(?:const t0 = Date\.now\(\);\s*)?const listed = showBackground\(\) \? bgSessions\.withoutDaemons\(entries, cwd\) : bgSessions\.withoutBackground\(entries, cwd\);/.test(extSrc)
       && /if \(e\.affectsConfiguration\(HIDE_BG_SETTING\)\) \{\s*try \{ if \(typeof globalThis\.__cceSessionsChanged === 'function'\) globalThis\.__cceSessionsChanged\(\);/.test(extSrc)
       && setting && setting.default === true) {
-    ok('background sessions are left out by default, a setting turns that off, and flipping it makes every panel read the list again');
+    ok('background sessions are left out by default, a setting turns that off and has Claude Code list claude -p sessions, and flipping it makes every panel read the list again');
   } else bad('the background-session setting is not wired as expected');
 }
 console.log('\nconversations whose background sessions are busy');
