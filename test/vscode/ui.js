@@ -2283,6 +2283,41 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       }
     });
 
+    /* Three of the session list's switches, each turned off and on again without a reload: the dates after a row's time,
+       OPEN SESSIONS, and New in tab and New in sidebar in place of Claude Code's New session. */
+    await step('the session list\'s switches without a reload', async () => {
+      const setShow = (k, v) => call('await vscode.workspace.getConfiguration("claudeCodePlus").update(arg[0], arg[1] === null ? undefined : arg[1], vscode.ConfigurationTarget.Global); return true;',
+        [`show.${k}`, v]);
+      await exec('claude-vscode.editor.open', tab0.id);
+      await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 20000, 300);
+      check(!!await openList(), 'the session list opens', null);
+      const seen = () => list.evaluate((id) => {
+        const r = [...document.querySelectorAll('[class*="sessionItem_"]')].find((x) => !x.closest('[data-cce-section]') && x.querySelector(`[data-cce-pin="${id}"]`));
+        return { dates: !!r && /\d\d\/\d\d/.test(r.innerText), open: !!document.querySelector('[data-cce-open-sessions]'),
+          ours: document.querySelectorAll('[data-cce-new-session]').length,
+          theirs: [...document.querySelectorAll('button')].filter((b) => b.innerText.trim() === 'New session').length };
+      }, tab0.id).catch(() => null);
+      const SWITCHES = [
+        ['sessionDates', 'the dates after a row\'s time', (s) => !s.dates, (s) => s.dates],
+        ['openSessions', 'OPEN SESSIONS', (s) => !s.open, (s) => s.open],
+        ['openInTabOrSidebar', 'New in tab and New in sidebar', (s) => s.ours === 0 && s.theirs === 1, (s) => s.ours === 2 && s.theirs === 0],
+      ];
+      try {
+        const at = await until(async () => { const s = await seen(); return s && SWITCHES.every(([, , , on]) => on(s)) && s; }, 15000, 500);
+        check(!!at, 'the list shows all three while they are on', await seen());
+        for (const [key, what, offNow, onNow] of SWITCHES) {
+          await setShow(key, false);
+          const gone = await until(async () => { const s = await seen(); return s && offNow(s) && s; }, 15000, 500);
+          check(!!gone, `claudeCodePlus.show.${key} turned off takes ${what} out of the list without a reload`, await seen());
+          await setShow(key, null);
+          const back = await until(async () => { const s = await seen(); return s && onNow(s) && s; }, 15000, 500);
+          check(!!back, 'and turned on again brings it back', await seen());
+        }
+      } finally {
+        for (const [key] of SWITCHES) await setShow(key, null).catch(() => {});
+      }
+    });
+
     /* Agent Plus's agentPlus.tokenMode in each mode in turn, without a reload: All, Essential, Interface, Custom with
        two features off, and All again. Each mode is checked in Show Status, Agent Plus's status bar entry, the information
        box, the config.json the hooks read, Claude Code's own list of plugins, the notice for a change of a feature's own

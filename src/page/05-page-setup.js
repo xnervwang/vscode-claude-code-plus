@@ -167,7 +167,9 @@
         if (sheet.href !== l.href) forget(sheet.href);
         if (sheet.parentNode) sheet.parentNode.removeChild(sheet);
       }
+      var asked = offCache;
       sheet = l; loadedOnce = true; onCache = null; offCache = {}; pinsCache = null; propCache = {};
+      try { switchesMoved(asked); } catch (e) { /* the next render of each part reads the switches anyway */ }
       if (fallback && fallback.parentNode) { fallback.parentNode.removeChild(fallback); fallback = null; }
       try { repaintPins(); } catch (e) { /* the next render of the list draws them anyway */ }
       try { paintColors(); } catch (e) { /* the next stylesheet draws them */ }
@@ -286,7 +288,22 @@
   var offCache = {};
   /* The pins the stylesheet carries (83-session-pins.js), decoded once per stylesheet like the two above. */
   var pinsCache = null;
+  /* A signal of the panel's own kind, read by every isOff: a render subscribes only to what it reads, and the parts the
+     switches turn off - the session list's sections, dates and buttons among them - are drawn from the panel's state,
+     which a new stylesheet does not touch. It moves when a stylesheet turns a switch that was asked for on or off. */
+  var switchTick = null;
+  var switchRenders = function(){
+    if (!switchTick && typeof window.__cceSignal === 'function') switchTick = window.__cceSignal(0);
+    return switchTick ? switchTick.value : 0;
+  };
+  var switchesMoved = function(asked){
+    var keys = Object.keys(asked || {});
+    for (var i = 0; i < keys.length; i++) {
+      if (isOff(keys[i]) !== asked[keys[i]]) { if (switchTick) switchTick.value = switchTick.value + 1; return; }
+    }
+  };
   var isOff = function(key){
+    switchRenders();
     if (Object.prototype.hasOwnProperty.call(offCache, key)) return offCache[key];
     var v = false;
     try {
