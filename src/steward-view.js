@@ -185,13 +185,21 @@ function grouped(rows, wins, front) {
   const groups = new Map();
   const frontWin = wins.find((w) => w.sessions.includes(front));
   for (const c of rows) {
-    const w = wins.find((x) => x.sessions.includes(c.sessionId));
+    const w = wins.find((x) => x.sessions.includes(c.sessionId)) || hostWindow(c, wins);
     if (!w) continue;
     const key = 'w:' + w.pid;
     if (!groups.has(key)) groups.set(key, { key, name: windowLabel(w), rank: w === frontWin ? 0 : 1, rows: [] });
     groups.get(key).rows.push(c);
   }
   return [...groups.values()].sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+}
+
+/* The window whose extension host runs one of the processes of a conversation two or more processes run, or undefined.
+   Such a conversation is in no window's entry: each host sees the other process as running elsewhere and leaves it out
+   of what it shows (shownList in extension.js), yet its row is where the old process is stopped. */
+function hostWindow(c, wins) {
+  const procs = Array.isArray(c.processes) ? c.processes : [];
+  return procs.length > 1 ? wins.find((w) => procs.some((p) => p.host === w.pid)) : undefined;
 }
 
 /* The panel's list, as HTML. */
@@ -340,11 +348,11 @@ function create(vscode, deps) {
     const wins = windows();
     const open = (id) => wins.some((w) => w.sessions.includes(id));
     const steward = (id) => { const t = table[id] || table[String(id).toLowerCase()]; return !!(t && (t.all || (t.manages || []).length)); };
-    const rows = [...all.values()].filter((c) => c.sessionId !== front && open(c.sessionId))
+    const rows = [...all.values()].filter((c) => c.sessionId !== front && (open(c.sessionId) || hostWindow(c, wins)))
       .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c));
     rows.sort((a, b) => (b.managed - a.managed) || (b.lastActiveAt - a.lastActiveAt));
     const groups = grouped(rows, wins, front);
-    const hidden = [...mine].filter((id) => !open(id));
+    const hidden = [...mine].filter((id) => !open(id) && !rows.some((c) => c.sessionId === id));
     const self = front && all.get(front);
     // The conversation in front may not be in the list yet: `claude agents --json` is read at most every half minute.
     const title = self ? self.title : front ? titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: front, name: '', cwd: '' },

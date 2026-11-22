@@ -10292,6 +10292,42 @@ console.log('\nthe Steward panel');
           ok('a question is given to a steward once: a later notice lists only the questions that are new');
         } else bad(`the questions in the notices: ${JSON.stringify(out.posts)}`);
       }
+      /* A conversation two processes run is in no window's entry, since each host sees the other's process as running
+         elsewhere; its row is still listed, with the window whose host runs one of its processes, and its Stop button.
+         One with a single process that no window shows is not. */
+      {
+        const tdir = path.join(root, 'twice-plans');
+        fs.mkdirSync(tdir, { recursive: true });
+        const out2 = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+          const sv = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'steward-view.js'))});
+          const P = (n) => '5e5e5e5e-0000-4000-8000-00000000001' + n;
+          const records = [{ sessionId: P(1), pid: 21, kind: 'interactive', cwd: '/w/a', name: 'steward', status: 'idle' },
+            { sessionId: P(2), pid: 22, kind: 'interactive', cwd: '/w/b', name: 'Twice', status: 'idle' },
+            { sessionId: P(2), pid: 23, kind: 'interactive', cwd: '/w/b', name: 'Twice', status: 'idle' },
+            { sessionId: P(3), pid: 24, kind: 'interactive', cwd: '/w/c', name: 'Elsewhere', status: 'idle' }];
+          let view = null;
+          const vscode = { window: { registerWebviewViewProvider: (id, p) => { view = p; return { dispose() {} }; }, showInformationMessage() {} } };
+          const v = sv.create(vscode, { activeChat: () => P(1), freshAgents: async () => ({ records }), readPlan: () => null,
+            titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true,
+            shownHere: (id) => id === P(1), canWrite: () => true, canShare: () => true, enabled: () => true, log: () => {}, home: '/',
+            dir: ${JSON.stringify(tdir)}, isBackground: () => false, records: () => [], post: async () => true,
+            windowName: () => 'here', windowFolders: () => ['/w'], shownList: () => [P(1)],
+            duplicates: () => new Map([[P(2), [{ pid: 22, host: process.pid, startedAt: 1, window: 'here', windowless: false, idle: true },
+              { pid: 23, host: process.pid, startedAt: 2, window: 'here', windowless: false, idle: false }]]]) });
+          (async () => {
+            const bodies = [];
+            const pageView = { visible: true, webview: { options: {}, html: '', onDidReceiveMessage() {}, postMessage: (m) => { if (m.type === 'body') bodies.push(m.html); } },
+              onDidChangeVisibility() {}, onDidDispose() {} };
+            view.resolveWebviewView(pageView);
+            await v._pass();
+            v.dispose();
+            process.stdout.write(JSON.stringify({ page: bodies.pop() || pageView.webview.html, P2: P(2), P3: P(3) }));
+          })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
+        if (!out2.error && out2.page.includes(`data-stop-old="${out2.P2}"`) && out2.page.includes('2 processes') && !out2.page.includes(out2.P3)
+            && /<span class="gname">here<\/span>/.test(out2.page)) {
+          ok('a conversation two processes run is listed in the Steward panel with the window whose host runs one of them, and can be stopped there, though no window\'s entry lists it');
+        } else bad(`a conversation run twice in the Steward panel: ${JSON.stringify(out2.error || out2.page.slice(0, 1500))}`);
+      }
       /* src/duplicates.js on a made-up /proc: which processes run one conversation, and which may be stopped. */
       {
         const dup = require('../src/duplicates');
