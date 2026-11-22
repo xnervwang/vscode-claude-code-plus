@@ -43,6 +43,7 @@ const planInjections = require('./src/plan-injections');
 const tokenMode = require('./src/token-mode');
 const waiting = require('./src/waiting');
 const { createClaudeSource, isPanelTab } = require('./src/claude-source');
+const { createNotices } = require('./src/notices');
 const { agentOfTab } = require('./src/other-agents');
 const coreLink = require('./src/core-link');
 const hookSettings = require('./src/hook-settings');
@@ -774,6 +775,24 @@ function start(context, log, renamed, handing = false) {
   const shownList = () => { const elsewhere = panelList('__cceSessionsElsewhere'); return panelList('__cceSessionsShown').filter((id) => !elsewhere.includes(id)); };
   /* Assigned after the Steward panel is created below, which itself needs the source. */
   let openAnywhere = null;
+  /* Agent Plus's notices, as cards in every Claude Code panel of this window (src/notices.js). On screen: the tab in
+     front of some editor group is a Claude Code panel, or the sidebar's page is shown. */
+  const notices = createNotices({
+    send: (m) => (typeof globalThis.__cceToAllPanels === 'function' ? globalThis.__cceToAllPanels(m) : 0),
+    onScreen: () => {
+      const groups = (vscode.window.tabGroups && vscode.window.tabGroups.all) || [];
+      if (groups.some((g) => isPanelTab(g.activeTab))) return true;
+      try { return typeof globalThis.__cceSidebarVisible === 'function' && globalThis.__cceSidebarVisible() === true; } catch (_) { return false; }
+    },
+    run: (command, ...args) => Promise.resolve(vscode.commands.executeCommand(command, ...args))
+      .catch((e) => log.appendLine(`notices: ${command}: ${(e && e.message) || e}`)),
+    on: () => enabled() && !removed(),
+    log: (m) => log.appendLine(m),
+  });
+  globalThis.__cceNoticeHook = (action, sourceId, sessionId) => {
+    try { notices.heard(action, sourceId, sessionId); } catch (e) { log.appendLine('notices: ' + ((e && e.message) || e)); }
+  };
+  context.subscriptions.push({ dispose: () => { if (globalThis.__cceNoticeHook) delete globalThis.__cceNoticeHook; } });
   /* The list of running conversations, shared between windows (listAgents in src/waiting.js). A shared list is at most
      20 seconds old when a window takes it, and src/claude-source.js caches it for that window like any other. */
   const AGENTS_FILE = 'agents.json', AGENTS_SHARE_MS = 20000;
@@ -816,6 +835,7 @@ function start(context, log, renamed, handing = false) {
     },
     shown: () => shownList(),
     open: (sessionId) => (openAnywhere ? openAnywhere(sessionId) : 'nowhere'),
+    showNotices: (cards) => notices.show(cards),
   });
   context.subscriptions.push(claude);
   /* The other agent's conversation tab that came to the front last; null once a Claude Code panel comes to the front.

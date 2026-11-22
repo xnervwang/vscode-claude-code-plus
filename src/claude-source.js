@@ -17,6 +17,7 @@
  *   focus            a change of the host's activeSessionId; a panel's onDidChangeViewState; sessionForTab(); and the
  *                    page getting focus (src/page/92-focus.js), the only signal a sidebar conversation gives
  *   answers          typed into the panel showing the conversation (src/page/91-answer.js)
+ *   notices          Agent Plus's cards, drawn in every panel of this window (showNotices, src/notices.js)
  *   plan notice      the plugin that writes plans failed to install, or there is no Python 3 to run the hooks
  *
  * The host also writes activeSessionId back unchanged, for example when a background panel's state changes, so only a
@@ -102,6 +103,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   logo()                          { light, dark } Uris, or null
  *   timeZone()                      the zone a panel reported, or ''
  *   isSteward(sessionId)            optional: whether the conversation is a steward, which gets the crown
+ *   showNotices(cards)              optional: draws Agent Plus's cards and says whether they are on screen; the source
+ *                                   lists showNotices among its features only when it is given
  *   isBackground(id, cwd)           optional, for tests
  */
 function createClaudeSource(deps) {
@@ -191,8 +194,12 @@ function createClaudeSource(deps) {
 
   const source = {
     protocol: PROTOCOL,
-    /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. */
-    get features() { return enabled() && briefOn() ? ['brief'] : []; },
+    /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. 'showNotices': the member below. */
+    get features() {
+      const out = enabled() && briefOn() ? ['brief'] : [];
+      if (typeof deps.showNotices === 'function') out.push('showNotices');
+      return out;
+    },
     id: ID,
     label: 'Claude Code',
     extensionId: EXTENSION_ID,
@@ -269,6 +276,10 @@ function createClaudeSource(deps) {
     canDeliver: (sessionId) => deps.canDeliver(sessionId) === true,
 
     deliverAnswer(sessionId, text, opts) { return deliverOnce(sessionId, text, opts); },
+
+    showNotices(cards) {
+      try { return typeof deps.showNotices === 'function' && deps.showNotices(cards) === true; } catch (_) { return false; }
+    },
 
     planNotice: () => notice,
     timeZone: () => { try { return deps.timeZone ? deps.timeZone() || '' : ''; } catch (_) { return ''; } },

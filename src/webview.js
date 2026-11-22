@@ -358,6 +358,7 @@ function configBlock() {
     `  var LIVE_REV = ${JSON.stringify(LIVE_REV)};`,
     `  var EFFORT_PREFIX = ${JSON.stringify(EFFORT_PREFIX)};`,
     `  var POLL_MS = ${POLL_MS};`,
+    `  var NOTICE_COLORS = ${JSON.stringify({ waiting: tabdot.RED, finished: tabdot.GREEN })};`,
   ].join('\n');
 }
 

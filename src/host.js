@@ -96,7 +96,8 @@ const EDITS = [
    * session list, a text color chosen for conversations there, archived conversations to delete, whether an answer
    * from the Conversations tab was sent (src/page/91-answer.js), the info box asking for its conversation's
    * process id (src/page/80-session-info.js), the panel's page getting focus (src/page/92-focus.js), the page
-   * saying it is still there (src/page/99-sweep.js, for src/duplicates.js), and the state a panel reports for its
+   * saying it is still there (src/page/99-sweep.js, for src/duplicates.js), a card of Agent Plus's notices clicked or
+   * dismissed, or the page asking for them (src/page/95-notices.js), and the state a panel reports for its
    * conversation with whether a turn runs beside it (src/webview.js, for src/activity.js).
    *
    * Every message a panel sends passes through the one function that logs it, before anything decides what the message
@@ -130,6 +131,8 @@ const EDITS = [
       + `else if(${msg}&&${msg}.type==="cce_image"&&typeof ${msg}.id==="string"&&typeof ${msg}.src==="string"&&typeof ${msg}.sessionId==="string"){`
       + `globalThis.__cceImageHook&&globalThis.__cceImageHook(${msg}.sessionId,${msg}.id,${msg}.src)}`
       + `else if(${msg}&&${msg}.type==="cce_alive"){globalThis.__cceAliveHook&&globalThis.__cceAliveHook()}`
+      + `else if(${msg}&&${msg}.type==="cce_notice"&&typeof ${msg}.action==="string"){globalThis.__cceNoticeHook&&globalThis.__cceNoticeHook(`
+      + `${msg}.action,typeof ${msg}.sourceId==="string"?${msg}.sourceId:"",typeof ${msg}.sessionId==="string"?${msg}.sessionId:"")}`
       + `else if(${msg}&&${msg}.type==="request"&&${msg}.request&&${msg}.request.type==="update_session_state"`
       + `&&typeof ${msg}.request.sessionId==="string"){globalThis.__cceTurnHook&&globalThis.__cceTurnHook(${msg}.request.sessionId,`
       + `${msg}.request.cceBusy,${msg}.request.cceBg,${msg}.request.isFarewell===true)}}catch(e){}${rest}`,
@@ -194,7 +197,8 @@ const EDITS = [
    * (__cceShownVisibly), the test Claude Code makes before it marks one (src/activity.js says when this extension
    * does). For a steward
    * (src/relay.js): renaming a conversation through the panel showing it, which tells its CLI too (__cceRename), and a
-   * message to every panel of this window (__cceToAllPanels), which a new tab with no conversation yet can answer.
+   * message to every panel of this window (__cceToAllPanels), which a new tab with no conversation yet can answer. And
+   * whether the sidebar's page is on screen, whatever it shows (__cceSidebarVisible), for Agent Plus's notices.
    */
   {
     name: 'tab record at start',
@@ -221,6 +225,7 @@ const EDITS = [
       + 'if(!cceC&&this.sidebarComms&&this.sidebarChatShows?.()===cceId)cceC=this.sidebarComms;'
       + 'if(!cceC||typeof cceC.renameSession!=="function")return null;return cceC.renameSession(cceId,cceTitle)},'
       + 'globalThis.__cceToAllPanels=(cceMsg)=>{let cceN=0;for(let cceC of this.allComms)try{cceC.send(cceMsg),cceN++}catch(e){}return cceN},'
+      + 'globalThis.__cceSidebarVisible=()=>this.sidebarComms!==void 0&&[...this.webviews].some((cceV)=>cceV.comms===this.sidebarComms&&cceV.isVisible()),'
       + 'this.reconcileRememberedTabSessions()',
   },
   /*

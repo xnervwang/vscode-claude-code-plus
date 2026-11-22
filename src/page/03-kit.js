@@ -159,7 +159,331 @@ var agentPlusKit = (function () {
     return { show: show, hide: hide, wire: wire, current: function () { return box; } };
   }
 
+
+  /*
+   * The cards of the conversations that need the user (Agent Plus's notices), stacked at the bottom right of a page: the
+   * newest in front and fully shown, up to STACK.depth older ones peeking out above it, each a little narrower, and a
+   * count of the rest. Pointing at a card behind the front one, or giving it the focus, draws it out above the cards in
+   * front of it, and the cards behind it move up to make room; leaving puts it back. All of it is transforms on cards
+   * that keep their place in the document, so the browser's own hit testing follows the cards: the strip a card shows
+   * lies inside where it is drawn out to, all the way there, and the pointer stays on it while it moves.
+   *
+   * opts: post(action, card), action 'open', 'dismiss' or 'dismiss-all'; anchor(), { bottom, right, width }: the stack's
+   * distance from the bottom and the right of the window and the most it may be wide, in px; room(px), told how tall the
+   * stack stands at rest, 0 once it is empty, so the page can leave that much free below what it shows; skip(card), true
+   * for a card this page leaves out; colors, { waiting, finished }; leave(), where Escape sends the focus. Returns
+   * set(cards, hostNow), place() after the page has changed size, refresh() after skip() has changed, and dispose().
+   */
+  var STACK = { width: 320, height: 56, peek: 8, depth: 3, shrink: 0.04, margin: 10, enterMs: 260, pullMs: 170, leaveMs: 200 };
+  var EASE = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
+  var KIND_TEXT = { waiting: 'Waiting for you', finished: 'Finished' };
+  var DOT = String.fromCharCode(183), TIMES = String.fromCharCode(215);
+  /* #rgb or #rrggbb at `alpha`; anything else as it is. */
+  function tint(color, alpha) {
+    var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(color || ''));
+    if (!m) return color;
+    var h = m[1].length === 3 ? m[1].replace(/(.)/g, '$1$1') : m[1];
+    return 'rgba(' + parseInt(h.slice(0, 2), 16) + ',' + parseInt(h.slice(2, 4), 16) + ',' + parseInt(h.slice(4, 6), 16) + ',' + alpha + ')';
+  }
+
+  /* Where card i of n is drawn, given the card drawn out (-1 for none): a move up in px and a scale, and whether it
+     shows. The cards are laid out at the bottom and scaled from their top edge, so each one behind shows `peek` px. */
+  function stackLayout(n, pulled, o) {
+    var s = o || STACK, out = [];
+    for (var i = 0; i < n; i++) {
+      var level = Math.min(i, s.depth);
+      var y = -s.peek * level, scale = 1 - s.shrink * level, shown = i <= s.depth;
+      if (pulled > 0 && i === pulled) { y = -s.height - s.peek * (Math.min(i, s.depth + 1) - 1); scale = 1; shown = true; }
+      else if (pulled > 0 && i > pulled) y -= s.height - s.peek;
+      out.push({ y: y, scale: scale, shown: shown });
+    }
+    return out;
+  }
+
+  function noticeStack(opts) {
+    var doc = document, root = null, head = null, count = null, all = null, live = null;
+    var els = {}, order = [], last = [], pulled = -1, hovered = -1, focused = -1, inside = false, drawn = false;
+    var skew = 0, ticker = 0, placer = 0, gone = {}, room = -1, spot = { bottom: 12, right: STACK.margin, width: STACK.width };
+    var GONE_WAIT_MS = 3000;
+    var colors = (opts && opts.colors) || { waiting: '#ef4444', finished: '#22c55e' };
+    var keyOf = function (c) { return JSON.stringify([String(c.sourceId), String(c.sessionId)]); };
+    var calm = function () {
+      try { return !!(globalThis.matchMedia && globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { return false; }
+    };
+    var quick = function () { return !calm() && !doc.hidden && drawn; };
+    var post = function (action, card) { try { opts.post(action, card || null); } catch (e) { /* the host never hears */ } };
+    var el = function (tag, css, attrs) {
+      var e = doc.createElement(tag);
+      if (css) e.style.cssText = css;
+      for (var k in attrs || {}) if (Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, attrs[k]);
+      return e;
+    };
+    var width = function () {
+      return Math.max(160, Math.min(STACK.width, spot.width, (doc.documentElement.clientWidth || 0) - spot.right - STACK.margin));
+    };
+    var ageOf = function (c) {
+      var a = age(c.at + skew, Date.now());
+      return a === 'now' ? 'just now' : a + ' ago';
+    };
+
+    function build() {
+      root = el('div', 'position:fixed;right:' + STACK.margin + 'px;bottom:12px;height:' + STACK.height + 'px;z-index:900;pointer-events:none;'
+        + 'font-family:var(--vscode-font-family, system-ui, sans-serif);', { 'data-ap-stack': '1', role: 'region', 'aria-label': 'Conversations that need you' });
+      head = el('div', 'position:absolute;right:0;bottom:0;height:26px;box-sizing:border-box;padding-bottom:6px;display:flex;align-items:flex-end;'
+        + 'justify-content:flex-end;gap:6px;opacity:0;pointer-events:none;transition:opacity 120ms linear;font-size:11px;line-height:18px;'
+        + 'color:var(--vscode-descriptionForeground, #9d9d9d);', { 'data-ap-head': '1' });
+      count = el('span', 'padding:0 7px;border-radius:9px;background:var(--vscode-badge-background, #616161);color:var(--vscode-badge-foreground, #fff);', { 'data-ap-count': '1' });
+      all = el('button', 'font:inherit;padding:0 8px;border-radius:9px;cursor:pointer;color:var(--vscode-foreground, #ccc);'
+        + 'border:1px solid var(--vscode-widget-border, rgba(128,128,128,.4));background:var(--vscode-notifications-background, var(--vscode-editorWidget-background, #252526));',
+      { type: 'button', 'data-ap-dismiss-all': '1' });
+      all.textContent = 'Dismiss all';
+      all.addEventListener('click', function (e) { e.stopPropagation(); post('dismiss-all'); });
+      head.appendChild(count);
+      head.appendChild(all);
+      live = el('div', 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;', { 'aria-live': 'polite' });
+      root.appendChild(head);
+      root.appendChild(live);
+      root.addEventListener('pointerenter', function () { inside = true; paintHead(); });
+      root.addEventListener('pointerleave', function () { inside = false; hovered = -1; pull(); paintHead(); });
+      root.addEventListener('focusin', function (e) { focused = indexOf(e.target); pull(); paintHead(); });
+      root.addEventListener('focusout', function (e) {
+        if (e.relatedTarget && root.contains(e.relatedTarget)) return;
+        focused = -1; pull(); paintHead();
+      });
+      (doc.body || doc.documentElement).appendChild(root);
+    }
+
+    function indexOf(target) {
+      var card = target && target.closest ? target.closest('[data-ap-card]') : null;
+      return card ? order.indexOf(card.getAttribute('data-ap-key')) : -1;
+    }
+
+    function makeCard(key) {
+      var card = el('div', 'position:absolute;left:0;bottom:0;width:100%;height:' + STACK.height + 'px;box-sizing:border-box;pointer-events:auto;'
+        + 'transform-origin:50% 0;cursor:pointer;outline:none;', { 'data-ap-card': '1', 'data-ap-key': key, role: 'button', tabindex: '0',
+        'aria-keyshortcuts': 'Enter Delete' });
+      var face = el('div', 'position:absolute;inset:0;box-sizing:border-box;padding:7px 6px 7px 11px;border-radius:6px;overflow:hidden;'
+        + 'background:var(--vscode-notifications-background, var(--vscode-editorWidget-background, #252526));'
+        + 'color:var(--vscode-notifications-foreground, var(--vscode-foreground, #ccc));'
+        + 'border:1px solid var(--vscode-notifications-border, var(--vscode-widget-border, rgba(128,128,128,.35)));border-top-width:2px;'
+        + 'box-shadow:0 2px 8px var(--vscode-widget-shadow, rgba(0,0,0,.36));transition:box-shadow 170ms linear, border-color 120ms linear;', { 'data-ap-face': '1' });
+      var top = el('div', 'display:flex;align-items:center;gap:6px;height:18px;font-size:11px;line-height:18px;white-space:nowrap;');
+      var dot = el('span', 'flex:none;width:8px;height:8px;border-radius:50%;', { 'data-ap-dot': '1' });
+      var kind = el('span', 'flex:none;font-weight:600;', { 'data-ap-kind': '1' });
+      /* The agent's name gives way in a narrow panel; the time does not. */
+      var meta = el('span', 'flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--vscode-descriptionForeground, #9d9d9d);',
+        { 'data-ap-meta': '1' });
+      var when = el('span', 'flex:none;margin-right:auto;color:var(--vscode-descriptionForeground, #9d9d9d);', { 'data-ap-age': '1' });
+      var x = el('button', 'flex:none;width:20px;height:18px;padding:0;margin:0;border:0;border-radius:4px;background:transparent;cursor:pointer;'
+        + 'color:inherit;opacity:.75;font:14px/18px var(--vscode-font-family, sans-serif);', { type: 'button', tabindex: '-1', 'aria-label': 'Dismiss', 'data-ap-dismiss': '1' });
+      x.textContent = TIMES;
+      x.addEventListener('mouseenter', function () { x.style.opacity = '1'; x.style.background = 'var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.2))'; });
+      x.addEventListener('mouseleave', function () { x.style.opacity = '.75'; x.style.background = 'transparent'; });
+      var title = el('div', 'margin-top:4px;font-size:13px;line-height:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', { 'data-ap-title': '1' });
+      top.appendChild(dot); top.appendChild(kind); top.appendChild(meta); top.appendChild(when); top.appendChild(x);
+      face.appendChild(top); face.appendChild(title);
+      card.appendChild(face);
+      var cardOf = function () { return card.__apCard; };
+      x.addEventListener('click', function (e) { e.stopPropagation(); dismiss(cardOf()); });
+      card.addEventListener('click', function () { var c = cardOf(); if (c) post('open', c); });
+      card.addEventListener('pointerenter', function () { hovered = order.indexOf(key); pull(); });
+      card.addEventListener('keydown', function (e) {
+        var i = order.indexOf(key), c = cardOf();
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (c) post('open', c); }
+        else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); dismiss(c); }
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          var next = els[order[Math.max(0, Math.min(order.length - 1, i + (e.key === 'ArrowUp' ? 1 : -1)))]];
+          if (next) next.focus();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          try { card.blur(); if (opts.leave) opts.leave(); } catch (err) { /* stays */ }
+        }
+      });
+      return card;
+    }
+
+    /* Taken off this page at once, and kept off until a list without it comes or GONE_WAIT_MS has passed: a list sent
+       before the host heard of it can still hold it. */
+    function dismiss(c) {
+      if (!c) return;
+      gone[keyOf(c)] = Date.now();
+      post('dismiss', c);
+      var i = order.indexOf(keyOf(c));
+      var next = i >= 0 ? els[order[i + 1]] || els[order[i - 1]] : null;
+      var had = doc.activeElement && root.contains(doc.activeElement);
+      render(last);
+      if (had && next && next.isConnected) next.focus();
+    }
+
+    function fill(card, c) {
+      card.__apCard = c;
+      var kindText = KIND_TEXT[c.kind] || '';
+      var title = String(c.title || c.sessionId || '');
+      var meta = c.agent ? DOT + ' ' + c.agent : '';
+      var set = function (sel, text) { var n = card.querySelector(sel); if (n && n.textContent !== text) n.textContent = text; };
+      set('[data-ap-kind]', kindText);
+      set('[data-ap-meta]', meta);
+      card.querySelector('[data-ap-meta]').style.display = meta ? '' : 'none';
+      set('[data-ap-age]', DOT + ' ' + ageOf(c));
+      set('[data-ap-title]', title);
+      var color = colors[c.kind] || colors.finished;
+      card.querySelector('[data-ap-dot]').style.background = color;
+      card.firstChild.style.borderTopColor = tint(color, 0.75);
+      card.setAttribute('data-ap-card-kind', c.kind);
+      card.setAttribute('aria-label', kindText + ': ' + title + (c.agent ? ', ' + c.agent : '') + ', ' + ageOf(c));
+    }
+
+    function pull() {
+      var want = hovered > 0 ? hovered : focused > 0 ? focused : -1;
+      if (want >= order.length) want = -1;
+      if (want === pulled) return;
+      pulled = want;
+      lay(true);
+    }
+
+    function paintHead() {
+      if (!head) return;
+      var n = order.length, hidden = Math.max(0, n - 1 - STACK.depth);
+      var open = n >= 2 && (inside || focused >= 0);
+      count.textContent = open ? n + ' notices' : '+' + hidden;
+      count.style.display = open || hidden ? '' : 'none';
+      all.style.display = open ? '' : 'none';
+      head.style.opacity = open || hidden ? '1' : '0';
+      head.style.pointerEvents = open ? 'auto' : 'none';
+    }
+
+    function lay(animate) {
+      var n = order.length, L = stackLayout(n, pulled), w = width(), top = 0;
+      root.style.width = w + 'px';
+      for (var i = 0; i < n; i++) {
+        var card = els[order[i]], p = L[i], ms = card.__apEnter ? STACK.enterMs : STACK.pullMs;
+        card.__apEnter = false;
+        card.style.transition = animate && quick() ? 'transform ' + ms + 'ms ' + EASE + ', opacity ' + ms + 'ms linear' : 'none';
+        card.style.transform = 'translateY(' + p.y + 'px) scale(' + p.scale + ')';
+        card.style.opacity = p.shown ? '1' : '0';
+        card.style.visibility = p.shown ? 'visible' : 'hidden';
+        card.style.zIndex = String(n - i);
+        card.firstChild.style.boxShadow = i === pulled ? '0 6px 18px var(--vscode-widget-shadow, rgba(0,0,0,.45))'
+          : '0 2px 8px var(--vscode-widget-shadow, rgba(0,0,0,.36))';
+        if (p.shown) top = Math.min(top, p.y - STACK.height);
+      }
+      head.style.transition = animate && quick() ? 'opacity 120ms linear, transform ' + STACK.pullMs + 'ms ' + EASE : 'opacity 120ms linear';
+      head.style.transform = 'translateY(' + top + 'px)';
+      var rest = n ? STACK.height + STACK.peek * Math.min(n - 1, STACK.depth) + (n - 1 > STACK.depth ? 26 : 0) : 0;
+      if (rest !== room) { room = rest; try { if (opts.room) opts.room(rest); } catch (e) { /* the page keeps its layout */ } }
+    }
+
+    function render(cards) {
+      if (!root) build();
+      locate();
+      var shown = [], seen = {};
+      for (var i = 0; i < cards.length; i++) {
+        var c = cards[i];
+        if (!c || typeof c.sessionId !== 'string' || typeof c.sourceId !== 'string') continue;
+        var k = keyOf(c);
+        if (seen[k] || gone[k]) continue;
+        try { if (opts.skip && opts.skip(c)) continue; } catch (e) { /* shown */ }
+        seen[k] = true;
+        shown.push(c);
+      }
+      var was = order, first = order.length ? els[order[0]] : null;
+      order = shown.map(keyOf);
+      for (var j = 0; j < was.length; j++) if (!seen[was[j]]) leave(was[j]);
+      var arrived = null;
+      for (var m = 0; m < shown.length; m++) {
+        var key = order[m], card = els[key];
+        if (!card) {
+          card = els[key] = makeCard(key);
+          fill(card, shown[m]);
+          root.insertBefore(card, head);
+          if (quick() && m === 0) enter(card);
+          if (m === 0 && drawn) arrived = shown[m];
+        } else fill(card, shown[m]);
+      }
+      /* Document order is newest first, so Tab goes from the front card back. */
+      for (var r = order.length - 1; r >= 0; r--) root.insertBefore(els[order[r]], r + 1 < order.length ? els[order[r + 1]] : head);
+      if (pulled >= order.length) pulled = -1;
+      if (hovered >= order.length) hovered = -1;
+      root.style.display = order.length ? '' : 'none';
+      lay(true);
+      paintHead();
+      if (arrived && first !== els[order[0]]) live.textContent = (KIND_TEXT[arrived.kind] || '') + ': ' + String(arrived.title || '');
+      drawn = true;
+      tick();
+    }
+
+    /* A new front card starts just past the right edge of the page and lay() slides it in, opaque all the way, so the card
+       it covers never shows through it. */
+    function enter(card) {
+      card.style.transition = 'none';
+      card.style.transform = 'translateX(' + (width() + spot.right) + 'px)';
+      card.style.opacity = '1';
+      void card.offsetWidth;
+      card.__apEnter = true;
+    }
+
+    function leave(key) {
+      var card = els[key];
+      delete els[key];
+      if (!card) return;
+      card.removeAttribute('data-ap-card');
+      card.setAttribute('data-ap-leaving', '1');
+      card.style.pointerEvents = 'none';
+      if (!quick()) { if (card.parentNode) card.parentNode.removeChild(card); return; }
+      /* Out past the right edge of the page, opaque all the way, so the card coming forward never shows through it. */
+      card.style.transition = 'transform ' + STACK.leaveMs + 'ms cubic-bezier(0.4, 0, 1, 1)';
+      card.style.transform = String(card.style.transform || '') + ' translateX(' + (width() + spot.right + 24) + 'px)';
+      setTimeout(function () { if (card.parentNode) card.parentNode.removeChild(card); }, STACK.leaveMs + 40);
+    }
+
+    /* The time on each card, every half minute while there are cards; and the place, since the page below can grow. */
+    function tick() {
+      if (order.length && !ticker) {
+        ticker = setInterval(function () { for (var i = 0; i < order.length; i++) fill(els[order[i]], els[order[i]].__apCard); }, 30000);
+        placer = setInterval(place, 500);
+      } else if (!order.length && ticker) { clearInterval(ticker); clearInterval(placer); ticker = placer = 0; }
+      place();
+    }
+
+    function locate() {
+      var a = null;
+      try { a = opts.anchor ? opts.anchor() : null; } catch (e) { a = null; }
+      var num = function (v, d) { return typeof v === 'number' && isFinite(v) && v >= 0 ? Math.round(v) : d; };
+      spot = { bottom: num(a && a.bottom, 12), right: num(a && a.right, STACK.margin), width: num(a && a.width, STACK.width) };
+      if (root.style.bottom !== spot.bottom + 'px') root.style.bottom = spot.bottom + 'px';
+      if (root.style.right !== spot.right + 'px') root.style.right = spot.right + 'px';
+    }
+    function place() {
+      if (!root) return;
+      locate();
+      if (root.style.width !== width() + 'px') lay(false);
+    }
+
+    function set(cards, hostNow) {
+      if (typeof hostNow === 'number' && isFinite(hostNow)) skew = Date.now() - hostNow;
+      last = Array.isArray(cards) ? cards.slice() : [];
+      var listed = {};
+      for (var i = 0; i < last.length; i++) if (last[i]) listed[keyOf(last[i])] = true;
+      for (var k in gone) if (!listed[k] || Date.now() - gone[k] > GONE_WAIT_MS) delete gone[k];
+      render(last);
+    }
+
+    return {
+      set: set,
+      place: place,
+      /* Draws the last list again, after what skip() says has changed. */
+      refresh: function () { if (root) render(last); },
+      dispose: function () {
+        if (ticker) { clearInterval(ticker); clearInterval(placer); ticker = placer = 0; }
+        if (root && root.parentNode) root.parentNode.removeChild(root);
+        if (room > 0) { try { if (opts.room) opts.room(0); } catch (e) { /* gone with the page */ } }
+        root = null; els = {}; order = []; room = -1;
+      },
+    };
+  }
+
   return { p2: p2, stamp: stamp, age: age, span: span, kfmt: kfmt, pct: pct, TONES: TONES, chime: chime, unlockAudio: unlockAudio,
-    labels: labels };
+    labels: labels, STACK: STACK, stackLayout: stackLayout, noticeStack: noticeStack };
 })();
 if (typeof module === 'object' && module) module['exports'] = agentPlusKit;

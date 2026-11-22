@@ -12065,7 +12065,7 @@ console.log('\nthe token mode');
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
     const f = r.features || {}, d = r.redraws || {};
-    if (f.interface === '[]' && f.essential === '[]' && f.all === '["brief"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
+    if (f.interface === '["showNotices"]' && f.essential === '["showNotices"]' && f.all === '["brief","showNotices"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
       ok('the brief is offered to Agent Plus only in a mode that runs it, and every change of mode redraws its list');
     } else bad(`features ${JSON.stringify(f)}, redraws ${JSON.stringify(d)}`);
     const told = r.told || [];
@@ -12403,6 +12403,8 @@ const repo = path.join(__dirname, '..');
   await require('./shared-copies.js')(t, repo);
   console.log('\nthe package');
   await require('./pack-check.js')(t, repo);
+  console.log('\nAgent Plus\'s notices as cards in the panels');
+  await require('./notices-check.js')(t, repo);
 
   /* The image files a reply shows: read only when they are images, by their bytes, and small enough. */
   console.log('\nimages in replies, read by the extension');
