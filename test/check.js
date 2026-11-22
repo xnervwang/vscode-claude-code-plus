@@ -10655,8 +10655,8 @@ console.log('\nanswering from the Conversations tab');
     } else bad(`the image component: ${JSON.stringify({ error: r3.error, drawn, left })}`);
   }
 
-  /* In a browser, against an input built like Claude Code's: an editable box whose Enter sends, or with Ctrl+Enter
-     only when set so, and Shift+Enter a new line. The script under test is the one that ships. */
+  /* In a browser, against an input built like Claude Code's: an editable box whose Enter sends its textContent, or with
+     Ctrl+Enter only when set so, and Shift+Enter a new line. The script under test is the one that ships. */
   {
     const harness = require('./page-harness');
     const browser = harness.findBrowser();
@@ -10672,11 +10672,11 @@ console.log('\nanswering from the Conversations tab');
         + 'document.getElementById("box").addEventListener("keydown", function(e){'
         + '  if (deaf || e.key !== "Enter" || e.shiftKey) return;'
         + '  if (ctrlOnly && !(e.ctrlKey || e.metaKey)) return;'
-        + '  e.preventDefault(); var b = this, send = function(){ sent.push(b.innerText); b.textContent = ""; };'
+        + '  e.preventDefault(); var b = this, send = function(){ sent.push(b.textContent); b.textContent = ""; };'
         + '  if (slow) setTimeout(send, 300); else send(); });'
         + '</script><script>' + require('../src/webview').SCRIPT + '</script><script>'
         + 'var host = function(text, id){ window.postMessage({ type: "from-extension", message: { type: "cce_answer", sessionId: "S", text: text, id: id } }, "*"); };'
-        + 'setTimeout(function(){ host("Row 1, my answer:\\nline two", "a1"); }, 2500);'
+        + 'setTimeout(function(){ host("Row 1, my answer:\\nline two\\n\\nafter a blank line", "a1"); }, 2500);'
         + 'setTimeout(function(){ document.getElementById("box").textContent = "mine"; host("not now", "a2"); }, 4500);'
         + 'setTimeout(function(){ document.getElementById("box").textContent = ""; ctrlOnly = true; host("with ctrl", "a3"); }, 6500);'
         + 'setTimeout(function(){ deaf = true; host("ignored", "a4"); }, 8500);'
@@ -10709,9 +10709,9 @@ console.log('\nanswering from the Conversations tab');
       const put = got ? got.posted.find((m) => m.type === 'cce_answer_result' && m.id === 'a7') : null;
       if (got && JSON.stringify(results) === JSON.stringify([['a1', true, ''], ['a2', false, 'draft'], ['a3', true, ''],
         ['a4', false, 'left-in-input'], ['a6', true, ''], ['a5', false, 'no-input'], ['a7', false, 'left-in-input']]) && got.leftover === 'next'
-        && got.sent.length === 4 && got.sent[0].replace(/\s+/g, ' ').trim() === 'Row 1, my answer: line two' && got.sent[1].trim() === 'with ctrl'
+        && got.sent.length === 4 && got.sent[0] === 'Row 1, my answer:\nline two\n\nafter a blank line' && got.sent[1].trim() === 'with ctrl'
         && got.sent[2].trim() === 'slow one') {
-        ok('in a browser the panel types an answer into an empty input and sends it, Ctrl+Enter mode included, leaves text of yours alone, takes back one it could not send, and keeps what you type once a slow send has gone');
+        ok('in a browser the panel types an answer into an empty input and sends it with its line breaks, Ctrl+Enter mode included, leaves text of yours alone, takes back one it could not send, and keeps what you type once a slow send has gone');
       } else bad(`answer in the page: ${at === -1 ? 'no result (exit ' + r.status + ')' : JSON.stringify(got)}`);
       if (got && got.again === '' && put && /^input replaced: yes; inputs on the page: 1; page hidden: /.test(put.detail || '')) {
         ok('when the input is replaced by one holding the answer again, the new one is emptied and the host is told the input was replaced');

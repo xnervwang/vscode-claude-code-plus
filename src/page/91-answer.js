@@ -50,12 +50,24 @@
     var now = sigValue('sessionId');
     return typeof now === 'string' && !!now && typeof m.sessionId === 'string' && !!m.sessionId && now !== m.sessionId;
   };
+  /* Claude Code sends the input's textContent. One insertText with a newline in it puts the next line in an element of
+     its own, which textContent joins to the line before; so the text goes in line by line, with the line break Claude
+     Code itself types for Shift+Enter between them. */
+  var typeLines = function(text){
+    var lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (i) document.execCommand('insertLineBreak', false);
+      /* insertText goes through the browser's own editing, so the input's handlers see it as typing. */
+      if (lines[i]) document.execCommand('insertText', false, lines[i]);
+    }
+  };
   var sendAnswer = function(m){
     if (showsOther(m)) { answerResult(m.id, false, 'not-shown'); return; }
     var box = document.querySelector(ANSWER_INPUT);
     if (!box) { answerResult(m.id, false, 'no-input'); return; }
     /* Text already in the input would be sent along with the answer. */
     if (inputText(box)) { answerResult(m.id, false, 'draft'); return; }
+    var text = m.text.replace(/\r\n?/g, '\n');
     try {
       box.focus();
       var range = document.createRange();
@@ -64,17 +76,17 @@
       var sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(range);
-      /* insertText goes through the browser's own editing, so the input's handlers see it as typing. */
-      document.execCommand('insertText', false, m.text);
+      typeLines(text);
     } catch (e) { /* checked below */ }
-    if (squash(box.textContent) !== squash(m.text)) {
+    /* Sent without its line breaks, an answer reads differently, so the input has to hold it as it is. */
+    if (String(box.textContent || '').replace(/\u200b/g, '') !== text) {
       emptyInput(box);
       answerResult(m.id, false, 'insert');
       return;
     }
     setTimeout(function(){
       if (showsOther(m)) { emptyInput(box); answerResult(m.id, false, 'not-shown'); return; }
-      pressSend(box, m.text, function(sent, reason, detail){ answerResult(m.id, sent, reason, detail); });
+      pressSend(box, text, function(sent, reason, detail){ answerResult(m.id, sent, reason, detail); });
     }, 60);
   };
   /* Presses Enter to send the input. Sent once the input is first seen empty; anything typed after that is left alone.

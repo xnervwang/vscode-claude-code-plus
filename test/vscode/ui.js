@@ -1222,7 +1222,9 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
             /* With its tab closed no window shows that conversation, so the steward opens it again and passes it a
                message. Its process and this window's list of what it shows can take a moment to let it go. */
             if (/^Closed: /.test(closed)) {
-              const later = 'Carry on where you left off, please.';
+              /* Two lines, to see that the line break reaches the transcript: the panel types the text, and Claude Code
+                 sends what its input holds. */
+              const later = 'Carry on where you left off, please.\nStart with the tests.';
               let resumed = '';
               // Retried only while it was not opened at all; once opened, the answer says whether the text was sent.
               for (let i = 0; i < 15 && !/^Opened/.test(resumed); i++) {
@@ -1234,7 +1236,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
               }, 30000, 500) : false;
               const tab = await until(async () => (await claudeTabs()).find((x) => x.active), 10000, 300);
               check(/^Opened: /.test(resumed) && /It is now ticked for you in the Steward panel\./.test(resumed) && !!arrived2,
-                'the steward opens a conversation no window shows in an editor tab of this window, passes it a message, and has it ticked',
+                'the steward opens a conversation no window shows in an editor tab of this window, passes it a message of two lines, which arrives with its line break, and has it ticked',
                 { resumed, arrived: !!arrived2, tab });
               await shot('steward-resume');
               if (/^Opened/.test(resumed)) {
