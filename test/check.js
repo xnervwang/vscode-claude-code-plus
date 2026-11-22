@@ -8507,8 +8507,8 @@ console.log('\ntext colors in the session list');
     denv.prop = '"' + Buffer.from(JSON.stringify([[A, 2], ['not an id', 3], [B, 1]]), 'utf8').toString('base64') + '"'; denv.reset(); denv.paint();
     const rule = denv.appended[0] && denv.appended[0].textContent;
     if (JSON.stringify(carried) === JSON.stringify([[A, 2]]) && absent === null && before === 0
-        && rule === `[class*="sessionItem_"][id$="${A}"] span[class*="sessionName_"]::after{content:" \u00b7 2 processes";color:var(--vscode-errorForeground,#f14c4c);font-weight:normal}`) {
-      ok('a conversation run by several processes is marked after its title in every session-list row that shows it, through the stylesheet');
+        && rule === `[class*="sessionItem_"][id$="${A}"]::after{content:"\u00b7 2 processes";order:1;flex:none;white-space:nowrap;color:var(--vscode-errorForeground,#f14c4c);font-weight:normal}`) {
+      ok('a conversation run by several processes is marked after its title, outside it and never shrunk, in every session-list row that shows it, through the stylesheet');
     } else bad(`the mark on a conversation run twice: ${JSON.stringify([carried, absent, before, rule])}`);
   }
 
