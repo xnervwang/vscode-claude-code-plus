@@ -1865,7 +1865,8 @@ const STEPS = [
     name: 'light-work-plan', features: ['light-theme', 'work-plan-view'],
     expect: 'Agent Plus\'s work plan view in the light theme: the state marks and titles readable against the light background.',
     unchanged: 'The editor is as before.',
-    act: async (d) => { await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.away(); return d.sidebar(); },
+    /* The demo conversation in front, the one with a plan; the step before left another there. */
+    act: async (d) => { await demoAt(d, ''); await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.away(); return d.sidebar(); },
     undo: async (d) => { await theme(d, 'Default Dark Modern'); await d.sleep(2000); },
   },
 ];
