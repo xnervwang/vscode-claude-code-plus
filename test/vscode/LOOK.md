@@ -1,3 +1,5 @@
+<!-- Source: vscode-agent-plus shared/test/vscode/LOOK.md; sync-shared.js copies it, so edit it there. -->
+
 # Reviewing a run's pictures
 
 A script took a program's window through a series of steps and saved pictures of each. You review those pictures. You
