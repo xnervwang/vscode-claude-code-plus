@@ -97,7 +97,8 @@ const HIDE_BG_SETTING = PREFIX + 'hideBackgroundSessions';
 const WORK_PLAN_SETTING = PREFIX + 'workPlan';
 const BRIEF_SETTING = PREFIX + 'conversationBrief';
 const TIME_ZONE_SETTING = PREFIX + 'tellClaudeYourTimeZone';
-/* The four settings that agentPlus.tokenMode overrides outside Custom (src/token-mode.js); each is read through runs(). */
+const SKILL_ROUTING_SETTING = PREFIX + 'skillRouting';
+/* The settings that agentPlus.tokenMode overrides outside Custom (src/token-mode.js); each is read through runs(). */
 const MODE_SWITCHES = tokenMode.SWITCHES.filter((s) => s.key.startsWith(PREFIX)).map((s) => s.key);
 const runs = (key) => tokenMode.effective(vscode, key);
 /* Read by the plugin's hooks, which are separate processes and cannot see editor settings. Keys match plan_path.py.
@@ -110,6 +111,9 @@ const HOOK_SETTINGS = {
   quietWhenReplyMatches: PREFIX + 'workPlanQuietWhenReplyMatches',
   tellTimeZone: TIME_ZONE_SETTING,
   brief: BRIEF_SETTING,
+  skillRoute: SKILL_ROUTING_SETTING,
+  skillRouteVector: PREFIX + 'skillRoutingVectorSearch',
+  skillRouteCount: PREFIX + 'skillRoutingCount',
 };
 
 /*
@@ -1930,7 +1934,7 @@ function deactivate() {
   try { removal.finishLater(selfPath); } catch (_) { /* likewise */ }
 }
 
-/* The token mode line of Show Status: the mode, and which of the four features it runs. */
+/* The token mode line of Show Status: the mode, and which of the features it decides it runs. */
 function tokenModeLine() {
   const what = tokenMode.SWITCHES.filter((s) => MODE_SWITCHES.includes(s.key))
     .map((s) => `${tokenMode.featureOf(s.feature).name} ${runs(s.key) ? 'on' : 'off'}`);

@@ -338,6 +338,26 @@
           "default": true,
           "markdownDescription": "Tell Claude the time zone you read the panel in, and the time there, so it gives you times in your zone rather than in the zone of the machine it runs on. It is said, in about 90 tokens, when a conversation starts, and again after a compaction, when either side's date turns over, when the offset changes, and after every 100k tokens of context. Nothing is said while the two zones agree, as they usually do when VS Code and Claude Code run on the same machine. Takes effect from your next message, without a reload. Used only while `#agentPlus.tokenMode#` is Custom."
         },
+        "claudeCodePlus.skillRouting": {
+          "scope": "application",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Before each turn, give Claude the skills it can call in this conversation that best fit your message, each by the name to call it with and with its full description (`#claudeCodePlus.skillRoutingCount#` of them at most). Claude Code's own list leaves most descriptions out once many skills are installed. The search covers your personal skills, the project's skills and the skills of enabled plugins, runs on this machine by keywords, and needs no network or credentials. A skill already given in full earlier in the conversation is named rather than repeated. Takes effect from your next message. Used only while `#agentPlus.tokenMode#` is Custom."
+        },
+        "claudeCodePlus.skillRoutingVectorSearch": {
+          "scope": "application",
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Search the skills by meaning rather than by keywords. Used only while Claude Code runs on Amazon Bedrock (`CLAUDE_CODE_USE_BEDROCK`); otherwise this setting does nothing. Each message, its first 1,500 characters and nothing else, is sent to `cohere.embed-v4` in the Bedrock region Claude Code uses, with the credentials Claude Code is configured with (`awsCredentialExport`, or the AWS environment and profile). If that fails or takes too long, the message is searched by keywords."
+        },
+        "claudeCodePlus.skillRoutingCount": {
+          "scope": "application",
+          "type": "integer",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 10,
+          "markdownDescription": "How many skills each turn is given."
+        },
         "claudeCodePlus.detachedEndNotices": {
           "scope": "application",
           "type": "boolean",
