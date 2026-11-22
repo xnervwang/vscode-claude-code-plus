@@ -927,7 +927,7 @@ function start(context, log, renamed, handing = false) {
   });
   const steward = stewardView.create(vscode, {
     activeChat, freshAgents: () => claude.freshAgents(), readPlan, titles: readTitles.titles, since: readTitles.since,
-    agentsNow: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders())), resume: resumeConversation,
+    agentsFresh: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders())), resume: resumeConversation,
     live: () => liveStates, unread: () => unreadKeys, reveal: (sessionId) => claude.source.reveal(sessionId), shownHere,
     activity: (id) => activityFor(id), question: (id) => freshQuestionOf(id),
     canWrite: () => !removed() && !replaced() && !uninstalling(), canShare: () => !removed() && !uninstalling(),

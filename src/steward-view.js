@@ -303,7 +303,7 @@ function shell(list, nonce) {
  * table of stewards has been rewritten here, focusWindow(), which brings this window to the front, transcriptOf(id), and
  * deliver(id, text), which types text into the conversation's message input here (src/relay.js), rename(id, title),
  * close(id, confirmed), open(folder, text) and resume(id, text) for a steward's other requests (src/relay.js), with
- * agentsNow() -> Promise<{ records, error }> from a fresh `claude agents --json` before a resume, readState(id) for
+ * agentsFresh() -> Promise<{ records, error }> from a fresh `claude agents --json` before a resume, readState(id) for
  * a `claude --bg` session's state (src/background.js), duplicates() for the conversations run by several processes
  * and stopDuplicate(id) to stop the old one (src/duplicates.js), pageAt() for the time of a page's last heartbeat, and
  * otherFront() -> { agent, title } while another agent's conversation tab is in front (src/other-agents.js), or null.
@@ -614,7 +614,7 @@ function create(vscode, deps) {
       for (const r of await relay.take(deps.dir, { shownHere: deps.shownHere, stewards: () => stewards.read(deps.dir),
         hasFolder: (folder) => deps.windowFolders().map(real).includes(real(folder)),
         transcriptOf: deps.transcriptOf, deliver: deps.deliver, rename: deps.rename, close: deps.close, open: deps.open,
-        resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsNow || deps.freshAgents,
+        resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsFresh || deps.freshAgents,
         records: deps.records, post: deps.post, titleOf,
         manage: (steward, id) => {
           const t = stewards.read(deps.dir)[steward];

@@ -9740,7 +9740,7 @@ console.log('\nthe Steward panel');
       const answerPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '91-answer.js'), 'utf8');
       const readyId = (/var ANSWERS_READY = '([^']+)';/.exec(answerPage) || [])[1];
       if (/open: \(id\) => \{\s*answersReady\.delete\(id\);\s*return vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, undefined, \{ programmatic: 'pin-to-panel' \}\);\s*\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
-          && /agentsNow: \(\) => waiting\.listAgents\(pluginInstall\.findClaude\(claudeFolders\(\)\)\), resume: resumeConversation,/.test(ext)
+          && /agentsFresh: \(\) => waiting\.listAgents\(pluginInstall\.findClaude\(claudeFolders\(\)\)\), resume: resumeConversation,/.test(ext)
           && readyId && ext.includes(`const ANSWERS_READY = '${readyId}', answersReady = new Set();`)
           && /if \(key !== ANSWERS_READY\) \{ claude\.answered\(key, sent, reason, detail\); return; \}/.test(ext)) {
         ok('the window opens a stored conversation with Claude Code\'s own command, sends only once that tab\'s page says it listens, '
