@@ -47,7 +47,7 @@ const WORKER_RUN = 'setsid nohup bash -c \'"$HOME/fake-bin/claude" -p "Draft the
 const WORKER_NAME = 'release-notes-worker';
 const ASK_FOR_CHOICE = 'ask me which config to change';
 const CHOICE = { question: 'Which config should I change?', header: 'Config', options: ['Staging', 'Production'] };
-const SKILL_ASK = /use the skill named ([\w:.-]+)/i;
+const SKILL_ASK = /use the skill named ([\w:.-]*\w)/i;
 const ASK_TO_READ = 'read the prepared notes';
 /*
  * A stand-in for the CLI's `claude -p`, at $HOME/fake-bin/claude: it writes a session record of the CLI's shape for

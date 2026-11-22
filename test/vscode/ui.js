@@ -2420,7 +2420,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
 
       const queries = path.join(dataDir, 'skill-route', 'queries.jsonl');
       const inLog = () => { try { return fs.readFileSync(queries, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch (_) { return []; } };
-      const TALLY = 'Tally the marmots on the ridge before dusk';
+      const TALLY = 'Tally the marmots on the ridge at dusk';
       await turn(frame, `${TALLY}, and use the skill named ${NAME}.`);
       const entry = await until(() => inLog().find((e) => e.skill === NAME && e.text.startsWith(TALLY)), 30000, 300);
       check(!!entry, 'a turn in which the model loaded a skill puts the message that opened it in the query log', inLog().slice(-3));
@@ -2431,7 +2431,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         if (!withLog()) await turn(frame, `Skill suggestions check: waiting for the index, ${i}.`);
       }
       check(withLog(), 'the plugin rebuilds its index with the query log', logged().slice(-6));
-      const worded = await turn(frame, 'Tally the marmots on the ridge once more.');
+      const worded = await turn(frame, 'Tally the marmots on the ridge again.');
       check(!!worded && worded.route.startsWith(ROUTE_MARK) && worded.route.includes(NAME),
         'a later message that shares no word with the skill\'s description, but is worded like the one that loaded it, is given the skill',
         worded ? worded.route.slice(0, 600) : model.seen.slice(-3));
@@ -2444,7 +2444,8 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       check(!!after && after.research.startsWith(RESEARCH_MARK) && after.research.includes(`\n- ${TIDES}: ${TIDES_FIRST}`)
         && !after.research.includes('Use when'),
         'a tool call that names a skill\'s topic is followed by that skill\'s name and the first sentence of its description',
-        after ? after.research.slice(0, 600) : model.seen.slice(before).map((x) => [x.typed, x.result, x.research]).slice(-4));
+        after ? after.research.slice(0, 600) : { seen: model.seen.slice(before).map((x) => [x.typed, x.result, x.research]).slice(-4),
+          log: logged().filter((r) => r.ev === 'inject' || r.ev === 'research').slice(-6) });
     });
 
     /* Agent Plus's agentPlus.tokenMode in each mode in turn, without a reload: All, Essential, Interface, Custom with
