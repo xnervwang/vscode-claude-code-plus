@@ -27,6 +27,8 @@
  *                      schedule even with no agent, a label that then does not read "0 agents" and a dot that is
  *                      green while any of its background work runs, and the conversation's own row in the map
  *                      drawn with the dot its tab has.
+ *   open finished      The open of a conversation counts as finished in a background tab too, where the page gets
+ *                      no animation frames, so a tab loaded behind others is still reopened after later reloads.
  *
  * Then this file appends a script that reads those times back out of React props and marks rows through an attribute,
  * plus the table of contents, the view filter, the context breakdown and the chime. A row whose real time it cannot
@@ -64,7 +66,7 @@ const { patchTarget } = require('./patch-target');
 const tabdot = require('./tabdot');
 const envelope = require('./envelope');
 
-const VERSION = 35;
+const VERSION = 36;
 
 /* The marker written into the patched file has to answer one question: is the code in
  * the panel the code this tree produces? A hand-maintained number answers it only while
@@ -712,6 +714,23 @@ const EDITS = [
     re: /img:\(\{src:([\w$]+),alt:([\w$]+)\}\)=>\{if\(\1\?\.startsWith\("data:"\)\)return ([\w$]+)\("img",/g,
     to: (m, src, alt, h) => `img:({src:${src},alt:${alt}})=>{let cceImg=typeof window.__cceImage==="function"?window.__cceImage(${h},${src},${alt}):null;`
       + `if(cceImg)return cceImg;if(${src}?.startsWith("data:"))return ${h}("img",`,
+  },
+  {
+    /*
+     * The panel marks the open of a conversation unfinished as it starts to load it, and once two opens in a row were
+     * left so, does not reopen that tab after a reload. It counts an open as finished 3 s after loading ends, waiting
+     * first for two animation frames, so that the conversation has been drawn, unless the page is hidden. A webview in
+     * a background tab gets no frames yet says it is visible, so a conversation that finished loading there stayed
+     * unfinished until its tab was shown, and claudeCodePlus.loadRestoredTabs, which loads background tabs, had them
+     * refused at the third window start. When no frame has come after a second the wait goes on as for a hidden page;
+     * a page that is drawn has its two frames long before.
+     */
+    name: 'open counted finished without frames',
+    re: /function ([\w$]+)\(([\w$]+)\)\{let ([\w$]+),([\w$]+),([\w$]+)=\(\)=>\{\3=void 0,\4=setTimeout\(\2,([\w$]+)\)\};if\(document\.visibilityState==="hidden"\)\5\(\);else \3=requestAnimationFrame\(\(\)=>\{\3=requestAnimationFrame\(\5\)\}\);return\(\)=>\{if\(\3!==void 0\)cancelAnimationFrame\(\3\);clearTimeout\(\4\)\}\}/g,
+    to: (m, fn, done, frame, timer, go, ms) => `function ${fn}(${done}){let ${frame},${timer},cceNoFrame,${go}=()=>{clearTimeout(cceNoFrame),${frame}=void 0,`
+      + `${timer}=setTimeout(${done},${ms})};if(document.visibilityState==="hidden")${go}();else ${frame}=requestAnimationFrame(()=>{${frame}=requestAnimationFrame(${go})}),`
+      + `cceNoFrame=setTimeout(()=>{if(${frame}!==void 0)cancelAnimationFrame(${frame});${go}()},1000);`
+      + `return()=>{if(${frame}!==void 0)cancelAnimationFrame(${frame});clearTimeout(${timer});clearTimeout(cceNoFrame)}}`,
   },
 ];
 

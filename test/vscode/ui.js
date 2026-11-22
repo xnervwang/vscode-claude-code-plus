@@ -32,6 +32,12 @@
  *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
  *                  Dismiss, Open bringing the conversation forward, the count, and no notice with each of the
  *                  agentPlus.notifications settings off
+ *   restored tabs  after a reload, a Claude Code tab behind another left unloaded, and loaded with
+ *                  claudeCodePlus.loadRestoredTabs on, the tab in front still in front; two such tabs with replies not
+ *                  read keep their envelopes, on the tabs, the session list rows and in the host's marks, through a
+ *                  reload with the setting on; a restored tab first clicked 45 s after a reload loads and takes a message;
+ *                  through three reloads with the setting on, each background tab still opens its conversation rather
+ *                  than Claude Code's notice that it was not reopened
  *   two windows    a second window of the same VS Code on a folder of its own: a conversation open there comes to
  *                  the front, in that window, from the first window's Steward panel and from a steward's link, and no
  *                  copy of it opens; a link to one open nowhere says so; once that window has reloaded with the
@@ -1822,24 +1828,43 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       if (!wasOn) await focus.click();
     });
 
+    const setLoad = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('loadRestoredTabs', arg, vscode.ConfigurationTarget.Global); return true;`, v);
+    const loaded = (t) => conversation(t, 1000).then((f) => !!f, () => false);
+    /*
+     * Claude Code's page marks the open of a conversation unfinished in its webview state (unfinishedOpen) as it starts
+     * to load it, until 3 s after it has, and does not reopen a tab after a reload once two opens in a row were left
+     * unfinished. Whether any page of the window has an open unfinished, read through this extension's copy of
+     * acquireVsCodeApi, which hands out the page's one handle again (src/panel-load-watch.js).
+     */
+    const openUnfinished = () => Promise.all(page.frames().map((f) => f.evaluate(() => {
+      const a = globalThis.acquireVsCodeApi;
+      if (typeof a !== 'function' || !/api = orig\(\)/.test(String(a))) return false;
+      const s = a().getState();
+      return !!(s && s.unfinishedOpen);
+    }).catch(() => false))).then((x) => x.some(Boolean));
+    /* A reload once every page has finished its open, done once this extension is active again and `front`'s page has
+       drawn its conversation. `before` runs as soon as the new extension host is up. Returns the helper's record of that
+       host, whose `at` is when it started. */
+    const reloadAndWait = async (front, before) => {
+      if (!await until(async () => !(await openUnfinished()), 30000, 300)) note('a page still had an open unfinished 30 s on, before a reload');
+      const host = await w.reload();
+      if (before) await before();
+      await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
+      await until(() => loaded(front), 60000, 1000);
+      return host;
+    };
+
     /* VS Code creates a restored tab's page only when the tab is first shown. With claudeCodePlus.loadRestoredTabs on, a
        reload loads the Claude Code tab behind the one in front without a click. */
     await step('restored tabs', async () => {
       const [front, behind] = threads;
-      const setLoad = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('loadRestoredTabs', arg, vscode.ConfigurationTarget.Global); return true;`, v);
-      const loaded = (t) => conversation(t, 1000).then((f) => !!f, () => false);
-      const reloadAndWait = async () => {
-        await w.reload();
-        await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
-        await until(() => loaded(front), 60000, 1000);
-      };
       await exec('workbench.action.closeAllEditors');
       await exec('workbench.action.closeAuxiliaryBar');
       await exec('claude-vscode.editor.open', behind.id);
       await sleep(1500);
       await exec('claude-vscode.editor.open', front.id);
       await sleep(1500);
-      await reloadAndWait();
+      await reloadAndWait(front);
       const reopened = await conversation(front, 5000).catch(() => null);
       const redrawn = reopened ? await until(() => reopened.evaluate((alt) => {
         const img = [...document.querySelectorAll('[data-testid="assistant-message"] img')].filter((x) => x.getAttribute('alt') === alt).pop();
@@ -1851,13 +1876,226 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       await sleep(10000);
       const without = await loaded(behind);
       await setLoad(true);
-      await reloadAndWait();
+      await reloadAndWait(front);
       const withIt = await until(() => loaded(behind), 60000, 1000);
       const inFront = (await claudeTabs()).find((t) => t.active);
       check(!without && !!withIt && !!inFront && titled(inFront.label, front.title),
         'a reload leaves a Claude Code tab behind another unloaded; with claudeCodePlus.loadRestoredTabs on it is loaded, and the tab in front stays in front',
         { without, withIt: !!withIt, tabs: await claudeTabs() });
       await shot('restored-tabs-loaded');
+      await setLoad(undefined);
+    });
+
+    /*
+     * A record the test keeps in the extension host from the moment watchHost() is called: each change of the window's
+     * tabs (each group's labels, the tab in front starred), each change of the conversations Claude Code's host marks
+     * unread, as it sends them with the open conversations, and each change of the conversations whose state the host
+     * has, which a page reports as it loads. Called right after a reload, before claudeCodePlus.loadRestoredTabs can run,
+     * which is 8 s after this extension starts at the earliest.
+     */
+    const watchHost = () => call(`
+      const w = globalThis.__cceTestWatch = { t0: Date.now(), tabs: [], unread: [], states: [] };
+      const snap = () => vscode.window.tabGroups.all.map((g) => g.tabs.map((t) => (t.isActive ? '*' : '') + t.label).join(' | ')).join(' || ');
+      const note = (list, v) => { const k = JSON.stringify(v); if (!list.length || list[list.length - 1].k !== k) list.push({ ms: Date.now() - w.t0, v, k }); };
+      note(w.tabs, snap());
+      vscode.window.tabGroups.onDidChangeTabs(() => note(w.tabs, snap()));
+      const wrap = () => {
+        const own = globalThis.__cceStatesHook;
+        if (typeof own !== 'function') return false;
+        if (own.cceTest) return true;
+        const hook = (...a) => {
+          note(w.unread, (Array.isArray(a[3]) ? a[3] : []).slice().sort());
+          note(w.states, (Array.isArray(a[0]) ? a[0] : []).map((s) => s && s.sessionId).filter(Boolean).sort());
+          return own(...a);
+        };
+        hook.cceTest = true;
+        globalThis.__cceStatesHook = hook;
+        return true;
+      };
+      const timer = setInterval(() => { if (wrap()) clearInterval(timer); }, 20);
+      return true;`);
+    const watched = () => call('const w = globalThis.__cceTestWatch; return w ? { tabs: w.tabs.map((x) => [x.ms, x.v]), unread: w.unread.map((x) => [x.ms, x.v]),'
+      + ' states: w.states.map((x) => [x.ms, x.v]) } : null;');
+    /* The tabs in front in each entry of the tab record, by label without the envelope. */
+    const frontsIn = (rec) => rec.map(([, v]) => v.split(/ \|{1,2} /).filter((s) => s.startsWith('*')).map((s) => s.slice(1).replace(ENVELOPE, '')));
+    /* Whether the tab record shows each of `behind` in front at some point, and `front` in front after the last of them. */
+    const eachShownThenBack = (rec, behind, front) => {
+      const fronts = frontsIn(rec);
+      const at = (t) => fronts.map((f, i) => (f.some((l) => titled(l, t.title)) ? i : -1)).filter((i) => i >= 0);
+      const last = Math.max(...behind.map((t) => { const i = at(t); return i.length ? i[i.length - 1] : Infinity; }));
+      return Number.isFinite(last) && at(front).some((i) => i > last);
+    };
+    /* The conversations Claude Code's host marks unread now, as it sends them with the open conversations. */
+    const hostUnread = () => call(`
+      const own = globalThis.__cceStatesHook, send = globalThis.__cceSendSessionStates;
+      if (typeof own !== 'function' || typeof send !== 'function') return null;
+      let got = null;
+      globalThis.__cceStatesHook = (...a) => { if (got === null) got = Array.isArray(a[3]) ? a[3].slice() : []; return own(...a); };
+      try { send(); } finally { globalThis.__cceStatesHook = own; }
+      return got;`);
+    /* Where `t` shows its envelope: after its tab's title, on its row in OPEN SESSIONS, on its row in the list below,
+       and among the host's unread marks (`unread`). */
+    const envelopesOf = async (t, unread) => {
+      const tab = (await claudeTabs()).find((x) => titled(x.label.replace(ENVELOPE, ''), t.title));
+      const open = list ? await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${t.id}"] [data-cce-envelope]`).count().catch(() => -1) : -1;
+      const p = list ? await rowParts(t) : null;
+      return { title: t.title.slice(0, 24), tab: !!tab && tab.label.endsWith(ENVELOPE), open: open === 1, row: !!p && p.envelopes === 1,
+        host: Array.isArray(unread) && unread.includes(t.id), label: tab ? tab.label : null };
+    };
+    const everywhere = (e) => e.tab && e.open && e.row && e.host;
+    const envelopesNow = async (ts) => { const u = await hostUnread(); return Promise.all(ts.map((t) => envelopesOf(t, u))); };
+
+    /*
+     * Claude Code clears a conversation's unread mark when its page reports the conversation while its tab is in front,
+     * and claudeCodePlus.loadRestoredTabs shows each background tab for a moment. A conversation whose reply was not read
+     * when the window reloaded must keep its envelope on its tab, on its session list rows and in the host's marks after
+     * the tabs have been loaded.
+     */
+    await step('restored tabs keep their envelopes', async () => {
+      const [front, ...behind] = threads;
+      await setLoad(undefined);
+      await exec('workbench.action.closeAllEditors');
+      await exec('workbench.action.closeAuxiliaryBar');
+      for (const t of [...behind, front]) {
+        await exec('claude-vscode.editor.open', t.id);
+        const open = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), t.title)), 30000, 300);
+        if (!open) throw new Error(`"${t.title}" did not open in a tab`);
+      }
+      const groups = (await tabs()).filter((g) => g.tabs.some((x) => x.view === PANEL_VIEW));
+      check(groups.length === 1, 'the three conversations share one editor group, the last opened in front', await tabs());
+      /* One at a time, each once the host has it, with what each call returned and what the host had right after. */
+      const marks = [];
+      for (const t of behind) {
+        const said = await call('return globalThis.__cceSetUnread(arg, true);', t.id);
+        const held = await until(async () => { const u = await hostUnread(); return Array.isArray(u) && u.includes(t.id) && u; }, 10000, 300);
+        marks.push({ id: t.id.slice(-2), said, held: held || await hostUnread() });
+      }
+      await openList();
+      const marked = await until(async () => { const e = await envelopesNow(behind); return e.every(everywhere) && e; }, 20000, 500);
+      check(!!marked, 'the two conversations behind the one in front, marked unread, show the envelope on their tabs, their rows and in the host\'s marks',
+        { now: marked || await envelopesNow(behind), marks });
+
+      /* Without the setting, as a reference: what a reload alone keeps. */
+      await reloadAndWait(front);
+      await openList();
+      const kept = await until(async () => { const e = await envelopesNow(behind); return e.every(everywhere) && e; }, 30000, 500);
+      check(!!kept, 'after a reload with claudeCodePlus.loadRestoredTabs off, each background tab, its rows and the host\'s marks still have the envelope',
+        kept || await envelopesNow(behind));
+
+      await setLoad(true);
+      await reloadAndWait(front, watchHost);
+      const ran = await until(async () => { const r = await watched(); return r && eachShownThenBack(r.tabs, behind, front) && r; }, 90000, 500);
+      const pages = ran ? await until(async () => (await Promise.all(behind.map(loaded))).every(Boolean), 60000, 1000) : false;
+      check(!!ran && !!pages, 'with claudeCodePlus.loadRestoredTabs on, the reload brings each background tab to the front once, then the front tab back, and both pages load',
+        { pages, record: (await watched()) || 'no record' });
+      await openList();
+      /* A mark the loading clears is cleared once a page reports its conversation to the host, which it does as it loads,
+         so the marks are watched for a while after both pages have drawn. */
+      const lost = pages ? await until(async () => { const e = await envelopesNow(behind); return e.some((x) => !everywhere(x)) && e; }, 15000, 500) : null;
+      const after = lost || await envelopesNow(behind);
+      const inFront = (await claudeTabs()).find((t) => t.active);
+      const rec = await watched();
+      check(!!pages && !lost, 'and after it each background tab, its rows and the host\'s marks still have the envelope', { after, record: rec });
+      /* Kept in the output either way: when each tab was in front, and the host's marks over the same time. */
+      if (rec) console.log(`        fronts: ${JSON.stringify(rec.tabs.map(([ms], i) => [ms, frontsIn(rec.tabs)[i].map((l) => l.slice(0, 12))]))}`
+        + `\n        unread: ${JSON.stringify(rec.unread.map(([ms, ids]) => [ms, ids.map((id) => id.slice(-2))]))}`
+        + `\n        states: ${JSON.stringify(rec.states.map(([ms, ids]) => [ms, ids.map((id) => id.slice(-2))]))}`);
+      check(!!inFront && titled(inFront.label.replace(ENVELOPE, ''), front.title), 'and the tab in front at the reload is in front again', await claudeTabs());
+      await shot('restored-tabs-envelopes');
+      for (const t of behind) await call('return globalThis.__cceSetUnread(arg, false);', t.id);
+      await setLoad(undefined);
+    });
+
+    /*
+     * A restored tab whose page VS Code builds only when it is clicked, long after the reload: its conversation loads and
+     * takes a message. With claudeCodePlus.loadRestoredTabs off, so nothing shows the tab before the click.
+     */
+    await step('a restored tab opened late', async () => {
+      const [front, late] = threads;
+      const LATE_MS = 45000;
+      await setLoad(undefined);
+      await exec('workbench.action.closeAllEditors');
+      for (const t of [late, front]) {
+        await exec('claude-vscode.editor.open', t.id);
+        const open = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), t.title)), 30000, 300);
+        if (!open) throw new Error(`"${t.title}" did not open in a tab`);
+      }
+      const host = await reloadAndWait(front, watchHost);
+      const notYet = !(await loaded(late));
+      await sleep(Math.max(0, host.at + LATE_MS - Date.now()));
+      const rec = await watched();
+      const neverShown = !!rec && !frontsIn(rec.tabs).some((f) => f.some((l) => titled(l, late.title)));
+      check(notYet && neverShown, `the tab behind the one in front has not been shown or loaded ${LATE_MS / 1000} s after the reload`, { notYet, record: rec });
+      await exec('notifications.clearAll');
+      const label = ((await claudeTabs()).find((x) => titled(x.label.replace(ENVELOPE, ''), late.title)) || {}).label;
+      if (!label) throw new Error(`"${late.title}" has no tab`);
+      const clicked = Date.now();
+      await page.locator('.tabs-container .tab').filter({ hasText: label.slice(0, 16) }).first().click();
+      const frame = await conversation(late, 60000);
+      const loadMs = frame ? Date.now() - clicked : null;
+      const seen = frame ? null : await Promise.all(page.frames().map((f) => f.evaluate(() => (document.body && document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 200)).catch(() => '')))
+        .then((x) => x.filter(Boolean));
+      check(!!frame, `clicked ${Math.round((clicked - host.at) / 1000)} s after the reload, its conversation loads`, frame ? { loadMs } : { shown: seen });
+      if (!frame) { await shot('restored-tab-late-error'); return; }
+      const turns = model.turns();
+      const replies = () => frame.evaluate(() => document.querySelectorAll('[data-testid="assistant-message"]').length);
+      const before = await replies();
+      await frame.locator('[contenteditable][role="textbox"]').first().click();
+      await page.keyboard.type('Check the export once more.');
+      await page.keyboard.press('Enter');
+      const reached = await until(() => model.turns() > turns, 30000, 300);
+      const answered = reached ? await until(async () => (await replies()) > before && await frame.evaluate(() => {
+        const m = [...document.querySelectorAll('[data-testid="assistant-message"]')].pop();
+        return !!m && /Done\. The retry delay is set in config\/sync\.yml\./.test(m.innerText);
+      }), 30000, 500) : false;
+      check(!!reached && !!answered, 'and it takes a message: the message reaches the fake model and its reply is drawn',
+        { reached: !!reached, answered: !!answered, seen: model.seen.slice(-2) });
+      await shot('restored-tab-late');
+    });
+
+    /* Each Claude Code page of the window: its open still unfinished, as its webview state has it, whether it says it did
+       not reopen a conversation, and its text. */
+    const pageStates = () => Promise.all(page.frames().map((f) => f.evaluate(() => {
+      const a = globalThis.acquireVsCodeApi;
+      if (typeof a !== 'function' || !/api = orig\(\)/.test(String(a))) return null;
+      const s = a().getState() || {}, text = document.body ? document.body.textContent : '';
+      return { open: s.unfinishedOpen || null, skipped: /was not reopened/.test(text), hidden: document.visibilityState === 'hidden', text };
+    }).catch(() => null))).then((x) => x.filter(Boolean));
+    const stateOf = (states, t) => states.find((s) => s.text.includes(t.turns[0][0]) || (s.skipped && s.text.includes(t.title)));
+    const pageSummary = (states, ts) => ts.map((t) => {
+      const s = stateOf(states, t);
+      return { title: t.title.slice(0, 16), page: !!s, skipped: !!s && s.skipped, hidden: !!s && s.hidden,
+        open: s && s.open ? `${s.open.sessionId.slice(-2)} x${s.open.count}` : null };
+    });
+
+    /*
+     * Claude Code's page counts the open of a conversation unfinished until 3 s after it has loaded, waiting for two
+     * frames first when the page is in sight, and does not reopen a tab once two opens in a row were left unfinished.
+     * claudeCodePlus.loadRestoredTabs shows each background tab for a moment, so through reload after reload each tab
+     * must still open its conversation.
+     */
+    await step('restored tabs through three reloads', async () => {
+      const [front, ...behind] = threads;
+      await setLoad(true);
+      await exec('workbench.action.closeAllEditors');
+      for (const t of [...behind, front]) {
+        await exec('claude-vscode.editor.open', t.id);
+        const open = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), t.title)), 30000, 300);
+        if (!open) throw new Error(`"${t.title}" did not open in a tab`);
+      }
+      console.log(`        before the reloads: ${JSON.stringify(pageSummary(await pageStates(), behind))}`);
+      let last = null;
+      for (let n = 1; n <= 3; n++) {
+        await reloadAndWait(front, watchHost);
+        const ran = await until(async () => { const r = await watched(); return r && eachShownThenBack(r.tabs, behind, front) && r; }, 90000, 500);
+        const done = ran ? await until(async () => { const s = await pageStates(); return behind.every((t) => stateOf(s, t)) && s; }, 60000, 1000) : null;
+        last = pageSummary(done || await pageStates(), behind);
+        console.log(`        reload ${n}: loaded ${!!ran}; ${JSON.stringify(last)}`);
+      }
+      check(!!last && last.every((p) => p.page && !p.skipped),
+        'with claudeCodePlus.loadRestoredTabs on, after three reloads each background tab still opens its conversation, not Claude Code\'s notice that it was not reopened',
+        last);
+      await shot('restored-tabs-three-reloads');
       await setLoad(undefined);
     });
 
