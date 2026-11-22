@@ -11584,6 +11584,36 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
       } else bad(`row marks ${JSON.stringify([own, marked, calls, fallback])}`);
     }
 
+    /* A rename typed in the list's box: the list shows it at once (renameSession below is Claude Code 2.1.330's opening),
+       and with the edit it shows it without the marks, as src/title-marks.js stores it. */
+    {
+      const list = 'var Store={lastLocalRenameAt:new Map(),sessions:{value:[]},async renameSession(e,t){this.lastLocalRenameAt.set(e,Date.now());'
+        + 'let n=this.sessions.value.find((o)=>o.sessionId.value===e);if(n)n.summary.value=t;return t}};';
+      const lr = applyEdits(list, [wedit('session list renames show no marks')]);
+      const marksLib = require('../src/title-marks');
+      const typed = ['\u{1F6CE}\uFE0F\u{1F451}Retry delay of the sync', '\u2709\uFE0F Add a flag \u2709\uFE0F \u{1F451}', 'Retry \u{1F451} delay \u2709\uFE0E', 'No marks here', '\u{1F451}'];
+      if (lr.error) bad('the session list rename edit did not apply: ' + lr.error);
+      else {
+        const penv = { window: {}, isOn: () => true, Date, Array, String, Math, isFinite, JSON, Object, Map, head: { appendChild() {} },
+          TITLE_MARKS: new RegExp(webview.TITLE_MARKS, 'gu'),
+          document: { createElement: () => ({ setAttribute() {}, textContent: '' }) }, localStorage: { getItem: () => null } };
+        vm.createContext(penv);
+        vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-row-marks.js'), 'utf8'), penv);
+        vm.runInContext(lr.out, penv);
+        const shown = [];
+        for (const t of typed) {
+          const row = { sessionId: { value: 'S' }, summary: { value: 'old' } };
+          penv.Store.sessions.value = [row];
+          penv.Store.renameSession('S', t);
+          shown.push(row.summary.value);
+        }
+        const want = typed.map((t) => marksLib.withoutMarks(t));
+        if (JSON.stringify(shown) === JSON.stringify(want) && want[0] === 'Retry delay of the sync' && want[3] === 'No marks here') {
+          ok('a title typed in the session list\'s rename box is shown at once without the crown, envelope and bell typed into it, as it is stored');
+        } else bad(`a rename typed in the list shows ${JSON.stringify(shown)}, not ${JSON.stringify(want)}`);
+      }
+    }
+
     /* The page side (src/page/84-row-marks.js), with the list's own dot component. */
     const sig = (v) => ({ value: v });
     const env = { window: {}, isOn: () => env.on, on: true, Date, Array, String, Math, isFinite, JSON, Object,

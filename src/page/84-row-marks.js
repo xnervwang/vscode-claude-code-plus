@@ -59,6 +59,17 @@
     return where ? where + ' \u2014 ' + ROW_DOT_TEXT[dot] : ROW_DOT_TEXT[dot];
   };
   // The character is the stylesheet's (src/webview.js), which picks the form for the theme from the body's class.
+  /* A title typed in the list's rename box without the marks drawn with titles (TITLE_MARKS, from src/webview.js), as
+     src/title-marks.js withoutMarks takes them off: wherever each stands, the spaces around it joined into one. */
+  window.__cceCleanTitle = function(t){
+    try {
+      if (typeof t !== 'string') return t;
+      TITLE_MARKS.lastIndex = 0;
+      if (!TITLE_MARKS.test(t)) return t;
+      TITLE_MARKS.lastIndex = 0;
+      return t.split(TITLE_MARKS).map(function(p){ return p.trim(); }).filter(Boolean).join(' ').replace(/\s{2,}/g, ' ');
+    } catch (e) { return t; }
+  };
   var envelopeFor = function(F){
     return F('span', { 'data-cce-envelope': '', title: ENVELOPE_TEXT, 'aria-label': ENVELOPE_TEXT });
   };
