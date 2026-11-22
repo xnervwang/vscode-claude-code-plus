@@ -61,12 +61,14 @@ async function open({ exe, profile, env, playwright, log }) {
   await page.waitForSelector('.monaco-workbench', { timeout: 90000 });
 
   let next = 0, pinned;
+  /* On Windows VS Code gives a folder with its drive letter in lower case. */
+  const sameFolder = (a, b) => (process.platform === 'win32' ? path.resolve(String(a)).toLowerCase() === path.resolve(String(b)).toLowerCase() : a === b);
   const hosts = () => fs.readdirSync(profile.control).filter((n) => /^host-\d+\.json$/.test(n))
     .map((n) => JSON.parse(fs.readFileSync(path.join(profile.control, n), 'utf8')));
   /* The newest extension host's pid, once there is one newer than `after` (ms since the epoch), of the window that has
      `folder` open if one is given. */
   const hostUp = async (after = 0, folder) => {
-    const h = await until(() => hosts().filter((x) => x.at > after && (!folder || x.folder === folder)).sort((a, b) => b.at - a.at)[0], 120000);
+    const h = await until(() => hosts().filter((x) => x.at > after && (!folder || sameFolder(x.folder, folder))).sort((a, b) => b.at - a.at)[0], 120000);
     if (!h) throw new Error('the helper extension did not start in the extension host in 120 s');
     return h;
   };

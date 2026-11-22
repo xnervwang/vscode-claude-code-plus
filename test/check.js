@@ -9595,7 +9595,7 @@ console.log('\nthe Steward panel');
       if (listed.status === 0 && listed.stdout.trim() === 'proj-a: /w/proj, /w/lib' && relative.status === 2
           && busy.code === 1 && /busy: it is working/.test(busy.out) && busy.req && busy.req.action === 'close' && busy.req.text === '' && !busy.req.confirmed
           && sure.code === 0 && /^Closed: /.test(sure.out) && sure.req && sure.req.confirmed === true
-          && opened.code === 0 && opened.out.startsWith('Opened: a new conversation was started and its first message sent. It is now ticked for you in the Steward panel.\n')
+          && opened.code === 0 && opened.out.replace(/\r\n/g, '\n').startsWith('Opened: a new conversation was started and its first message sent. It is now ticked for you in the Steward panel.\n')
           && opened.out.includes('Session id: ' + S(7)) && opened.req && opened.req.action === 'open' && opened.req.to === '/w/proj'
           && opened.req.text === 'Start on the parser') {
         ok('steward-relay.py lists the open windows and their folders, asks for a close, confirmed or not, and an open of a folder given in full, and prints the new conversation\'s id');

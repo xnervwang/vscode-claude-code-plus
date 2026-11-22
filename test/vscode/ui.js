@@ -1427,7 +1427,11 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       const hostB = pageB ? await w.hostUp(before, folderB).catch(() => null) : null;
       check(!!pageB && !!hostB, 'a second window of the same VS Code opens on another folder, with the test helper in it',
         { pageB: !!pageB, hosts: fs.readdirSync(profile.control).filter((n) => /^host-/.test(n)) });
-      if (!pageB || !hostB) return;
+      if (!pageB || !hostB) {
+        /* Its helper would otherwise take the requests of the steps after this one. */
+        if (pageB) await pageB.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        return;
+      }
       w.pin(profile.folder);
       const shotB = (name) => pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-${name}.png`) }).catch(() => {});
       const inB = (body, arg) => call(body, arg, 60000, folderB);
@@ -1833,14 +1837,20 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
 
       /* 6: the four settings' descriptions in the Settings editor. */
       const keys = tm.SWITCHES.filter((s) => s.key.startsWith('claudeCodePlus.')).map((s) => s.key);
-      await exec('workbench.action.openSettings', `@id:${keys.join(',')}`);
-      const items = await until(() => page.evaluate((n) => {
-        const rows = [...document.querySelectorAll('.settings-editor .setting-item-contents')].filter((e) => e.offsetParent).map((e) => ({
-          title: ((e.querySelector('.setting-item-title') || {}).innerText || '').replace(/\s+/g, ' ').trim(),
-          text: ((e.querySelector('.setting-item-description') || {}).innerText || '').replace(/\s+/g, ' ').trim(),
-          link: [...e.querySelectorAll('.setting-item-description a')].map((a) => a.innerText.trim()) }));
-        return rows.length >= n ? rows : null;
-      }, keys.length), 15000, 500) || [];
+      /* One setting at a time: the editor draws only the rows on screen, and on a small screen four do not fit. */
+      const items = [];
+      for (const key of keys) {
+        await exec('workbench.action.openSettings', `@id:${key}`);
+        const name = key.split('.').pop().replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+        const row = await until(() => page.evaluate((name) => {
+          const e = [...document.querySelectorAll('.setting-item-contents')].find((x) => x.offsetParent
+            && ((x.querySelector('.setting-item-title') || {}).innerText || '').replace(/\s+/g, ' ').toLowerCase().includes(name));
+          return e ? { title: ((e.querySelector('.setting-item-title') || {}).innerText || '').replace(/\s+/g, ' ').trim(),
+            text: ((e.querySelector('.setting-item-description') || {}).innerText || '').replace(/\s+/g, ' ').trim(),
+            link: [...e.querySelectorAll('.setting-item-description a')].map((a) => a.innerText.trim()) } : null;
+        }, name), 15000, 500);
+        if (row) items.push(row);
+      }
       check(items.length === keys.length && items.every((i) => /Used only while .+ is Custom\.$/.test(i.text) && !/#agentPlus/.test(i.text) && i.link.length >= 1),
         'the Settings editor shows the four settings, each description ending that it is used only while the token mode (a link) is Custom', items);
       await shot('token-mode-settings');

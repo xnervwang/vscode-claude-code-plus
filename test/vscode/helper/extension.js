@@ -27,8 +27,10 @@ function activate(context) {
   };
   const busy = new Set();
   const own = ((vscode.workspace.workspaceFolders || [])[0] || { uri: { fsPath: '' } }).uri.fsPath;
+  /* On Windows VS Code gives the folder with its drive letter in lower case, and the test names it as it was created. */
+  const sameFolder = (a, b) => (process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : a === b);
   const forMe = (name) => {
-    try { const r = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); return !r.folder || r.folder === own; } catch (_) { return false; }
+    try { const r = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); return !r.folder || sameFolder(r.folder, own); } catch (_) { return false; }
   };
   const take = async (name) => {
     const id = name.slice(0, -'.req.json'.length);
