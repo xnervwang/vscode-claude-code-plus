@@ -2109,6 +2109,85 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       }
     });
 
+    /* A steward whose stored name still ends in the bell an older build of this extension put after a title: everything
+       Agent Plus draws of it - the notice, the count's hover, the list of the conversations that need you, the
+       Conversations view - names it with the crown first and no bell (src/claude-source.js, src/title-marks.js). */
+    await step('a steward named with the old bell', async () => {
+      const BELL = '\u{1F6CE}', CROWN = '\u{1F451}';
+      const S = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f7', title: 'Many conversations', days: 0,
+        turns: [['Look after the other conversations, please.', 'I will keep an eye on them.']] };
+      const named = { title: `${CROWN} ${S.title}` };
+      const stored = `${S.title} ${BELL}\uFE0F`;
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const table = path.join(dataDir, 'stewards.json'), plan = path.join(dataDir, `${S.id}.json`);
+      const had = fs.existsSync(table) ? fs.readFileSync(table, 'utf8') : null;
+      const managed = threads[2];
+      fakeHome.writeThreads(profile.home, profile.folder, [S]);
+      fs.appendFileSync(transcriptOf(S), JSON.stringify({ type: 'custom-title', customTitle: stored, sessionId: S.id }) + '\n');
+      fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(table, JSON.stringify({ version: 1, stewards: { [S.id]: { manages: [managed.id], names: { [managed.id]: managed.title }, at: Date.now() } } }, null, 1) + '\n');
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const recordOf = (id) => {
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+        for (const n of names) {
+          try { const d = JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); if (d.sessionId === id) return { file: path.join(sessions, n), d }; } catch (_) { /* being written */ }
+        }
+        return null;
+      };
+      const bells = (x) => JSON.stringify(x === undefined ? null : x).includes(BELL);
+      try {
+        await exec('workbench.action.closeAllEditors');
+        await exec('workbench.action.closeAuxiliaryBar');
+        await exec('claude-vscode.editor.open', S.id);
+        check(!!await conversation(S, 60000), 'the steward\'s conversation opens in a tab', await tabs());
+        /* Its process's record holds the stored name too. */
+        const rec = await until(() => recordOf(S.id), 30000, 500);
+        if (rec && !String(rec.d.name || '').includes(BELL)) fs.writeFileSync(rec.file, JSON.stringify(Object.assign({}, rec.d, { name: stored })));
+        await exec('claude-vscode.editor.open', tab0.id);
+        await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 20000, 300);
+        check(await focusWindow(), 'the window has the focus, which Agent Plus needs before it shows a notice', { focused: await focused() });
+        await exec('notifications.clearAll');
+        const now = new Date().toISOString();
+        fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick which conversation goes first', state: 'waiting', waitingOn: 'user',
+          question: 'Which one first?', asked: now, opened: now, since: now }] }, null, 2));
+        /* `claude agents --json`, where Agent Plus hears of a running conversation, is read at most every 30 s. */
+        const told = await until(() => noticeOf(named), 60000, 250) || (await listedNotices()).find(about(named));
+        const all = await needNotices();
+        check(!!told && told.text === `"${named.title}" is waiting for you.` && !bells(all),
+          'Agent Plus\'s notice names the steward with the crown first and no bell', { notice: told, toasts: all, listed: told ? undefined : await listedNotices(), record: recordOf(S.id) });
+        await shot('steward-old-bell-notice');
+        await exec('notifications.clearAll');
+        const counted = await until(async () => { const c = await needCount(); return c && c.n >= 1 && c; }, 15000, 300);
+        const tip = counted ? await hoverText(page.locator('.statusbar-item[id$="agentPlus.attention"]').first()) : '';
+        check(!!counted && tip.includes(`Waiting: ${named.title}`) && !tip.includes(BELL), 'the hover of its count in the status bar names it the same way', { count: counted, hover: tip });
+        await start('agentPlus.showAttention');
+        const picks = await until(() => page.evaluate(() => {
+          const q = document.querySelector('.quick-input-widget');
+          if (!q || !q.offsetParent) return null;
+          const rows = [...q.querySelectorAll('.monaco-list-row')].map((r) => r.innerText.replace(/\s+/g, ' ').trim());
+          return rows.length ? rows : null;
+        }), 10000, 300);
+        await shot('steward-old-bell-list');
+        await page.keyboard.press('Escape');
+        check(!!picks && picks.some((r) => r.startsWith(named.title)) && !bells(picks), 'and so does the list of the conversations that need you', picks);
+        await exec('agentPlus.showConversations');
+        const rows = await until(() => page.evaluate((t) => {
+          const panel = document.getElementById('workbench.parts.panel');
+          const all = panel ? [...panel.querySelectorAll('.monaco-list-row')].map((r) => (r.innerText || r.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim()) : [];
+          return all.some((r) => r.includes(t)) ? all : null;
+        }, S.title), 45000, 1000);
+        await shot('steward-old-bell-conversations');
+        check(!!rows && rows.some((r) => r.startsWith(named.title)) && !bells(rows), 'and so does Agent Plus\'s Conversations view', rows);
+      } finally {
+        fs.rmSync(plan, { force: true });
+        if (had !== null) fs.writeFileSync(table, had); else fs.rmSync(table, { force: true });
+        await exec('notifications.clearAll').catch(() => {});
+        await exec('workbench.action.closePanel').catch(() => {});
+        await exec('workbench.action.closeAllEditors').catch(() => {});
+      }
+    });
+
     /* Agent Plus's agentPlus.tokenMode in each mode in turn, without a reload: All, Essential, Interface, Custom with
        two features off, and All again. Each mode is checked in Show Status, Agent Plus's status bar entry, the information
        box, the config.json the hooks read, Claude Code's own list of plugins, the notice for a change of a feature's own
