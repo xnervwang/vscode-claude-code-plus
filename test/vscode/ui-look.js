@@ -1806,10 +1806,11 @@ const STEPS = [
     act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
   },
   {
-    name: 'light-envelope', features: ['light-envelope', 'light-theme', 'unread-envelope'],
+    name: 'light-envelope', features: ['light-envelope', 'light-theme', 'unread-envelope', 'need-you-notices'],
     expect: 'In the light theme, a reply landed while the conversation "Where the retry delay..." was behind notes.txt: its tab\'s '
       + 'title ends in an envelope drawn as a dark outline on the light tab, clearly readable, not a white or faint shape; '
-      + 'its rows in the session list show the same dark envelope after the title, before the time. No colour emoji envelope anywhere.',
+      + 'its rows in the session list show the same dark envelope after the title, before the time. No colour emoji envelope anywhere. '
+      + 'At the bottom right, a notification from Agent Plus says that conversation, named in full, finished, with Open and Dismiss.',
     unchanged: 'The session list is as before, apart from the envelopes.',
     act: async (d) => {
       const frame = await live(d);
@@ -1818,10 +1819,13 @@ const STEPS = [
       await d.sleep(600);
       // A permission question left open by an earlier step holds back any new message.
       if (await permissionAsked(frame)) { await permissionButton(frame, 'No').click({ timeout: 5000 }).catch(() => {}); await d.sleep(2000); }
+      if (!await d.front()) throw new Error('the window did not get the focus, which Agent Plus needs before it shows a notice');
+      await d.exec('notifications.clearAll');
       d.model.hold();
       const turns = d.model.turns();
       await send(d, frame, 'And in the production config?');
       if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error('the message did not reach the model in 30 s');
+      if (!await d.until(() => seenWorking(d, d.threads[0].id), 20000, 300)) throw new Error('Agent Plus did not see the turn running in 20 s');
       await notesInFront(d);
       await d.sleep(800);
       d.model.release();
@@ -1836,6 +1840,9 @@ const STEPS = [
         .filter((r) => r.id.endsWith(id) || r.querySelector(`[data-cce-pin="${id}"]`))
         .map((r) => { const e = r.querySelector('[data-cce-envelope]'); return e ? getComputedStyle(e, '::after').content : null; }), d.threads[0].id);
       if (forms.length < 2 || !forms.every((f) => f === '"\u2709\uFE0E"')) throw new Error(`the session list draws ${JSON.stringify(forms)}`);
+      if (!await d.until(async () => ((await needToasts(d)) || []).some((x) => / finished\.$/.test(x) && x.includes('Where the retry delay')), 30000, 300)) {
+        throw new Error(`Agent Plus showed no notice that the conversation finished in 30 s: ${JSON.stringify(await needToasts(d))}`);
+      }
       return d.body();
     },
     undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.sleep(2000); },

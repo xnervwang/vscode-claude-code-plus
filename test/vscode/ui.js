@@ -42,6 +42,11 @@
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
  *   light theme    the envelope's text form on the tab, the session list rows and the Steward panel, and the colour form
  *                  back in a dark theme
+ *   the old bell   a steward whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
+ *                  its list of what needs you and its Conversations view name it with the crown first and no bell
+ *   the focused window
+ *                  a conversation of a second window that starts to wait: the window with the focus shows the notice,
+ *                  the other does not, and both count it
  *   token mode     each of Agent Plus's token modes in turn: Show Status, the status bar, the information box, the hooks'
  *                  settings, Claude Code's list of plugins, the notice for a feature's own setting, what the fake model
  *                  receives, a detached command's end, and the four settings in the Settings editor
@@ -1134,6 +1139,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       check(!!ended, 'the turn that started it ends while it runs', { status: status() });
       const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && status() === 'idle' && d; }, 25000, 500);
       check(!!green, 'with the turn over and the detached command running, the tab\'s logo carries a green ring', { status: status(), dots: await dotsOn(t.label) });
+      check(!!green && ringed(green.shape), 'hollow in the middle, not a filled dot', green);
       const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
       check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
       const button = conv.locator('button, [role="button"]').filter({ hasText: /\b1 detached\b/ }).first();
@@ -1202,7 +1208,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       check(!!green && green.colour === GREEN && !/detached/.test(green.label),
         'with the turn over, the agents button counts the command and the worker once each, not the worker\'s shell, and its dot is the tabs\' green', await footer());
       const ring = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
-      check(!!ring, 'and the tab\'s logo carries the green ring', await dotsOn(t.label));
+      check(!!ring && ringed(ring.shape), 'and the tab\'s logo carries the green ring, hollow in the middle', await dotsOn(t.label));
       await shot('agents-button-work-running');
       if (green) {
         await conv.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
@@ -2185,6 +2191,84 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         await exec('notifications.clearAll').catch(() => {});
         await exec('workbench.action.closePanel').catch(() => {});
         await exec('workbench.action.closeAllEditors').catch(() => {});
+      }
+    });
+
+    /* A conversation of a second window starts to wait for the user while the first window has the focus: only the
+       window with the focus shows Agent Plus's notice, and both count it. */
+    await step('a notice in the window with the focus', async () => {
+      const folderC = path.join(path.dirname(profile.folder), 'ws-c');
+      fs.mkdirSync(folderC, { recursive: true });
+      fs.writeFileSync(path.join(folderC, 'notes-c.txt'), 'A file for the third folder.\n');
+      const Z = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f8', title: 'Check the backup job of the reports database', days: 0,
+        turns: [['Check the backup job of the reports database.', 'It ran at 02:00 and wrote 3.1 GB to the backup bucket.']] };
+      fakeHome.writeThreads(profile.home, folderC, [Z]);
+      const plan = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${Z.id}.json`);
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderC);
+      const pageC = await w.pageOf(path.basename(folderC), 90000);
+      const hostC = pageC ? await w.hostUp(before, folderC).catch(() => null) : null;
+      check(!!pageC && !!hostC, 'a second window opens on another folder, with the test helper in it', { page: !!pageC });
+      if (!pageC || !hostC) {
+        if (pageC) await pageC.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        return;
+      }
+      /* With two windows open, a request that names no folder goes to the first one. */
+      w.pin(profile.folder);
+      const inC = (body, arg) => call(body, arg, 60000, folderC);
+      try {
+        await until(() => inC('const mine = vscode.extensions.getExtension("xnervwang.claude-code-plus"); return !!(mine && mine.isActive);'), 60000, 1000);
+        await inC('await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar"); return true;');
+        await inC('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', Z.id);
+        const zLoaded = await until(async () => {
+          for (const f of pageC.frames()) { try { if (await f.evaluate((t) => !!document.body && document.body.innerText.includes(t), Z.turns[0][1])) return true; } catch (_) { /* gone */ } }
+          return false;
+        }, 60000, 1000);
+        check(!!zLoaded, 'the second window shows a conversation of its folder in a tab', null);
+        /* Behind a text file in its own column, so no window shows it in front. */
+        await inC('await vscode.window.showTextDocument(vscode.Uri.file(arg), { preview: false, viewColumn: vscode.window.tabGroups.activeTabGroup.viewColumn }); return true;',
+          path.join(folderC, 'notes-c.txt'));
+        await exec('claude-vscode.editor.open', tab0.id);
+        win.frontWindow(exe, profile.user, profile.folder, process.env);
+        await until(async () => (await focused()) === true, 15000, 300);
+        /* Which window VS Code counts as focused. Under xvfb-run, with no window manager, bringing the first one forward
+           need not move that from the second, which took it on opening. */
+        const fa = await focused(), fc = await focused(folderC);
+        const front = fa === true && fc !== true ? 'first' : fc === true && fa !== true ? 'second' : fa === true ? 'both' : 'neither';
+        if (process.platform !== 'linux') check(front === 'first', 'the first window is brought to the front, and VS Code counts only it as focused', { first: fa, second: fc });
+        else if (front !== 'first') note(`with no window manager, bringing the first window forward left ${front} counted as focused, so the notice is looked for there`);
+        await exec('notifications.clearAll');
+        await inC('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
+        const now = new Date().toISOString();
+        fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick the retention period', state: 'waiting', waitingOn: 'user',
+          question: 'Keep 7 or 30 days?', asked: now, opened: now, since: now }] }, null, 2));
+        const wins = { first: { p: page, folder: undefined }, second: { p: pageC, folder: folderC } };
+        /* `claude agents --json`, where Agent Plus hears of a running conversation, is read at most every 30 s; both
+           counts showing say Agent Plus has it waiting. */
+        const counts = await until(async () => { const a = await needCount(), c = await needCount(pageC); return a && c && a.n === 1 && c.n === 1 && [a, c]; }, 60000, 300);
+        check(!!counts, 'both windows count the waiting conversation in the status bar', [await needCount(), await needCount(pageC)]);
+        if (front === 'first' || front === 'second') {
+          const shows = wins[front], quiet = wins[front === 'first' ? 'second' : 'first'];
+          const told = await until(() => noticeOf(Z, shows.p), 20000, 250) || (await listedNotices(shows.p, shows.folder)).find(about(Z));
+          check(!!told && told.text === `"${Z.title}" is waiting for you.`, `the window with the focus (the ${front}) shows Agent Plus's notice of it`,
+            told || { toasts: await needNotices(shows.p), agentPlus: attentionOf(Z.id) });
+          await shot('notice-in-focused-window');
+          const there = told ? await noticesWithin(Z, 'waiting', quiet.p, quiet.folder) : null;
+          check(!!told && !there.length, 'and the window without the focus shows none', { there });
+        } else if (front === 'both') {
+          note('both windows count as focused, so which of them shows the notice cannot be told here');
+          const any = await until(async () => (await noticeOf(Z)) || (await noticeOf(Z, pageC)), 20000, 250);
+          check(!!any, 'a window that counts as focused shows the notice', { first: await needNotices(), second: await needNotices(pageC) });
+        } else {
+          const none = counts ? [...await noticesWithin(Z, 'waiting'), ...await noticesWithin(Z, 'waiting', pageC, folderC)] : null;
+          check(!!counts && !none.length, 'with no window counted as focused, neither window shows a notice', { none });
+        }
+      } finally {
+        fs.rmSync(plan, { force: true });
+        await exec('notifications.clearAll').catch(() => {});
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderC).catch(() => {});
+        await until(async () => !(await w.pageOf(path.basename(folderC), 1000)), 20000, 500);
+        w.pin(undefined);
       }
     });
 
