@@ -30,6 +30,7 @@ const fs = require('fs');
 const path = require('path');
 const { claudeDir, projectFolders, SESSION } = require('./claude-files');
 const { SIDE_SUFFIXES, CLOSED_DIR } = require('./workplan');
+const windowEntries = require('./window-entries');
 
 function list(dir) {
   try { return fs.readdirSync(dir); } catch (_) { return []; }
@@ -110,34 +111,14 @@ function runningSessions(root = claudeDir(), alive = (pid) => { try { process.ki
   return out;
 }
 
-/* The entries each window writes in <plan dir>/windows (src/steward-view.js), and how old one may be before its window
-   counts as gone: it is rewritten once a minute. */
-const WINDOWS_DIR = 'windows';
-const WINDOW_STALE_MS = 120000;
+/* How old a window's entry may be before its window counts as gone (src/window-entries.js). */
+const WINDOW_STALE_MS = windowEntries.STALE_MS;
 
 /*
- * The conversations other windows show, as session id -> the names of those windows, from their entries in
- * `planDir`/windows. An entry of this process, one older than WINDOW_STALE_MS, or one whose process is gone is left out.
+ * The conversations other windows show, as session id -> the names of those windows, from the entries each window
+ * writes in `planDir`/windows (src/steward-view.js).
  */
-function shownElsewhere(planDir, { self = process.pid, now = Date.now(),
-  alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } } } = {}) {
-  const out = new Map();
-  const dir = path.join(planDir, WINDOWS_DIR);
-  for (const name of list(dir)) {
-    if (!/^\d+\.json$/.test(name)) continue;
-    let d;
-    try { d = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); } catch (_) { continue; }
-    const pid = Number(name.slice(0, -5));
-    if (!d || pid === self || !(now - d.at < WINDOW_STALE_MS) || !alive(pid) || !Array.isArray(d.sessions)) continue;
-    const label = typeof d.name === 'string' && d.name ? d.name : 'untitled';
-    for (const id of d.sessions) {
-      if (typeof id !== 'string' || !SESSION.test(id)) continue;
-      if (!out.has(id)) out.set(id, []);
-      if (!out.get(id).includes(label)) out.get(id).push(label);
-    }
-  }
-  return out;
-}
+const shownElsewhere = (planDir, { self, now, alive } = {}) => windowEntries.shownElsewhere(planDir, { self, now, alive, id: SESSION });
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + 's'}`;
 function size(bytes) {

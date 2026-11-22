@@ -1,5 +1,5 @@
 {
-  "core": "5774012c47e369cd4928065d04d4807762f2a3df",
+  "core": "9337d7c5e9a8fe110bbcefcbe0d083298af955b9",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -156,6 +156,11 @@
       "path": "src/title-marks.js",
       "from": "src/title-marks.js",
       "sha256": "f92c3452c20bc9fd4da45545b37ae404e72d292b43291fbf034c4d6d203ff6dc"
+    },
+    {
+      "path": "src/window-entries.js",
+      "from": "shared/host/window-entries.js",
+      "sha256": "65105c9ee3caf60c2ef921a05151ee99ff78db5322579949f471dad985ca8f19"
     }
   ]
 }

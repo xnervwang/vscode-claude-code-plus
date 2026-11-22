@@ -34,6 +34,7 @@ const activity = require('./activity');
 const titleMarks = require('./title-marks');
 const { GREEN, RED } = require('./tabdot');
 const envelope = require('./envelope');
+const windowEntries = require('./window-entries');
 
 const VIEW = 'claudeCodePlus.steward';
 /* How often the list and the notices are refreshed. `claude agents --json` is asked at most every half minute
@@ -50,9 +51,8 @@ const replaces = (x, c) => x.id === c.id && (STATE_KINDS.has(c.what) ? STATE_KIN
   : x.what === c.what && (c.what === 'twice' || (c.what === 'ended' ? x.why === c.why : x.stop.pid === c.stop.pid)));
 /* How often the background work of the conversations a steward manages is looked at. */
 const WORK_CHECK_MS = 15000;
-/* <plan dir>/windows/<pid>.json: what each window shows, ignored once older than this or once its process is gone. */
-const WINDOWS_DIR = 'windows';
-const WINDOW_STALE_MS = 120000;
+/* <plan dir>/windows/<pid>.json: what each window shows (src/window-entries.js). */
+const WINDOWS_DIR = windowEntries.WINDOWS_DIR;
 /* <plan dir>/windows/<pid>.open.json asks window <pid> to show a conversation. Requests older than OPEN_FRESH_MS are
    ignored, so a window that was busy or closing does not act on one much later. */
 const OPEN_SUFFIX = '.open.json';
@@ -353,38 +353,20 @@ function create(vscode, deps) {
   };
 
   /* This window's entry in the windows folder, written when what it shows changes and once a minute besides. */
-  const own = path.join(deps.dir, WINDOWS_DIR, process.pid + '.json');
-  let published = '', publishedAt = 0;
-  const publish = (now = Date.now()) => {
-    if (!deps.canShare()) return;
-    const entry = { pid: process.pid, name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() };
+  let published = false;
+  const writeEntry = windowEntries.publisher(deps.dir, () => {
+    const entry = { name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() };
     // Omitted until the first heartbeat, so a host with no heartbeat counts as having its window (src/duplicates.js).
     const heard = deps.pageAt ? deps.pageAt() : 0;
     if (heard) entry.pageAt = heard;
-    const text = JSON.stringify(entry);
-    if (text === published && now - publishedAt < WINDOW_STALE_MS / 2) return;
-    try {
-      fs.mkdirSync(path.dirname(own), { recursive: true });
-      writeAtomic(own, JSON.stringify(Object.assign({ at: now }, entry)) + '\n');
-      published = text; publishedAt = now;
-    } catch (e) { deps.log('steward panel: ' + ((e && e.message) || e)); }
+    return entry;
+  }, { log: (m) => deps.log('steward panel: ' + m) });
+  const publish = (now = Date.now()) => {
+    if (deps.canShare() && writeEntry(now)) published = true;
   };
   /* The windows on this machine, this one included, from their entries. */
-  const windows = (now = Date.now()) => {
-    const out = [{ pid: process.pid, name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() }];
-    let names = [];
-    try { names = fs.readdirSync(path.join(deps.dir, WINDOWS_DIR)).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return out; }
-    for (const n of names) {
-      const pid = Number(n.slice(0, -5));
-      if (pid === process.pid) continue;
-      let d;
-      try { d = JSON.parse(fs.readFileSync(path.join(deps.dir, WINDOWS_DIR, n), 'utf8')); } catch (_) { continue; }
-      if (!d || !(now - d.at < WINDOW_STALE_MS) || !deps.alive(pid)) continue;
-      out.push({ pid, name: typeof d.name === 'string' ? d.name : '', folders: Array.isArray(d.folders) ? d.folders : [],
-        sessions: Array.isArray(d.sessions) ? d.sessions : [] });
-    }
-    return out;
-  };
+  const windows = (now = Date.now()) => [{ pid: process.pid, name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() }]
+    .concat(windowEntries.others(deps.dir, { now, alive: deps.alive }).map((w) => ({ pid: w.pid, name: w.name, folders: w.folders, sessions: w.sessions })));
 
   /* The list for a steward with "all" set: every conversation open in a window, except itself and other stewards. */
   const everyIds = (steward, table) => {
@@ -731,7 +713,7 @@ function create(vscode, deps) {
       themeWatch.dispose();
       if (requestWatch) { try { requestWatch.close(); } catch (_) { /* closed */ } }
       if (relayWatch) { try { relayWatch.close(); } catch (_) { /* closed */ } }
-      if (published) { try { fs.unlinkSync(own); } catch (_) { /* gone already */ } }
+      if (published) windowEntries.withdraw(deps.dir);
     },
     refresh() { render(); },
     open,
