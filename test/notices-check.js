@@ -172,7 +172,7 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     'setTimeout(function(){ got.back = tf(); var c = Q("[data-ap-card]"); fire(document.querySelector("[data-ap-stack]"), "pointerenter"); fire(c[2], "pointerenter");',
     '  got.outAgain = tf()[2]; document.documentElement.dispatchEvent(new MouseEvent("mouseleave")); got.leftPage = tf(); }, 5800);',
     'setTimeout(function(){ var c = Q("[data-ap-card]"); c[1].focus(); }, 6000);',
-    'setTimeout(function(){ got.focused = tf(); var c = Q("[data-ap-card]"); fire(c[1], "keydown", { key: "Enter" }); }, 6300);',
+    'setTimeout(function(){ got.focused = tf(); var c = Q("[data-ap-card]"); got.ring = getComputedStyle(c[1].firstChild).outlineStyle; fire(c[1], "keydown", { key: "Enter" }); }, 6300);',
     'setTimeout(function(){ var c = Q("[data-ap-card]"); fire(c[1], "keydown", { key: "Delete" }); got.afterDelete = cards();',
     '  fire(c[0], "click"); fire(Q("[data-ap-card]")[0].querySelector("[data-ap-dismiss]"), "click"); got.afterX = cards(); }, 6600);',
     'setTimeout(function(){ got.posted = posted.filter(function(m){ return m.type === "cce_notice" && m.action !== "ask"; }).map(function(m){ return [m.action, m.sessionId]; });',
@@ -194,6 +194,7 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     eq([got.outAgain, got.leftPage], ['translateY(-64px) scale(1)', got.rest], 'a card drawn out goes back when the pointer leaves the whole page, even without passing over anything else in it');
     eq([got.back, got.focused], [got.rest, ['translateY(0px) scale(1)', 'translateY(-56px) scale(1)', 'translateY(-64px) scale(0.92)']],
       'leaving puts it back; a card given the focus from the keyboard is drawn out the same way, the cards behind it making room');
+    eq(got.ring, 'solid', 'and a card with the keyboard focus has a focus ring');
     eq([got.afterDelete, got.afterX, got.posted], [['Third', 'First'], ['First'],
       [['open', 'b'], ['dismiss', 'b'], ['open', 'c'], ['dismiss', 'c']]],
     'Enter opens the card in focus and Delete dismisses it; a click on a card opens its conversation, and its x dismisses it, off the page at once');

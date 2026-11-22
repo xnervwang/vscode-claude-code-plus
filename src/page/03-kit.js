@@ -258,6 +258,11 @@ var agentPlusKit = (function () {
       };
       doc.documentElement.addEventListener('mouseleave', away);
       globalThis.addEventListener('blur', away);
+      /* A ring on what has the keyboard focus, which inline styles cannot say. */
+      var ring = el('style', '', { 'data-ap-stack-style': '1' });
+      ring.textContent = '[data-ap-card]:focus-visible>[data-ap-face],[data-ap-head] button:focus-visible{outline:1px solid var(--vscode-focusBorder, #0078d4);'
+        + 'outline-offset:-1px;}';
+      (doc.head || doc.documentElement).appendChild(ring);
       (doc.body || doc.documentElement).appendChild(root);
     }
 
@@ -491,6 +496,8 @@ var agentPlusKit = (function () {
       dispose: function () {
         if (placer) { clearInterval(placer); placer = 0; }
         if (root && root.parentNode) root.parentNode.removeChild(root);
+        var ring = doc.querySelector('style[data-ap-stack-style]');
+        if (ring && ring.parentNode) ring.parentNode.removeChild(ring);
         if (room > 0) { try { if (opts.room) opts.room(0); } catch (e) { /* gone with the page */ } }
         root = null; els = {}; order = []; room = -1;
       },

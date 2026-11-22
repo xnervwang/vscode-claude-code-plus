@@ -379,11 +379,14 @@ async function noticeArea(d, frame, above = 170) {
   }
   return box;
 }
-/* Draws card `i` out, the pointer coming in from the left along the strip the card shows. */
+/* Draws card `i` out: the pointer comes in from the left along the strip the card shows, and the card gets the keyboard
+   focus too, which draws it out the same way and outlasts the screenshot, which can end a hover. */
 async function noticePull(d, frame, i) {
-  const c = await frame.locator('[data-ap-card]').nth(i).boundingBox();
+  const card = frame.locator('[data-ap-card]').nth(i);
+  const c = await card.boundingBox();
   await d.page.mouse.move(c.x - 60, c.y + 4);
   await d.page.mouse.move(c.x + c.width / 2, c.y + 4, { steps: 6 });
+  await card.focus();
   await d.sleep(700);
 }
 async function noticeCardsOff(d) {
@@ -1834,13 +1837,20 @@ const STEPS = [
   },
   {
     name: 'notice-cards-drawn-out', features: ['notice-cards'],
-    expect: 'The same stack with the pointer on the third card from the front: that card, a red dot, "Waiting for you" and "Write '
-      + 'the release notes for 1.3", is drawn out whole above the two cards in front of it, with the top edge of the second card '
-      + 'showing between it and the front card, and the top edge of the fourth card above it. Over the stack, a grey pill "4 '
-      + 'notices" and a "Dismiss all" button. No text of one card is drawn over another card.',
+    expect: 'The same stack with the third card from the front pointed at and given the keyboard focus: that card, a red dot, '
+      + '"Waiting for you" and "Write the release notes for 1.3", is drawn out whole above the two cards in front of it, with the '
+      + 'top edge of the second card showing between it and the front card, and the top edge of the fourth card above it; it may '
+      + 'have a thin focus outline. Over the stack, a grey pill "4 notices" and a "Dismiss all" button. No text of one card is '
+      + 'drawn over another card.',
     unchanged: 'The conversation, the message box and the front card are as before.',
     act: async (d) => { const f = await noticeCards(d); await noticePull(d, f, 2); return noticeArea(d, f, 240); },
-    undo: async (d) => { await rest(d, await noticePage(d)); await d.away(); await d.sleep(600); },
+    undo: async (d) => {
+      const f = await noticePage(d);
+      await f.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
+      await rest(d, f);
+      await d.away();
+      await d.sleep(600);
+    },
   },
   {
     name: 'notice-cards-light', features: ['notice-cards', 'light-theme'],
