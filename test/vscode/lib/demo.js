@@ -5,8 +5,8 @@
 'use strict';
 /*
  * The demo window that readme-shots.js and ui-look.js drive: a separate VS Code install, the current stable release, with
- * the latest Claude Code build that supported-versions.json lists, Agent Plus from the marketplace and this extension
- * from a .vsix, so a feature can be shown before it is published. It opens on the demo conversation, with the side bar
+ * the latest Claude Code build that supported-versions.json lists, Agent Plus from the marketplace (or from a .vsix, given
+ * --agent-plus) and this extension from a .vsix, so a feature can be shown before it is published. It opens on the demo conversation, with the side bar
  * 460 px wide. Needs @vscode/test-electron and playwright-core, as run.js does, and a display (xvfb-run on Linux).
  *
  * The pack is a folder holding a demo project and demo conversations (pack.json says which). Each run copies them into
@@ -42,12 +42,13 @@ const { folderName, KEY } = fakeHome;
 const MINE = 'xnervwang.claude-code-plus';
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-/* --pack, --vsix, --out and --cache from `argv`, and the rest of it: the names of the pictures to take. */
+/* --pack, --vsix, --agent-plus, --out and --cache from `argv`, and the rest of it: the names of the pictures to take. */
 function options(argv, { out, cache = path.join(os.homedir(), '.cache', 'claude-code-plus-shots') }) {
   const args = argv.slice();
   const flag = (name, dflt = '') => { const i = args.indexOf(name); if (i < 0) return dflt; const v = args[i + 1] || ''; args.splice(i, 2); return v; };
-  const pack = path.resolve(flag('--pack')), vsix = path.resolve(flag('--vsix'));
-  return { pack, vsix, out: path.resolve(flag('--out', out)), cache: path.resolve(flag('--cache', cache)), rest: args };
+  const pack = path.resolve(flag('--pack')), vsix = path.resolve(flag('--vsix')), agentPlus = flag('--agent-plus');
+  return { pack, vsix, agentPlus: agentPlus ? path.resolve(agentPlus) : '', out: path.resolve(flag('--out', out)), cache: path.resolve(flag('--cache', cache)),
+    rest: args };
 }
 
 /* The newest Claude Code build this commit was verified against. */
@@ -123,12 +124,13 @@ function writeSettings(user, model, extra = {}) {
 
 /*
  * Opens the window on the pack's first Claude Code conversation, with `root` as the run's temporary folder (emptied
- * first) and `salt` for the copied conversations' session ids. `settings` are added to the window's settings.
+ * first) and `salt` for the copied conversations' session ids. `agentPlus`, a .vsix, replaces the marketplace's Agent
+ * Plus. `settings` are added to the window's settings.
  * `prepare`, when given, is called with { home, folder, projects, threads } once the demo files are written and before
  * the window opens. Returns the page, the helpers below, and close(), which closes the window, the fake model and the
  * demo's sleep.
  */
-async function open({ pack, vsix, cache, root, salt, settings, prepare }) {
+async function open({ pack, vsix, agentPlus, cache, root, salt, settings, prepare }) {
   const manifest = JSON.parse(fs.readFileSync(path.join(pack, 'pack.json'), 'utf8'));
   const te = require('@vscode/test-electron');
   const playwright = require('playwright-core');
@@ -144,13 +146,15 @@ async function open({ pack, vsix, cache, root, salt, settings, prepare }) {
   const code = cli(te, exe);
   const profile = [`--extensions-dir=${p.exts}`, `--user-data-dir=${p.user}`];
   const have = code(['--list-extensions', '--show-versions', ...profile], env).out.split('\n');
-  for (const ext of [`anthropic.claude-code@${claudeVersion()}`, 'xnervwang.agent-plus']) {
+  for (const ext of [`anthropic.claude-code@${claudeVersion()}`, agentPlus ? '' : 'xnervwang.agent-plus'].filter(Boolean)) {
     if (have.some((l) => (ext.includes('@') ? l === ext : l.startsWith(`${ext}@`)))) continue;
     const r = code(['--install-extension', ext, '--force', ...profile], env);
     if (r.status !== 0) throw new Error(`installing ${ext}: ${r.out}`);
   }
-  const r = code(['--install-extension', vsix, '--force', ...profile], env);
-  if (r.status !== 0) throw new Error(`installing ${vsix}: ${r.out}`);
+  for (const file of [agentPlus, vsix].filter(Boolean)) {
+    const r = code(['--install-extension', file, '--force', ...profile], env);
+    if (r.status !== 0) throw new Error(`installing ${file}: ${r.out}`);
+  }
   log('installed', code(['--list-extensions', '--show-versions', ...profile], env).out.replace(/\n/g, ', '));
 
   const { sid, threads } = seed(pack, manifest, p.home, p.folder, p.user, salt);

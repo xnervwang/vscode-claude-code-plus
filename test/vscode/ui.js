@@ -30,6 +30,12 @@
  *                  copy of it opens; a link to one open nowhere says so; once that window has reloaded with the
  *                  conversation's tab restored behind another and not loaded, deleting it from the first window is
  *                  refused and names the second
+ *   notice cards   with Agent Plus's agentPlus.notifications.style on panel (where the Agent Plus under test has it):
+ *                  a card in the panel in front for a conversation finishing behind it and no VS Code notification, newer
+ *                  cards on top, a card behind drawn out under the pointer and put back, a card clicked opening its
+ *                  conversation, cards gone once looked at or dismissed, the same cards in a second window and a dismiss
+ *                  there reaching it, a tab brought forward showing them at once, and VS Code's notification when no
+ *                  Claude Code panel is on screen
  *   closed, sidebar, archived
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
@@ -1594,6 +1600,218 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderB).catch(() => {});
         await until(async () => !(await w.pageOf(path.basename(folderB), 1000)), 20000, 500);
         w.pin(undefined);
+      }
+    });
+
+    /*
+     * Agent Plus's notices as cards in the panels, with agentPlus.notifications.style on panel: a conversation finishing in
+     * a tab behind gets a card in the panel in front and no VS Code notification; more cards go on top; a card behind is
+     * drawn out under the pointer; clicking a card opens its conversation; looking at one removes its card, though it
+     * still waits; Dismiss removes one; a second window shows the same cards, and a dismiss in one reaches the other; a
+     * tab brought forward shows the cards at once; with no Claude Code panel on screen the notification is shown instead.
+     * The other conversations are reported through one more file in Agent Plus's shared attention folder, as another
+     * window would report them. Checked only where the Agent Plus under test has the setting: CI installs Agent Plus from
+     * its main branch, which may not have it yet.
+     */
+    await step('notice cards', async () => {
+      const ap = await call(`const e = vscode.extensions.getExtension('xnervwang.agent-plus'), p = e && e.packageJSON;
+        return p ? { version: p.version, panel: !!((p.contributes.configuration || {}).properties || {})['agentPlus.notifications.style'] } : null;`);
+      if (!ap || !ap.panel) {
+        note(`notice cards: not checked, since the Agent Plus under test (${ap ? ap.version : 'not found'}) has no agentPlus.notifications.style`);
+        return;
+      }
+      const attention = path.join(profile.home, '.agent-work-plan', 'attention');
+      const other = path.join(attention, 'zz0uitest-0000000b.json');
+      let items = [];
+      const writeOther = () => {
+        fs.mkdirSync(attention, { recursive: true });
+        fs.writeFileSync(other + '.tmp', JSON.stringify({ format: 1, at: Date.now(), items, front: [] }) + '\n');
+        fs.renameSync(other + '.tmp', other);
+      };
+      const beat = setInterval(writeOther, 1000);
+      const report = (id, title, activity, unseen = false) => {
+        items = items.filter((x) => x.sessionId !== id).concat([{ sourceId: 'claude-code', source: 'Claude Code', sessionId: id, title, cwd: profile.folder,
+          state: activity === 'waiting' ? 'prompt' : activity === 'working' ? 'working' : 'unread', activity, unseen, steward: false, since: Date.now() }]);
+        writeOther();
+      };
+      /* A conversation of the other window that works and then needs the user. */
+      const needs = async (id, title, kind) => {
+        report(id, title, 'working');
+        await sleep(2500);
+        report(id, title, kind === 'waiting' ? 'waiting' : 'stopped', kind !== 'waiting');
+      };
+      /* Whether a window's own attention file (not the one written here) reports `id` with `activity`. */
+      const reportedBy = (id, activity) => {
+        let names = [];
+        try { names = fs.readdirSync(attention).filter((n) => /^[0-9a-z]+-[0-9a-f]{8}\.json$/.test(n) && n !== path.basename(other)); } catch (_) { return false; }
+        return names.some((n) => {
+          try { return JSON.parse(fs.readFileSync(path.join(attention, n), 'utf8')).items.some((it) => it.sessionId === id && it.activity === activity); }
+          catch (_) { return false; }
+        });
+      };
+      const setStyle = (v) => call(`await vscode.workspace.getConfiguration('agentPlus').update('notifications.style', arg === null ? undefined : arg,
+        vscode.ConfigurationTarget.Global); return true;`, v);
+      /* A page's frame is looked up afresh each time: Claude Code can make a panel's page again. */
+      const fresh = (t) => (typeof t === 'function' ? t() : conversation(t, 5000).catch(() => null));
+      const stackIn = async (who) => { const frame = await fresh(who); return !frame ? { shown: false, titles: [] } : frame.evaluate(() => {
+        const s = document.querySelector('[data-ap-stack]');
+        const cards = s ? [...s.querySelectorAll('[data-ap-card]')] : [];
+        return { shown: !!s && s.style.display !== 'none' && cards.length > 0, titles: cards.map((c) => c.querySelector('[data-ap-title]').textContent) };
+      }).catch(() => ({ shown: false, titles: [] })); };
+      const titlesIn = async (who, want, ms = 30000) => until(async () => { const s = await stackIn(who); return want(s.titles) ? s.titles : null; }, ms, 250);
+      const box = async (who, i) => { const frame = await fresh(who); return frame ? frame.locator('[data-ap-card]').nth(i).boundingBox({ timeout: 5000 }).catch(() => null) : null; };
+      const dismissFront = async (who) => {
+        const b = await box(who, 0), frame = await fresh(who);
+        if (!b || !frame) return;
+        await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+        await frame.locator('[data-ap-card]').first().locator('[data-ap-dismiss]').click({ timeout: 5000 });
+      };
+      const told = (re) => toasts().then((t) => t.filter((x) => re.test(x))).catch(() => []);
+      const [A, B, C] = threads;
+      const X = ['c1c1c1c1-0000-4000-8000-000000000001', 'c1c1c1c1-0000-4000-8000-000000000002', 'c1c1c1c1-0000-4000-8000-000000000003',
+        'c1c1c1c1-0000-4000-8000-000000000004', 'c1c1c1c1-0000-4000-8000-000000000005'];
+      const folderC = path.join(path.dirname(profile.folder), 'ws-cards');
+      let pageC = null;
+      try {
+        await exec('workbench.action.closeAllEditors');
+        await exec('workbench.action.closeAuxiliaryBar');
+        await setStyle('panel');
+        await exec('notifications.clearAll');
+        /* A finishes in a tab behind B. */
+        await exec('claude-vscode.editor.open', A.id);
+        const inA = await conversation(A);
+        if (!inA) throw new Error('A did not open');
+        model.hold();
+        await inA.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type('Check the cards.');
+        await page.keyboard.press('Enter');
+        await sleep(800);
+        await exec('claude-vscode.editor.open', B.id);
+        if (!await conversation(B)) throw new Error('B did not open');
+        /* Agent Plus announces a conversation that stops after it has seen it work, so the turn is held until this window's
+           attention file reports A working: a conversation opened a moment ago reaches that list only when the window
+           next asks claude agents. */
+        const working = await until(() => reportedBy(A.id, 'working'), 60000, 300);
+        model.release();
+        if (!working) note('notice cards: this window never reported A working before its turn was let go');
+        const popups = [];
+        const first = await until(async () => {
+          popups.push(...await told(/finished\.$|need you/));
+          const s = await stackIn(B);
+          return s.titles.includes(A.title) ? s.titles : null;
+        }, 60000, 300);
+        check(!!first && !popups.length, 'with the style on panel, a conversation finishing in a tab behind gets a card in the panel in front, and no VS Code notification',
+          { cards: first || (await stackIn(B)).titles, popups: [...new Set(popups)], toasts: await toasts(), tabs: await claudeTabs() });
+        await shot('notice-cards-first');
+        await needs(X[0], 'Fix the flaky build on main', 'finished');
+        await titlesIn(B, (t) => t.length === 2);
+        await needs(X[1], 'Write the release notes', 'waiting');
+        await titlesIn(B, (t) => t.length === 3);
+        await needs(C.id, C.title, 'waiting');
+        const four = await titlesIn(B, (t) => t.length === 4);
+        check(JSON.stringify(four) === JSON.stringify([C.title, 'Write the release notes', 'Fix the flaky build on main', A.title]),
+          'more cards go on top: the newest in front', four || (await stackIn(B)).titles);
+        await shot('notice-cards-four');
+        /* The pointer comes in from the left along the strip the third card shows. */
+        const rest = await Promise.all([0, 1, 2, 3].map((i) => box(B, i)));
+        await page.mouse.move(rest[2].x - 80, rest[2].y + 4);
+        await page.mouse.move(rest[2].x + rest[2].width / 2, rest[2].y + 4, { steps: 6 });
+        const out = await until(async () => {
+          const b = await box(B, 2);
+          return b && Math.abs(b.y + b.height - rest[1].y) <= 1 && Math.abs(b.height - rest[0].height) <= 1 ? b : null;
+        }, 5000, 100);
+        const others = await Promise.all([0, 1].map((i) => box(B, i)));
+        check(!!out && Math.abs(others[0].y - rest[0].y) <= 1 && Math.abs(others[1].y - rest[1].y) <= 1,
+          'the pointer on a card behind draws it out whole, its bottom on the top of the card in front of it, which stay where they were', { rest, out, others });
+        await shot('notice-cards-drawn-out');
+        await page.mouse.move(rest[2].x - 80, rest[2].y + 4, { steps: 6 });
+        const back = await until(async () => { const b = await box(B, 2); return b && Math.abs(b.y - rest[2].y) <= 1 ? b : null; }, 5000, 100);
+        check(!!back, 'and moving it away puts the card back', { rest: rest[2], now: await box(B, 2) });
+        /* Clicking A's card opens A. */
+        const a = await box(B, 3);
+        await page.mouse.move(a.x - 80, a.y + 4);
+        await page.mouse.move(a.x + 40, a.y + 4, { steps: 4 });
+        const aOut = await until(async () => { const b = await box(B, 3); return b && b.y < a.y - 20 ? b : null; }, 5000, 100);
+        if (aOut) await page.mouse.click(aOut.x + 40, aOut.y + aOut.height / 2);
+        const opened = await until(async () => { const t = (await claudeTabs()).find((x) => x.active); return t && titled(t.label.replace(ENVELOPE, ''), A.title) ? t : null; }, 15000, 300);
+        check(!!opened, 'clicking a card opens its conversation', await claudeTabs());
+        /* C waits, and is looked at. */
+        await exec('claude-vscode.editor.open', C.id);
+        await conversation(C, 60000);
+        await sleep(2500);
+        await exec('claude-vscode.editor.open', B.id);
+        const left = await titlesIn(B, (t) => !t.includes(C.title) && !t.includes(A.title), 15000);
+        check(JSON.stringify(left) === JSON.stringify(['Write the release notes', 'Fix the flaky build on main']),
+          'a card opened goes, and so does the card of a conversation looked at, though it still waits for the user', { now: (await stackIn(B)).titles, items });
+        /* Dismiss in B's panel. */
+        await dismissFront(B);
+        const dismissed = await titlesIn(B, (t) => t.length === 1, 10000);
+        check(JSON.stringify(dismissed) === JSON.stringify(['Fix the flaky build on main']), 'Dismiss on a card removes it', (await stackIn(B)).titles);
+
+        /* A second window, with a new conversation in front. */
+        fs.mkdirSync(folderC, { recursive: true });
+        fs.writeFileSync(path.join(folderC, 'notes-c.txt'), 'A file for the third window.\n');
+        fakeHome.writeThreads(profile.home, folderC, []);
+        const before = Date.now();
+        await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderC);
+        pageC = await w.pageOf(path.basename(folderC), 90000);
+        const hostC = pageC ? await w.hostUp(before, folderC).catch(() => null) : null;
+        if (!pageC || !hostC) throw new Error('the second window did not open');
+        w.pin(profile.folder);
+        await until(() => call(`const m = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(m && m.isActive);`, undefined, 60000, folderC), 60000, 1000);
+        await call('await vscode.commands.executeCommand("claude-vscode.editor.open"); return true;', undefined, 60000, folderC);
+        const pageOfC = async () => {
+          for (const f of pageC.frames()) {
+            try { if (await f.evaluate(() => !!document.querySelector('[role="textbox"][aria-label="Message input"]') && !document.hidden)) return f; } catch (_) { /* not ready */ }
+          }
+          return null;
+        };
+        const inC = await until(pageOfC, 60000, 500) ? pageOfC : null;
+        const sameC = inC ? await titlesIn(inC, (t) => t.length === 1, 30000) : null;
+        await needs(X[2], 'Rename the steward commands', 'waiting');
+        const bothB = await titlesIn(B, (t) => t.length === 2), bothC = inC ? await titlesIn(inC, (t) => t.length === 2) : null;
+        check(JSON.stringify(sameC) === JSON.stringify(['Fix the flaky build on main']) && !!bothB && JSON.stringify(bothB) === JSON.stringify(bothC),
+          'a second window shows the same cards, at once and as they come', { sameC, bothB, bothC });
+        await pageC.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-notice-cards-second-window.png`) }).catch(() => {});
+        await page.bringToFront().catch(() => {});
+        await dismissFront(B);
+        const goneC = inC ? await titlesIn(inC, (t) => t.length === 1 && t[0] === 'Fix the flaky build on main', 15000) : null;
+        check(!!goneC, 'a card dismissed in one window goes in the other', { b: (await stackIn(B)).titles, c: inC && (await stackIn(inC)).titles });
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderC).catch(() => {});
+        await until(async () => !(await w.pageOf(path.basename(folderC), 1000)), 20000, 500);
+        pageC = null;
+        w.pin(undefined);
+
+        /* A tab behind picks the cards up as it comes forward. */
+        await needs(X[3], 'Review the pull request', 'waiting');
+        await titlesIn(B, (t) => t[0] === 'Review the pull request');
+        await exec('claude-vscode.editor.open', A.id);
+        const picked = await titlesIn(A, (t) => t[0] === 'Review the pull request', 3000);
+        check(!!picked, 'a tab brought to the front shows the cards that came while it was behind, at once', (await stackIn(A)).titles);
+        await shot('notice-cards-tab-brought-forward');
+
+        /* No Claude Code panel on screen: VS Code's notification. */
+        await exec('workbench.action.closeAllEditors');
+        await exec('workbench.action.closeAuxiliaryBar');
+        await openNotes();
+        await exec('notifications.clearAll');
+        await needs(X[4], 'Plan the next release', 'waiting');
+        const popup = await until(async () => (await told(/^"Plan the next release" is waiting for you\.$/))[0] || '', 30000, 300);
+        check(!!popup, 'with no Claude Code panel on screen, VS Code\'s notification is shown instead', await toasts());
+        await shot('notice-cards-popup');
+      } finally {
+        clearInterval(beat);
+        model.release();
+        if (pageC) {
+          await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderC).catch(() => {});
+          await until(async () => !(await w.pageOf(path.basename(folderC), 1000)), 20000, 500);
+          w.pin(undefined);
+        }
+        await exec('agentPlus.dismissAttention').catch(() => {});
+        await setStyle(null).catch(() => {});
+        fs.rmSync(other, { force: true });
+        await exec('notifications.clearAll').catch(() => {});
+        await exec('workbench.action.closeAllEditors').catch(() => {});
       }
     });
 

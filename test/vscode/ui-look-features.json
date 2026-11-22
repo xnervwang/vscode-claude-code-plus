@@ -99,6 +99,7 @@
     { "id": "session-twice", "what": "A mark on a conversation that runs in two Claude Code processes at once.",
       "notShown": "needs a second Claude Code process for one conversation, which a single window does not make" },
     { "id": "remove-patch", "what": "Claude Code Plus: Remove from Claude Code restores Claude Code's original files.",
-      "commands": ["claudeCodePlus.remove"], "notShown": "it needs a reload, after which the remaining steps would run without the patch, and it rewrites the shared cache's copy of Claude Code" }
+      "commands": ["claudeCodePlus.remove"], "notShown": "it needs a reload, after which the remaining steps would run without the patch, and it rewrites the shared cache's copy of Claude Code" },
+    { "id": "notice-cards", "what": "Agent Plus's notices drawn as a stack of cards above the message input of every Claude Code panel, newest in front, a card behind drawn out under the pointer (with Agent Plus's agentPlus.notifications.style on panel)." }
   ]
 }

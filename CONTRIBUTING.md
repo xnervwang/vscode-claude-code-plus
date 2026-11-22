@@ -29,6 +29,7 @@ conversation source. Agent Plus's `docs/protocol.md` describes the interface.
 - `src/waiting.js` lists the running conversations with `claude agents --json`, merged by session.
 - `src/conversations.js` adds the stopped conversations whose plans have open rows, and gives each its title and state.
 - `src/page/91-answer.js` types an answer from Agent Plus into the conversation's message input.
+- `src/notices.js` sends Agent Plus's notices to every Claude Code panel of the window, and `src/page/95-notices.js` draws them there as a stack of cards with `agentPlusKit.noticeStack` from the shared page kit.
 - `src/bounded.js` reads a plan file only if it is a regular file under a size limit.
 - `build/plan-health.js` counts how current the plans on this machine are: stale `doing` rows, `waiting` rows that name nobody.
 - `src/python-runtime.js` looks for a Python 3 to run the hooks and, on a Windows machine without one, downloads one from python.org; `src/python-offer.js` asks about that download once per Python version on each machine.
@@ -103,6 +104,7 @@ The window checks these steps in order:
 - The session list has New in tab and New in sidebar, a pin and dates on each row, Resume in tab, Resume in sidebar and Text color in the right-click menu, and hover text for a row.
 - A conversation resumed in a tab has times on every message and reply, a bar on your own messages, the rail and its list, footer buttons and their hover text, and the information box. At the top of the session list, OPEN SESSIONS lists the conversation while its tab is open, and RECENTLY CLOSED lists it once the tab is closed. The times disappear and return when this extension is turned off and on.
 - The tab's logo has a green dot while a turn runs; when the reply lands with the tab in the background, the dot disappears, the tab title ends in an envelope, and its row in Open sessions shows the envelope and no dot. The dot is red while Claude Code waits for permission to run a command, and an idle conversation's tab has no dot and no envelope.
+- With Agent Plus's `agentPlus.notifications.style` on `panel`, Agent Plus's notices are cards above the message input: a conversation that finishes in a tab behind gets a card in the panel in front and no VS Code notification, a card behind slides out under the pointer, clicking a card opens its conversation, a card goes once its conversation is looked at or the card is dismissed, a second window shows the same cards, and VS Code's notification comes back when no Claude Code panel is on screen. These are checked only where the Agent Plus under test has that setting.
 - Delete session… asks for confirmation on an archived conversation. The window also checks Show Status, Settings, and the confirmation for Stop Loading the Work Plan Plugin.
 - Not covered by the window stage: the footer's filter for the main thread or one sub-agent, which only appears in a conversation that ran sub-agents; the sound of the chimes.
 
