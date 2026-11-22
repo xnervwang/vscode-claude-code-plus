@@ -11137,6 +11137,30 @@ console.log('\nthe window test\'s own parts');
     for (const k of listed) if (!keys.includes(k)) gaps.push(`${k} is not in package.json`);
   }
   expect(!gaps.length, 'every setting, command and view in package.json belongs to exactly one of those features', gaps.join('; '));
+  /* The same for Agent Plus's, against the Agent Plus found: the copy installed beside this one (VSCODE_EXTENSIONS, as
+     run.js runs this), AGENT_WORK_PLAN_DIR, or its checkout beside this repository. */
+  const apUsed = { settings: [], commands: [], views: [] };
+  for (const f of featureList) for (const kind of Object.keys(apUsed)) apUsed[kind].push(...(((f.agentPlus || {})[kind]) || []));
+  const apOther = JSON.parse(fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look-features.json'), 'utf8')).agentPlusOther || [];
+  const apListed = [...Object.values(apUsed).flat(), ...apOther.map((o) => o.key)];
+  const apGaps = [...new Set(apListed)].filter((k) => apListed.filter((x) => x === k).length !== 1).map((k) => `${k} is listed more than once`)
+    .concat(apOther.filter((o) => !ascii(o.why)).map((o) => `${o.key} says no why`));
+  const installedAp = (() => {
+    try { const d = fs.readdirSync(process.env.VSCODE_EXTENSIONS || '').filter((n) => /^xnervwang\.agent-plus-\d/.test(n)).sort().pop(); return d ? path.join(process.env.VSCODE_EXTENSIONS, d) : ''; } catch (_) { return ''; }
+  })();
+  const apDir = [installedAp, process.env.AGENT_WORK_PLAN_DIR, path.join(__dirname, '..', '..', 'vscode-agent-plus')]
+    .find((d) => d && fs.existsSync(path.join(d, 'package.json')));
+  const apPkg = apDir ? JSON.parse(fs.readFileSync(path.join(apDir, 'package.json'), 'utf8')) : null;
+  if (apPkg) {
+    const c = apPkg.contributes;
+    const has = { settings: Object.keys(c.configuration.properties), commands: c.commands.map((x) => x.command), views: Object.values(c.views || {}).flat().map((v) => v.id) };
+    const all = Object.values(has).flat();
+    for (const k of all) if (!apListed.includes(k)) apGaps.push(`${k} of Agent Plus is not listed`);
+    for (const [kind, keys] of Object.entries(apUsed)) for (const k of keys) if (!has[kind].includes(k)) apGaps.push(`${k} is not one of Agent Plus's ${kind}`);
+    for (const o of apOther) if (!all.includes(o.key)) apGaps.push(`${o.key} is not Agent Plus's`);
+  } else note('no Agent Plus found to hold the feature list\'s Agent Plus settings, commands and views against');
+  expect(!apGaps.length, `and every setting, command and view of Agent Plus${apPkg ? ` ${apPkg.version}` : ''} is listed once: under a feature that uses it, or in agentPlusOther with why it is not this extension's`,
+    apGaps.join('; '));
   const lookMd = (() => { try { return fs.readFileSync(path.join(__dirname, 'vscode', 'LOOK.md'), 'utf8'); } catch (_) { return null; } })();
   expect(lookMd !== null && lookMd.includes('look.json') && lookMd.includes('REVIEW.md') && !/[^\x09\x0a\x20-\x7e]/.test(lookMd),
     'and test/vscode/LOOK.md, in ASCII, tells the agent that reviews the pictures what to read and what to write');

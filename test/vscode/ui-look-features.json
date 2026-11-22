@@ -1,5 +1,5 @@
 {
-  "comment": "The features ui-look.js shows, one entry each: what it is, and the settings, commands and views of package.json that belong to it. Every step of ui-look.js names the features it shows. A feature that cannot be shown in a window says why in notShown and needs no step. test/check.js checks that every setting, command and view is listed here exactly once and that every other feature has a step.",
+  "comment": "The features ui-look.js shows, one entry each: what it is, and the settings, commands and views of package.json that belong to it. Every step of ui-look.js names the features it shows. A feature that cannot be shown in a window says why in notShown and needs no step. A feature that works through Agent Plus also names, under agentPlus, the settings, commands and views of Agent Plus's package.json it uses; agentPlusOther lists the rest of Agent Plus's, with why they are not this extension's. test/check.js checks that every setting, command and view is listed here exactly once, those of Agent Plus against the Agent Plus it can find, and that every other feature has a step.",
   "features": [
     { "id": "timestamps", "what": "A time on each of your messages and on every block of a reply, start->end on a tool call; Claude Code's own message times are hidden while these show.",
       "settings": ["claudeCodePlus.show.timestamps"] },
@@ -64,10 +64,21 @@
     { "id": "rename-without-marks", "what": "Renaming a conversation with a reply not read yet through its session list row's rename box: envelopes and crowns typed into the name are not stored, and it still shows exactly one envelope, last." },
     { "id": "long-title-envelope", "what": "A title too long for its row ends in an ellipsis in the session list and the Steward panel, and the envelope stays in view after it, at the row's end." },
     { "id": "light-envelope", "what": "In a light theme the envelope is drawn in its one-colour text form, readable on the light background, on the tab title and the session list rows." },
-    { "id": "work-plan-view", "what": "Agent Plus's work plan view in the side bar, showing the conversation's plan, read from the plan files this extension's plugin keeps." },
-    { "id": "conversations-view", "what": "Agent Plus's Conversations view at the bottom of the window, listing Claude Code conversations and their questions, and the Answer view for one question." },
-    { "id": "answer-typed", "what": "An answer sent from Agent Plus's Answer view arrives in the conversation as your own message." },
-    { "id": "token-mode", "what": "Agent Plus's token mode entry in the status bar; the info box names the mode." },
+    { "id": "work-plan-view", "what": "Agent Plus's work plan view in the side bar, showing the conversation's plan, read from the plan files this extension's plugin keeps.",
+      "agentPlus": { "settings": ["agentPlus.workPlanView"], "commands": ["agentPlus.refreshWorkPlan", "agentPlus.openWorkPlanFile", "agentPlus.showWorkPlanDetail"],
+        "views": ["agentPlus.workPlan"] } },
+    { "id": "conversations-view", "what": "Agent Plus's Conversations view at the bottom of the window, listing Claude Code conversations and their questions, and the Answer view for one question.",
+      "agentPlus": { "settings": ["agentPlus.conversationsView"], "commands": ["agentPlus.showConversations", "agentPlus.openConversation", "agentPlus.goToConversation"],
+        "views": ["agentPlus.conversations", "agentPlus.answer"] } },
+    { "id": "answer-typed", "what": "An answer sent from Agent Plus's Answer view arrives in the conversation as your own message.",
+      "agentPlus": { "commands": ["agentPlus.answerQuestion"] } },
+    { "id": "need-you-notices", "what": "Agent Plus's notice, with Open and Dismiss, when a Claude Code conversation not in front starts to wait for you or stops with a reply not read yet, and its count of those conversations in the status bar; none for the conversation in front.",
+      "agentPlus": { "settings": ["agentPlus.notifications.enabled", "agentPlus.notifications.finished", "agentPlus.notifications.waiting"],
+        "commands": ["agentPlus.showAttention", "agentPlus.openAttention"] } },
+    { "id": "agent-plus-status", "what": "Agent Plus: Show Status names this extension's Claude Code source and the folder of its plans.",
+      "agentPlus": { "commands": ["agentPlus.showStatus"] } },
+    { "id": "token-mode", "what": "Agent Plus's token mode entry in the status bar; the info box names the mode.",
+      "agentPlus": { "settings": ["agentPlus.tokenMode"], "commands": ["agentPlus.chooseTokenMode"] } },
     { "id": "settings-command", "what": "Claude Code Plus: Settings opens VS Code's settings at this extension's own.",
       "commands": ["claudeCodePlus.openSettings"] },
     { "id": "show-status", "what": "Claude Code Plus: Show Status says whether Claude Code's two files are patched, and the token mode.",
@@ -85,7 +96,7 @@
       "settings": ["claudeCodePlus.workPlan", "claudeCodePlus.workPlanOfferMinTurns", "claudeCodePlus.workPlanOfferMinToolCalls", "claudeCodePlus.workPlanQuietWhenReplyMatches"],
       "notShown": "text added to Claude's context; nothing is drawn" },
     { "id": "conversation-brief", "what": "Each conversation is asked to keep a brief of itself, which Agent Plus shows on a click.",
-      "settings": ["claudeCodePlus.conversationBrief"], "notShown": "the request is text in Claude's context, and the brief exists only once a live model has written one" },
+      "settings": ["claudeCodePlus.conversationBrief"], "agentPlus": { "commands": ["agentPlus.showBrief"] }, "notShown": "the request is text in Claude's context, and the brief exists only once a live model has written one" },
     { "id": "time-zone-note", "what": "Claude is told the time zone the panel is read in.",
       "settings": ["claudeCodePlus.tellClaudeYourTimeZone"], "notShown": "text added to Claude's context" },
     { "id": "detached-end-notices", "what": "The conversation is told when a command it left running detached stops, and when a background session ends.",
@@ -100,5 +111,9 @@
       "notShown": "needs a second Claude Code process for one conversation, which a single window does not make" },
     { "id": "remove-patch", "what": "Claude Code Plus: Remove from Claude Code restores Claude Code's original files.",
       "commands": ["claudeCodePlus.remove"], "notShown": "it needs a reload, after which the remaining steps would run without the patch, and it rewrites the shared cache's copy of Claude Code" }
+  ],
+  "agentPlusOther": [
+    { "key": "agentPlus.webviewRequestLimit", "why": "VS Code's own limit on requests in flight for webview tabs, which Agent Plus edits in VS Code's files; nothing of this extension's" },
+    { "key": "agentPlus.restoreWebviewRequestLimit", "why": "puts that limit back" }
   ]
 }

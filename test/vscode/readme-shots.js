@@ -5,7 +5,7 @@
 'use strict';
 /*
  * Usage: xvfb-run -a -s "-screen 0 3200x2000x24" node test/vscode/readme-shots.js --pack <dir> --vsix <file>
- *          [--out <dir>] [--cache <dir>] [<shot> ...]
+ *          [--core <Agent Plus .vsix>] [--out <dir>] [--cache <dir>] [<shot> ...]
  *
  * Takes the README's screenshots in a separate VS Code install: the current stable release, with the latest Claude Code
  * build that supported-versions.json lists, Agent Plus from the marketplace and this extension from --vsix, so a
@@ -34,10 +34,10 @@ const ONLY = opt.rest.filter((a) => SHOTS.includes(a));
 
 async function main() {
   if (!fs.existsSync(path.join(opt.pack, 'pack.json')) || !fs.existsSync(opt.vsix)) {
-    throw new Error('usage: readme-shots.js --pack <dir with pack.json> --vsix <claude-code-plus .vsix> [--out <dir>] [--cache <dir>] [<shot> ...]');
+    throw new Error('usage: readme-shots.js --pack <dir with pack.json> --vsix <claude-code-plus .vsix> [--core <Agent Plus .vsix>] [--out <dir>] [--cache <dir>] [<shot> ...]');
   }
   fs.mkdirSync(OUT, { recursive: true });
-  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, cache: opt.cache, root: ROOT, salt: 'readme-shots' });
+  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: 'readme-shots' });
   const { page, conv, sid, exec, frameWhere, body, editor, sidebar, focus, widen, toMessage, away, quiet } = d;
   const snap = async (name, clip) => {
     await quiet();
