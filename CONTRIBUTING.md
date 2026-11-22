@@ -149,6 +149,26 @@ To retake the screenshots in `images/shots/`, run `test/vscode/readme-shots.js` 
 NODE_PATH=<folder>/node_modules xvfb-run -a -s '-screen 0 3200x2000x24' node test/vscode/readme-shots.js --pack <demo pack> --vsix <the .vsix> [<shot> ...]
 ```
 
+### Pictures for an agent to review
+
+`test/vscode/ui-look.js` opens the same demo window as `readme-shots.js`, with the same dependencies and demo pack. Run it on your own machine. It never runs in CI and does not call a model.
+
+```sh
+NODE_PATH=<folder>/node_modules xvfb-run -a -s '-screen 0 3200x2000x24' node test/vscode/ui-look.js --pack <demo pack> --vsix <the .vsix> --out <dir> [<step> ...]
+```
+
+A full run takes the window through 84 steps, at least one for each feature in `test/vscode/ui-look-features.json` that can be shown in a window. The file lists 51 features and gives the reason for each of the ten that cannot be shown. To list the steps for each feature without opening a window, run `node test/vscode/ui-look.js --features`. It takes about nine minutes once VS Code and Claude Code are in the cache.
+
+To run it at the same time as `readme-shots.js`, give each script its own `--cache` folder.
+
+For each step, the script saves a close-up of the part of the window under review and a picture of the whole window in the `--out` folder. `look.json` says what each close-up should show and lists the log lines and notifications since the previous step. Notifications stay on screen because an unexpected notification is a finding. The script copies `test/vscode/LOOK.md` beside `look.json`.
+
+Give the folder to a coding agent that can read images and ask it to follow `LOOK.md`. At each step, the agent checks the expected result and looks for anything unexpected, such as overlap, cut-off text or an error notification.
+
+That comes to about 250 pictures, more than one agent session can read. `LOOK.md` has a fresh session review each range of at most 12 steps and merges the parts into `REVIEW.md` in the output folder.
+
+`test/check.js` checks that each step has a unique name and the text its pictures need, and that each feature has a step or a reason it cannot be shown. Every setting, command and view in `package.json` must belong to exactly one feature. When you add a setting or command, include a step or a reason in the same change.
+
 ## The record of verified builds
 
 `supported-versions.json` records the Claude Code builds **this commit** was verified to patch. Someone using an older build can use the record to find a commit that works with it.

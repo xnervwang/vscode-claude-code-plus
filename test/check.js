@@ -10161,14 +10161,18 @@ console.log('\nthe workflow in a real VS Code window');
       'and that folder is kept as an artifact whether the run passed or not');
     expect(runner.includes("process.env.CLAUDE_CODE_PLUS_UI_OFFLINE === 'require'"), 'run.js reads the variable the workflow sets to require the network cut off');
     const screens = (text) => [...new Set((text.match(/-screen 0 \d+x\d+x\d+/g) || []))];
-    /* readme-shots.js needs a larger screen, given in its usage line. */
-    const shotLines = (text) => text.split('\n').filter((l) => l.includes('readme-shots.js')).join('\n');
-    const testLines = contributing.split('\n').filter((l) => !l.includes('readme-shots.js')).join('\n');
+    /* readme-shots.js and ui-look.js need a larger screen, given in their usage lines. */
+    const DEMO = { 'readme-shots.js': 'the README screenshots', 'ui-look.js': 'the pictures for an agent to look at' };
+    const linesOf = (text, name) => text.split('\n').filter((l) => l.includes(name)).join('\n');
+    const testLines = contributing.split('\n').filter((l) => !Object.keys(DEMO).some((n) => l.includes(n))).join('\n');
     expect(JSON.stringify(screens(testLines)) === JSON.stringify(screens(ui)) && screens(ui).length === 1,
       'CONTRIBUTING.md starts Xvfb with the screen the workflow uses', JSON.stringify([screens(ui), screens(testLines)]));
-    const shooter = fs.readFileSync(path.join(__dirname, 'vscode', 'readme-shots.js'), 'utf8');
-    expect(screens(shotLines(contributing)).length === 1 && JSON.stringify(screens(shotLines(contributing))) === JSON.stringify(screens(shotLines(shooter))),
-      'and the README screenshots with the screen readme-shots.js asks for', JSON.stringify([screens(shotLines(shooter)), screens(shotLines(contributing))]));
+    for (const [name, what] of Object.entries(DEMO)) {
+      const script = fs.readFileSync(path.join(__dirname, 'vscode', name), 'utf8');
+      const asked = screens(linesOf(script, name)), given = screens(linesOf(contributing, name));
+      expect(given.length === 1 && JSON.stringify(given) === JSON.stringify(asked),
+        `and ${what} with the screen ${name} asks for`, JSON.stringify([asked, given]));
+    }
   }
 }
 
@@ -10236,6 +10240,41 @@ console.log('\nthe window test\'s own parts');
   other.data[0] = TOLERANCE.channel; other.data[4] = 10 + TOLERANCE.channel + 1;
   const d = diff(img, other, [{ x: 2, y: 0, w: 1, h: 2 }]);
   expect(d.differ === 1 && d.compared === 4, 'the comparison counts a pixel as different only past the tolerance, and skips the masks', JSON.stringify([d.differ, d.compared]));
+
+  /* ui-look.js runs only on someone's own machine, so its steps and its list of features are checked here. A setting,
+     command or view added to package.json then needs a step that shows it, or a reason it cannot be shown in a window.
+     The step names become file names, and the texts go to another agent, which reads nothing else about the step. */
+  const { STEPS } = require('./vscode/ui-look');
+  const featureList = JSON.parse(fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look-features.json'), 'utf8')).features;
+  const ids = featureList.map((f) => f.id);
+  const names = STEPS.map((s) => s.name);
+  const ascii = (t) => typeof t === 'string' && !!t.trim() && !/[^\x20-\x7e]/.test(t);
+  const odd = STEPS.filter((s) => !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(s.name || '') || typeof s.act !== 'function' || !ascii(s.expect)
+    || (s.unchanged != null && !ascii(s.unchanged)) || !Array.isArray(s.features) || !s.features.length).map((s) => s.name);
+  expect(names.length > 0 && new Set(names).size === names.length && !odd.length,
+    'every step of test/vscode/ui-look.js has a name of its own, the features it shows, a function that sets the window up, and ASCII texts saying what its picture should show',
+    JSON.stringify({ steps: names.length, distinct: new Set(names).size, odd }));
+  const strangers = STEPS.flatMap((s) => s.features.filter((f) => !ids.includes(f)).map((f) => `${s.name}: ${f}`));
+  expect(new Set(ids).size === ids.length && featureList.every((f) => ascii(f.what)) && !strangers.length,
+    'each names only features that test/vscode/ui-look-features.json lists, once each and with what the feature is', strangers.join(', '));
+  const shownBy = new Set(STEPS.flatMap((s) => s.features));
+  const unshown = featureList.filter((f) => f.notShown === undefined && !shownBy.has(f.id)).map((f) => f.id);
+  const reasonless = featureList.filter((f) => f.notShown !== undefined && !ascii(f.notShown)).map((f) => f.id);
+  expect(!unshown.length && !reasonless.length, 'and every feature there has a step that shows it, or says why it cannot be shown in a window',
+    JSON.stringify({ unshown, reasonless }));
+  const contributed = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).contributes;
+  const declared = { settings: Object.keys(contributed.configuration.properties), commands: contributed.commands.map((c) => c.command),
+    views: Object.values(contributed.views || {}).flat().map((v) => v.id) };
+  const gaps = [];
+  for (const [kind, keys] of Object.entries(declared)) {
+    const listed = featureList.flatMap((f) => f[kind] || []);
+    for (const k of keys) { const n = listed.filter((x) => x === k).length; if (n !== 1) gaps.push(`${k} is listed ${n} times`); }
+    for (const k of listed) if (!keys.includes(k)) gaps.push(`${k} is not in package.json`);
+  }
+  expect(!gaps.length, 'every setting, command and view in package.json belongs to exactly one of those features', gaps.join('; '));
+  const lookMd = (() => { try { return fs.readFileSync(path.join(__dirname, 'vscode', 'LOOK.md'), 'utf8'); } catch (_) { return null; } })();
+  expect(lookMd !== null && lookMd.includes('look.json') && lookMd.includes('REVIEW.md') && !/[^\x09\x0a\x20-\x7e]/.test(lookMd),
+    'and test/vscode/LOOK.md, in ASCII, tells the agent that reviews the pictures what to read and what to write');
 }
 
 console.log('\nplan rows in unknown states');
