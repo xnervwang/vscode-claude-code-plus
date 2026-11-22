@@ -1,5 +1,5 @@
 {
-  "core": "c339d8f047b7ce1e10990dddb69670c0ccf12816",
+  "core": "91acb4435a1b962e6be36d035a68eecc08aa87ac",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -151,6 +151,11 @@
       "path": "src/envelope.js",
       "from": "src/envelope.js",
       "sha256": "53cc30e27783dd13f41c0dfd4895ba7b853c02bf5e0eb67fd9cf345d6cac5c9b"
+    },
+    {
+      "path": "src/title-marks.js",
+      "from": "src/title-marks.js",
+      "sha256": "f2cdb28fb964cc0ae7b41c12559ded6ada46dccf8c250726d454533c171a09ab"
     }
   ]
 }
