@@ -172,7 +172,9 @@ async function open({ pack, vsix, core, cache, root, salt, settings, prepare }) 
     cp.spawnSync('sh', ['-c', 'setsid sleep 1800 < /dev/null > /dev/null 2>&1 &'], { env: { ...env, CLAUDE_CODE_SESSION_ID: sid }, cwd: p.folder, stdio: 'ignore' });
   }
   let w = null;
+  let trustTick = null;
   const close = async () => {
+    if (trustTick) clearInterval(trustTick);
     if (w) await w.close();
     await model.close();
     for (const pid of sleepers()) { try { process.kill(pid, 'SIGTERM'); } catch (_) { /* gone */ } }
@@ -181,6 +183,17 @@ async function open({ pack, vsix, core, cache, root, salt, settings, prepare }) 
   try {
     w = await win.open({ exe, profile: p, env, playwright, log: path.join(root, 'vscode-window.log') });
     const { page, call } = w;
+    /* Codex Plus installs its work plan plugin into the run's own Codex folder and then asks, in a modal dialog that holds
+       every click, to trust the plugin's hooks; it is answered as on a machine where they are trusted. */
+    let trustSaid = false;
+    trustTick = setInterval(() => {
+      page.evaluate(() => {
+        const box = [...document.querySelectorAll('.monaco-dialog-box')].find((b) => b.textContent.includes('Trust the work plan hooks in Codex?'));
+        const go = box && [...box.querySelectorAll('.monaco-button')].find((x) => x.textContent.trim() === 'Trust them');
+        if (go) go.click();
+        return !!go;
+      }).then((hit) => { if (hit && !trustSaid) { trustSaid = true; log('trusted the hooks Codex Plus asked about, in the run\'s Codex folder'); } }).catch(() => {});
+    }, 500);
     const exec = (command, ...a) => call(`await vscode.commands.executeCommand(${JSON.stringify(command)}, ...arg); return true;`, a);
     const frameWhere = (test, ms, arg) => until(async () => {
       for (const f of page.frames()) { try { if (await f.evaluate(test, arg)) return f; } catch (_) { /* not ready, or gone */ } }
