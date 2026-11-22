@@ -116,4 +116,45 @@ async function open({ exe, profile, env, playwright, log }) {
   return { browser, page, call, reload, hostUp, pageOf, pin, close, proc };
 }
 
-module.exports = { open, until, sleep, SECRETS };
+/* The width of the primary side bar of `page`'s window, or null while it is hidden. */
+const sideWidth = (page) => page.evaluate(() => {
+  const e = document.getElementById('workbench.parts.sidebar');
+  return e && e.offsetWidth ? e.getBoundingClientRect().width : null;
+});
+
+/* Drags the side bar's sash until the side bar is `to` px wide, either way. */
+async function sideTo(page, to) {
+  const sb = await page.evaluate(() => {
+    const e = document.getElementById('workbench.parts.sidebar');
+    if (!e || !e.offsetWidth) return null;
+    const b = e.getBoundingClientRect();
+    return { x: b.left, width: b.width };
+  });
+  if (!sb || Math.abs(sb.width - to) < 4) return;
+  const sash = await page.evaluate((edge) => {
+    const b = [...document.querySelectorAll('.monaco-sash.vertical')].map((e) => e.getBoundingClientRect())
+      .find((r) => r.height > 200 && Math.abs(r.left + r.width / 2 - edge) < 6);
+    return b ? { x: b.left + b.width / 2, y: b.top + b.height / 2 } : null;
+  }, sb.x + sb.width);
+  if (!sash) return;
+  await page.mouse.move(sash.x, sash.y);
+  await sleep(200);
+  await page.mouse.down();
+  await page.mouse.move(sash.x + (to - sb.width), sash.y, { steps: 10 });
+  await page.mouse.up();
+  await sleep(500);
+}
+
+/*
+ * Brings the window of the VS Code at `exe` that has `folder` open to the front, as Claude Code Plus brings any window
+ * there: VS Code's command line opening that folder, with that VS Code's user data folder `user`. `env` must be one
+ * without a VSCODE_IPC_HOOK_CLI of another VS Code (lib/env.js), which the command line would otherwise talk to.
+ */
+function frontWindow(exe, user, folder, env) {
+  const [cli] = require('@vscode/test-electron').resolveCliArgsFromVSCodeExecutablePath(exe, { reuseMachineInstall: true });
+  const quote = (a) => (process.platform === 'win32' ? `"${a}"` : a);
+  return require('child_process').spawnSync(quote(cli), ['--user-data-dir', user, folder].map(quote),
+    { env, encoding: 'utf8', shell: process.platform === 'win32', timeout: 30000 });
+}
+
+module.exports = { open, until, sleep, sideTo, sideWidth, frontWindow, SECRETS };

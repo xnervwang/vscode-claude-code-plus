@@ -12750,10 +12750,14 @@ const repo = path.join(__dirname, '..');
         { type: 'text', text: `Please ${fakeModel.ASK_TO_BACKGROUND}.` }] }] })).text);
     eq([refused[1].content_block.name, JSON.parse(refused[2].delta.partial_json).command], ['Bash', fakeModel.BG_RUN],
       'a message typed after a refused tool call, which arrives with the refusal, is still answered');
+    const chosen = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_FOR_CHOICE}.` }] })).text);
+    const choiceInput = JSON.parse(chosen[2].delta.partial_json);
+    eq([chosen[1].content_block.name, choiceInput.questions.length, choiceInput.questions[0].question, choiceInput.questions[0].options.map((o) => o.label)],
+      ['AskUserQuestion', 1, fakeModel.CHOICE.question, fakeModel.CHOICE.options], 'a message asking to be asked gets an AskUserQuestion call with one question and its options');
     const counted = await post('/v1/messages/count_tokens', { messages: [] });
     const other = await post('/v1/models', {});
     eq([counted.status, JSON.parse(counted.text).input_tokens > 0, other.status], [200, true, 404], 'it counts tokens, and answers nothing else');
-    eq(m.turns(), 7, 'and counts only the streamed turns');
+    eq(m.turns(), 8, 'and counts only the streamed turns');
   } catch (e) {
     bad(`the fake model: ${(e && e.stack) || e}`);
   } finally { await m.close(); }
