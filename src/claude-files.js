@@ -218,7 +218,21 @@ function oneAtATime(run, merge = (a, b) => Object.assign({}, a, b)) {
   };
 }
 
+/*
+ * Whether `dir`, the name of a folder under projects/, is the one Claude Code files the conversations of working
+ * directory `folder` under: every character but a letter or digit becomes a hyphen, and a name longer than 200
+ * characters is cut there and given a hash of Claude Code's own, so only its first 200 characters can be compared.
+ * Where file names ignore case, so does Claude Code's lookup.
+ */
+function filedUnder(dir, folder) {
+  const fold = process.platform === 'win32' || process.platform === 'darwin' ? (t) => t.toLowerCase() : (t) => t;
+  const name = fold(String(folder || '').replace(/[^a-zA-Z0-9]/g, '-'));
+  const d = fold(String(dir || ''));
+  if (!name || !d) return false;
+  return name.length <= 200 ? d === name : d.startsWith(name.slice(0, 200) + '-');
+}
+
 module.exports = {
   claudeDir, projectsDir, planDir, dataRoot, PLAN_DIR, SESSION, projectFolders, transcriptOf, liveSessions,
-  readLines, oneAtATime, writeAtomic, MISS_MS, CHUNK,
+  readLines, oneAtATime, writeAtomic, filedUnder, MISS_MS, CHUNK,
 };

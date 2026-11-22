@@ -928,6 +928,7 @@ function start(context, log, renamed, handing = false) {
       return vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, undefined, { programmatic: 'pin-to-panel' });
     },
     shows: (id) => claude.source.canDeliver(id) && answersReady.has(id),
+    tabOpen: (id) => shownList().includes(id),
     deliver: (id, words) => claude.source.deliverAnswer(id, words, {}),
   });
   const steward = stewardView.create(vscode, {

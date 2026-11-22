@@ -9725,8 +9725,9 @@ console.log('\nthe Steward panel');
         put(R(7), { action: 'rename', to: S(2), text: 'Only a message' });
         put(R(8), { action: 'open', steward: S(9), to: '/w/proj', text: 'Start on the parser' });
         put(R(9), { action: 'delete', to: S(2), text: '' });
+        put(R('c'), { action: 'open', to: '/w/lib', text: 'Start on the parser' });
         const did = [];
-        const deps = { shownHere: () => true, hasFolder: (f) => f === '/w/proj', stewards: () => table,
+        const deps = { shownHere: () => true, folders: () => ['/w/proj', '/w/lib'], stewards: () => table,
           transcriptOf: (id) => (id === S(1) || id === S(9) || id === S('c') ? ${JSON.stringify(transcript)} : ''), pid: 78, now: () => now, sleep: async () => {},
           deliver: async (id, text) => { did.push(['send', id, text]); return { outcome: 'submitted' }; },
           rename: async (id, title) => { did.push(['rename', id, title]); return { outcome: 'submitted' }; },
@@ -9746,10 +9747,10 @@ console.log('\nthe Steward panel');
       if (did && JSON.stringify(did) === JSON.stringify(want) && results[R(3)][1] === 'refused' && results[R(7)][1] === 'refused'
           && results[R(8)][1] === 'refused' && results[R(9)][1] === 'refused' && results[R(4)][2] === S(7) && results[R(4)][3] === true
           && results[R('a')][1] === 'submitted' && results[R('a')][3] === false && results[R('b')][1] === 'notReceived' && results[R('b')][3] === false
-          && left.includes(R(5) + '.json') && !left.includes(R(4) + '.json')) {
+          && left.includes(R(5) + '.json') && left.includes(R('c') + '.json') && !left.includes(R(4) + '.json')) {
         ok('a window renames, closes and opens for the steward that ran the script so, gives the new conversation\'s id back and ticks it for that steward, '
           + 'though not for a steward of all conversations nor after an open that failed, '
-          + 'leaves an open for a folder it does not have to another window, and refuses a close not confirmed in the command, a title the steward did not send, '
+          + 'leaves an open for a folder that is not its first folder (Claude Code starts a new conversation there) to another window, and refuses a close not confirmed in the command, a title the steward did not send, '
           + 'an open from a conversation that is no steward and an action there is none of');
       } else bad(`steward actions gave ${JSON.stringify(acted)}`);
 
@@ -9825,17 +9826,30 @@ console.log('\nthe Steward panel');
     {
       const relay = require('../src/relay');
       const xdir = path.join(root, 'relay-resume'), tdir = path.join(root, 'relay-resume-transcripts');
-      const work = path.join(root, 'relay-resume-work'), proj = path.join(work, 'proj'), sub = path.join(proj, 'pkg');
+      // Real paths: Claude Code files a conversation under the folder it ran in, and the temporary folder can itself sit
+      // under a symbolic link (macOS) or a short name (Windows) that a window's real path would not match.
+      fs.mkdirSync(path.join(root, 'relay-resume-work'), { recursive: true });
+      const work = fs.realpathSync.native(path.join(root, 'relay-resume-work')), proj = path.join(work, 'proj'), sub = path.join(proj, 'pkg');
       const elsewhere = path.join(work, 'other'), sibling = path.join(work, 'proj-old'), link = path.join(work, 'link');
       for (const d of [path.join(xdir, relay.RELAY_DIR), tdir, sub, elsewhere, sibling]) fs.mkdirSync(d, { recursive: true });
       let linked = true;
       try { fs.symlinkSync(proj, link, 'dir'); } catch (_) { linked = false; }
       const now = Date.now(), iso = (ms) => new Date(ms).toISOString();
-      const T = (id) => path.join(tdir, id + '.jsonl');
-      const started = (id, cwd) => fs.writeFileSync(T(id), JSON.stringify({ type: 'user', uuid: 'h-' + id, timestamp: iso(now - 600000), cwd, sessionId: id,
-        message: { role: 'user', content: 'Earlier work' } }) + '\n');
-      started(S(3), proj); started(S(4), sub); started(S(5), elsewhere); started(S(6), linked ? path.join(link, 'pkg') : sub);
-      started(S(7), sub); started(S(8), proj); started(S(0), sub); started('5e5e5e5e-0000-4000-8000-00000000000a', sibling);
+      /* Claude Code keeps a conversation in projects/<its folder, with every character but a letter or digit a hyphen>. */
+      const filed = {}, fileName = (cwd) => cwd.replace(/[^a-zA-Z0-9]/g, '-');
+      const T = (id) => path.join(tdir, filed[id] || 'stewards', id + '.jsonl');
+      fs.mkdirSync(path.join(tdir, 'stewards'), { recursive: true });
+      const record = (id, cwd, uuid, ms) => JSON.stringify({ type: 'user', uuid, timestamp: iso(ms), cwd, sessionId: id,
+        message: { role: 'user', content: 'Earlier work' } }) + '\n';
+      const started = (id, cwd, kept = cwd) => {
+        filed[id] = fileName(kept);
+        fs.mkdirSync(path.join(tdir, filed[id]), { recursive: true });
+        fs.writeFileSync(T(id), record(id, cwd, 'h-' + id, now - 600000) + (kept !== cwd ? record(id, kept, 'k-' + id, now - 300000) : ''));
+      };
+      started(S(3), proj); started(S(4), proj); started(S(5), elsewhere); started(S(6), proj);
+      started(S(7), proj); started(S(8), proj); started(S(0), proj); started('5e5e5e5e-0000-4000-8000-00000000000a', sibling);
+      // Started in another folder and resumed in this one: Claude Code copied its old records, with their old cwd, to here.
+      started(S('d'), elsewhere, proj); started(S('b'), sub);
       const call = (uuid, id, command) => ({ type: 'assistant', uuid, timestamp: iso(now - 30000), isSidechain: false,
         message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command, description: 'x' } }] } });
       const py = 'python3 /p/hooks/steward-relay.py';
@@ -9861,15 +9875,26 @@ console.log('\nthe Steward panel');
         ok('a resume or handoff request counts only with a call whose line runs the script with that flag, and such a call is no plain send');
       } else bad(`resume and handoff calls read ${JSON.stringify(flagged)}`);
 
-      /* Which window takes a resume: one with a folder holding the folder the conversation was started in. */
+      /* Which window takes a resume: the one where Claude Code finds the conversation, whose first folder is the one the
+         conversation is kept under. */
       const find = (id) => (fs.existsSync(T(id)) ? T(id) : '');
-      const inside = [relay.startedIn(S(4), [proj], find), relay.startedIn(S(4), [sub], find), relay.startedIn(S(5), [proj], find),
-        relay.startedIn('5e5e5e5e-0000-4000-8000-00000000000a', [proj], find), relay.startedIn(S(9) + '0', [proj], find)];
-      const through = linked ? [relay.startedIn(S(4), [link], find), relay.startedIn(S(6), [proj], find)] : [true, true];
-      if (JSON.stringify(inside) === JSON.stringify([true, true, false, false, false]) && through.every(Boolean)) {
-        ok('a resume is for a window with the conversation\'s folder or a folder above it open, also through a symbolic link on either side; '
-          + 'not for another folder, nor one whose name only starts the same, nor a conversation with no transcript');
-      } else bad(`folder matching for a resume: ${JSON.stringify({ inside, through, linked })}`);
+      const inside = [relay.opensHere(S(4), [proj], find), relay.opensHere(S(4), [proj, elsewhere], find), relay.opensHere(S(4), [elsewhere, proj], find),
+        relay.opensHere(S(4), [sub], find), relay.opensHere(S('b'), [proj], find), relay.opensHere(S(5), [proj], find),
+        relay.opensHere('5e5e5e5e-0000-4000-8000-00000000000a', [proj], find), relay.opensHere(S(9) + '0', [proj], find),
+        relay.opensHere(S('d'), [proj], find), relay.opensHere(S('d'), [elsewhere], find)];
+      const through = linked ? [relay.opensHere(S(4), [link], find)] : [true];
+      const { transcriptCwd } = require('../src/conversations');
+      const { filedUnder } = require('../src/claude-files');
+      const long = '/w/' + 'x'.repeat(240);
+      const names = [filedUnder(fileName(long).slice(0, 200) + '-1a2b3c', long), filedUnder(fileName(long).slice(0, 200) + '-1a2b3c', long + 'y'),
+        filedUnder(fileName(long), long), filedUnder('-w-proj', '/w/proj'), filedUnder('-w-proj', '/w/proj-old')];
+      if (JSON.stringify(inside) === JSON.stringify([true, true, false, false, false, false, false, false, true, false]) && through.every(Boolean)
+          && transcriptCwd(T(S('d'))) === proj && transcriptCwd(T(S(5))) === elsewhere
+          && JSON.stringify(names) === JSON.stringify([true, true, false, true, false])) {
+        ok('a resume is for the window whose first folder is the one the conversation is kept under, also through a symbolic link, '
+          + 'and a conversation resumed in another folder belongs to that one, though its first records say where it was started; '
+          + 'not for a window with that folder second, one with a folder above or below it, another folder, nor a conversation with no transcript');
+      } else bad(`folder matching for a resume: ${JSON.stringify({ inside, through, linked, moved: transcriptCwd(T(S('d'))), names })}`);
       if (!linked) note('symbolic links could not be made here, so matching through one was not checked');
 
       /* What counts as another process running it. */
@@ -9888,12 +9913,12 @@ console.log('\nthe Steward panel');
       /* A window opens the conversation, waits for its panel, and only then sends; text not received is tried again. */
       const opened = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
         const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
-        const run = async (text, { showAfter = 2, notIn = 2, opens = true, answer } = {}) => {
+        const run = async (text, { showAfter = 2, notIn = 2, opens = true, answer, tabAt = Infinity } = {}) => {
           let t = 0, polls = 0, tries = 0;
           const log = [];
           const r = await relay.resume('S', text, { now: () => t, sleep: async (ms) => { t += ms; },
             open: async (id) => { log.push('open ' + id); if (!opens) throw new Error('no such command'); },
-            shows: () => ++polls > showAfter,
+            shows: () => ++polls > showAfter, tabOpen: () => t >= tabAt,
             deliver: async (id, words) => { log.push('send ' + words); return answer ? answer : ++tries > notIn ? { outcome: 'submitted' }
               : { outcome: 'notReceived', reason: 'the panel has no message input' }; } });
           return { r, log, waited: t };
@@ -9901,7 +9926,9 @@ console.log('\nthe Steward panel');
         (async () => process.stdout.write(JSON.stringify({
           sent: await run('Go on'), bare: await run(''), never: await run('Go on', { showAfter: 1e9 }),
           broken: await run('Go on', { opens: false }), unsure: await run('Go on', { answer: { outcome: 'uncertain', reason: 'the panel did not report' } }),
-          stuck: await run('Go on', { notIn: 1e9 }) })))().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`],
+          stuck: await run('Go on', { notIn: 1e9 }),
+          slow: await run('Go on', { showAfter: 120, tabAt: 1000 }), loading: await run('Go on', { showAfter: 1e9, tabAt: 1000 }) })))()
+          .catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`],
         { encoding: 'utf8', timeout: 30000 }));
       const o = opened;
       if (o.sent && JSON.stringify(o.sent.r) === JSON.stringify({ outcome: 'submitted', opened: true })
@@ -9910,9 +9937,14 @@ console.log('\nthe Steward panel');
           && o.never.r.outcome === 'uncertain' && !o.never.r.opened && o.never.log.length === 1 && o.never.waited >= relay.RESUME_SHOW_MS
           && o.broken.r.outcome === 'notReceived' && /could not open it: no such command/.test(o.broken.r.reason) && o.broken.log.length === 1
           && o.unsure.r.outcome === 'uncertain' && o.unsure.r.opened === true && o.unsure.log.length === 2
-          && o.stuck.r.outcome === 'notReceived' && o.stuck.r.opened === true && o.stuck.waited >= relay.RESUME_SEND_MS) {
+          && o.stuck.r.outcome === 'notReceived' && o.stuck.r.opened === true && o.stuck.waited >= relay.RESUME_SEND_MS
+          && o.never.r.reason === 'Claude Code was asked to open it, but no tab here showed it within 30 seconds'
+          && o.slow.r.outcome === 'submitted' && o.slow.r.opened === true && o.slow.waited > relay.RESUME_SHOW_MS
+          && o.loading.r.outcome === 'uncertain' && o.loading.r.opened === true && o.loading.waited >= relay.RESUME_LOAD_MS
+          && /^its tab here opened, but the conversation had not loaded within 180 seconds$/.test(o.loading.r.reason)) {
         ok('a resumed conversation is opened once and sent the text only after its panel shows it; text the panel did not take is tried again '
-          + 'for a while, an unclear send is not, and with no text opening is all');
+          + 'for a while, an unclear send is not, and with no text opening is all; a long one whose tab is open gets minutes to load, '
+          + 'and with no tab at all it is given up after half a minute');
       } else bad(`resuming in a window: ${JSON.stringify(o)}`);
 
       /* The window's side of resume requests. */
@@ -9922,7 +9954,8 @@ console.log('\nthe Steward panel');
         const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
         const dir = ${JSON.stringify(xdir)}, S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, now = ${now};
         const R = (n) => 'cccccccc-0000-4000-8000-00000000000' + n;
-        const T = (id) => path.join(${JSON.stringify(tdir)}, id + '.jsonl');
+        const filed = ${JSON.stringify(filed)};
+        const T = (id) => path.join(${JSON.stringify(tdir)}, filed[id] || 'stewards', id + '.jsonl');
         const words = ${JSON.stringify(words)};
         // S(1) is a steward of S(2) only, S('c') a steward of all; S(4) to S(8) and S(0) are managed by nobody.
         const table = { [S(1)]: { manages: [S(2)], names: { [S(2)]: 'Parser work' }, at: 0, all: false },
@@ -9939,7 +9972,7 @@ console.log('\nthe Steward panel');
         put(R(8), { action: 'resume', to: S(6), text: '' });
         put(R('f'), { action: 'resume', to: S(0), text: '' });
         const did = [];
-        const deps = { shownHere: (id) => id === S(1), folders: () => [${JSON.stringify(proj)}], stewards: () => table,
+        const deps = { shownHere: (id) => id === S(1), folders: () => [${JSON.stringify(linked ? link : proj)}], stewards: () => table,
           transcriptOf: (id) => (fs.existsSync(T(id)) ? T(id) : ''), pid: 79, now: () => now, sleep: async () => {},
           windows: () => [{ pid: 79, name: 'proj', folders: [${JSON.stringify(proj)}], sessions: [S(1)] },
             { pid: 80, name: 'other-win', folders: [${JSON.stringify(elsewhere)}], sessions: [S(8)] }],
@@ -10044,8 +10077,10 @@ console.log('\nthe Steward panel');
       const rdata = path.join(root, 'resume-data'), rconf = path.join(root, 'resume-conf');
       fs.mkdirSync(path.join(rdata, relay.RELAY_DIR), { recursive: true });
       fs.mkdirSync(path.join(rdata, 'windows'), { recursive: true });
-      fs.mkdirSync(path.join(rconf, 'projects', '-w'), { recursive: true });
-      for (const id of [S(4), S(5), S(8)]) fs.copyFileSync(T(id), path.join(rconf, 'projects', '-w', id + '.jsonl'));
+      for (const id of [S(4), S(5), S(8), S('d')]) {
+        fs.mkdirSync(path.join(rconf, 'projects', filed[id]), { recursive: true });
+        fs.copyFileSync(T(id), path.join(rconf, 'projects', filed[id], id + '.jsonl'));
+      }
       fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a',
         folders: [linked ? link : proj], sessions: [S(1)] }));
       fs.writeFileSync(path.join(rdata, 'windows', process.ppid + '.json'), JSON.stringify({ pid: process.ppid, at: Date.now(), name: 'other-win',
@@ -10083,25 +10118,27 @@ console.log('\nthe Steward panel');
       const half = talk(['--resume', S(4)], S(1), words, `(q) => ({ outcome: 'notReceived', reason: 'the panel has no message input', opened: true, ticked: true, window: ${pids} })`);
       const vague = talk(['--resume', S(4)], S(1), words, `(q) => ({ outcome: 'uncertain', reason: 'no panel here showed it', window: ${pids} })`);
       const busy = talk(['--resume', S(4)], S(1), '', `(q) => ({ outcome: 'refused', reason: 'process 4242 runs it', window: ${pids} })`);
+      const resumedHere = talk(['--resume', S('d')], S(1), '', `(q) => ({ outcome: 'submitted', reason: '', opened: true, window: ${pids} })`);
       const out = (r) => String((r && (r.out !== undefined ? r.out : r.stdout)) || '').trim();
       const TICKED = ' It is now ticked for you in the Steward panel.';
       if (JSON.stringify(usage) === '[2,2,2]' && missing.status === 1 && /^Not done: no conversation with that session id was found under /.test(out(missing))
           && shown.status === 1 && out(shown) === 'Not done: it is already open in the VS Code window "other-win"; a plain send reaches it there once the user ticks it for this steward in the Steward panel.'
-          && away.status === 1 && out(away).startsWith(`Not done: no open VS Code window has its folder, ${elsewhere}, or a folder above it, open; it was not opened in a window for another folder. The open windows:`)
+          && away.status === 1 && out(away).startsWith(`Not done: no open VS Code window has its folder, ${elsewhere}, as its first folder, and Claude Code opens a stored conversation only in such a window; in any other it would start a new, empty one. Ask the user to open that folder in a window (as its first folder). The open windows:`)
           && out(away).includes(`  proj-a: ${linked ? link : proj}`) && out(away).includes(`  other-win: ${sibling}`)
           && fs.readdirSync(path.join(rdata, relay.RELAY_DIR)).length === 0) {
         ok('steward-relay.py --resume says at once, writing no request, when the conversation has no transcript, a window already shows it, '
-          + 'or no window has its folder open, and then names the folder and lists the open windows');
+          + 'or no window has its folder as its first folder, and then names the folder and lists the open windows');
       } else bad(`steward-relay.py --resume checks: ${JSON.stringify({ usage, missing: out(missing), shown: out(shown), away: out(away) })}`);
       if (good.code === 0 && out(good) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a", and the message was typed into its input and sent as the user\'s message.' + TICKED
           && good.req && good.req.action === 'resume' && good.req.to === S(4) && good.req.text === words && good.req.steward === S(1)
           && bare.code === 0 && out(bare) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a".' && bare.req && bare.req.text === ''
           && half.code === 1 && out(half) === 'Opened in an editor tab in the VS Code window "proj-a", but the message was not sent: the panel has no message input.' + TICKED
           && vague.code === 1 && out(vague) === 'Unclear whether it was opened: no panel here showed it'
-          && busy.code === 1 && out(busy) === 'Not done: process 4242 runs it') {
+          && busy.code === 1 && out(busy) === 'Not done: process 4242 runs it'
+          && resumedHere.code === 0 && resumedHere.req && resumedHere.req.to === S('d')) {
         ok('steward-relay.py --resume asks a window with the folder to open it, with the message or without, and says whether it opened, '
           + 'whether the message was sent, and whether it is now ticked');
-      } else bad(`steward-relay.py --resume answers: ${JSON.stringify({ good, bare, half: out(half), vague: out(vague), busy: out(busy) })}`);
+      } else bad(`steward-relay.py --resume answers: ${JSON.stringify({ good, bare, half: out(half), vague: out(vague), busy: out(busy), resumedHere })}`);
       const NOT_HANDED = ' Say in your reply where it seems to belong, so the user decides.';
       const stranger = sync(['--handoff'], S(9), moved);
       fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a', folders: [proj], sessions: [] }));
@@ -10125,7 +10162,7 @@ console.log('\nthe Steward panel');
       const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
       const answerPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '91-answer.js'), 'utf8');
       const readyId = (/var ANSWERS_READY = '([^']+)';/.exec(answerPage) || [])[1];
-      if (/open: \(id\) => \{\s*answersReady\.delete\(id\);\s*return vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, undefined, \{ programmatic: 'pin-to-panel' \}\);\s*\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
+      if (/open: \(id\) => \{\s*answersReady\.delete\(id\);\s*return vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, undefined, \{ programmatic: 'pin-to-panel' \}\);\s*\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*tabOpen: \(id\) => shownList\(\)\.includes\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
           && /agentsFresh: \(\) => waiting\.listAgents\(pluginInstall\.findClaude\(claudeFolders\(\)\)\), resume: resumeConversation,/.test(ext)
           && readyId && ext.includes(`const ANSWERS_READY = '${readyId}', answersReady = new Set();`)
           && /if \(key !== ANSWERS_READY\) \{ claude\.answered\(key, sent, reason, detail\); return; \}/.test(ext)) {
