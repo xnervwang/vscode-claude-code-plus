@@ -1833,20 +1833,22 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
     /*
      * Claude Code's page marks the open of a conversation unfinished in its webview state (unfinishedOpen) as it starts
      * to load it, until 3 s after it has, and does not reopen a tab after a reload once two opens in a row were left
-     * unfinished. Whether any page of the window has an open unfinished, read through this extension's copy of
+     * unfinished. The opens left unfinished in the pages of the window, read through this extension's copy of
      * acquireVsCodeApi, which hands out the page's one handle again (src/panel-load-watch.js).
      */
     const openUnfinished = () => Promise.all(page.frames().map((f) => f.evaluate(() => {
       const a = globalThis.acquireVsCodeApi;
-      if (typeof a !== 'function' || !/api = orig\(\)/.test(String(a))) return false;
+      if (typeof a !== 'function' || !/api = orig\(\)/.test(String(a))) return null;
       const s = a().getState();
-      return !!(s && s.unfinishedOpen);
-    }).catch(() => false))).then((x) => x.some(Boolean));
+      return s && s.unfinishedOpen ? `${String(s.unfinishedOpen.sessionId).slice(-12)} x${s.unfinishedOpen.count}` : null;
+    }).catch(() => null))).then((x) => x.filter(Boolean));
     /* A reload once every page has finished its open, done once this extension is active again and `front`'s page has
        drawn its conversation. `before` runs as soon as the new extension host is up. Returns the helper's record of that
        host, whose `at` is when it started. */
     const reloadAndWait = async (front, before) => {
-      if (!await until(async () => !(await openUnfinished()), 30000, 300)) note('a page still had an open unfinished 30 s on, before a reload');
+      if (!await until(async () => !(await openUnfinished()).length, 30000, 300)) {
+        note(`a page still had an open unfinished 30 s on, before a reload: ${(await openUnfinished()).join(', ')}`);
+      }
       const host = await w.reload();
       if (before) await before();
       await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
