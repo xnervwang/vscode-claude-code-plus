@@ -794,6 +794,7 @@ function start(context, log, renamed, handing = false) {
     readPlan,
     titles: readTitles.titles,
     since: readTitles.since,
+    replyAt: readTitles.replyAt,
     live: () => liveStates,
     unread: () => unreadKeys,
     activity: (id) => activityFor(id),

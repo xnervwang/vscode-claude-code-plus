@@ -12004,6 +12004,31 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
           + 'a stored name carries, and a steward gets one crown first and steward: true');
       } else bad(`source titles ${JSON.stringify(o)}`);
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
+    {
+      // The time of the last reply, which Agent Plus uses to tell that a short turn ran (lastReplyAt): the last assistant
+      // row of the main conversation, not a sub-agent's, nor a title or attachment written after it.
+      const rdir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-reply-at-'));
+      try {
+        const w = require(path.join(__dirname, '..', 'src', 'waiting.js'));
+        const f = path.join(rdir, 't.jsonl');
+        const rows = [{ type: 'user', timestamp: '2026-11-22T10:00:00.000Z', message: { content: 'go' } },
+          { type: 'assistant', timestamp: '2026-11-22T10:00:05.000Z', message: { content: [{ type: 'text', text: 'done' }] } },
+          { type: 'assistant', isSidechain: true, timestamp: '2026-11-22T10:00:09.000Z', message: { content: [] } },
+          { type: 'custom-title', customTitle: 'Renamed', timestamp: '2026-11-22T10:05:00.000Z' },
+          { type: 'attachment', timestamp: '2026-11-22T10:06:00.000Z', attachment: { type: 'hook_additional_context' } }];
+        fs.writeFileSync(f, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+        const got = [w.lastReplyAt(f), w.lastReplyAt(path.join(rdir, 'none.jsonl'))];
+        const empty = path.join(rdir, 'e.jsonl');
+        fs.writeFileSync(empty, JSON.stringify(rows[0]) + '\n');
+        got.push(w.lastReplyAt(empty));
+        const srcText = fs.readFileSync(path.join(__dirname, '..', 'src', 'claude-source.js'), 'utf8');
+        const extText2 = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+        if (JSON.stringify(got) === JSON.stringify([Date.parse('2026-11-22T10:00:05.000Z'), 0, 0])
+            && /if \(reply > 0\) out\.lastReplyAt = reply;/.test(srcText) && /replyAt: readTitles\.replyAt,/.test(extText2)) {
+          ok('each conversation the source lists carries lastReplyAt, its last reply\'s time, which a rename or a hook\'s text written later does not move');
+        } else bad(`lastReplyAt: ${JSON.stringify(got)}`);
+      } finally { fs.rmSync(rdir, { recursive: true, force: true }); }
+    }
     const svBody = require(path.join(__dirname, '..', 'src', 'steward-view.js')).body;
     const row = (over) => Object.assign({ sessionId: 'x', title: 'x', cwd: '', state: 'idle', dot: '', unseen: false, running: true, processes: [],
       lastActiveAt: 0, doing: [], questions: 0, managed: false }, over);

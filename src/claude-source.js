@@ -88,6 +88,7 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   listAgents()                    `claude agents --json`, as { records, error }
  *   readPlan(sessionId)             for titles taken from the plan, and for stopped conversations
  *   titles(s), since(s)             from waiting.reader()
+ *   replyAt(s)                      optional, from waiting.reader(): when its last reply was written, in milliseconds
  *   live(), unread()                the host's latest states by session id; ids with an unread reply
  *   activity(sessionId)             optional: what it is doing (src/activity.js); 'stopped' when not given
  *   lastUserAt(sessionId)           optional: when the user last wrote to it, in milliseconds, or 0 when unknown
@@ -131,6 +132,7 @@ function createClaudeSource(deps) {
   };
   const activityOf = (id) => { try { return typeof deps.activity === 'function' ? deps.activity(id) || 'stopped' : 'stopped'; } catch (_) { return 'stopped'; } };
   const lastUserOf = (id) => { try { return typeof deps.lastUserAt === 'function' ? Number(deps.lastUserAt(id)) || 0 : 0; } catch (_) { return 0; } };
+  const replyOf = (s) => { try { return typeof deps.replyAt === 'function' ? Number(deps.replyAt(s)) || 0 : 0; } catch (_) { return 0; } };
   const stewardOf = (id) => { try { return typeof deps.isSteward === 'function' && deps.isSteward(id) === true; } catch (_) { return false; } };
   /* The title as every view shows it: without the marks an older build or a rename box left in the stored name, and
      with the crown first for a steward (src/title-marks.js). `steward` says the same to a view that draws it itself. */
@@ -149,6 +151,8 @@ function createClaudeSource(deps) {
     };
     const at = lastUserOf(s.sessionId);
     if (at > 0) out.lastUserAt = at;
+    const reply = replyOf(s);
+    if (reply > 0) out.lastReplyAt = reply;
     if (steward) out.steward = true;
     return out;
   };
