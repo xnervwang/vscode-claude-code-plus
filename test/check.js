@@ -3488,6 +3488,18 @@ console.log('\nthe waiting, paired out of the official log');
     } else bad(`split gave slow ${JSON.stringify(slow)} fast ${JSON.stringify(fast)}`);
   }
   {
+    /* Claude Code's line for a panel message it does not know follows that message at once; it is no event of the host's,
+       so neither the silence after it nor one it falls into is credited to it. */
+    const unknown = '2026-09-29 21:00:00.001 [error] Unknown message: [object Object]';
+    const alive = 'Received message from webview: {"type":"cce_alive"}';
+    const after = one([at('0:00.000', alive), unknown, at('0:20.000', 'Spawning Claude with SDK query function')].join('\n'));
+    const inside = one([at('0:00.000', 'Loaded settings'), unknown, at('0:20.000', 'Saved settings')].join('\n'));
+    if (!after.some((r) => /Unknown message/.test(r.trigger)) && !inside.some((r) => /Unknown message/.test(r.trigger))
+        && inside.length === 1 && inside[0].what === 'host' && inside[0].trigger === 'Loaded settings' && inside[0].waited === 20000) {
+      ok('the latency record skips Claude Code\'s "Unknown message" line, as a trigger and inside a silence');
+    } else bad(`with an "Unknown message" line: after a message ${JSON.stringify(after)}, inside a silence ${JSON.stringify(inside)}`);
+  }
+  {
     /* The day's count must reach the file, and as one line rather than one per open. */
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-lat5-'));
     const log = path.join(root, 'Claude VSCode.log');
@@ -6820,6 +6832,24 @@ console.log('\na panel whose bundle never arrives says so');
         && JSON.stringify(heard) === '["America/Los_Angeles","Asia/Tokyo"]') {
         ok('a pin from the session list reaches this extension as an id and a yes or no, and the zone is still kept');
       } else bad(`after the pin messages: heard pins ${JSON.stringify(pins)}, zones ${JSON.stringify(heard)}, logged without a hook: ${unheard}`);
+    }
+  }
+  /* Past its logging, a panel's message goes to Claude Code's switch, which logs every type it has no case for as an
+     error. This extension's messages stop just before that switch; Claude Code's own go on as before. */
+  {
+    const edit = host.EDITS.find((e) => e.name === 'panel messages of this extension stop before the switch');
+    const src = 'class C{constructor(){this.fromClientStream={got:[],enqueue(e){this.got.push(e)}}}async fromClient(e){this.fromClientStream.enqueue(e)}}'
+      + 'class P extends C{fromClient(e){this.ready=(this.ready||0)+1;return super.fromClient(e)}}';
+    const r = edit ? applyEdits(src, [edit]) : { error: 'no such edit' };
+    if (r.error) bad('the edit that stops this extension\'s panel messages did not apply: ' + r.error);
+    else {
+      const env = {};
+      vm.createContext(env);
+      vm.runInContext(r.out + ';var p=new P();for(const m of [{type:"cce_alive"},{type:"request",request:{type:"init"}},{type:"cce_page_focus",sessionId:"s"},'
+        + '{type:"io_message"},null,{type:7}])p.fromClient(m);var got=JSON.stringify(p.fromClientStream.got),ready=p.ready;', env);
+      if (env.got === '[{"type":"request","request":{"type":"init"}},{"type":"io_message"},null,{"type":7}]' && env.ready === 6) {
+        ok('this extension\'s panel messages stop before Claude Code\'s switch, which then logs no "Unknown message" for them, and its own still reach it');
+      } else bad(`messages that reached the switch: ${env.got}, calls seen by the panel's connection: ${env.ready}`);
     }
   }
   /* The dot on a tab's icon says what the conversation is doing (src/activity.js): the host hands over the icon key it

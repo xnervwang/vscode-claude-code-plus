@@ -28,7 +28,7 @@ const { applyEdits, shapesOf } = require('./edits');
 const { writeAtomic } = require('./files');
 const { patchTarget } = require('./patch-target');
 
-const VERSION = 18;
+const VERSION = 19;
 const ANY_MARK = '/* CLAUDE-CODE-EXTRAS-HOST v';
 const BACKUP_SUFFIX = '.claude-code-extras-host.bak';
 const TMP_SUFFIX = '.claude-code-extras-host.tmp';
@@ -133,6 +133,18 @@ const EDITS = [
       + `else if(${msg}&&${msg}.type==="request"&&${msg}.request&&${msg}.request.type==="update_session_state"`
       + `&&typeof ${msg}.request.sessionId==="string"){globalThis.__cceTurnHook&&globalThis.__cceTurnHook(${msg}.request.sessionId,`
       + `${msg}.request.cceBusy,${msg}.request.cceBg,${msg}.request.isFarewell===true)}}catch(e){}${rest}`,
+  },
+  /*
+   * After the logging above, a panel's message goes on to Claude Code's switch over the message types it knows, whose
+   * default case logs `Unknown message: [object Object]` - once for every message of this extension's page. They stop
+   * just before that switch, once they have been logged: the chime's and the load watch's records are read back out of
+   * that log line, and the panel's own checks that it is ready still see the message.
+   */
+  {
+    name: 'panel messages of this extension stop before the switch',
+    re: /async fromClient\(([\w$]+)\)\{this\.fromClientStream\.enqueue\(\1\)\}/g,
+    to: (m, msg) => `async fromClient(${msg}){if(${msg}&&typeof ${msg}.type==="string"&&${msg}.type.startsWith("cce_"))return;`
+      + `this.fromClientStream.enqueue(${msg})}`,
   },
   /*
    * A conversation opened from the session list in the place asked for (src/page/86-open-in-tab-or-sidebar.js). The

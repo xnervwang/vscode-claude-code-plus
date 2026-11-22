@@ -57,12 +57,17 @@ function at(m) {
   return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7]).getTime();
 }
 
+/* What Claude Code logs for a panel message it has no case for, such as this extension's own when the host patch in
+   place does not stop them. It follows a message and marks no event, so it is not a line of the host's own: taken as
+   one, it became the start of the next silence. */
+const UNKNOWN = /^Unknown message: /;
+
 /** The host's own lines, in order, as `{ ms, level, text }`. Continuation lines of the CLI's output are dropped. */
 function lines(text) {
   const out = [];
   for (const raw of String(text).split('\n')) {
     const m = LINE.exec(raw);
-    if (m) out.push({ ms: at(m), level: m[8], text: m[9] });
+    if (m && !(m[8] === 'error' && UNKNOWN.test(m[9]))) out.push({ ms: at(m), level: m[8], text: m[9] });
   }
   return out;
 }
