@@ -2282,6 +2282,25 @@ console.log('\nbackground sessions');
     if (JSON.stringify(got) === JSON.stringify(want)) {
       ok('a running background command opens the button and is named on it, beside any agents');
     } else bad(`background commands: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+    /* A render subscribes only to the signals it reads, so every call reads the panel's own sets, the held counts or
+       not: a render served from the held counts alone would not be drawn again once that work ends. */
+    let tasks = new Map([['t0', { taskId: 't0', taskType: 'local_bash', description: 'sleep 40' }]]), helpers = new Set(['a0']);
+    const reads = [];
+    const env = Object.assign({}, sandbox, { window: {}, sigValue: (name) => {
+      if (name === 'backgroundTasks' || name === 'backgroundTaskIds') reads.push(name);
+      return name === 'sessionId' ? 'nobody' : name === 'backgroundTasks' ? tasks : name === 'backgroundTaskIds' ? helpers : undefined;
+    } });
+    new vm.Script(`(function(){${frag}})()`, { filename: '82-scheduled-tasks.js' }).runInNewContext(env);
+    const before = [env.window.__cceAgentsDot('idle'), env.window.__cceAgentsLabel('1 agent', 1)];
+    const first = reads.length;
+    tasks = new Map();
+    helpers = new Set();
+    const after = [env.window.__cceAgentsDot('idle'), env.window.__cceAgentsLabel('0 agents', 0)];
+    const again = reads.slice(first);
+    if (JSON.stringify([before, after]) === JSON.stringify([['running', '1 agent · 1 task'], ['idle', '0 agents']])
+        && ['backgroundTasks', 'backgroundTaskIds'].every((n) => again.filter((x) => x === n).length >= 2)) {
+      ok('each call reads the panel\'s own sets of background work, so the button\'s dot and label follow that work\'s end at once');
+    } else bad(`the button after its work ended: ${JSON.stringify({ before, after, readsAgain: again })}`);
   }
 
   sandbox.sigValue = (name) => (name === 'sessionId' ? 'someone-else' : undefined);
@@ -11239,6 +11258,30 @@ console.log('\nthe window test\'s own parts');
   const strayWindow = featureList.flatMap((f) => (f.window === undefined ? [] : Array.isArray(f.window) && f.window.length ? f.window : [''])
     .filter((w) => !windowSteps.includes(w)).map((w) => `${f.id}: "${w}"`));
   expect(windowSteps.length > 10 && !strayWindow.length, 'and every window step a feature names is a step of test/vscode/ui.js', strayWindow.join(', '));
+  /* The same for Agent Plus's, against the Agent Plus found: the copy installed beside this one (VSCODE_EXTENSIONS, as
+     run.js runs this), AGENT_WORK_PLAN_DIR, or its checkout beside this repository. */
+  const apUsed = { settings: [], commands: [], views: [] };
+  for (const f of featureList) for (const kind of Object.keys(apUsed)) apUsed[kind].push(...(((f.agentPlus || {})[kind]) || []));
+  const apOther = JSON.parse(fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look-features.json'), 'utf8')).agentPlusOther || [];
+  const apListed = [...Object.values(apUsed).flat(), ...apOther.map((o) => o.key)];
+  const apGaps = [...new Set(apListed)].filter((k) => apListed.filter((x) => x === k).length !== 1).map((k) => `${k} is listed more than once`)
+    .concat(apOther.filter((o) => !ascii(o.why)).map((o) => `${o.key} says no why`));
+  const installedAp = (() => {
+    try { const d = fs.readdirSync(process.env.VSCODE_EXTENSIONS || '').filter((n) => /^xnervwang\.agent-plus-\d/.test(n)).sort().pop(); return d ? path.join(process.env.VSCODE_EXTENSIONS, d) : ''; } catch (_) { return ''; }
+  })();
+  const apDir = [installedAp, process.env.AGENT_WORK_PLAN_DIR, path.join(__dirname, '..', '..', 'vscode-agent-plus')]
+    .find((d) => d && fs.existsSync(path.join(d, 'package.json')));
+  const apPkg = apDir ? JSON.parse(fs.readFileSync(path.join(apDir, 'package.json'), 'utf8')) : null;
+  if (apPkg) {
+    const c = apPkg.contributes;
+    const has = { settings: Object.keys(c.configuration.properties), commands: c.commands.map((x) => x.command), views: Object.values(c.views || {}).flat().map((v) => v.id) };
+    const all = Object.values(has).flat();
+    for (const k of all) if (!apListed.includes(k)) apGaps.push(`${k} of Agent Plus is not listed`);
+    for (const [kind, keys] of Object.entries(apUsed)) for (const k of keys) if (!has[kind].includes(k)) apGaps.push(`${k} is not one of Agent Plus's ${kind}`);
+    for (const o of apOther) if (!all.includes(o.key)) apGaps.push(`${o.key} is not Agent Plus's`);
+  } else note('no Agent Plus found to hold the feature list\'s Agent Plus settings, commands and views against');
+  expect(!apGaps.length, `and every setting, command and view of Agent Plus${apPkg ? ` ${apPkg.version}` : ''} is listed once: under a feature that uses it, or in agentPlusOther with why it is not this extension's`,
+    apGaps.join('; '));
   const lookMd = (() => { try { return fs.readFileSync(path.join(__dirname, 'vscode', 'LOOK.md'), 'utf8'); } catch (_) { return null; } })();
   expect(lookMd !== null && lookMd.includes('look.json') && lookMd.includes('REVIEW.md') && !/[^\x09\x0a\x20-\x7e]/.test(lookMd),
     'and test/vscode/LOOK.md, in ASCII, tells the agent that reviews the pictures what to read and what to write');
@@ -12935,10 +12978,14 @@ const repo = path.join(__dirname, '..');
         { type: 'text', text: `Please ${fakeModel.ASK_TO_BACKGROUND}.` }] }] })).text);
     eq([refused[1].content_block.name, JSON.parse(refused[2].delta.partial_json).command], ['Bash', fakeModel.BG_RUN],
       'a message typed after a refused tool call, which arrives with the refusal, is still answered');
+    const chosen = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_FOR_CHOICE}.` }] })).text);
+    const choiceInput = JSON.parse(chosen[2].delta.partial_json);
+    eq([chosen[1].content_block.name, choiceInput.questions.length, choiceInput.questions[0].question, choiceInput.questions[0].options.map((o) => o.label)],
+      ['AskUserQuestion', 1, fakeModel.CHOICE.question, fakeModel.CHOICE.options], 'a message asking to be asked gets an AskUserQuestion call with one question and its options');
     const counted = await post('/v1/messages/count_tokens', { messages: [] });
     const other = await post('/v1/models', {});
     eq([counted.status, JSON.parse(counted.text).input_tokens > 0, other.status], [200, true, 404], 'it counts tokens, and answers nothing else');
-    eq(m.turns(), 7, 'and counts only the streamed turns');
+    eq(m.turns(), 8, 'and counts only the streamed turns');
   } catch (e) {
     bad(`the fake model: ${(e && e.stack) || e}`);
   } finally { await m.close(); }

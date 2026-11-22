@@ -5,7 +5,7 @@
 'use strict';
 /*
  * Usage: xvfb-run -a -s "-screen 0 3200x2000x24" node test/vscode/ui-look.js --pack <dir> --vsix <file>
- *          [--out <dir>] [--cache <dir>] [<step> ...]
+ *          [--core <Agent Plus .vsix>] [--out <dir>] [--cache <dir>] [<step> ...]
  *        node test/vscode/ui-look.js --features
  *
  * Puts the demo window of lib/demo.js (the one readme-shots.js uses) through each state of STEPS and saves pictures of
@@ -13,9 +13,10 @@
  * CI, and calls no model itself. With step names it runs only those; --features prints which steps show each feature of
  * ui-look-features.json and opens no window.
  *
- * Each step is { name, features, expect, unchanged, act, undo }. act puts the window into a state and returns the area
+ * Each step is { name, features, expect, unchanged, act, undo, only }. act puts the window into a state and returns the area
  * the step is about; expect says what a person should see there and what must not be there; unchanged says what must
- * look as it did just before the step; undo, when there is one, takes back what act left open. Notifications are left
+ * look as it did just before the step; undo, when there is one, takes back what act left open; only, when there is one,
+ * names the platforms the step runs on, and the others skip it. Notifications are left
  * on screen: one that should not be there is a finding. The root folder differs from readme-shots.js's, so the two can
  * run at once with different --cache folders.
  *
@@ -41,6 +42,9 @@ const BUDGET = 'What happens if someone sets a budget for a category';
 const LONG = 'Where the retry delay for the inventory sync is set, and why the staging config overrides it with a longer one';
 /* The fake model's plain answer (lib/fake-model.js). */
 const PLAIN = 'Done. The retry delay is set in config/sync.yml.';
+/* The demo leaves a command running detached on Linux only (lib/demo.js), and detached commands and workers are found
+   through /proc, so what the agent map and the dots show of them differs by platform. */
+const LINUX = process.platform === 'linux';
 
 /* The helpers the steps share. */
 
@@ -136,7 +140,8 @@ async function hoverLabel(d, frame, sel) {
 /* Claude Code's session list in the side bar, found again each time: switching views can rebuild its page. */
 async function sessionList(d) {
   await d.exec('workbench.view.extension.claude-sessions-sidebar');
-  const list = await d.frameWhere(() => !!document.querySelector('[data-cce-new-session]'), 60000);
+  /* Known by its rows: claudeCodePlus.show.openInTabOrSidebar off takes this extension's buttons out of it. */
+  const list = await d.frameWhere(() => !!document.querySelector('[data-cce-new-session], [class*="sessionItem_"] [data-cce-pin]'), 60000);
   if (!list) throw new Error('the session list did not open in 60 s');
   await d.sleep(1500);
   await d.widen();
@@ -276,6 +281,31 @@ const CROWN = '\u{1F451}';
 const MARK_RE = /\u{1F451}|\u{1F6CE}|\u2709/u;
 const tabLabels = (d) => d.call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((x) => x.input
   && String(x.input.viewType || '').endsWith('claudeVSCodePanel')).map((x) => x.label);`, []);
+/* The texts of Agent Plus's notices showing as toasts (its src/attention.js), once none of them is still moving in. */
+const needToasts = (d) => d.page.evaluate(() => {
+  const items = [...document.querySelectorAll('.notifications-toasts .notification-list-item')].filter((n) => n.offsetParent);
+  if (items.some((n) => n.closest('.notification-toast-container').getAnimations({ subtree: true }).some((a) => a.playState === 'running'))) return null;
+  return items.map((n) => ((n.querySelector('.notification-list-item-message') || {}).innerText || '').replace(/\s+/g, ' ').trim());
+}).catch(() => null);
+/* Whether Agent Plus's windows have written that they see conversation `id` working (its src/attention.js): it tells of a
+   reply left unread only in a conversation it has seen so. */
+function seenWorking(d, id) {
+  const dir = path.join(d.profile.home, '.agent-work-plan', 'attention');
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch (_) { return false; }
+  return names.some((n) => {
+    try { return (JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')).items || []).some((x) => x.sessionId === id && x.activity === 'working'); } catch (_) { return false; }
+  });
+}
+/* How long Agent Plus can take to see a conversation's new activity: two of its 30 s refreshes (ui.js says why). */
+const SEEN_MS = 60000;
+/* Agent Plus's count in the status bar of the conversations that need you, as a box, or null while it is hidden. */
+const needCountBox = (d) => d.page.evaluate(() => {
+  const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.attention$/.test(x.id));
+  if (!e || !e.offsetParent) return null;
+  const r = e.getBoundingClientRect();
+  return { x: r.left, y: r.top, width: r.width, height: r.height, text: e.innerText.trim() };
+});
 /* The name a conversation's transcript stores, from its last custom-title record, or ''. */
 function storedTitle(d, id) {
   const projects = path.join(d.profile.home, '.claude', 'projects');
@@ -388,21 +418,22 @@ const STEPS = [
       + 'the time reads start->end (two times joined by an arrow) on a line of its own above the tool\'s name. The first row of '
       + 'each reply also shows, after its time, how long the turn had taken, the model and its effort (for example "22s . '
       + 'opus-5-5 xhigh"). A narrow column of buttons runs down the right edge and covers no letters. No warning banner from '
-      + 'the page. The tab\'s logo carries a green ring at its top right, hollow in the middle rather than a filled dot: no '
-      + 'turn runs, and the demo left a command running detached, which counts as background work. The tab\'s title ends '
-      + 'without an envelope.',
+      + 'the page. ' + (LINUX ? 'The tab\'s logo carries a green ring at its top right, hollow in the middle rather than a filled '
+        + 'dot: no turn runs, and the demo left a command running detached, which counts as background work. '
+        : 'The tab\'s logo has no dot: no turn runs, and nothing this conversation started runs in the background here. ')
+      + 'The tab\'s title ends without an envelope.',
     unchanged: null,
     act: async (d) => { await demoAt(d, CSV); return d.editor(); },
   },
   {
     name: 'token-mode-notice', features: ['token-mode'],
     expect: 'The notice that asked which token mode to use (shown at the bottom right, or by now moved into the list of '
-      + 'notifications) has been answered with All features, the mode the status bar already named. The notice is gone, '
-      + 'nothing covers the panel\'s footer, the list of notifications is closed, and the token mode entry in the status bar '
-      + 'still says All.',
+      + 'notifications) has been answered: its Choose a Mode... button opened the list of modes, and All features, the one '
+      + 'selected in it, was taken. The notice and the list are gone, nothing covers the panel\'s footer, the list of '
+      + 'notifications is closed, and the token mode entry in the status bar still says All.',
     unchanged: 'The side bar, the tab bar and the conversation look as before.',
     act: async (d) => {
-      const button = (where) => d.page.locator(`${where} .monaco-button`).filter({ hasText: /^\s*All/ }).first();
+      const button = (where) => d.page.locator(`${where} .monaco-button`).filter({ hasText: /^\s*Choose a Mode/ }).first();
       let btn = button('.notifications-toasts');
       if (!await btn.isVisible().catch(() => false)) {
         await d.exec('notifications.showList');
@@ -414,13 +445,18 @@ const STEPS = [
         throw new Error('no notice about token modes was on screen or in the list of notifications');
       }
       await btn.click();
-      await d.sleep(1000);
+      const list = () => d.page.evaluate(() => { const q = document.querySelector('.quick-input-widget'); return !!q && !!q.offsetParent && /All features/.test(q.innerText); });
+      if (!await d.until(list, 10000, 300)) throw new Error('Choose a Mode... opened no list of the modes');
+      /* The list opens with the mode in use, All features, selected. */
+      await d.page.keyboard.press('Enter');
+      await d.until(async () => !(await list()), 5000, 300);
       await d.exec('notifications.hideList').catch(() => {});
       await d.sleep(500);
       await d.away();
       return d.body();
     },
   },
+
   {
     name: 'focus-view-on', features: ['focus-view'],
     expect: 'Focus view is on: your messages and the text of the replies, with each run of thinking and tool calls folded into '
@@ -603,10 +639,14 @@ const STEPS = [
   },
   {
     name: 'agent-map', features: ['agent-map'],
-    expect: 'The agent map, opened from the footer\'s button that counts background work ("1 detached . 1 timer"). It lists one '
+    expect: (LINUX ? 'The agent map, opened from the footer\'s button that counts background work ("1 detached . 1 timer"). It lists one '
       + 'command left running detached (a sleep) with its command line, process id and start time, and one scheduled prompt '
       + 'with its schedule and text. The conversation\'s own row starts with a green ring, hollow in the middle, since the '
-      + 'detached command runs. Rows are readable and inside the box; no empty rows; counts at the top match the rows.',
+      + 'detached command runs.'
+      : 'The agent map, opened from the footer\'s button that counts background work ("1 timer"). It lists one scheduled prompt '
+      + 'with its schedule and text, and no detached command. The conversation\'s own row starts with a grey dot, since a '
+      + 'scheduled prompt runs nothing until it is due.')
+      + ' Rows are readable and inside the box; no empty rows; counts at the top match the rows.',
     unchanged: 'The conversation behind the map is as before; the information box is closed.',
     act: async (d) => {
       await demoAt(d, BUDGET);
@@ -740,9 +780,9 @@ const STEPS = [
   },
   {
     name: 'off-detached', features: ['agent-map'], ...off('claudeCodePlus.show.detachedCommands'),
-    expect: 'The chart is drawn again in the reply. The footer\'s button for background work no longer counts the detached '
-      + 'command: it says only "1 timer" (or is gone if nothing else is counted), and its dot is grey, since a scheduled prompt '
-      + 'runs nothing until it is due.',
+    expect: 'The chart is drawn again in the reply. The footer\'s button for background work '
+      + (LINUX ? 'no longer counts the detached command: it says only "1 timer"' : 'says "1 timer", as before')
+      + ' (or is gone if nothing else is counted), and its dot is grey, since a scheduled prompt runs nothing until it is due.',
     unchanged: 'The conversation above the message box is as before.',
     area: async (d) => { await demoAt(d, '', { focus: true }); await toImage(d); return d.editor(); },
   },
@@ -786,9 +826,10 @@ const STEPS = [
       + 'divider line. Below, rows of conversations, each with a pin at its start (one pin filled and purple, the others '
       + 'hollow), a title, and the last-active time followed by dates such as "09/05->09/16"; one title is drawn in blue. '
       + 'The open conversation is listed twice, under OPEN SESSIONS and among the rows below, and both copies are highlighted; '
-      + 'no other row looks selected or outlined. Titles are readable and none overlaps a pin or a date. Both rows of the '
-      + 'open conversation start with a small green ring, hollow in the middle; no other row has a dot, and no row has a '
-      + 'blue dot or an envelope.',
+      + 'no other row looks selected or outlined. Titles are readable and none overlaps a pin or a date. '
+      + (LINUX ? 'Both rows of the open conversation start with a small green ring, hollow in the middle; no other row has a dot'
+        : 'No row has a dot: nothing runs')
+      + ', and no row has a blue dot or an envelope.',
     unchanged: 'The editor shows the same conversation as before.',
     act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
   },
@@ -1445,28 +1486,69 @@ const STEPS = [
     area: async (d) => { const frame = await live(d); await toBottom(frame); await d.sleep(600); return d.editor(); },
   },
   {
-    name: 'live-unread', features: ['unread-envelope', 'dot-stopped', 'open-sessions'],
+    name: 'live-unread', features: ['unread-envelope', 'dot-stopped', 'open-sessions', 'need-you-notices'],
     expect: 'A reply landed while the conversation\'s tab was in the background, behind a text file (notes.txt) opened in the '
       + 'same group: that tab\'s logo has no dot, and its title ends in a white envelope. Its row under OPEN SESSIONS in the '
       + 'side bar has no dot either and shows the envelope after the title and before the time, with the title not running '
-      + 'into it, and the row\'s time lined up with the other rows\' times. No red or blue dot anywhere.',
+      + 'into it, and the row\'s time lined up with the other rows\' times. No red or blue dot anywhere. At the bottom right, '
+      + 'a notification from Agent Plus says "Find where the retry delay for the inventory sync is set" finished, with an Open '
+      + 'and a Dismiss button, wholly inside the window.',
     unchanged: 'The tab bar has the same Claude Code tabs as before, plus notes.txt.',
     act: async (d) => {
       const frame = await live(d);
       await sessionList(d);
       await d.exec('claude-vscode.editor.open', d.threads[0].id);
       await d.sleep(600);
+      if (!await d.front()) throw new Error('the window did not get the focus, which Agent Plus needs before it shows a notice');
+      await d.exec('notifications.clearAll');
       d.model.hold();
       const turns = d.model.turns();
       await send(d, frame, 'And in the staging config?');
       if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error('the message did not reach the model in 30 s');
+      if (!await d.until(() => seenWorking(d, d.threads[0].id), SEEN_MS, 300)) throw new Error('Agent Plus did not see the turn running in 60 s');
       await notesInFront(d);
       await d.sleep(800);
       d.model.release();
-      await d.sleep(5000);
       await d.away();
+      const said = `"${d.threads[0].title}" finished.`;
+      if (!await d.until(async () => ((await needToasts(d)) || []).includes(said), 30000, 300)) {
+        throw new Error(`Agent Plus showed no notice that the conversation finished in 30 s: ${JSON.stringify(await needToasts(d))}`);
+      }
       return d.body();
     },
+  },
+  {
+    name: 'need-you-count', features: ['need-you-notices'],
+    expect: 'A close-up of the status bar around Agent Plus\'s entry for the conversations that need you: it shows a bell and the '
+      + 'number 1, for the one conversation whose reply is not read yet. It is readable and does not overlap the entries beside it.',
+    unchanged: 'The window is as before.',
+    act: async (d) => {
+      const b = await d.until(() => needCountBox(d), 15000, 300);
+      if (!b) throw new Error('Agent Plus counted nothing in the status bar');
+      if (b.text !== '1') throw new Error(`the count reads "${b.text}"`);
+      const width = await d.page.evaluate(() => innerWidth);
+      const x = Math.max(0, b.x - 200);
+      return { x, y: b.y - 4, width: Math.min(width, b.x + b.width + 200) - x, height: b.height + 8 };
+    },
+  },
+  {
+    name: 'need-you-list', features: ['need-you-notices'],
+    expect: 'After a click on that count (Agent Plus: Show the Conversations That Need You), a list opens at the top of the '
+      + 'window with the placeholder "Conversations that need you" and one row: "Find where the retry delay for the inventory '
+      + 'sync is set", described as finished.',
+    unchanged: 'The editor and the side bar are as before.',
+    act: async (d) => {
+      await d.call('vscode.commands.executeCommand("agentPlus.showAttention"); return true;');
+      const open = () => d.page.evaluate(() => { const q = document.querySelector('.quick-input-widget'); return !!q && !!q.offsetParent && q.innerText; });
+      if (!await d.until(async () => /finished/.test((await open()) || ''), 10000, 300)) throw new Error(`the list did not open with the conversation: ${await open()}`);
+      await d.sleep(600);
+      /* The list lies over the title bar, which the other pictures leave out. */
+      const b = await d.page.evaluate(() => { const r = document.querySelector('.quick-input-widget').getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; });
+      const pad = 16;
+      return { x: Math.max(0, b.x - pad), y: Math.max(0, b.y - pad), width: b.width + 2 * pad, height: b.height + 2 * pad };
+    },
+    /* Agent Plus never takes a notice back; the one live-unread waited for would lie over the footer from here on. */
+    undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(500); await d.exec('notifications.clearAll'); await d.sleep(300); },
   },
   {
     name: 'renamed-unread', features: ['rename-without-marks', 'long-title-envelope', 'unread-envelope'],
@@ -1510,7 +1592,8 @@ const STEPS = [
     name: 'live-background', features: ['dot-background', 'unread-envelope', 'open-sessions'],
     expect: 'A turn that put a command in the background ("sleep 40") ended while the conversation\'s tab was behind notes.txt: '
       + 'the tab\'s logo carries a green ring, hollow in the middle, and its title ends in a white envelope, so both show at '
-      + 'once. Its row under OPEN SESSIONS starts with the same green ring and has the envelope after the title, before the time.',
+      + 'once. Its row under OPEN SESSIONS starts with the same green ring and has the envelope after the title, before the time. '
+      + 'Agent Plus does not count it in the status bar or tell of it while its work still runs.',
     unchanged: 'The tab bar has the same tabs as before; notes.txt is in front.',
     act: async (d) => {
       const frame = await live(d);
@@ -1527,6 +1610,8 @@ const STEPS = [
       // The command runs for 40 s; the turn that started it ends a few seconds after the release.
       await d.sleep(8000);
       await d.away();
+      const tab = (await tabLabels(d)).find((l) => l.startsWith('Where the retry')) || '';
+      if (!/ \u2709\uFE0F$/u.test(tab)) throw new Error(`the tab reads "${tab}", not ending in an envelope`);
       return d.body();
     },
     undo: async (d) => {
@@ -1671,7 +1756,7 @@ const STEPS = [
      map it opens while both run, and once both have ended. The worker is a stand-in that writes a session record of the
      CLI's shape; it is found through /proc, so these show it on Linux only. */
   {
-    name: 'live-work-running', features: ['agent-map', 'dot-background'],
+    name: 'live-work-running', only: ['linux'], features: ['agent-map', 'dot-background'],
     expect: 'A close-up of the footer under the message box. The conversation started a claude -p worker and then a command in '
       + 'the background ("sleep 40"); its turn has ended and both still run. The agents button reads "1 task . 1 worker" and the '
       + 'small dot at its start is a filled green dot - not grey. The button is whole and does not overlap the buttons beside it.',
@@ -1694,7 +1779,7 @@ const STEPS = [
     },
   },
   {
-    name: 'live-work-map', features: ['agent-map', 'dot-background'],
+    name: 'live-work-map', only: ['linux'], features: ['agent-map', 'dot-background'],
     expect: 'The agent map, opened from that button. A section at the top, "1 worker . claude -p, started from this '
       + 'conversation", lists release-notes-worker as running, for how long, and under it its session id and process id. No '
       + 'row lists a detached command or the shell that started the worker. The conversation\'s own row (its title, with the '
@@ -1712,7 +1797,7 @@ const STEPS = [
     undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(400); },
   },
   {
-    name: 'live-work-ended', features: ['agent-map'],
+    name: 'live-work-ended', only: ['linux'], features: ['agent-map'],
     expect: 'The same close-up of the footer once the worker and the command have both ended and the conversation has '
       + 'answered the notices of their ends. The agents button counts neither: it reads "0 agents" (the helper of an earlier '
       + 'step has finished), and its dot is grey, not green.',
@@ -1737,7 +1822,7 @@ const STEPS = [
     },
   },
   {
-    name: 'live-work-ended-map', features: ['agent-map'],
+    name: 'live-work-ended-map', only: ['linux'], features: ['agent-map'],
     expect: 'The agent map once both have ended: no worker section and no background task; the conversation\'s own row starts '
       + 'with a grey dot, not a green one, and the finished helper of an earlier step is still listed with a grey dot.',
     unchanged: 'The conversation behind the map is as before.',
@@ -1860,6 +1945,24 @@ const STEPS = [
       + 'patched and names the token mode. It is readable and not cut off.',
     unchanged: 'The editor and side bar are as before.',
     act: async (d) => { await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
+  },
+  {
+    name: 'agent-plus-status', features: ['agent-plus-status'],
+    expect: 'After Agent Plus: Show Status, the Output panel at the bottom shows Agent Plus\'s lines: its version and protocol, '
+      + '"Extensions using it" naming xnervwang.claude-code-plus, and a line beginning "Source claude-code: Claude Code, from '
+      + 'xnervwang.claude-code-plus, plans in" followed by a folder. The lines are readable and none is cut off.',
+    unchanged: 'The editor and the side bar are as before.',
+    act: async (d) => {
+      /* Show Status of the step before would lie over the panel. */
+      await d.exec('notifications.clearAll');
+      const lines = await d.call('return await vscode.commands.executeCommand("agentPlus.showStatus");');
+      if (!Array.isArray(lines) || !lines.some((l) => /^Source claude-code: Claude Code, from xnervwang\.claude-code-plus, plans in /.test(l))) {
+        throw new Error(`Agent Plus's status names no Claude Code source: ${JSON.stringify(lines)}`);
+      }
+      await d.sleep(1500);
+      return (await d.part('workbench.parts.panel')) || d.body();
+    },
+    undo: async (d) => { await d.exec('workbench.action.closePanel'); await d.sleep(500); },
   },
   {
     name: 'command-settings', features: ['settings-command'],
@@ -2096,9 +2199,9 @@ const STEPS = [
   },
   {
     name: 'light-agent-map', features: ['light-theme', 'agent-map'],
-    expect: 'The agent map in the light theme: its rows (the detached command, the scheduled prompt) readable, the map set apart '
-      + 'from the conversation behind it; the green ring at the start of the conversation\'s own row visible against the light '
-      + 'background.',
+    expect: 'The agent map in the light theme: its rows (' + (LINUX ? 'the detached command, ' : '') + 'the scheduled prompt) readable, '
+      + 'the map set apart from the conversation behind it; the ' + (LINUX ? 'green ring' : 'grey dot')
+      + ' at the start of the conversation\'s own row visible against the light background.',
     unchanged: 'The meter\'s box is gone; the conversation is as before.',
     act: async (d) => {
       await demoAt(d, BUDGET);
@@ -2119,10 +2222,11 @@ const STEPS = [
     act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
   },
   {
-    name: 'light-envelope', features: ['light-envelope', 'light-theme', 'unread-envelope'],
+    name: 'light-envelope', features: ['light-envelope', 'light-theme', 'unread-envelope', 'need-you-notices'],
     expect: 'In the light theme, a reply landed while the conversation "Where the retry delay..." was behind notes.txt: its tab\'s '
       + 'title ends in an envelope drawn as a dark outline on the light tab, clearly readable, not a white or faint shape; '
-      + 'its rows in the session list show the same dark envelope after the title, before the time. No colour emoji envelope anywhere.',
+      + 'its rows in the session list show the same dark envelope after the title, before the time. No colour emoji envelope anywhere. '
+      + 'At the bottom right, a notification from Agent Plus says that conversation, named in full, finished, with Open and Dismiss.',
     unchanged: 'The session list is as before, apart from the envelopes.',
     act: async (d) => {
       const frame = await live(d);
@@ -2131,10 +2235,13 @@ const STEPS = [
       await d.sleep(600);
       // A permission question left open by an earlier step holds back any new message.
       if (await permissionAsked(frame)) { await permissionButton(frame, 'No').click({ timeout: 5000 }).catch(() => {}); await d.sleep(2000); }
+      if (!await d.front()) throw new Error('the window did not get the focus, which Agent Plus needs before it shows a notice');
+      await d.exec('notifications.clearAll');
       d.model.hold();
       const turns = d.model.turns();
       await send(d, frame, 'And in the production config?');
       if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error('the message did not reach the model in 30 s');
+      if (!await d.until(() => seenWorking(d, d.threads[0].id), SEEN_MS, 300)) throw new Error('Agent Plus did not see the turn running in 60 s');
       await notesInFront(d);
       await d.sleep(800);
       d.model.release();
@@ -2142,15 +2249,26 @@ const STEPS = [
       await d.away();
       const tab = (await tabLabels(d)).find((l) => l.startsWith('Where the retry')) || '';
       if (!tab.endsWith(' \u2709\uFE0E')) throw new Error(`the tab reads "${tab}", not ending in the envelope's text form`);
+      /* The Steward panel's envelope is held to the theme by ui.js, where another conversation is in front. */
+      const list = await sessionList(d);
+      await d.away();
+      const forms = await list.evaluate((id) => [...document.querySelectorAll('[class*="sessionItem_"]')]
+        .filter((r) => r.id.endsWith(id) || r.querySelector(`[data-cce-pin="${id}"]`))
+        .map((r) => { const e = r.querySelector('[data-cce-envelope]'); return e ? getComputedStyle(e, '::after').content : null; }), d.threads[0].id);
+      if (forms.length < 2 || !forms.every((f) => f === '"\u2709\uFE0E"')) throw new Error(`the session list draws ${JSON.stringify(forms)}`);
+      if (!await d.until(async () => ((await needToasts(d)) || []).some((x) => / finished\.$/.test(x) && x.includes('Where the retry delay')), 30000, 300)) {
+        throw new Error(`Agent Plus showed no notice that the conversation finished in 30 s: ${JSON.stringify(await needToasts(d))}`);
+      }
       return d.body();
     },
-    undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.sleep(2000); },
+    undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.exec('notifications.clearAll'); await d.sleep(2000); },
   },
   {
     name: 'light-work-plan', features: ['light-theme', 'work-plan-view'],
     expect: 'Agent Plus\'s work plan view in the light theme: the state marks and titles readable against the light background.',
     unchanged: 'The editor is as before.',
-    act: async (d) => { await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.away(); return d.sidebar(); },
+    /* The demo conversation in front, the one with a plan; the step before left another there. */
+    act: async (d) => { await demoAt(d, ''); await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.away(); return d.sidebar(); },
     undo: async (d) => { await theme(d, 'Default Dark Modern'); await d.sleep(2000); },
   },
 ];
@@ -2239,13 +2357,15 @@ async function main() {
   const names = STEPS.map((s) => s.name);
   const unknown = opt.rest.filter((a) => !names.includes(a));
   if (!fs.existsSync(path.join(opt.pack, 'pack.json')) || !fs.existsSync(opt.vsix) || unknown.length) {
-    throw new Error('usage: ui-look.js --pack <dir with pack.json> --vsix <claude-code-plus .vsix> [--out <dir>] [--cache <dir>] [<step> ...]'
+    throw new Error('usage: ui-look.js --pack <dir with pack.json> --vsix <claude-code-plus .vsix> [--core <Agent Plus .vsix>] [--out <dir>] [--cache <dir>] [<step> ...]'
       + `${unknown.length ? `\nunknown step: ${unknown.join(', ')}` : ''}\nsteps: ${names.join(' ')}`);
   }
-  const steps = opt.rest.length ? STEPS.filter((s) => opt.rest.includes(s.name)) : STEPS;
+  const named = opt.rest.length ? STEPS.filter((s) => opt.rest.includes(s.name)) : STEPS;
+  const steps = named.filter((s) => !s.only || s.only.includes(process.platform));
+  for (const s of named) if (!steps.includes(s)) demo.log('skipped', s.name, `runs on ${s.only.join(', ')} only`);
   fs.mkdirSync(opt.out, { recursive: true });
   const started = Date.now();
-  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, cache: opt.cache, root: ROOT, salt: 'ui-look',
+  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: 'ui-look', prepare,
     /* Manual, as in run.js, so that a tool call stops for permission: auto mode needs a check the fake model cannot do. */
     settings: { 'claudeCode.initialPermissionMode': 'default' } });
   Object.assign(d, { sleep: demo.sleep, until: demo.until, log: demo.log });

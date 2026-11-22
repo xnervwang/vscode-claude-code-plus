@@ -426,8 +426,11 @@
   };
   var ourCounts = function(){
     mapRenders();
+    /* The panel's own sets are read on every call, cached or not: a render subscribes only to the signals it reads, and
+       one that read none of them would not be drawn again when the work they hold ends. */
+    var tasks = runningTasks(), helpers = runningHelpers();
     var now = Date.now();
-    if (now - bgCountsAt < 500) return bgCounts;
+    if (now - bgCountsAt < 500) { bgCounts.tasks = tasks; bgCounts.helpers = helpers; return bgCounts; }
     bgCountsAt = now;
     var bgs = myBackground(), live = 0, waiting = 0;
     for (var i = 0; i < bgs.length; i++) {
@@ -439,7 +442,7 @@
     var ws = myWorkers(), counted = 0;
     for (var k = 0; k < ws.length; k++) if (!ws[k].inside) counted++;
     bgCounts = { detached: myDetached().length, timers: mySchedules().length, bg: bgs.length, live: live, waiting: waiting,
-      tasks: runningTasks(), workers: ws.length, counted: counted, helpers: runningHelpers() };
+      tasks: tasks, workers: ws.length, counted: counted, helpers: helpers };
     return bgCounts;
   };
   /* Background work of this conversation running now. A scheduled prompt runs nothing until it comes due, and a

@@ -19,7 +19,8 @@
  * One whose message contains ASK_FOR_WORKER gets a Bash call of WORKER_RUN, which starts $HOME/fake-bin/claude as a
  * `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT). One whose message contains
  * ASK_FOR_BG_SESSION gets a Bash call of BG_SESSION_RUN, which starts a `claude --bg` session with the stand-in at
- * $HOME/fake-bg/claude (BG_SESSION_SCRIPT).
+ * $HOME/fake-bg/claude (BG_SESSION_SCRIPT). One whose message contains
+ * ASK_FOR_CHOICE gets an AskUserQuestion call with CHOICE's question and options, so that Claude Code shows a choice box.
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
@@ -91,6 +92,8 @@ if (flag === '--bg') {
   }, ${Number(seconds) || 60} * 1000);
 }
 `;
+const ASK_FOR_CHOICE = 'ask me which config to change';
+const CHOICE = { question: 'Which config should I change?', header: 'Config', options: ['Staging', 'Production'] };
 /*
  * A stand-in for the CLI's `claude -p`, at $HOME/fake-bin/claude: it writes a session record of the CLI's shape for
  * its own process, as a worker started with --output-format stream-json does, and runs for `seconds`.
@@ -145,6 +148,7 @@ const asksToDetach = (ask) => { const t = lastAsk(ask); return t !== null && t.t
 const asksToDetachShort = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH_SHORT); };
 const asksForWorker = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_WORKER); };
 const asksForBgSession = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_BG_SESSION); };
+const asksForChoice = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_CHOICE); };
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
@@ -186,11 +190,12 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const helping = !helper && isHelper(ask);
       const detach = asksToDetach(ask), detachShort = asksToDetachShort(ask);
       const worker = asksForWorker(ask), bgSession = asksForBgSession(ask);
-      const tool = background || helper || detach || detachShort || worker || bgSession || asksToRun(ask);
+      const choice = asksForChoice(ask);
+      const tool = background || helper || detach || detachShort || worker || bgSession || choice || asksToRun(ask);
       const linked = linkAsked(ask), picture = imageAsked(ask);
       const reply = linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
         : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain;
-      seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping,
+      seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping, choice,
         parts: lastParts(ask).map((p) => (p && p.type) || typeof p), result: resultText(ask), ask: (lastAsk(ask) || '').slice(0, 400),
         typed: typedText(ask).slice(0, 400),
         picture, imagesNote: imagesNote(ask), context: contextOf(ask) });
@@ -213,8 +218,10 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
           : detachShort ? { command: DETACH_SHORT_RUN, description: 'Start the short job detached' }
           : worker ? { command: WORKER_RUN, description: 'Start a worker detached' }
           : bgSession ? { command: BG_SESSION_RUN, description: 'Start the nightly report in a background session' }
+          : choice ? { questions: [{ question: CHOICE.question, header: CHOICE.header, multiSelect: false,
+            options: CHOICE.options.map((label) => ({ label, description: `The ${label.toLowerCase()} config` })) }] }
           : { command: RUN, description: 'Run the test suite' };
-      const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name: helper ? 'Agent' : 'Bash', input } : { type: 'text', text: reply };
+      const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name: helper ? 'Agent' : choice ? 'AskUserQuestion' : 'Bash', input } : { type: 'text', text: reply };
       const stop = tool ? 'tool_use' : 'end_turn';
       if (!ask.stream) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -252,4 +259,4 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
 module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
   DETACH_SHORT_RUN, LINK_TEXT,
   IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_BG_SESSION, BG_SESSION_RUN, BG_SESSION_NAME,
-  BG_SESSION_SCRIPT };
+  BG_SESSION_SCRIPT, ASK_FOR_CHOICE, CHOICE };

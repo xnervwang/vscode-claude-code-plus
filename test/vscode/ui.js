@@ -16,19 +16,26 @@
  *   a tab          a conversation resumed in a tab: its title, the times on every message and reply, the bar on your
  *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
- *   the dots       the dot on the tab's logo while a turn sent through fake-model.js runs, the envelope after the tab's
- *                  title once its reply lands with the tab in the background, and the red dot while Claude Code waits
- *                  for permission to run a command
+ *   the dots       the filled dot on the tab's logo while a turn sent through fake-model.js runs, and on both its session
+ *                  list rows; the envelope after the tab's title once its reply lands with the tab in the background, after
+ *                  the name and before the time on its rows and whole when a narrow side bar cuts the name short, Agent
+ *                  Plus's notice that it finished and its count in the status bar; the red dot while Claude Code waits for
+ *                  permission to run a command, with no notice and no count for the conversation in front; no blue
  *   work left running
- *                  the green ring kept after the turn ends while a command it put in the background runs, a helper
- *                  (subagent) it started in the background, or, on Linux, a program it left running with setsid, and
- *                  gone once that has ended; the detached program in the agent map, and the notice once it is gone;
+ *                  the green ring, hollow in the middle, kept after the turn ends while a command it put in the background
+ *                  runs, with an envelope when the turn ended out of sight, a helper (subagent) it started in the
+ *                  background, or, on Linux, a program it left running with setsid, and gone once that has ended; the
+ *                  agents button's count and green dot and the agent map's own row, grey again once the work has ended;
+ *                  the detached program in the agent map, and the notice once it is gone;
  *                  on Linux, a `claude -p` worker left running under a detached shell beside a command in the
  *                  background: the agents button's dot green and its label counting both once, the map listing the
  *                  worker by name in place of its shell and its own row a green ring, all grey once both have ended;
  *                  a claude --bg session the conversation starts (a stand-in of the CLI, on every platform): the
  *                  agents button's 1 bg and its green dot, the tab's ring, the map's row, the notice of its end, 1 bg
  *                  done and grey, and the setting that leaves it out
+ *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
+ *                  Dismiss, Open bringing the conversation forward, the count, and no notice with each of the
+ *                  agentPlus.notifications settings off
  *   the steward    the Steward panel, a steward's crown on its tab, on every session list row and in the panel's
  *                  header, the bell an older build stored left out, renames through both of Claude Code's rename
  *                  boxes with marks typed anywhere, a managed conversation's dot and envelope in the panel while it
@@ -45,11 +52,19 @@
  *   closed, sidebar, archived
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
+ *   light theme    the envelope's text form on the tab, the session list rows and the Steward panel, and the colour form
+ *                  back in a dark theme
+ *   the old bell   a steward whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
+ *                  its list of what needs you and its Conversations view name it with the crown first and no bell
+ *   the focused window
+ *                  a conversation of a second window that starts to wait: the window with the focus shows the notice,
+ *                  the other does not, and both count it
  *   token mode     each of Agent Plus's token modes in turn: Show Status, the status bar, the information box, the hooks'
  *                  settings, Claude Code's list of plugins, the notice for a feature's own setting, what the fake model
  *                  receives, a detached command's end, and the four settings in the Settings editor
  *   commands       Show Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
  *   removal        last: Remove from Claude Code restores both files, and turning the extension on puts the patch back
+ *   self-check     no page of a Claude Code panel drew the warning that its messages are no longer found, all through the run
  *
  * Every step saves a screenshot to <out>/shots, and crops of the parts this extension draws are compared with the
  * approved copies (lib/baseline.js). Claude Code's own parts are never cropped: where one of ours sits between two of
@@ -63,7 +78,7 @@ const pixels = require('./lib/pixels');
 const fakeHome = require('./lib/fake-home');
 const { folderName } = fakeHome;
 const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB,
-  ASK_FOR_WORKER, WORKER_NAME, WORKER_SCRIPT } = require('./lib/fake-model');
+  ASK_FOR_WORKER, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_CHOICE, CHOICE } = require('./lib/fake-model');
 const { ASK_FOR_BG_SESSION, BG_SESSION_NAME, BG_SESSION_SCRIPT } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
@@ -71,8 +86,12 @@ const tabdot = require('../../src/tabdot');
 
 const { sleep, until } = win;
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-const DOTS = { running: rgb(tabdot.GREEN), waiting: rgb(tabdot.RED) };
+/* Blue is the colour of Claude Code's own dot, which this extension draws over and never uses (src/tabdot.js). */
+const BLUE = '#3b82f6';
+const DOTS = { running: rgb(tabdot.GREEN), waiting: rgb(tabdot.RED), blue: rgb(BLUE) };
 const ENVELOPE = ' \u2709\uFE0F';
+/* The envelope's one-colour text form, which a light theme gets (src/envelope.js). */
+const ENVELOPE_TEXT = ' \u2709\uFE0E';
 const PANEL_VIEW = 'mainThreadWebview-claudeVSCodePanel';
 const CLAUDE_BUTTON = 'Claude Code: Open';
 const RELOAD = /^Claude Code Plus is installed in Claude Code panel and Claude Code host\. Reload the window once to start/;
@@ -158,6 +177,106 @@ async function run({ exe, profile, env, playwright, model, threads, background =
     return text || '';
   };
   const toasts = () => page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].map((e) => e.innerText));
+  /*
+   * Agent Plus's notices of conversations that need the user (its src/attention.js), each as what it says: its text and
+   * the labels of its buttons. A notice shows as a toast at first and moves to the notification list after a while, and
+   * Agent Plus never takes one back. They are told from other notices by what they say and offer, so a change of their
+   * look is a change in these helpers only.
+   */
+  const NEED = (n) => / (finished|is waiting for you)\.$|^\d+ conversations need you \(/.test(n.text)
+    || (n.buttons.includes('Dismiss') && n.buttons.some((b) => b === 'Open' || b === 'Show them'));
+  const notificationItems = (p, where) => p.evaluate((where) => [...document.querySelectorAll(`${where} .notification-list-item`)].filter((n) => n.offsetParent).map((n) => {
+    const m = n.querySelector('.notification-list-item-message');
+    return { text: m ? m.innerText.replace(/\s+/g, ' ').trim() : '', buttons: [...n.querySelectorAll('.monaco-button')].map((b) => b.innerText.trim()).filter(Boolean) };
+  }), where).catch(() => []);
+  /* The notices of that kind showing as toasts in the window of `p`. */
+  const needNotices = async (p = page) => (await notificationItems(p, '.notifications-toasts')).filter(NEED);
+  /* The notices of that kind in the notification list of the window of `p` (whose extension host has `folder` open),
+     toasts included: the list is opened to read it, and closed again. */
+  const listedNotices = async (p = page, folder) => {
+    await call('await vscode.commands.executeCommand("notifications.showList"); return true;', undefined, 60000, folder);
+    /* Drawn once the list is open and holds its items, or says it has none. */
+    const drawn = await until(() => p.evaluate(() => {
+      const c = document.querySelector('.notifications-center');
+      if (!c || !c.offsetParent) return false;
+      return !!c.querySelector('.notification-list-item') || /\bNo New Notifications\b/i.test((c.querySelector('.notifications-center-header-title') || {}).innerText || '');
+    }), 5000, 200);
+    const got = drawn ? await notificationItems(p, '.notifications-center') : null;
+    await call('await vscode.commands.executeCommand("notifications.hideList"); return true;', undefined, 60000, folder);
+    if (!got) throw new Error('the notification list did not open');
+    return got.filter(NEED);
+  };
+  /* Whether VS Code counts the window whose extension host has `folder` open as the one with the focus. */
+  const focused = (folder) => call('return vscode.window.state.focused;', undefined, 60000, folder).catch(() => null);
+  /* This window brought to the front, once VS Code counts it as focused; Agent Plus shows its notices only then. Under
+     xvfb-run there is no window manager, and a window counts as focused only once something has focused it so. The
+     test stage's environment has no other VS Code's VSCODE_IPC_HOOK_CLI (lib/env.js). */
+  const focusWindow = async () => {
+    if ((await focused()) === true) return true;
+    win.frontWindow(exe, profile.user, profile.folder, process.env);
+    return !!await until(async () => (await focused()) === true, 15000, 300);
+  };
+  const about = (t) => (n) => n.text.includes(`"${t.title}"`);
+  const noticeOf = async (t, p = page) => (await needNotices(p)).find(about(t)) || null;
+  /* Presses `label` on the toast of the notice about `t`. */
+  const pressNotice = (t, label, p = page) => p.locator('.notifications-toasts .notification-list-item').filter({ hasText: `"${t.title}"` }).first()
+    .locator('.monaco-button').filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) }).first().click({ timeout: 5000 });
+  /* Agent Plus's count in the status bar of the conversations that need the user, in the window of `p`; null while it is
+     hidden. */
+  const needCount = (p = page) => p.evaluate(() => {
+    const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.attention$/.test(x.id));
+    return e && e.offsetParent ? { n: Number((/\d+/.exec(e.innerText) || ['-1'])[0]), text: e.innerText.trim(), label: e.getAttribute('aria-label') || '' } : null;
+  }).catch(() => undefined);
+  /* What Agent Plus's windows wrote of conversation `id` to the folder they share (its src/attention.js): its activity,
+     whether its reply is unread, and whether a window that has the focus shows it in front. */
+  const attentionOf = (id) => {
+    const dir = path.join(profile.home, '.agent-work-plan', 'attention');
+    let names = [];
+    try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+    const out = { activity: '', unseen: false, front: false };
+    for (const n of names) {
+      let d = null;
+      try { d = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { continue; }
+      const it = (d.items || []).find((x) => x.sessionId === id);
+      if (it) { out.activity = out.activity === 'waiting' ? 'waiting' : it.activity; out.unseen = out.unseen || !!it.unseen; }
+      if ((d.front || []).some((p) => p[1] === id)) out.front = true;
+    }
+    return out;
+  };
+  /* Each change of what attentionOf says of `id`, with the time since this started, until stop() returns them. */
+  const attentionTimeline = (id) => {
+    const t0 = Date.now(), seen = [];
+    let last = '';
+    const timer = setInterval(() => {
+      const a = attentionOf(id), k = JSON.stringify(a);
+      if (k !== last) { last = k; seen.push([Date.now() - t0, a]); }
+    }, 250);
+    return () => { clearInterval(timer); return seen; };
+  };
+  /* What the page's own functions make of the agents button now, whatever the button last drew. */
+  const footerNow = (frame = conv) => frame.evaluate(() => ({ dot: typeof window.__cceAgentsDot === 'function' ? window.__cceAgentsDot('idle') : null,
+    label: typeof window.__cceAgentsLabel === 'function' ? window.__cceAgentsLabel('0 agents', 0) : null })).catch(() => null);
+  /* How long Agent Plus can take to see a conversation's new activity: it lists every source at least once a refresh
+     (REFRESH_MS in its src/views.js, 30 s), and this extension's list waits on `claude agents --json`, read again
+     after 30 s (src/claude-source.js). Two refreshes. */
+  const SEEN_MS = 60000;
+  /* How long Agent Plus takes to show a notice once it has seen what the notice is about, from the copy this run
+     installed: it gathers changes for BATCH_MS, and holds back one of a reply left unread until it has been so for
+     STABLE_MS. */
+  const noticeDelay = (() => {
+    try {
+      const dir = fs.readdirSync(profile.exts).find((n) => n.startsWith('xnervwang.agent-plus-'));
+      const a = require(path.join(profile.exts, dir, 'src', 'attention.js'));
+      return { waiting: a.BATCH_MS, finished: a.STABLE_MS + a.BATCH_MS };
+    } catch (_) { return { waiting: 2000, finished: 7000 }; }
+  })();
+  /* The notices about `t` that show up within the time Agent Plus takes to show one of `kind`, as toasts or in the
+     list: asked once something else says Agent Plus has seen the state such a notice would be about. */
+  const noticesWithin = async (t, kind = 'waiting', p = page, folder) => {
+    let n = null;
+    await until(async () => { n = await noticeOf(t, p); return !!n; }, (noticeDelay[kind] || 7000) + 2500, 250);
+    return n ? [n] : (await listedNotices(p, folder)).filter(about(t));
+  };
   const visibleNativeMenu = () => page.evaluate(() => !![...document.querySelectorAll('.context-view .monaco-menu, .monaco-menu-container')].find((e) => e.offsetParent));
   const auxiliaryVisible = () => page.evaluate(() => {
     const part = document.getElementById('workbench.parts.auxiliarybar');
@@ -223,8 +342,31 @@ async function run({ exe, profile, env, playwright, model, threads, background =
     }
     return count;
   };
-  /* The crop of the logo on the tab whose label starts with `label`, and how many pixels of each dot colour it holds;
-     null while that tab is not in sight on the tab bar. */
+  /* The green dot in a PNG: the box its pixels span, and the share of the pixels round the box's middle that are green,
+     all of them for a filled dot and none for a ring; null when there are too few green pixels to be a dot. */
+  const dotShape = (png) => {
+    const img = pixels.decode(png), c = DOTS.running;
+    const green = (x, y) => { const i = (y * img.width + x) * 4; return [0, 1, 2].every((k) => Math.abs(img.data[i + k] - c[k]) <= 24); };
+    let x0 = img.width, y0 = img.height, x1 = -1, y1 = -1, n = 0;
+    for (let y = 0; y < img.height; y++) {
+      for (let x = 0; x < img.width; x++) if (green(x, y)) { n++; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    }
+    if (n < 6) return null;
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, r = Math.max(0.75, (x1 - x0 + 1) / 4);
+    let inner = 0, hit = 0;
+    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 > r * r) continue;
+        inner++;
+        if (green(x, y)) hit++;
+      }
+    }
+    return { width: x1 - x0 + 1, height: y1 - y0 + 1, pixels: n, middle: inner ? Math.round((hit / inner) * 100) / 100 : 0 };
+  };
+  const filled = (shape) => !!shape && shape.middle >= 0.75;
+  const ringed = (shape) => !!shape && shape.middle <= 0.25;
+  /* The crop of the logo on the tab whose label starts with `label`, how many pixels of each dot colour it holds, and the
+     shape of its green dot; null while that tab is not in sight on the tab bar. */
   const tabLogo = async (label) => {
     const tab = page.locator('.tabs-container .tab').filter({ hasText: label.slice(0, 16) }).first();
     const box = await tab.boundingBox().catch(() => null);
@@ -233,7 +375,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
     if (!box || !bar || box.x < bar.x || box.x + 40 > bar.x + bar.width) return null;
     const area = { x: box.x + 4, y: box.y + 4, width: 24, height: box.height - 8 };
     const png = await crop(area);
-    return { count: dotColours(png), png };
+    return { count: Object.assign(dotColours(png), { shape: dotShape(png) }), png };
   };
   const dotsOn = async (label) => { const l = await tabLogo(label); return l && l.count; };
   /* The hover label this extension draws in `frame` while the pointer rests on `loc`, as { text, box }. */
@@ -340,6 +482,31 @@ async function run({ exe, profile, env, playwright, model, threads, background =
     const b = await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${t.id}"]`).first().boundingBox().catch(() => null);
     return b ? dotColours(await crop({ x: b.x, y: b.y, width: Math.min(60, b.width), height: b.height })) : null;
   };
+  /* The dot the session list draws on a conversation's row, as its element has it: on the row under OPEN SESSIONS, or
+     with `main` on its row in the list below. { state: '' } for a row with no dot; null with no such row. */
+  const listDotState = (t, main) => list.evaluate(({ id, main }) => {
+    const r = [...document.querySelectorAll('[class*="sessionItem_"]')].find((x) => (main ? !x.closest('[data-cce-section]') && x.querySelector(`[data-cce-pin="${id}"]`)
+      : x.closest('[data-cce-open-sessions]') && x.id.endsWith(id)));
+    if (!r) return null;
+    const d = r.querySelector('[data-status-dot]');
+    if (!d) return { state: '' };
+    const s = getComputedStyle(d);
+    return { state: d.getAttribute('data-status-dot'), ring: /statusDotElsewhere/.test(d.className), background: s.backgroundColor, border: s.borderTopColor };
+  }, { id: t.id, main: !!main }).catch(() => null);
+  /* Where the parts of a conversation's row in the list below OPEN SESSIONS lie, each [left, right]: its name, its
+     envelope and its time; whether the name is cut short, and the character the envelope is drawn with. */
+  const rowParts = (t) => list.evaluate((id) => {
+    const r = [...document.querySelectorAll('[class*="sessionItem_"]')].find((x) => !x.closest('[data-cce-section]') && x.querySelector(`[data-cce-pin="${id}"]`));
+    if (!r) return null;
+    const at = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.left * 10) / 10, Math.round(b.right * 10) / 10]; };
+    const name = r.querySelector('span[class*="sessionName_"]'), env = r.querySelector('[data-cce-envelope]'), time = r.querySelector('[class*="sessionMeta_"]');
+    const cut = (e) => { for (let x = e; x && x !== r; x = x.parentElement) if (x.scrollWidth > x.clientWidth + 1) return true; return false; };
+    return { row: at(r), name: at(name), envelope: at(env), time: at(time), cut: !!name && cut(name),
+      form: env ? getComputedStyle(env, '::after').content : '', envelopes: r.querySelectorAll('[data-cce-envelope]').length };
+  }, t.id).catch(() => null);
+  /* The envelope after the name and before the time, whole. */
+  const envelopeBetween = (p) => !!p && !!p.name && !!p.envelope && !!p.time && p.envelopes === 1 && p.envelope[0] >= p.name[1] - 0.5
+    && p.envelope[1] <= p.time[0] + 0.5 && p.envelope[1] - p.envelope[0] >= 8 && p.envelope[1] <= p.row[1];
   /* A press on the empty bottom of the list, which takes the focus off its rows and does nothing else. */
   const clickEmpty = async () => {
     const box = await (await list.frameElement()).boundingBox();
@@ -360,6 +527,49 @@ async function run({ exe, profile, env, playwright, model, threads, background =
     });
     return { user: of('[class*="userMessage_"]'), reply: of('[data-testid="assistant-message"]'), all: document.querySelectorAll('[data-cce-ts]').length };
   });
+  /* The footer's agents button: its dot's state, its label and the colour its dot is drawn in. */
+  const GREEN = `rgb(${DOTS.running.join(', ')})`;
+  const footer = (frame = conv) => frame.evaluate(() => {
+    const b = document.querySelector('button[data-agents-dot]');
+    if (!b) return null;
+    const dot = b.querySelector('[data-status-dot]');
+    return { dot: b.getAttribute('data-agents-dot'), label: b.getAttribute('aria-label') || '', colour: dot ? getComputedStyle(dot).backgroundColor : '' };
+  });
+  /* The text of the agent map once open, and the dot of the conversation's own row in it. */
+  const mapState = (frame = conv) => frame.evaluate(() => {
+    const own = document.querySelector('[class*="rowMain_"] [data-status-dot]'), s = own && getComputedStyle(own);
+    return { text: document.body.innerText.slice(-3000), own: own ? { state: own.getAttribute('data-status-dot'),
+      ring: /statusDotElsewhere/.test(own.className), border: s.borderTopColor, background: s.backgroundColor } : null };
+  });
+  /* The agent map opened from the footer's button, what `read` makes of it, and the map closed again. */
+  const inMap = async (read, frame = conv) => {
+    await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+    const got = await until(async () => { const m = await mapState(frame); return read(m) || null; }, 10000, 500);
+    const last = got || await mapState(frame);
+    await page.keyboard.press('Escape');
+    await sleep(500);
+    return { got, last };
+  };
+
+  /* The pages that drew this extension's warning that the panel's messages are no longer found (src/page/90-self-check.js).
+     Once drawn it stays in the page, hidden or not, so every page of every window is looked at every few seconds. */
+  const warned = new Map();
+  let warnBusy = false;
+  const warnWatch = setInterval(async () => {
+    if (warnBusy) return;
+    warnBusy = true;
+    try {
+      for (const p of w.browser.contexts().flatMap((c) => c.pages())) {
+        for (const f of p.frames()) {
+          const said = await f.evaluate(() => {
+            const e = document.getElementById('cce-warn');
+            return e ? `${e.style.display === 'none' ? 'drawn, now hidden' : 'showing'}: ${(document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 80)}` : null;
+          }).catch(() => null);
+          if (said && !warned.has(f.url())) warned.set(f.url(), said);
+        }
+      }
+    } finally { warnBusy = false; }
+  }, 5000);
 
   try {
     await w.hostUp();
@@ -689,7 +899,10 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
       if (!t) throw new Error('the conversation\'s tab is gone');
       const idle = await dotsOn(t.label);
-      check(!!idle && idle.running === 0 && idle.waiting === 0 && !t.label.endsWith(ENVELOPE), 'an idle conversation\'s tab has no dot and no envelope', idle);
+      check(!!idle && idle.running === 0 && idle.waiting === 0 && idle.blue === 0 && !t.label.endsWith(ENVELOPE), 'an idle conversation\'s tab has no dot and no envelope', idle);
+      check(await needCount() === null && !(await noticeOf(tab0)), 'and Agent Plus counts nothing in the status bar and shows no notice of it', { count: await needCount(), notices: await needNotices() });
+      check(await focusWindow(), 'the window has the focus, which Agent Plus needs before it shows a notice', { focused: await focused() });
+      const timeline = attentionTimeline(tab0.id);
       model.hold();
       const turns = model.turns();
       await conv.locator('[contenteditable][role="textbox"]').first().click();
@@ -698,11 +911,18 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       check(!!await until(() => model.turns() > turns, 30000, 300), 'a message sent from the tab reaches the fake model', model.seen.slice(-3));
       const running = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d.waiting === 0 && d; }, 20000, 500);
       check(!!running, 'while the turn runs the tab\'s logo carries the green dot', await dotsOn(t.label));
+      check(!!running && filled(running.shape) && running.blue === 0, 'a filled one, green in its middle too, and nothing of it blue', running);
       const listRunning = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
-      check(!!listRunning, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      check(!!listRunning && listRunning.blue === 0, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      const rowRunning = [await listDotState(tab0), await listDotState(tab0, true)];
+      check(rowRunning.every((s) => s && s.state === 'running' && !s.ring && s.background === GREEN),
+        'both its rows in the session list draw a filled dot, not a ring, in the tabs\' green', rowRunning);
       await shot('tab-dot-running');
       const green = await tabLogo(t.label);
       if (running && green) base.compare('tab-dot-running', green.png);
+      /* Agent Plus tells of a reply left unread only in a conversation it has seen working. */
+      const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working' && a; }, SEEN_MS, 300);
+      check(!!working, 'Agent Plus has the conversation working, in the folder its windows share', attentionOf(tab0.id));
       /* The tab's group is locked by Claude Code, so the file is opened into that group by name. */
       await openNotes(t.column);
       const hidden = await until(async () => { const x = (await claudeTabs()).find((y) => y.label === t.label); return x && !x.active; }, 5000, 200);
@@ -714,16 +934,41 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         return x && x.label.endsWith(ENVELOPE) && d && d.running === 0 && d.waiting === 0 && { label: x.label, dots: d };
       }, 30000, 500);
       check(!!unread, 'once the reply lands with the tab in the background, the dot goes and the tab\'s title ends in an envelope', await claudeTabs());
+      /* Agent Plus tells the user once the reply has stayed unread for a moment, and counts it in the status bar. The
+         toast moves to the notification list after a while, so the list is read when no toast is found. */
+      const told = await until(() => noticeOf(tab0), 30000, 250) || (await listedNotices()).find(about(tab0));
+      check(!!told && told.text === `"${tab0.title}" finished.` && ['Open', 'Dismiss'].every((b) => told.buttons.includes(b)),
+        'Agent Plus shows a notice that the conversation finished, with Open and Dismiss', told || { toasts: await needNotices(), listed: await listedNotices(), agentPlus: timeline() });
+      timeline();
+      const counted = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 10000, 300);
+      check(!!counted, 'and counts it in the status bar as 1', counted || await needCount());
+      await shot('tab-dot-unread-notice');
       const listUnread = await until(async () => {
         const d = await listDot(tab0), env = await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${tab0.id}"] [data-cce-envelope]`).count();
         return d && d.running === 0 && env === 1 && d;
       }, 10000, 500);
       check(!!listUnread, 'and its row in OPEN SESSIONS has an envelope and no dot', await listDot(tab0));
+      /* In the list below OPEN SESSIONS too: after the name and before the time, and whole while a side bar too narrow for
+         the name cuts the name short. */
+      const parts = await until(async () => { const p = await rowParts(tab0); return envelopeBetween(p) && p; }, 10000, 500);
+      check(!!parts && parts.form === `"${ENVELOPE.trim()}"`, 'its row in the list below has one envelope, in its colour form, after the name and before the time',
+        parts || await rowParts(tab0));
+      const wide = await win.sideWidth(page);
+      await win.sideTo(page, 230);
+      const cut = await until(async () => { const p = await rowParts(tab0); return p && p.cut && envelopeBetween(p) && p; }, 10000, 500);
+      check(!!cut, 'in a side bar too narrow for the name, the name is cut short and the envelope stays whole after it, before the time',
+        { parts: cut || await rowParts(tab0), side: await win.sideWidth(page) });
+      await shot('tab-dot-unread-narrow');
+      if (wide) await win.sideTo(page, wide);
+      await page.mouse.move(5, 880);
       await shot('tab-dot-unread');
       await page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first().click();
       await page.bringToFront().catch(() => {});
       const read = await until(async () => { const d = await dotsOn(t.label); return d && d.running === 0 && !(await claudeTabs()).some((y) => y.label.endsWith(ENVELOPE)) && d; }, 20000, 500);
       check(!!read, 'and bringing the tab to the front clears it', { dots: await dotsOn(t.label), windowFocused: await call('return vscode.window.state.focused;') });
+      check(!!await until(async () => (await needCount()) === null, 15000, 300), 'and Agent Plus counts it no longer', await needCount());
+      /* A notice is never taken back; these would otherwise lie over the panel's buttons. */
+      await exec('notifications.clearAll');
       const after = await stampsIn(conv);
       const latest = after.reply[after.reply.length - 1] || '';
       check(new RegExp(`^${STAMP} {2}\\d+s${SEP}ctx${NB}[1-9]\\d*%${SEP}cost${NB}\\$\\d+\\.\\d{3}${SEP}sonnet-5-5(${NB}\\w+)?$`).test(latest),
@@ -751,8 +996,16 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         'the tool call\'s stamp has a line of its own above Claude Code\'s header, whose description stays on one line', toolRow);
       const waiting = await until(async () => { const d = await dotsOn(t.label); return d && d.waiting >= 6 && d.running === 0 && d; }, 20000, 500);
       check(!!waiting, 'and while it waits the tab\'s logo carries the red dot', await dotsOn(t.label));
+      check(!!waiting && waiting.blue === 0, 'and nothing blue, the colour of Claude Code\'s own dot for this', waiting);
       const listWaiting = await until(async () => { const d = await listDot(tab0); return d && d.waiting >= 4 && d; }, 10000, 500);
-      check(!!listWaiting, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      check(!!listWaiting && listWaiting.blue === 0, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      /* The conversation in front of the window that has the focus is the one the user is looking at, so Agent Plus
+         neither tells of it nor counts it. Asked once Agent Plus has written that it has it waiting there. */
+      const inSight = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'waiting' && a.front && a; }, 20000, 300);
+      const quiet = inSight ? await noticesWithin(tab0) : null;
+      check(!!inSight && !quiet.length && (await needCount()) === null,
+        'Agent Plus, which has it waiting in front of the window with the focus, shows no notice of it and counts nothing',
+        { agentPlus: attentionOf(tab0.id), notices: quiet, count: await needCount() });
       await shot('tab-dot-waiting');
       const red = await tabLogo(t.label);
       if (waiting && red) base.compare('tab-dot-red', red.png);
@@ -782,28 +1035,75 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       const tasks = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${tab0.id}.tasks`);
       const seen = () => ({ dots: null, status: status(), tasksFile: fs.existsSync(tasks) });
       const before = model.seen.length;
-      await conv.locator('[contenteditable][role="textbox"]').first().click();
-      await page.keyboard.type(`Please ${ASK_TO_BACKGROUND}.`);
-      await page.keyboard.press('Enter');
-      check(!!await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300), `the fake model answers with ${BG_RUN} put in the background`, model.seen.slice(before));
+      /* The tab goes behind another editor before the turn ends. With work left running Claude Code does not mark the
+         reply unread, and this extension does (src/activity.js, marksUnread). */
+      model.hold();
+      let hidden = false;
+      try {
+        await conv.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(`Please ${ASK_TO_BACKGROUND}.`);
+        await page.keyboard.press('Enter');
+        check(!!await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300), `the fake model answers with ${BG_RUN} put in the background`, model.seen.slice(before));
+        await openNotes(t.column);
+        hidden = !!await until(async () => { const x = (await claudeTabs()).find((y) => y.label === t.label); return x && !x.active; }, 5000, 200);
+      } finally { model.release(); }
       /* Claude Code runs a command it takes for read-only, such as sleep, without asking. */
       const asking = await until(() => conv.evaluate((cmd) => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes(cmd), BG_RUN), 8000, 500);
-      if (asking) await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+      if (asking) {
+        note('Claude Code asked before running the command, so the tab came to the front to answer it, and the envelope of a turn ended out of sight was not looked at');
+        await page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first().click();
+        await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+        hidden = false;
+      }
       const started = Date.now();
       const ended = await until(() => status() === 'idle' && Date.now() - started > 2000, 60000, 500);
       check(!!ended, 'the turn that started the command ends while the command runs', seen());
       /* The windows look for work running every ten seconds. */
       const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && status() === 'idle' && d; }, 25000, 500);
       check(!!green, 'with the turn over and the command still running, the tab\'s logo carries a green ring', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+      check(!!green && ringed(green.shape) && green.blue === 0, 'hollow in the middle, not a filled dot', green);
       const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
       check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      const rowRing = await until(async () => { const s = [await listDotState(tab0), await listDotState(tab0, true)]; return s.every((x) => x && x.state === 'running' && x.ring) && s; }, 10000, 500);
+      check(!!rowRing && rowRing.every((x) => x.border === GREEN && x.background !== GREEN), 'both its rows in the session list draw it as a ring in the tabs\' green',
+        rowRing || [await listDotState(tab0), await listDotState(tab0, true)]);
+      if (hidden) {
+        const both = await until(async () => (await claudeTabs()).find((y) => y.label.endsWith(ENVELOPE) && titled(y.label.replace(ENVELOPE, ''), tab0.title)), 15000, 500);
+        check(!!both, 'the turn having ended out of sight with work left running, the tab\'s title ends in an envelope beside the ring', await claudeTabs());
+        const listBoth = await until(async () => (await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${tab0.id}"] [data-cce-envelope]`).count()) === 1, 10000, 500);
+        check(!!listBoth && envelopeBetween(await rowParts(tab0)), 'and both its rows in the session list have the envelope, after the name and before the time', await rowParts(tab0));
+        /* A conversation whose work still runs has not finished, so Agent Plus does not tell of it yet. */
+        const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'background' && a; }, 20000, 300);
+        const early = working ? await noticesWithin(tab0, 'finished') : null;
+        check(!!working && !early.length, 'Agent Plus, which has it running background work, shows no notice of it yet', { agentPlus: attentionOf(tab0.id), notices: early });
+        await shot('tab-dot-background-unread');
+        await page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first().click();
+        const read = await until(async () => { const d = await dotsOn(t.label); return !(await claudeTabs()).some((y) => y.label.endsWith(ENVELOPE)) && d && ringed(d.shape) && d; }, 20000, 500);
+        check(!!read, 'brought to the front, the tab loses the envelope and keeps the ring', { tabs: await claudeTabs(), dots: await dotsOn(t.label) });
+      }
+      const ring = await tabLogo(t.label);
+      if (ring && ringed(ring.count.shape)) base.compare('tab-dot-ring', ring.png);
+      /* The footer's agents button and the agent map it opens. */
+      const pill = await until(async () => { const f = await footer(); return f && f.dot === 'running' && /\b1 task\b/.test(f.label) && f; }, 20000, 500);
+      check(!!pill && pill.colour === GREEN, 'the agents button counts the command as 1 task, its dot the tabs\' green', await footer());
       await shot('tab-dot-background-work');
+      if (pill) {
+        const map = await inMap((m) => m.own && m.own.ring && m);
+        check(!!map.got && map.got.own.state === 'running' && map.got.own.border === GREEN, 'and the agent map\'s own row has the green ring', map.last && map.last.own);
+      }
       /* The command ends 40 s after it started, Claude Code tells the conversation, and its answer ends that turn too. */
       const cleared = await until(async () => {
         const d = await dotsOn(t.label);
         return Date.now() - started > 45000 && status() === 'idle' && d && d.running === 0 && d.waiting === 0 && d;
       }, 120000, 1000);
       check(!!cleared, 'once the command has ended and the conversation has answered its notice, the dot goes', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+      const greyFrom = Date.now();
+      const grey = await until(async () => { const f = await footer(); return (!f || (f.dot !== 'running' && f.colour !== GREEN && !/\btasks?\b/.test(f.label))) && { f }; }, 30000, 1000);
+      check(!!grey, 'and the agents button counts no task, its dot not green', { drawn: await footer(), now: await footerNow(), after: Date.now() - greyFrom });
+      if (grey && grey.f) {
+        const map = await inMap((m) => m.own && m);
+        check(!!map.got && !map.got.own.ring && map.got.own.state !== 'running' && map.got.own.background !== GREEN, 'and the map\'s own row is grey, no ring', map.last && map.last.own);
+      }
       await shot('tab-dot-background-done');
     });
 
@@ -840,8 +1140,15 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await sleep(5000);
         const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
         check(!!green, 'with the reply sent and the helper still running, the tab\'s logo carries a green ring', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+        check(!!green && ringed(green.shape), 'hollow in the middle, not a filled dot', green);
         const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
         check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+        const pill = await until(async () => { const f = await footer(); return f && f.dot === 'running' && /\b1 agent\b/.test(f.label) && f; }, 20000, 500);
+        check(!!pill && pill.colour === GREEN, 'the agents button counts the helper as 1 agent, its dot the tabs\' green', await footer());
+        if (pill) {
+          const map = await inMap((m) => m.own && m.own.ring && m);
+          check(!!map.got && map.got.own.state === 'running' && map.got.own.border === GREEN, 'and the agent map\'s own row has the green ring', map.last && map.last.own);
+        }
         await shot('tab-dot-background-helper');
       } finally { model.releaseHelper(); }
       /* Released, the helper finishes, Claude Code tells the conversation, and its answer ends that turn too. */
@@ -850,6 +1157,9 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         return status() === 'idle' && d && d.running === 0 && d.waiting === 0 && d;
       }, 90000, 1000);
       check(!!cleared, 'once the helper has finished and the conversation has answered its notice, the dot goes', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+      const greyFrom = Date.now();
+      const grey = await until(async () => { const f = await footer(); return (!f || (f.dot !== 'running' && f.colour !== GREEN)) && { f }; }, 30000, 1000);
+      check(!!grey, 'and the agents button\'s dot is no longer green', { drawn: await footer(), now: await footerNow(), after: Date.now() - greyFrom });
     });
 
     /* A program started with setsid leads a session of its own, outside Claude Code's account of its background work.
@@ -880,11 +1190,14 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       check(!!ended, 'the turn that started it ends while it runs', { status: status() });
       const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && status() === 'idle' && d; }, 25000, 500);
       check(!!green, 'with the turn over and the detached command running, the tab\'s logo carries a green ring', { status: status(), dots: await dotsOn(t.label) });
+      check(!!green && ringed(green.shape), 'hollow in the middle, not a filled dot', green);
       const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
       check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
       const button = conv.locator('button, [role="button"]').filter({ hasText: /\b1 detached\b/ }).first();
       const labelled = await until(() => button.isVisible().catch(() => false), 20000, 500);
       check(!!labelled, 'the Agents button counts it as 1 detached', await conv.evaluate(() => document.body.innerText.slice(-400)));
+      const pill = await until(async () => { const f = await footer(); return f && f.dot === 'running' && f; }, 10000, 500);
+      check(!!pill && pill.colour === GREEN && /\b1 detached\b/.test(pill.label), 'and its dot is the tabs\' green', await footer());
       if (labelled) {
         await button.click({ timeout: 5000 });
         const listed = await until(() => conv.evaluate(() => {
@@ -942,23 +1255,11 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       const from = await ask(ASK_FOR_WORKER, 'fake-bin');
       await ask(ASK_TO_BACKGROUND, BG_RUN);
       const backgrounded = Date.now();
-      const GREEN = `rgb(${DOTS.running.join(', ')})`;
-      const footer = () => conv.evaluate(() => {
-        const b = document.querySelector('button[data-agents-dot]');
-        if (!b) return null;
-        const dot = b.querySelector('[data-status-dot]');
-        return { dot: b.getAttribute('data-agents-dot'), label: b.getAttribute('aria-label') || '', colour: dot ? getComputedStyle(dot).backgroundColor : '' };
-      });
-      const mapState = () => conv.evaluate(() => {
-        const own = document.querySelector('[class*="rowMain_"] [data-status-dot]'), s = own && getComputedStyle(own);
-        return { text: document.body.innerText.slice(-3000), own: own ? { state: own.getAttribute('data-status-dot'),
-          ring: /statusDotElsewhere/.test(own.className), border: s.borderTopColor, background: s.backgroundColor } : null };
-      });
       const green = await until(async () => { const f = await footer(); return f && f.dot === 'running' && /\b1 task\b/.test(f.label) && /\b1 worker\b/.test(f.label) && f; }, 40000, 500);
       check(!!green && green.colour === GREEN && !/detached/.test(green.label),
         'with the turn over, the agents button counts the command and the worker once each, not the worker\'s shell, and its dot is the tabs\' green', await footer());
       const ring = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
-      check(!!ring, 'and the tab\'s logo carries the green ring', await dotsOn(t.label));
+      check(!!ring && ringed(ring.shape), 'and the tab\'s logo carries the green ring, hollow in the middle', await dotsOn(t.label));
       await shot('agents-button-work-running');
       if (green) {
         await conv.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
@@ -1099,6 +1400,169 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         check(!!gone, 'with claudeCodePlus.show.backgroundSessions off, the agents button no longer counts it', await pill());
       } finally { await setShow(null); }
       check(!!await until(async () => { const f = await pill(); return f && /\b1 bg done\b/.test(f.label); }, 20000, 500), 'and turned back on, it does again', await pill());
+    });
+
+    /* What makes a conversation wait for the user besides a permission prompt: a question its plan put to the user since
+       the user last wrote, and a choice box. Each makes its dot red, and Agent Plus tells of it in a notice and counts it
+       in the status bar while the user is not looking at it, as its agentPlus.notifications settings allow. */
+    await step('what needs you', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
+      if (!t) throw new Error('the conversation\'s tab is gone');
+      const tab = () => page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first();
+      const inFront = async () => !!(await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), tab0.title));
+      const hide = async () => { await openNotes(t.column); return until(async () => !(await inFront()), 5000, 200); };
+      const show = async () => { await tab().click(); return until(inFront, 10000, 200); };
+      const plan = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${tab0.id}.json`);
+      const had = fs.existsSync(plan) ? fs.readFileSync(plan, 'utf8') : null;
+      /* A row of the plan waiting on the user with a question put now, or the same row done. */
+      const question = (open) => {
+        const now = new Date().toISOString();
+        fs.mkdirSync(path.dirname(plan), { recursive: true });
+        fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick the config to change', state: open ? 'waiting' : 'done', waitingOn: 'user',
+          question: 'Staging or production?', asked: now, opened: now, since: now }] }, null, 2));
+      };
+      const setNotify = (k, v) => call(`await vscode.workspace.getConfiguration('agentPlus').update(arg[0], arg[1] === null ? undefined : arg[1],
+        vscode.ConfigurationTarget.Global); return true;`, [`notifications.${k}`, v]);
+      const red = () => until(async () => { const d = await dotsOn(t.label); return d && d.waiting >= 6 && d.running === 0 && d; }, 30000, 500);
+      const clear = () => until(async () => { const d = await dotsOn(t.label); return d && d.waiting === 0 && d.running === 0 && d; }, 30000, 500);
+      const uncounted = () => until(async () => (await needCount()) === null, 15000, 300);
+      /* Agent Plus's Conversations entry in the status bar, which counts the plans' questions whatever the notices do. */
+      const toDecide = () => page.evaluate(() => {
+        const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.conversations$/.test(x.id));
+        return e && e.offsetParent ? e.innerText.trim() : null;
+      });
+      try {
+        check(await focusWindow(), 'the window has the focus, which Agent Plus needs before it shows a notice', { focused: await focused() });
+        await exec('notifications.clearAll');
+
+        /* A question in the plan while the tab is in the background. */
+        check(await hide(), 'another editor in the same group puts the tab in the background', await tabs());
+        question(true);
+        const asked = await red();
+        check(!!asked && asked.blue === 0,
+          'a question the plan put to the user after the user\'s last message makes the tab\'s dot red', asked || await dotsOn(t.label));
+        const rows = await until(async () => { const s = [await listDotState(tab0), await listDotState(tab0, true)]; return s.every((x) => x && x.state === 'waiting') && s; }, 15000, 500);
+        check(!!rows, 'and both its rows in the session list', rows || [await listDotState(tab0), await listDotState(tab0, true)]);
+        const told = await until(() => noticeOf(tab0), 30000, 250) || (await listedNotices()).find(about(tab0));
+        check(!!told && told.text === `"${tab0.title}" is waiting for you.` && ['Open', 'Dismiss'].every((b) => told.buttons.includes(b)),
+          'Agent Plus shows a notice that the conversation is waiting for you, with Open and Dismiss', told || { toasts: await needNotices(), listed: await listedNotices() });
+        const counted = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 10000, 300);
+        check(!!counted, 'and counts it in the status bar as 1', counted || await needCount());
+        await shot('needs-you-question');
+        /* Open on the notice, which brings the conversation forward. */
+        if (told && await noticeOf(tab0)) {
+          await pressNotice(tab0, 'Open');
+          check(!!await until(inFront, 15000, 300), 'Open on the notice brings the conversation\'s tab to the front', await tabs());
+        } else {
+          note('the notice had left the screen for the notification list before Open could be pressed, so the tab was brought forward by a click');
+          await show();
+        }
+        check(!!await uncounted(), 'and with the conversation in front, Agent Plus counts it no longer', await needCount());
+        check(!!(await dotsOn(t.label) || {}).waiting, 'while the dot stays red, the question being still open', await dotsOn(t.label));
+        question(false);
+        check(!!await clear(), 'the question answered in the plan, the dot goes', await dotsOn(t.label));
+        await exec('notifications.clearAll');
+
+        /* With agentPlus.notifications.waiting off: counted, and no notice. */
+        await setNotify('waiting', false);
+        await hide();
+        question(true);
+        await red();
+        const countedOnly = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 20000, 300);
+        const unsaid = countedOnly ? await noticesWithin(tab0) : null;
+        check(!!countedOnly && !unsaid.length, 'with agentPlus.notifications.waiting off, Agent Plus still counts it, and shows no notice',
+          { count: countedOnly || await needCount(), notices: unsaid });
+        question(false);
+        await clear();
+        await uncounted();
+        await setNotify('waiting', null);
+
+        /* With agentPlus.notifications.enabled off: neither a notice nor a count. Asked once Agent Plus's Conversations
+           entry counts the question, so Agent Plus has read it. */
+        await setNotify('enabled', false);
+        question(true);
+        await red();
+        const decide = await until(async () => { const s = await toDecide(); return s && /\b1 to decide\b/.test(s) && s; }, 30000, 500);
+        const silent = decide ? await noticesWithin(tab0) : null;
+        check(!!decide && !silent.length && (await needCount()) === null, 'with agentPlus.notifications.enabled off, Agent Plus, which counts the question in its Conversations entry, shows no notice and no count',
+          { conversations: decide || await toDecide(), notices: silent, count: await needCount() });
+        question(false);
+        await clear();
+        await setNotify('enabled', null);
+        await show();
+
+        /* With agentPlus.notifications.finished off: a reply that lands unread is counted, and no notice. */
+        await setNotify('finished', false);
+        model.hold();
+        const turns = model.turns();
+        try {
+          await conv.locator('[contenteditable][role="textbox"]').first().click();
+          await page.keyboard.type('Once more, please.');
+          await page.keyboard.press('Enter');
+          await until(() => model.turns() > turns, 30000, 300);
+          await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working'; }, SEEN_MS, 300);
+          await hide();
+        } finally { model.release(); }
+        const unread = await until(async () => (await claudeTabs()).find((y) => y.label.endsWith(ENVELOPE) && titled(y.label.replace(ENVELOPE, ''), tab0.title)), 30000, 500);
+        const countedUnread = unread ? await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 20000, 300) : null;
+        const notFinished = countedUnread ? await noticesWithin(tab0, 'finished') : null;
+        check(!!countedUnread && !notFinished.length, 'with agentPlus.notifications.finished off, a reply that lands unread is counted, and no notice says it finished',
+          { tab: unread, count: countedUnread || await needCount(), notices: notFinished });
+        await show();
+        check(!!await uncounted(), 'and once the tab is in front it is counted no longer', await needCount());
+        await setNotify('finished', null);
+
+        /* A choice box, with the tab in front of the focused window: red, and nothing from Agent Plus. */
+        const before = model.seen.length;
+        await conv.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(`Please ${ASK_FOR_CHOICE}.`);
+        await page.keyboard.press('Enter');
+        check(!!await until(() => model.seen.slice(before).some((x) => x.choice), 30000, 300), 'a message asking to be asked gets an AskUserQuestion call from the fake model',
+          model.seen.slice(before));
+        /* The box Claude Code draws in place of the message box: the question, its options and a row to send the answers. */
+        const box = () => conv.evaluate((c) => {
+          const label = [...document.querySelectorAll('div, span, label')].find((e) => e.offsetParent && e.textContent.trim() === c.options[0]);
+          let b = label;
+          while (b && !(b.innerText.includes(c.question) && /\bSubmit\b/.test(b.innerText))) b = b.parentElement;
+          return b ? b.innerText.replace(/\s+/g, ' ').trim().slice(0, 300) : null;
+        }, CHOICE);
+        const shown = await until(box, 20000, 500);
+        check(!!shown && CHOICE.options.every((o) => shown.includes(o)), 'Claude Code shows the choice box with its question and both options', shown);
+        const chooses = await red();
+        check(!!chooses && chooses.blue === 0, 'and while it waits for the choice the tab\'s dot is red', chooses || await dotsOn(t.label));
+        const rowsChoose = await until(async () => { const s = [await listDotState(tab0), await listDotState(tab0, true)]; return s.every((x) => x && x.state === 'waiting') && s; }, 15000, 500);
+        check(!!rowsChoose, 'and so are both its rows in the session list', rowsChoose || [await listDotState(tab0), await listDotState(tab0, true)]);
+        const inSight = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'waiting' && a.front && a; }, 20000, 300);
+        const none = inSight ? await noticesWithin(tab0) : null;
+        check(!!inSight && !none.length && (await needCount()) === null, 'Agent Plus, which has it waiting in front of the window with the focus, shows no notice and counts nothing',
+          { agentPlus: attentionOf(tab0.id), notices: none, count: await needCount() });
+        await shot('needs-you-choice');
+        if (shown) {
+          const sent = model.seen.length;
+          /* A notice at the bottom right can lie over the box. */
+          await exec('notifications.clearAll');
+          await conv.getByText(CHOICE.options[0], { exact: true }).last().click({ timeout: 5000 });
+          /* The row that sends the answers reads "1 Submit answers", its key first. */
+          if (!await until(async () => !(await box()), 2000, 300)) await conv.getByText(/Submit answers\s*$/).last().click({ timeout: 5000 });
+          const answered = await until(() => model.seen.slice(sent).some((x) => x.stream && (x.parts || []).includes('tool_result')), 20000, 300);
+          check(!!answered && !await box(), 'picking an option closes the box and sends the choice back', { box: await box(), sent: model.seen.slice(sent).map((x) => x.result) });
+          check(!!await clear(), 'and the dot goes', await dotsOn(t.label));
+        }
+      } finally {
+        model.release();
+        /* A choice box left open would hold every later step's message back. */
+        const open = () => conv.evaluate((q) => document.body.innerText.includes(q) && /Esc to cancel/.test(document.body.innerText), CHOICE.question).catch(() => false);
+        if (await open()) {
+          await conv.locator('[contenteditable], button').first().focus().catch(() => {});
+          await page.keyboard.press('Escape');
+          await until(async () => !(await open()), 10000, 300);
+        }
+        for (const k of ['waiting', 'enabled', 'finished']) await setNotify(k, null).catch(() => {});
+        if (had !== null) fs.writeFileSync(plan, had); else fs.rmSync(plan, { force: true });
+        await exec('notifications.clearAll');
+        await show();
+      }
     });
 
     /* The conversation was told to save an image in its own folder and link it by its absolute path. A reply that does
@@ -2249,6 +2713,263 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       async function shotB() { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-reopen-in-window-b.png`) }).catch(() => {}); }
     });
 
+    /* In a light theme a colour emoji font draws the envelope white, so the tab title, the session list and the Steward
+       panel draw its one-colour text form there (src/envelope.js); a dark theme brings the colour form back without a
+       reload. */
+    await step('the envelope in a light theme', async () => {
+      const other = threads[1];
+      const theme = (name) => call('await vscode.workspace.getConfiguration().update("workbench.colorTheme", arg, vscode.ConfigurationTarget.Global); return true;', name);
+      const kind = () => call('return vscode.window.activeColorTheme.kind;');
+      const tabEnds = (form) => until(async () => (await claudeTabs()).find((x) => x.label.endsWith(form) && titled(x.label.replace(form, ''), tab0.title)), 30000, 500);
+      /* The character each of the conversation's rows in the session list draws its envelope with. */
+      const listForms = () => list.evaluate((id) => [...document.querySelectorAll('[class*="sessionItem_"]')]
+        .filter((r) => (r.closest('[data-cce-open-sessions]') && r.id.endsWith(id)) || (!r.closest('[data-cce-section]') && r.querySelector(`[data-cce-pin="${id}"]`)))
+        .map((r) => { const e = r.querySelector('[data-cce-envelope]'); return e ? getComputedStyle(e, '::after').content : null; }), tab0.id).catch(() => []);
+      const listIn = (form) => until(async () => { const f = await listForms(); return f.length === 2 && f.every((x) => x === `"${form.trim()}"`) && f; }, 15000, 500);
+      let steward = null;
+      /* The envelope on the conversation's row in the Steward panel, '' for a row without one. */
+      const panelForm = () => steward.evaluate((id) => {
+        const a = document.querySelector(`[data-open="${id}"]`), row = a && a.closest('li'), e = row && row.querySelector('.env');
+        return e ? e.textContent : row ? '' : null;
+      }, tab0.id).catch(() => null);
+      await exec('workbench.action.closeAllEditors');
+      await exec('workbench.action.closeAuxiliaryBar');
+      try {
+        await theme('Default Light Modern');
+        check(!!await until(async () => (await kind()) === 1, 15000, 300), 'VS Code takes Default Light Modern, a light theme', await kind());
+        await exec('claude-vscode.editor.open', tab0.id);
+        const frame = await conversation(tab0, 60000);
+        if (!frame) throw new Error('the conversation did not open');
+        /* A reply that lands while another conversation is in front of it, which the Steward panel is then about. */
+        model.hold();
+        const turns = model.turns();
+        try {
+          await frame.locator('[contenteditable][role="textbox"]').first().click();
+          await page.keyboard.type('And the light theme?');
+          await page.keyboard.press('Enter');
+          await until(() => model.turns() > turns, 30000, 300);
+          await exec('claude-vscode.editor.open', other.id);
+          await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, other.title)), 20000, 300);
+        } finally { model.release(); }
+        const lit = await tabEnds(ENVELOPE_TEXT);
+        check(!!lit, 'a reply that lands with the tab in the background ends its title in the envelope\'s text form', await claudeTabs());
+        /* A reload in an earlier step made the list's page anew. */
+        check(!!await openList(), 'the session list opens', null);
+        const rows = await listIn(ENVELOPE_TEXT);
+        check(!!rows, 'and both its rows in the session list draw the envelope in that form', await listForms());
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        steward = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
+        /* Running conversations come from `claude agents --json`, which is read at most every 30 s. */
+        const panel = steward ? await until(async () => (await panelForm()) === ENVELOPE_TEXT.trim(), 45000, 1000) : false;
+        check(!!panel, 'and so does its row in the Steward panel', steward ? await panelForm() : 'no Steward panel');
+        await page.mouse.move(5, 880);
+        await shot('light-envelope');
+        await theme('Default Dark Modern');
+        check(!!await until(async () => (await kind()) === 2, 15000, 300), 'back in Default Dark Modern', await kind());
+        const darkTab = await tabEnds(ENVELOPE);
+        const darkRows = await listIn(ENVELOPE);
+        const darkPanel = steward ? await until(async () => (await panelForm()) === ENVELOPE.trim(), 20000, 500) : false;
+        check(!!darkTab && !!darkRows && !!darkPanel, 'the tab, the session list and the Steward panel draw the colour form again, without a reload',
+          { tabs: await claudeTabs(), list: await listForms(), panel: steward ? await panelForm() : null });
+        await shot('dark-envelope-again');
+      } finally {
+        model.release();
+        await theme('Default Dark Modern').catch(() => {});
+        await exec('workbench.action.closePanel').catch(() => {});
+      }
+    });
+
+    /* A steward whose stored name still ends in the bell an older build of this extension put after a title: everything
+       Agent Plus draws of it - the notice, the count's hover, the list of the conversations that need you, the
+       Conversations view - names it with the crown first and no bell (src/claude-source.js, src/title-marks.js). */
+    await step('a steward named with the old bell', async () => {
+      const BELL = '\u{1F6CE}', CROWN = '\u{1F451}';
+      const S = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f7', title: 'Many conversations', days: 0,
+        turns: [['Look after the other conversations, please.', 'I will keep an eye on them.']] };
+      const named = { title: `${CROWN} ${S.title}` };
+      const stored = `${S.title} ${BELL}\uFE0F`;
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const table = path.join(dataDir, 'stewards.json'), plan = path.join(dataDir, `${S.id}.json`);
+      const had = fs.existsSync(table) ? fs.readFileSync(table, 'utf8') : null;
+      const managed = threads[2];
+      fakeHome.writeThreads(profile.home, profile.folder, [S]);
+      fs.appendFileSync(transcriptOf(S), JSON.stringify({ type: 'custom-title', customTitle: stored, sessionId: S.id }) + '\n');
+      fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(table, JSON.stringify({ version: 1, stewards: { [S.id]: { manages: [managed.id], names: { [managed.id]: managed.title }, at: Date.now() } } }, null, 1) + '\n');
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const recordOf = (id) => {
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+        for (const n of names) {
+          try { const d = JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); if (d.sessionId === id) return { file: path.join(sessions, n), d }; } catch (_) { /* being written */ }
+        }
+        return null;
+      };
+      const bells = (x) => JSON.stringify(x === undefined ? null : x).includes(BELL);
+      try {
+        await exec('workbench.action.closeAllEditors');
+        await exec('workbench.action.closeAuxiliaryBar');
+        await exec('claude-vscode.editor.open', S.id);
+        check(!!await conversation(S, 60000), 'the steward\'s conversation opens in a tab', await tabs());
+        /* Its process's record holds the stored name too. */
+        const rec = await until(() => recordOf(S.id), 30000, 500);
+        if (rec && !String(rec.d.name || '').includes(BELL)) fs.writeFileSync(rec.file, JSON.stringify(Object.assign({}, rec.d, { name: stored })));
+        await exec('claude-vscode.editor.open', tab0.id);
+        await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 20000, 300);
+        check(await focusWindow(), 'the window has the focus, which Agent Plus needs before it shows a notice', { focused: await focused() });
+        await exec('notifications.clearAll');
+        const now = new Date().toISOString();
+        fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick which conversation goes first', state: 'waiting', waitingOn: 'user',
+          question: 'Which one first?', asked: now, opened: now, since: now }] }, null, 2));
+        /* `claude agents --json`, where Agent Plus hears of a running conversation, is read at most every 30 s. */
+        const told = await until(() => noticeOf(named), 60000, 250) || (await listedNotices()).find(about(named));
+        const all = await needNotices();
+        check(!!told && told.text === `"${named.title}" is waiting for you.` && !bells(all),
+          'Agent Plus\'s notice names the steward with the crown first and no bell', { notice: told, toasts: all, listed: told ? undefined : await listedNotices(), record: recordOf(S.id) });
+        await shot('steward-old-bell-notice');
+        await exec('notifications.clearAll');
+        const counted = await until(async () => { const c = await needCount(); return c && c.n >= 1 && c; }, 15000, 300);
+        const tip = counted ? await hoverText(page.locator('.statusbar-item[id$="agentPlus.attention"]').first()) : '';
+        check(!!counted && tip.includes(`Waiting: ${named.title}`) && !tip.includes(BELL), 'the hover of its count in the status bar names it the same way', { count: counted, hover: tip });
+        await start('agentPlus.showAttention');
+        const picks = await until(() => page.evaluate(() => {
+          const q = document.querySelector('.quick-input-widget');
+          if (!q || !q.offsetParent) return null;
+          const rows = [...q.querySelectorAll('.monaco-list-row')].map((r) => r.innerText.replace(/\s+/g, ' ').trim());
+          return rows.length ? rows : null;
+        }), 10000, 300);
+        await shot('steward-old-bell-list');
+        await page.keyboard.press('Escape');
+        check(!!picks && picks.some((r) => r.startsWith(named.title)) && !bells(picks), 'and so does the list of the conversations that need you', picks);
+        await exec('agentPlus.showConversations');
+        const rows = await until(() => page.evaluate((t) => {
+          const panel = document.getElementById('workbench.parts.panel');
+          const all = panel ? [...panel.querySelectorAll('.monaco-list-row')].map((r) => (r.innerText || r.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim()) : [];
+          return all.some((r) => r.includes(t)) ? all : null;
+        }, S.title), 45000, 1000);
+        await shot('steward-old-bell-conversations');
+        check(!!rows && rows.some((r) => r.startsWith(named.title)) && !bells(rows), 'and so does Agent Plus\'s Conversations view', rows);
+      } finally {
+        fs.rmSync(plan, { force: true });
+        if (had !== null) fs.writeFileSync(table, had); else fs.rmSync(table, { force: true });
+        await exec('notifications.clearAll').catch(() => {});
+        await exec('workbench.action.closePanel').catch(() => {});
+        await exec('workbench.action.closeAllEditors').catch(() => {});
+      }
+    });
+
+    /* A conversation of a second window starts to wait for the user while the first window has the focus: only the
+       window with the focus shows Agent Plus's notice, and both count it. */
+    await step('a notice in the window with the focus', async () => {
+      const folderC = path.join(path.dirname(profile.folder), 'ws-c');
+      fs.mkdirSync(folderC, { recursive: true });
+      fs.writeFileSync(path.join(folderC, 'notes-c.txt'), 'A file for the third folder.\n');
+      const Z = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f8', title: 'Check the backup job of the reports database', days: 0,
+        turns: [['Check the backup job of the reports database.', 'It ran at 02:00 and wrote 3.1 GB to the backup bucket.']] };
+      fakeHome.writeThreads(profile.home, folderC, [Z]);
+      const plan = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${Z.id}.json`);
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderC);
+      const pageC = await w.pageOf(path.basename(folderC), 90000);
+      const hostC = pageC ? await w.hostUp(before, folderC).catch(() => null) : null;
+      check(!!pageC && !!hostC, 'a second window opens on another folder, with the test helper in it', { page: !!pageC });
+      if (!pageC || !hostC) {
+        if (pageC) await pageC.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        return;
+      }
+      /* With two windows open, a request that names no folder goes to the first one. */
+      w.pin(profile.folder);
+      const inC = (body, arg) => call(body, arg, 60000, folderC);
+      try {
+        await until(() => inC('const mine = vscode.extensions.getExtension("xnervwang.claude-code-plus"); return !!(mine && mine.isActive);'), 60000, 1000);
+        await inC('await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar"); return true;');
+        await inC('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', Z.id);
+        const zLoaded = await until(async () => {
+          for (const f of pageC.frames()) { try { if (await f.evaluate((t) => !!document.body && document.body.innerText.includes(t), Z.turns[0][1])) return true; } catch (_) { /* gone */ } }
+          return false;
+        }, 60000, 1000);
+        check(!!zLoaded, 'the second window shows a conversation of its folder in a tab', null);
+        /* Behind a text file in its own column, so no window shows it in front. */
+        await inC('await vscode.window.showTextDocument(vscode.Uri.file(arg), { preview: false, viewColumn: vscode.window.tabGroups.activeTabGroup.viewColumn }); return true;',
+          path.join(folderC, 'notes-c.txt'));
+        /* The first window's own conversation loaded first, as the two-window step has it before it brings that window
+           forward; a second try if VS Code still counts the other as focused. */
+        await exec('claude-vscode.editor.open', tab0.id);
+        await conversation(tab0, 60000).catch(() => null);
+        for (let i = 0; i < 2 && (await focused()) !== true; i++) {
+          win.frontWindow(exe, profile.user, profile.folder, process.env);
+          await until(async () => (await focused()) === true && (await focused(folderC)) !== true, 15000, 300);
+        }
+        /* Which windows VS Code counts as focused. Under xvfb-run, and on the CI's macOS and Windows runners, a window it has
+           counted as focused once can stay so, and the one opened last took the focus on opening. */
+        const wins = [{ name: 'first', p: page, folder: undefined, focused: await focused() }, { name: 'second', p: pageC, folder: folderC, focused: await focused(folderC) }];
+        if (!(wins[0].focused === true && wins[1].focused !== true)) {
+          note(`bringing the first window forward left VS Code counting ${JSON.stringify(wins.map((x) => [x.name, x.focused]))} as focused, so each window is held to that`);
+        }
+        await exec('notifications.clearAll');
+        await inC('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
+        const now = new Date().toISOString();
+        fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick the retention period', state: 'waiting', waitingOn: 'user',
+          question: 'Keep 7 or 30 days?', asked: now, opened: now, since: now }] }, null, 2));
+        /* `claude agents --json`, where Agent Plus hears of a running conversation, is read at most every 30 s; both
+           counts showing say Agent Plus has it waiting. */
+        const counts = await until(async () => { const a = await needCount(), c = await needCount(pageC); return a && c && a.n === 1 && c.n === 1 && [a, c]; }, SEEN_MS, 300);
+        check(!!counts, 'both windows count the waiting conversation in the status bar', [await needCount(), await needCount(pageC)]);
+        const shows = wins.filter((x) => x.focused === true), quiet = wins.filter((x) => x.focused !== true);
+        for (const x of shows) {
+          const told = await until(() => noticeOf(Z, x.p), 20000, 250) || (await listedNotices(x.p, x.folder)).find(about(Z));
+          check(!!told && told.text === `"${Z.title}" is waiting for you.`, `the ${x.name} window, which VS Code counts as focused, shows Agent Plus's notice of it`,
+            told || { toasts: await needNotices(x.p), agentPlus: attentionOf(Z.id) });
+        }
+        await shot('notice-in-focused-window');
+        for (const x of quiet) {
+          const there = counts ? await noticesWithin(Z, 'waiting', x.p, x.folder) : null;
+          check(!!counts && !there.length, `the ${x.name} window, which VS Code does not count as focused, shows none`, { there });
+        }
+      } finally {
+        fs.rmSync(plan, { force: true });
+        await exec('notifications.clearAll').catch(() => {});
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderC).catch(() => {});
+        await until(async () => !(await w.pageOf(path.basename(folderC), 1000)), 20000, 500);
+        w.pin(undefined);
+      }
+    });
+
+    /* Three of the session list's switches, each turned off and on again without a reload: the dates after a row's time,
+       OPEN SESSIONS, and New in tab and New in sidebar in place of Claude Code's New session. */
+    await step('the session list\'s switches without a reload', async () => {
+      const setShow = (k, v) => call('await vscode.workspace.getConfiguration("claudeCodePlus").update(arg[0], arg[1] === null ? undefined : arg[1], vscode.ConfigurationTarget.Global); return true;',
+        [`show.${k}`, v]);
+      await exec('claude-vscode.editor.open', tab0.id);
+      await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 20000, 300);
+      check(!!await openList(), 'the session list opens', null);
+      const seen = () => list.evaluate((id) => {
+        const r = [...document.querySelectorAll('[class*="sessionItem_"]')].find((x) => !x.closest('[data-cce-section]') && x.querySelector(`[data-cce-pin="${id}"]`));
+        return { dates: !!r && /\d\d\/\d\d/.test(r.innerText), open: !!document.querySelector('[data-cce-open-sessions]'),
+          ours: document.querySelectorAll('[data-cce-new-session]').length,
+          theirs: [...document.querySelectorAll('button')].filter((b) => b.innerText.trim() === 'New session').length };
+      }, tab0.id).catch(() => null);
+      const SWITCHES = [
+        ['sessionDates', 'the dates after a row\'s time', (s) => !s.dates, (s) => s.dates],
+        ['openSessions', 'OPEN SESSIONS', (s) => !s.open, (s) => s.open],
+        ['openInTabOrSidebar', 'New in tab and New in sidebar', (s) => s.ours === 0 && s.theirs === 1, (s) => s.ours === 2 && s.theirs === 0],
+      ];
+      try {
+        const at = await until(async () => { const s = await seen(); return s && SWITCHES.every(([, , , on]) => on(s)) && s; }, 15000, 500);
+        check(!!at, 'the list shows all three while they are on', await seen());
+        for (const [key, what, offNow, onNow] of SWITCHES) {
+          await setShow(key, false);
+          const gone = await until(async () => { const s = await seen(); return s && offNow(s) && s; }, 15000, 500);
+          check(!!gone, `claudeCodePlus.show.${key} turned off takes ${what} out of the list without a reload`, await seen());
+          await setShow(key, null);
+          const back = await until(async () => { const s = await seen(); return s && onNow(s) && s; }, 15000, 500);
+          check(!!back, 'and turned on again brings it back', await seen());
+        }
+      } finally {
+        for (const [key] of SWITCHES) await setShow(key, null).catch(() => {});
+      }
+    });
+
     /* Agent Plus's agentPlus.tokenMode in each mode in turn, without a reload: All, Essential, Interface, Custom with
        two features off, and All again. Each mode is checked in Show Status, Agent Plus's status bar entry, the information
        box, the config.json the hooks read, Claude Code's own list of plugins, the notice for a change of a feature's own
@@ -2592,7 +3313,13 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       await exec('workbench.view.extension.claude-sessions-sidebar');
       check(!!await frameWhere(() => !!document.querySelector('[data-cce-new-session]'), 60000), 'and after a reload the session list has this extension\'s buttons again');
     });
+
+    /* Last, as it is about the whole run. */
+    await step('no self-check warning', async () => {
+      check(!warned.size, 'no page of a Claude Code panel drew the warning that its messages are no longer found, at any point of the run', [...warned.values()]);
+    });
   } finally {
+    clearInterval(warnWatch);
     await shot('last');
     await w.close();
   }
