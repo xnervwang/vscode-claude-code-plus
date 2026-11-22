@@ -1377,6 +1377,7 @@ const STEPS = [
       fs.mkdirSync(bin, { recursive: true });
       fs.writeFileSync(path.join(bin, 'claude'), fakeModel.WORKER_SCRIPT('c0ffee00-1111-4222-8333-444444444444', 150), { mode: 0o755 });
       d.workStarted = Date.now();
+      d.workFrom = d.model.seen.length;
       await runAsked(d, frame, `Please ${fakeModel.ASK_FOR_WORKER}.`, 'fake-bin');
       await runAsked(d, frame, `Please ${fakeModel.ASK_TO_BACKGROUND}.`, fakeModel.BG_RUN);
       const shown = await d.until(async () => { const b = await agentsButton(frame); return b && b.dot === 'running' && /\b1 worker\b/.test(b.label) && /\b1 task\b/.test(b.label) && b; }, 40000, 500);
@@ -1417,7 +1418,12 @@ const STEPS = [
       const over = await d.until(async () => { const b = await agentsButton(frame); return (!b || (b.dot !== 'running' && !/\b(task|worker)s?\b/.test(b.label))) && { b }; },
         Math.max(due, 45000) + 90000, 1000);
       if (!over) throw new Error(`the agents button still counted work: ${JSON.stringify(await agentsButton(frame))}`);
-      await d.sleep(15000);
+      /* The worker's shell is found gone on a later scan, and the notice of that starts one more turn. */
+      const from = d.workFrom || 0;
+      const told = await d.until(() => { const i = d.model.seen.slice(from).findIndex((x) => /left running detached is no longer running/.test(x.ask || '')); return i < 0 ? 0 : from + i + 1; }, 60000, 1000);
+      if (!told) throw new Error('the conversation was not told that the worker\'s shell has stopped within 60 s');
+      // The fake model answers the notice itself with text, which ends that turn.
+      await d.sleep(8000);
       if (!await agentsButton(frame)) throw new Error('the agents button is gone, so there is no grey dot to show');
       await toBottom(frame);
       await d.away();
@@ -1428,7 +1434,7 @@ const STEPS = [
   {
     name: 'live-work-ended-map', features: ['agent-map'],
     expect: 'The agent map once both have ended: no worker section and no background task; the conversation\'s own row starts '
-      + 'with a grey dot, not a green one, and the finished helper is listed as done.',
+      + 'with a grey dot, not a green one, and the finished helper of an earlier step is still listed with a grey dot.',
     unchanged: 'The conversation behind the map is as before.',
     act: async (d) => {
       const frame = await live(d);
