@@ -214,6 +214,16 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
   ].join('\n'));
   if (idle.error) bad(idle.error);
   else eq(idle.idle && idle.idle.changes, 0, 'once the cards have come in, nothing on the stack or in the message list is written again while nothing happens, the half-second tick that keeps their times included');
+  /* More cards than the stack shows: a count of the rest, and the keyboard still reaches them. */
+  const many = run('many', [
+    'setTimeout(function(){ host([0, 1, 2, 3, 4, 5].map(function(i){ return card("m" + i, i % 2 ? "waiting" : "finished", "Card " + i, i * 1000); })); }, 2500);',
+    'setTimeout(function(){ var c = Q("[data-ap-card]"); got.count = document.querySelector("[data-ap-count]").textContent;',
+    '  got.rest = c.map(function(e){ return e.style.opacity; }); c[3].focus(); fire(c[3], "keydown", { key: "ArrowUp" });',
+    '  got.focused = document.activeElement === c[4]; got.out = [c[4].style.opacity, c[4].style.transform]; }, 3500);',
+  ].join('\n'));
+  if (many.error) bad(many.error);
+  else eq(many, { count: '+2', rest: ['1', '1', '1', '1', '0', '0'], focused: true, out: ['1', 'translateY(-80px) scale(1)'] },
+    'past four cards the stack shows a count of the rest, and ArrowUp from the fourth reaches the fifth and draws it out');
   const calm = run('calm', [
     'setTimeout(function(){ host([card("b", "finished", "Second", 60000)]); }, 2500);',
     'setTimeout(function(){ host([card("c", "waiting", "Third", 0), card("b", "finished", "Second", 60000)]); }, 3000);',

@@ -381,8 +381,9 @@ var agentPlusKit = (function () {
         card.__apEnter = false;
         card.style.transition = animate && quick() ? 'transform ' + ms + 'ms ' + EASE + ', opacity ' + ms + 'ms linear' : 'none';
         card.style.transform = 'translateY(' + p.y + 'px) scale(' + p.scale + ')';
+        /* A card past the depth is not shown but can still take the keyboard focus, which draws it out. */
         card.style.opacity = p.shown ? '1' : '0';
-        card.style.visibility = p.shown ? 'visible' : 'hidden';
+        card.style.pointerEvents = p.shown ? 'auto' : 'none';
         card.style.zIndex = String(n - i);
         card.firstChild.style.boxShadow = i === pulled ? '0 6px 18px var(--vscode-widget-shadow, rgba(0,0,0,.45))'
           : '0 2px 8px var(--vscode-widget-shadow, rgba(0,0,0,.36))';
