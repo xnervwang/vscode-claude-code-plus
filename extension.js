@@ -97,7 +97,7 @@ const HIDE_BG_SETTING = PREFIX + 'hideBackgroundSessions';
 const WORK_PLAN_SETTING = PREFIX + 'workPlan';
 const BRIEF_SETTING = PREFIX + 'conversationBrief';
 const TIME_ZONE_SETTING = PREFIX + 'tellClaudeYourTimeZone';
-/* The three settings that agentPlus.tokenMode overrides outside Custom (src/token-mode.js); each is read through runs(). */
+/* The four settings that agentPlus.tokenMode overrides outside Custom (src/token-mode.js); each is read through runs(). */
 const MODE_SWITCHES = tokenMode.SWITCHES.filter((s) => s.key.startsWith(PREFIX)).map((s) => s.key);
 const runs = (key) => tokenMode.effective(vscode, key);
 /* Read by the plugin's hooks, which are separate processes and cannot see editor settings. Keys match plan_path.py.
@@ -720,14 +720,17 @@ function start(context, log, renamed, handing = false) {
   /* The info box asks for its conversation's process id, and the context meter's hover asks the same to get the work
      plan's figures. `claude agents` is run for the process id unless the last run is under half a minute old. The work
      plan's figures and the token mode are sent separately, without waiting for it. */
-  globalThis.__cceProcessHook = (sessionId) => {
-    if (removed() || !enabled()) return;
+  const sendPlan = (sessionId) => {
     const transcript = runs(WORK_PLAN_SETTING) ? transcriptOf(sessionId) : '';
     const mode = tokenMode.labelOf(tokenMode.modeNow(vscode));
     (transcript ? planInjections.measure(transcript) : Promise.resolve(null)).then((m) => {
       const reply = { type: 'cce_plan', sessionId, text: planInjections.describe(m), plan: planInjections.figures(m), mode };
       if (typeof globalThis.__cceToPanel === 'function') globalThis.__cceToPanel(sessionId, reply);
     }).catch((e) => log.appendLine('work plan figures: ' + (e && e.message)));
+  };
+  globalThis.__cceProcessHook = (sessionId) => {
+    if (removed() || !enabled()) return;
+    sendPlan(sessionId);
     if (switchedOff().includes('footerInfo')) return;
     claude.freshAgents().then((r) => {
       const reply = { type: 'cce_process', sessionId, pids: r.records ? waiting.pidsOf(r.records, sessionId) : null };
@@ -1821,7 +1824,7 @@ function start(context, log, renamed, handing = false) {
     if (context.globalState.get(PLUGIN_KEY, {}).registered !== true || !pluginInstall.registrationGone()) return;
     recovering = true;
     log.appendLine('work plan plugin: unregistered while this window was running; checking the patch and registering it again');
-    Promise.resolve().then(() => sync()).then(() => syncPlugin(false)).then(restorePlans)
+    Promise.resolve().then(() => sync()).then(() => syncPlugin(false)).then(restorePlans).then(() => followTokenMode())
       .catch((e) => log.appendLine('putting the patch and the plugin back: ' + ((e && e.message) || e)))
       .finally(() => { recovering = false; });
   };
@@ -1849,7 +1852,7 @@ function start(context, log, renamed, handing = false) {
   }, REFRESH_MS);
   context.subscriptions.push({ dispose: () => clearInterval(tick) });
   context.subscriptions.push(
-    registerCommand('installWorkPlanPlugin', () => syncPlugin(true).then(restorePlans)),
+    registerCommand('installWorkPlanPlugin', () => syncPlugin(true).then(restorePlans).then(() => followTokenMode())),
     registerCommand('downloadPython', async () => {
       const pick = await vscode.window.showInformationMessage(
         `Download Python ${pythonRuntime.VERSION} from python.org?`,
@@ -1881,8 +1884,12 @@ function start(context, log, renamed, handing = false) {
     }
     const modeChanged = e.affectsConfiguration(tokenMode.SETTING);
     if (modeChanged) writeHookSettings();
-    if (modeChanged || e.affectsConfiguration(WORK_PLAN_SETTING)) listAgain();
-    else if (e.affectsConfiguration(BRIEF_SETTING)) claude.changed();
+    if (modeChanged || e.affectsConfiguration(WORK_PLAN_SETTING)) {
+      listAgain();
+      /* A page keeps the mode and the work plan's figures it was last sent, for its information box and its context
+         meter, and asks again only when one of them opens. */
+      if (!removed() && enabled()) for (const id of shownList()) sendPlan(id);
+    } else if (e.affectsConfiguration(BRIEF_SETTING)) claude.changed();
     if (modeChanged) followTokenMode();
     if (e.affectsConfiguration(HIDE_BG_SETTING)) {
       try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the list catches up on its next read */ }
@@ -1916,7 +1923,7 @@ function deactivate() {
   try { removal.finishLater(selfPath); } catch (_) { /* likewise */ }
 }
 
-/* The token mode line of Show Status: the mode, and which of the three features it runs. */
+/* The token mode line of Show Status: the mode, and which of the four features it runs. */
 function tokenModeLine() {
   const what = tokenMode.SWITCHES.filter((s) => MODE_SWITCHES.includes(s.key))
     .map((s) => `${tokenMode.featureOf(s.feature).name} ${runs(s.key) ? 'on' : 'off'}`);

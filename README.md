@@ -95,7 +95,7 @@ Verified against Claude Code 2.1.328, 2.1.329 and 2.1.330.
 | Context meter | The panel's context meter stays visible and gets an outline when 15% of the window remains. Rest the pointer on it for two seconds for a breakdown by category, memory files and custom agents, with what the work plan has added to the context. |
 | Chimes | A short sound when a turn finishes, permission is requested or Claude asks a question, played on the machine showing the panel. Mute it in the footer. |
 | Session information | A footer button that shows the session ID, Claude's process ID, starting directory, transcript location and size, and the token mode. Click a value to copy it. |
-| Token mode | Agent Plus's `agentPlus.tokenMode`, set from its entry in the status bar, decides which of the work plan, the time-zone note and the conversation brief (a summary, and a status saying where the conversation stands; see [Settings](#settings)) are added to Claude's context. Each one's own setting applies only in Custom. See [What it costs in tokens](#what-it-costs-in-tokens). |
+| Token mode | Agent Plus's `agentPlus.tokenMode`, set from its entry in the status bar, decides which of the work plan, the time-zone note, the conversation brief (a summary, and a status saying where the conversation stands; see [Settings](#settings)) and the detached-command notices are added to Claude's context. Each one's own setting applies only in Custom. See [What it costs in tokens](#what-it-costs-in-tokens). |
 
 ![Times on messages and tool calls, with each reply's duration, model and effort](images/shots/reply-figures.png)
 

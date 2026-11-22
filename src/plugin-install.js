@@ -285,17 +285,22 @@ function removeSync(claudeBin, stamp) {
  * `disable` rather than `uninstall`: uninstalling takes the plugin's data directory with it, and that is where every
  * conversation's plan lives. Disabling is a line in Claude Code's own settings and is undone by enabling again, so the
  * plans stay where they are and come back with it.
+ *
+ * Once the user has stopped it, the token mode's mark (followTokenMode below) goes, so that leaving Interface features
+ * does not load it again. `dir` is the plan directory the mark is in.
  */
-async function disable(dirs) {
+async function disable(dirs, { dir = dataPath() } = {}) {
   const claudeBin = findClaude(dirs);
   if (!claudeBin) return { ok: false, said: 'the claude binary is not where this extension can see it' };
   const r = await run(claudeBin, ['plugin', 'disable', REF]);
-  if (r.ok) return { ok: true, said: 'told Claude Code to stop loading ' + REF };
   /* Already disabled reads as a failure from the CLI and is the outcome asked for, so it is not reported as one. */
-  if (/not enabled|already disabled|is disabled/i.test(r.said)) {
-    return { ok: true, said: REF + ' was already not being loaded' };
+  const already = !r.ok && /not enabled|already disabled|is disabled/i.test(r.said);
+  if (!r.ok && !already) return { ok: false, said: r.said };
+  let kept = '';
+  try { fs.unlinkSync(path.join(dir, UNLOADED_MARKER)); } catch (e) {
+    if (!e || e.code !== 'ENOENT') kept = `; the token mode's mark could not be removed (${(e && e.message) || e}), so leaving Interface features loads it again`;
   }
-  return { ok: false, said: r.said };
+  return { ok: true, said: (already ? REF + ' was already not being loaded' : 'told Claude Code to stop loading ' + REF) + kept };
 }
 
 

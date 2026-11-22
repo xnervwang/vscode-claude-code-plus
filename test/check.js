@@ -5900,10 +5900,12 @@ console.log('\nthe work plan\'s part of the context');
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const hookAt = ext.indexOf('globalThis.__cceProcessHook = (sessionId) => {');
   const procHook = ext.slice(hookAt, ext.indexOf('\n  };', hookAt));
+  const sendAt = ext.indexOf('const sendPlan = (sessionId) => {');
+  const sendPlan = sendAt < 0 ? '' : ext.slice(sendAt, ext.indexOf('\n  };', sendAt));
   if (/m\.type === 'cce_plan'/.test(page) && !/\['Work plan'/.test(page) && /rows\.push\(\['Token mode', plan\.mode\]\)/.test(page)
-    && /type: 'cce_plan', sessionId, text: planInjections\.describe\(m\), plan: planInjections\.figures\(m\), mode/.test(procHook)
-    && /runs\(WORK_PLAN_SETTING\) \? transcriptOf\(sessionId\)/.test(procHook)
-    && procHook.indexOf("if (switchedOff().includes('footerInfo')) return;") > procHook.indexOf('__cceToPanel(sessionId, reply)')) {
+    && /type: 'cce_plan', sessionId, text: planInjections\.describe\(m\), plan: planInjections\.figures\(m\), mode/.test(sendPlan)
+    && /runs\(WORK_PLAN_SETTING\) \? transcriptOf\(sessionId\)/.test(sendPlan)
+    && procHook.indexOf("if (switchedOff().includes('footerInfo')) return;") > procHook.indexOf('sendPlan(sessionId);') && procHook.indexOf('sendPlan(sessionId);') > 0) {
     ok('the extension sends the work plan\'s figures, none while the work plan does not run, also with the info button off; the box keeps only the token mode');
   } else bad('the info box or the extension does not carry the work plan figures as expected');
   const f = pi.figures({ count: 2, chars: 9412, context: 80000, since: 'compaction' });
@@ -11555,7 +11557,7 @@ console.log('\na panel\'s page getting the focus');
 }
 
 /* ── the token mode ──
-   agentPlus.tokenMode in Agent Plus decides which of the three features that add to Claude's context run
+   agentPlus.tokenMode in Agent Plus decides which of the four features that add to Claude's context run
    (src/token-mode.js). For each mode the checks read config.json, which the hooks read, count the redraws of Agent
    Plus's list, and look for the notice shown when a feature's own setting is changed outside Custom. */
 console.log('\nthe token mode');
@@ -11700,6 +11702,41 @@ console.log('\nthe token mode');
     }).catch((e) => { bad('unloading and loading threw: ' + e.message); fs.rmSync(box, { recursive: true, force: true }); });
   } catch (e) { bad('unloading and loading: ' + e.message); fs.rmSync(box, { recursive: true, force: true }); }
 
+  /* Stop Loading the Work Plan Plugin run while Interface features has it unloaded: the user has now stopped it, so the
+     mark goes and the next mode leaves it stopped. The claude binary is a script that says it did as asked. */
+  if (process.platform === 'win32') note('Stop Loading the Work Plan Plugin under Interface features: the stand-in claude binary is a shell script');
+  else {
+    const user = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-user-stop-')));
+    const done = () => fs.rmSync(user, { recursive: true, force: true });
+    try {
+      const install = path.join(user, 'claude-code'), bin = path.join(install, pi.BINARY), data = path.join(user, 'data');
+      fs.mkdirSync(path.dirname(bin), { recursive: true });
+      fs.mkdirSync(data, { recursive: true });
+      fs.writeFileSync(bin, '#!/bin/sh\necho "done: $*"\n', { mode: 0o755 });
+      fs.writeFileSync(path.join(data, pi.UNLOADED_MARKER), 'by the mode\n');
+      pi.disable([install], { dir: data }).then((r) => {
+        const left = fs.existsSync(path.join(data, pi.UNLOADED_MARKER));
+        if (r.ok && !left) ok('Stop Loading the Work Plan Plugin while Interface features has unloaded it takes the mode\'s mark away, so no later mode loads it again');
+        else bad(`after Stop Loading the Work Plan Plugin the mark ${left ? 'is still there' : 'is gone'} (${JSON.stringify(r)})`);
+        done();
+      }).catch((e) => { bad('Stop Loading the Work Plan Plugin threw: ' + e.message); done(); });
+    } catch (e) { bad('Stop Loading the Work Plan Plugin: ' + e.message); done(); }
+  }
+
+  /* Registering the plugin again enables it, so every path that registers it then follows the mode: otherwise Interface
+     features would leave it loading in new conversations until the next change of mode or the next start. */
+  {
+    const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    const paths = {
+      'the start': /syncPlugin\(false\)\.then\(\(unregistered\) => \{ restorePlans\(unregistered\); return followTokenMode\(\); \}/,
+      'the recovery after the old extension\'s uninstall hook': /\.then\(\(\) => syncPlugin\(false\)\)\.then\(restorePlans\)\.then\(\(\) => followTokenMode\(\)\)/,
+      'Install the Work Plan Plugin': /registerCommand\('installWorkPlanPlugin', \(\) => syncPlugin\(true\)\.then\(restorePlans\)\.then\(\(\) => followTokenMode\(\)\)\)/,
+    };
+    const missing = Object.keys(paths).filter((k) => !paths[k].test(ext));
+    if (!missing.length) ok('the start, the recovery and Install the Work Plan Plugin each follow the token mode once the plugin is registered');
+    else bad(`these register the plugin without following the token mode afterwards: ${missing.join(', ')}`);
+  }
+
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   const props = pkg.contributes.configuration.properties;
   const tm = require('../src/token-mode');
@@ -11715,6 +11752,134 @@ console.log('\nthe token mode');
   if (JSON.stringify(cols) === JSON.stringify(tm.MODES.map((m) => m.label)) && mine.every((k) => custom.includes('`' + k + '`'))) {
     ok('the README\'s token section opens with the four modes, its Custom column naming the four settings');
   } else bad(`the README's mode table has columns ${JSON.stringify(cols)} and Custom ${JSON.stringify(custom)}`);
+  const row = readme.split('\n').find((l) => l.startsWith('| Token mode |')) || '';
+  const unnamed = [/work plan/, /time-zone note/, /conversation brief/, /detached-command notices/].filter((re) => !re.test(row));
+  if (row && !unnamed.length) ok('the README\'s feature table says the token mode decides all four: work plan, time-zone note, brief and detached-command notices');
+  else bad(`the README's Token mode row does not name ${unnamed.map(String).join(', ')}: ${row.slice(0, 300)}`);
+}
+
+/* Every mode in turn, All, Essential, Interface, Custom with two features off, and All again, as one window sees them:
+   what Show Status says, which mode the information box is sent, what the hooks are handed, and which changes of a
+   feature's own setting are said to have no effect. A second window starts in Interface features. */
+{
+  const tm = require('../src/token-mode');
+  const KEYS = tm.SWITCHES.filter((x) => x.key.startsWith('claudeCodePlus.')).map((x) => x.key);
+  const runModes = (steps) => {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-modes-')));
+    try {
+      const stub = path.join(home, 'vscode-stub.js');
+      fs.writeFileSync(stub, `
+        const listeners = [], values = {}, told = [], disposable = { dispose() {} }, state = { source: null };
+        const core = { isActive: true, exports: { agentPlus: { version: '1.0.0',
+          registerSource: (s) => { state.source = s; return { accepted: true, code: '', reason: '', registration: disposable }; } } } };
+        module.exports = { state, listeners, values, told, TabInputWebview: class {}, version: '1.120.0', env: { language: 'en' },
+          Uri: { file: (p) => ({ fsPath: p }) }, RelativePattern: class {}, ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
+          workspace: { isTrusted: true, onDidGrantWorkspaceTrust: () => disposable, workspaceFolders: [],
+            getConfiguration: (section) => ({ get: (k, d) => { const key = section ? section + '.' + k : k; return key in values ? values[key] : d; },
+              inspect: () => undefined, update: async (k, v) => { values[section + '.' + k] = v; } }),
+            onDidChangeConfiguration: (fn) => { listeners.push(fn); return disposable; }, onDidChangeWorkspaceFolders: () => disposable },
+          l10n: { t: (m, ...a) => a.reduce((s, v, i) => s.split('{' + i + '}').join(String(v)), String(m)) },
+          window: { createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
+            showInformationMessage: async (text, ...buttons) => { told.push([text, buttons]); return undefined; },
+            showWarningMessage: async () => undefined, setStatusBarMessage() {}, tabGroups: { all: [], activeTabGroup: null },
+            registerWebviewViewProvider: () => disposable, registerUriHandler: () => disposable },
+          commands: { registerCommand: () => disposable, executeCommand: async () => {} },
+          extensions: { getExtension: (id) => (id === 'xnervwang.agent-plus' ? core : undefined), onDidChange: () => disposable } };`);
+      const root = path.join(__dirname, '..');
+      const script = `
+        const Module = require('module'), realResolve = Module._resolveFilename, path = require('path'), fs = require('fs');
+        Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+        const vs = require(${JSON.stringify(stub)});
+        const ext = require(${JSON.stringify(path.join(root, 'extension.js'))});
+        const store = path.join(${JSON.stringify(home)}, 'storage');
+        const config = path.join(${JSON.stringify(home)}, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'config.json');
+        const memo = () => { const m = new Map(); return { get: (k, d) => (m.has(k) ? m.get(k) : d), update: async (k, v) => { m.set(k, v); } }; };
+        const subs = [], keep = setInterval;
+        global.setInterval = () => keep(() => {}, 1 << 30);
+        const hooks = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.enabled, c.tellTimeZone, c.brief]; } catch (_) { return null; } };
+        const change = (...keys) => { for (const fn of vs.listeners) fn({ affectsConfiguration: (k) => keys.some((x) => x === k || x.startsWith(k + '.')) }); };
+        const pause = (ms = 50) => new Promise((r) => setTimeout(r, ms));
+        const sent = [];
+        globalThis.__cceToPanel = (id, m) => { if (m && m.type === 'cce_plan') sent.push(m.mode); };
+        globalThis.__cceSessionsShown = () => ['11111111-2222-4333-8444-555555555555'];
+        (async () => {
+          const out = { threw: '', steps: [] };
+          try {
+            await ext.activate({ subscriptions: subs, extensionPath: ${JSON.stringify(root)}, globalState: memo(), workspaceState: memo(),
+              extension: { id: 'x.y', packageJSON: require(${JSON.stringify(path.join(root, 'package.json'))}) },
+              globalStorageUri: { fsPath: store }, logUri: { fsPath: path.join(store, 'logs', 'exthost1', 'x.y') } });
+            await pause(200);
+            for (const [mode, own] of ${JSON.stringify(steps)}) {
+              vs.values['agentPlus.tokenMode'] = mode;
+              const beforeChange = sent.length;
+              change('agentPlus.tokenMode');
+              await pause(100);
+              const pushed = sent.slice(beforeChange);
+              Object.assign(vs.values, own);
+              if (Object.keys(own).length) change(...Object.keys(own));
+              await pause();
+              const toldBefore = vs.told.length;
+              for (const key of ${JSON.stringify(KEYS)}) {
+                for (let i = 0; i < 2; i++) { vs.values[key] = !(vs.values[key] === undefined ? true : vs.values[key]); change(key); }
+                vs.values[key] = key in own ? own[key] : true;
+                change(key);
+              }
+              await pause();
+              const before = sent.length;
+              if (typeof globalThis.__cceProcessHook === 'function') globalThis.__cceProcessHook('11111111-2222-4333-8444-555555555555');
+              await pause(100);
+              out.steps.push({ mode, pushed, status: typeof ext._tokenModeLine === 'function' ? ext._tokenModeLine() : null, info: sent.slice(before),
+                hooks: hooks(), told: vs.told.slice(toldBefore).map(([t, b]) => [t, b]) });
+            }
+          } catch (e) { out.threw = String(e && e.stack); }
+          for (const s of subs) { try { s.dispose(); } catch (e) { out.threw = out.threw || 'dispose: ' + e.message; } }
+          delete globalThis.__cceToPanel;
+          delete globalThis.__cceSessionsShown;
+          process.stdout.write(JSON.stringify(out));
+          process.exit(0);
+        })();`;
+      const env = Object.assign({}, process.env, { HOME: home, USERPROFILE: home });
+      delete env.CLAUDE_CONFIG_DIR;
+      try { return JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000, env })); }
+      catch (e) { return { threw: e.message, steps: [] }; }
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  };
+  const OFF = { 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false };
+  const r = runModes([['all', {}], ['essential', {}], ['interface', {}], ['custom', OFF], ['all', {}]]);
+  const want = {
+    all: ['All features', 'work plan on, time-zone note on, conversation brief on, notices when a detached command stops on', [true, true, true]],
+    essential: ['Essential features', 'work plan on, time-zone note on, conversation brief off, notices when a detached command stops off', [true, true, false]],
+    interface: ['Interface features', 'work plan off, time-zone note off, conversation brief off, notices when a detached command stops off', [false, false, false]],
+    custom: ['Custom', 'work plan on, time-zone note off, conversation brief off, notices when a detached command stops on', [true, false, false]],
+  };
+  const steps = r.steps || [];
+  const wrong = steps.filter((s) => {
+    const [label, what, hooks] = want[s.mode];
+    return s.status !== `Token mode: ${label} (agentPlus.tokenMode); in Claude Code: ${what}`
+      || JSON.stringify(s.info) !== JSON.stringify([label]) || JSON.stringify(s.hooks) !== JSON.stringify(hooks);
+  });
+  if (!r.threw && steps.length === 5 && !wrong.length) {
+    ok('in All, Essential, Interface, Custom with two features off and All again, Show Status, the information box and the hooks each follow the mode');
+  } else bad(`modes in turn: ${JSON.stringify(wrong.length ? wrong : steps).slice(0, 900)} ${(r.threw || '').slice(0, 300)}`);
+  const stale = steps.filter((s) => !(s.pushed || []).includes(want[s.mode][0]));
+  if (steps.length === 5 && !stale.length) {
+    ok('a change of mode sends each conversation shown in the window its new mode, so an information box left open does not keep the old one');
+  } else bad(`after a change of mode the conversations shown were sent ${JSON.stringify(steps.map((s) => [s.mode, s.pushed]))}`);
+  /* Told once per setting and window: four notices in the first mode, naming it, and none after. */
+  const first = (steps[0] || {}).told || [];
+  const named = KEYS.every((k) => first.some(([t, b]) => t === `Claude Code Plus: the token mode is All features, so ${k} has no effect until the mode is Custom.`
+    && JSON.stringify(b) === JSON.stringify([tm.SWITCH_BUTTON])));
+  const later = steps.slice(1).map((s) => (s.told || []).length);
+  if (first.length === 4 && named && later.every((n) => n === 0)) {
+    ok('changing each of the four settings twice outside Custom says once, for each, that it has no effect, and Custom says nothing');
+  } else bad(`the notices were ${JSON.stringify(steps.map((s) => [s.mode, s.told]))}`);
+  const r2 = runModes([['interface', {}], ['custom', {}], ['essential', {}]]);
+  const s2 = r2.steps || [];
+  const inInterface = (s2[0] || {}).told || [];
+  if (!r2.threw && inInterface.length === 4 && inInterface.every(([t]) => /^Claude Code Plus: the token mode is Interface features, so claudeCodePlus\.\w+ has no effect until the mode is Custom\.$/.test(t))
+    && s2.slice(1).every((s) => !(s.told || []).length)) {
+    ok('a window that starts in Interface features names that mode in its notices');
+  } else bad(`a window in Interface features: ${JSON.stringify(s2.map((s) => [s.mode, s.told]))} ${(r2.threw || '').slice(0, 300)}`);
 }
 
 console.log('\nRestricted Mode');
