@@ -28,7 +28,7 @@ const { applyEdits, shapesOf } = require('./edits');
 const { writeAtomic } = require('./files');
 const { patchTarget } = require('./patch-target');
 
-const VERSION = 17;
+const VERSION = 18;
 const ANY_MARK = '/* CLAUDE-CODE-EXTRAS-HOST v';
 const BACKUP_SUFFIX = '.claude-code-extras-host.bak';
 const TMP_SUFFIX = '.claude-code-extras-host.tmp';
@@ -220,7 +220,8 @@ const EDITS = [
    *
    * The same update also reaches this extension: each conversation's state as the host knows it and the replies not read
    * yet, for the Conversations view. And the message carries the dot this extension draws for each conversation
-   * (cceActivity, src/activity.js), which the session list's rows read. It comes the moment something changes, where `claude agents` is asked every half
+   * (cceActivity, src/activity.js) and which conversations are stewards (cceStewards), which the session list's rows
+   * read. It comes the moment something changes, where `claude agents` is asked every half
    * minute. The states pass through this extension first, which may mark an idle conversation running
    * (__cceWithBackground in extension.js).
    *
@@ -245,7 +246,8 @@ const EDITS = [
     to: (m, a, b, c, d, e, f, z, id, fields) => `sendSessionStates(${a},${b},${c},${d},${e},${f},cceShown){let ${z}={type:"request",channelId:"",`
       + `requestId:${id}(),request:{type:"session_states_update",${fields},sidebarSessionIds:${f},cceSidebarShown:cceShown,`
       + 'cceRecentClosed:(()=>{try{return typeof globalThis.__cceRecentClosed==="function"?globalThis.__cceRecentClosed():void 0}catch(e){return void 0}})(),'
-      + 'cceActivity:(()=>{try{return typeof globalThis.__cceActivityMap==="function"?globalThis.__cceActivityMap():void 0}catch(e){return void 0}})()}}',
+      + 'cceActivity:(()=>{try{return typeof globalThis.__cceActivityMap==="function"?globalThis.__cceActivityMap():void 0}catch(e){return void 0}})(),'
+      + 'cceStewards:(()=>{try{return typeof globalThis.__cceStewardIds==="function"?globalThis.__cceStewardIds():void 0}catch(e){return void 0}})()}}',
   },
   {
     // A tab the person closed, as Claude Code notes it for its own reopen-closed command, reaches this extension too.
@@ -290,6 +292,25 @@ const EDITS = [
     to: (m, logo, vs, panel) => `${logo}=${vs}.Uri.joinPath(this.extensionUri,"resources","claude-logo.svg");let cceSetup;`
       + `try{cceSetup=globalThis.__cceTabIcon&&globalThis.__cceTabIcon(${panel},"plain",void 0,this.extensionUri.fsPath)}`
       + `catch(cceE){}${panel}.iconPath=cceSetup||{light:${logo},dark:${logo}}`,
+  },
+  /*
+   * The marks this extension shows with a title (src/title-marks.js) are never stored. Every rename Claude Code stores
+   * goes through one method of the panel's connection - the session list's rename box, the tab's Rename Session Tab
+   * command, a steward's rename (src/relay.js) - so the name is stripped of them there, and one that is left empty is
+   * not stored. The tab command's box is filled with the conversation's title, which is stripped too, so the person
+   * renaming does not see a mark to keep.
+   */
+  {
+    name: 'renamed titles carry no marks',
+    re: /async renameSession\(([\w$]+),([\w$]+),([\w$]+)\)\{if\(typeof \1!=="string"\|\|typeof \2!=="string"\)return\{type:"rename_session_response",skipped:!0\};/g,
+    to: (m, id, title) => `${m}${title}=(()=>{try{let cceF=globalThis.__cceCleanTitle;return typeof cceF==="function"?cceF(${title}):${title}}`
+      + `catch(cceE){return ${title}}})();if(typeof ${title}!=="string"||!${title}.trim())return{type:"rename_session_response",skipped:!0};`,
+  },
+  {
+    name: 'rename box filled without marks',
+    re: /prompt:"Rename session tab",value:([^,]*?\?\?[\w$]+\(await [\w$]+\.sessionTitleOnDisk\([\w$]+\)\?\?""\)),validateInput:/g,
+    to: (m, value) => `prompt:"Rename session tab",value:((cceV)=>{try{let cceF=globalThis.__cceCleanTitle;`
+      + `return typeof cceF==="function"?cceF(cceV):cceV}catch(cceE){return cceV}})(${value}),validateInput:`,
   },
   /*
    * Pinned conversations are not archived for being inactive (src/sessionpins.js says how they are pinned).

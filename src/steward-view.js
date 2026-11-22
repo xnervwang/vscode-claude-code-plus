@@ -31,7 +31,9 @@ const { writeAtomic, SESSION, transcriptOf } = require('./claude-files');
 const { liveRecords, readState } = require('./background');
 const { OPEN_STATES } = require('./workplan');
 const activity = require('./activity');
+const titleMarks = require('./title-marks');
 const { GREEN, RED } = require('./tabdot');
+const envelope = require('./envelope');
 
 const VIEW = 'claudeCodePlus.steward';
 /* How often the list and the notices are refreshed. `claude agents --json` is asked at most every half minute
@@ -111,7 +113,7 @@ function gather(records, deps) {
     const now = on ? rowState(s, live, unread, deps) : { state: 'idle', dot: '', unseen: !!(unread && unread.has(s.sessionId)) };
     out.set(s.sessionId, {
       sessionId: s.sessionId,
-      title: conversations.claudeTitle(s, deps.titles(s), () => plan),
+      title: titleMarks.withoutMarks(conversations.claudeTitle(s, deps.titles(s), () => plan)) || s.sessionId,
       cwd: s.cwd,
       state: now.state,
       dot: now.dot,
@@ -139,7 +141,8 @@ const STATE_TEXT = { working: 'working', background: 'running background work', 
 const NOTICE_STATE = { working: 'working', background: 'running background work', prompt: 'waiting for the user',
   unread: 'finished, not read by the user', idle: 'idle' };
 const DOT_TEXT = { working: 'working', background: 'turn ended; background work still running', waiting: 'waiting for you' };
-const ENVELOPE = '&#x2709;&#xFE0F;';
+/* The envelope's form follows the theme (src/envelope.js); it is written as character references, the page being ASCII. */
+const htmlChars = (s) => [...String(s)].map((c) => `&#x${c.codePointAt(0).toString(16).toUpperCase()};`).join('');
 const ENVELOPE_TEXT = 'Reply not read yet';
 
 function ago(ms, now) {
@@ -204,7 +207,7 @@ function body(model) {
       ${c.managed ? `<span class="doing">${esc(c.doing.join(' · ') || (c.running ? STATE_TEXT[c.state] : 'stopped'))}</span>
       ${c.questions ? `<span class="questions">${c.questions} question${c.questions === 1 ? '' : 's'} for you</span>` : ''}
       <span class="when">${esc(ago(c.lastActiveAt, now))}</span>` : `<span class="when">${esc(ago(c.lastActiveAt, now))}</span>`}
-      ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${ENVELOPE}</span>` : ''}
+      ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${htmlChars(model.envelope || envelope.COLOUR)}</span>` : ''}
     </li>`;
   const group = (g) => {
     const on = g.rows.filter((c) => c.managed).length;
@@ -342,10 +345,10 @@ function create(vscode, deps) {
     const hidden = [...mine].filter((id) => !open(id));
     const self = front && all.get(front);
     // The conversation in front may not be in the list yet: `claude agents --json` is read at most every half minute.
-    const title = self ? self.title : front ? conversations.claudeTitle({ sessionId: front, name: '', cwd: '' },
-      deps.titles({ sessionId: front }), () => deps.readPlan(front)) : '';
+    const title = self ? self.title : front ? titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: front, name: '', cwd: '' },
+      deps.titles({ sessionId: front }), () => deps.readPlan(front))) : '';
     return { front: front ? { id: front, title } : null, other, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
-      every };
+      every, envelope: envelope.envelope(vscode) };
   };
 
   /* This window's entry in the windows folder, written when what it shows changes and once a minute besides. */
@@ -703,6 +706,7 @@ function create(vscode, deps) {
     },
   };
   const reg = vscode.window.registerWebviewViewProvider(VIEW, provider, { webviewOptions: { retainContextWhenHidden: false } });
+  const themeWatch = envelope.onEnvelopeChange(vscode, () => render());
   timer = setInterval(() => {
     const now = frontKey();
     if (now !== lastFront) { lastFront = now; render(); }
@@ -712,6 +716,7 @@ function create(vscode, deps) {
     dispose() {
       clearInterval(timer);
       reg.dispose();
+      themeWatch.dispose();
       if (requestWatch) { try { requestWatch.close(); } catch (_) { /* closed */ } }
       if (relayWatch) { try { relayWatch.close(); } catch (_) { /* closed */ } }
       if (published) { try { fs.unlinkSync(own); } catch (_) { /* gone already */ } }

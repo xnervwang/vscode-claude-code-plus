@@ -6766,7 +6766,8 @@ console.log('\na panel whose bundle never arrives says so');
 
     const live = require('../src/webview').liveCss({}), off = require('../src/webview').liveCss({ enabled: false });
     if (live.includes('[class*="sessionItem_"]{--app-status-busy:#22c55e;--app-status-pending:#ef4444;}')
-        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;') && !off.includes('sessionItem_')) {
+        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;') && live.includes('[class*="sessionItem_"]>[data-cce-crown]{flex:none;')
+        && !off.includes('sessionItem_')) {
       ok('the session list\'s dots turn green and red, and its envelope goes to the row\'s end');
     } else bad('the live stylesheet does not colour the list\'s dots as expected');
 
@@ -9034,62 +9035,75 @@ console.log('\nthe Steward panel');
       } else bad(`the steward was waiting on ${JSON.stringify(got)}`);
     }
 
-    /* A steward's title in its tab and in the session list (src/steward-marks.js). */
+    /* A steward's title in its tab and in the session list (src/steward-marks.js, src/title-marks.js): one crown first,
+       at most one envelope last, whatever a title carries; neither is ever stored. */
     {
       const sm = require('../src/steward-marks');
-      const table = { [S(1)]: { manages: [S(2), S(3)], names: {}, at: 0 } };
-      const marks = new Map();
-      const entries = [{ id: S(1).toUpperCase(), summary: 'Claude Code hover box', customTitle: 'Claude Code hover box' }, { id: S(2), summary: 'Two' },
-        { sessionId: S(4), customTitle: 'Night watch ' + sm.MARK }];
-      const listed = sm.marked(entries, Object.assign({ [S(4)]: { manages: [S(2)], names: {}, at: 0 } }, table), marks, 1000,
-        (id) => (id === S(4) ? 'Night watch' : ''));
-      const auto = listed[0].customTitle, named = listed[2].customTitle;
-      const after = sm.marked(entries, {}, marks, 2000);
-      const later = sm.marked(entries, {}, marks, 2000 + 11 * 60000);
-      if (auto === 'Claude Code hover box ' + sm.MARK && listed[0].summary === 'Claude Code hover box' && listed[1] === entries[1]
-          && named === 'Night watch ' + sm.MARK && after[0].customTitle === 'Claude Code hover box' && later[0] === entries[0]
-          && sm.marked(entries, {}, new Map()) === entries) {
-        ok('in the session list a steward keeps its own title, or the name you gave it, with one crown after it, '
-          + 'and loses the crown for a while once it manages nothing; others are left alone');
-      } else bad(`the list showed ${JSON.stringify([auto, named, after[0], later[0]])}`);
+      const tm = require('../src/title-marks');
+      const C = '\u{1F451}', E = '\u2709\uFE0F', BELL = '\u{1F6CE}\uFE0F', BELL0 = '\u{1F6CE}';
+      // What someone can leave in a rename box, or what an older build or Claude Code put in a title.
+      const typed = ['Title', C + ' Title', C + ' ' + C + ' Title', 'Ti ' + C + ' tle', 'Title ' + C, 'Title ' + BELL, 'Title ' + BELL0,
+        C + ' Title ' + BELL, 'Title ' + E, E + ' Title ' + E + E, C + ' Title ' + E, '  ' + C + 'Title' + E + '  '];
+      const bare = typed.map(tm.withoutMarks);
+      const fixed = typed.map((t) => tm.withMarks(t, { steward: true, unseen: true }));
+      const plain = typed.map((t) => tm.withMarks(t, {}));
+      const count = (s, ch) => s.split(ch).length - 1;
+      const wantBare = ['Title', 'Title', 'Title', 'Ti tle', 'Title', 'Title', 'Title', 'Title', 'Title', 'Title', 'Title', 'Title'];
+      if (JSON.stringify(bare) === JSON.stringify(wantBare) && fixed.every((t, i) => t === `${C} ${wantBare[i]} ${E}` && count(t, C) === 1 && count(t, '\u2709') === 1)
+          && plain.every((t, i) => t === wantBare[i]) && tm.withoutMarks('') === '' && tm.withMarks(C, { steward: true }) === C
+          && tm.withEnvelope('Fix ' + E + ' it', true) === 'Fix it ' + E && tm.withEnvelope('Fix it ' + E, false) === 'Fix it'
+          && tm.withoutEnvelope(C + ' Fix ' + E) === C + ' Fix' && sm.MARK === C && sm.ENVELOPE === E) {
+        ok('a title loses every crown, envelope and bell wherever it stands - deleted, doubled, in the middle, at the end, the old bell with or without its selector - '
+          + 'and is shown with exactly one crown first and one envelope last; the envelope part works on its own');
+      } else bad(`marks: ${JSON.stringify({ bare, fixed, plain })}`);
+
+      const entries = [{ id: S(1), summary: C + ' Claude Code hover box ' + BELL, customTitle: C + ' Claude Code hover box ' + BELL },
+        { id: S(2), summary: 'Two' }, { sessionId: S(4), customTitle: 'Night watch ' + BELL0, summary: 'Night watch ' + BELL0 }];
+      const listed = sm.cleaned(entries);
+      if (listed[0].customTitle === 'Claude Code hover box' && listed[0].summary === 'Claude Code hover box' && listed[1] === entries[1]
+          && listed[2].customTitle === 'Night watch' && sm.cleaned(entries.slice(1, 2))[0] === entries[1] && sm.cleaned(null) === null
+          && !JSON.stringify(listed).includes(C)) {
+        ok('the session list\'s titles carry no mark, so its rename box is never filled with one; one stored by an older build is taken off');
+      } else bad(`the list showed ${JSON.stringify(listed)}`);
+
       const a = sm.tabTitle('Claude Code hover box', null, '', 2);
       const b = sm.tabTitle(a.title, a.kept, '', 3);
       const c = sm.tabTitle(b.title, b.kept, '', 0);
       const d = sm.tabTitle('Renamed by Claude Code', b.kept, 'Mine', 3);
-      const e = sm.tabTitle('Claude Code hover box ' + sm.MARK, null, '', 0, 'Claude Code hover box');
-      const bells = ['x \u{1F6CE}\uFE0F', 'x \u{1F6CE}', 'x \u{1F451}', 'x \u{1F451} \u2709\uFE0F', 'x \u2709\uFE0F', 'x \u{1F6CE}\uFE0F \u2709\uFE0F']
-        .map(sm.withoutMarks);
-      const oldBell = sm.tabTitle('Claude Code hover box \u{1F6CE}\uFE0F', null, '', 2, 'Claude Code hover box');
-      if (a.title === 'Claude Code hover box ' + sm.MARK && b.title === 'Claude Code hover box ' + sm.MARK
-          && c.title === 'Claude Code hover box' && c.kept === null && d.title === 'Mine ' + sm.MARK && d.kept.original === 'Renamed by Claude Code'
-          && e.title === 'Claude Code hover box' && bells.every((t) => t === 'x') && oldBell.title === 'Claude Code hover box ' + sm.MARK
-          && sm.MARK === '\u{1F451}') {
-        ok('a steward\'s tab keeps its title with a crown after it whatever the count, loses the crown when nothing is ticked, also when '
-          + 'the panel put the steward\'s title there, a new title from Claude Code is the one it goes back to, and a bell an older build wrote is taken off');
-      } else bad(`the tab titles were ${JSON.stringify([a, b, c, d, e, bells, oldBell])}`);
+      const e = sm.tabTitle('Claude Code hover box ' + BELL, null, '', 0, 'Claude Code hover box');
+      const f = sm.tabTitle(C + ' ' + C + ' Kept the crown ' + C, b.kept, C + ' Kept the crown', 2, 'Kept the crown', true);
+      const g = sm.tabTitle(f.title, f.kept, C + ' Kept the crown', 2, 'Kept the crown', false);
+      const h = sm.tabTitle(g.title, g.kept, '', 0, 'Kept the crown', false);
+      if (a.title === C + ' Claude Code hover box' && b.title === a.title && c.title === 'Claude Code hover box' && c.kept === null
+          && d.title === C + ' Mine' && d.kept.original === 'Renamed by Claude Code' && e.title === 'Claude Code hover box'
+          && f.title === C + ' Kept the crown ' + E && g.title === C + ' Kept the crown' && h.title === 'Kept the crown' && h.kept === null) {
+        ok('a steward\'s tab reads crown, title: one crown first whatever the count, whatever the title carries, with an envelope last while a reply is unread, '
+          + 'and none once nothing is ticked; a new title from Claude Code is the one it goes back to, and an old bell is taken off');
+      } else bad(`the tab titles were ${JSON.stringify([a, b, c, d, e, f, g, h])}`);
+
       const u1 = sm.tabTitle('Fix the build', null, '', 0, 'Fix the build', true);
       const u2 = sm.tabTitle(u1.title, u1.kept, '', 2, 'Fix the build', true);
       const u3 = sm.tabTitle(u2.title, u2.kept, '', 2, 'Fix the build', false);
-      const u4 = sm.tabTitle('Renamed by Claude Code', u3.kept, '', 0, 'Fix the build', true);
+      const u4 = sm.tabTitle('Renamed by Claude Code ' + E + E, u3.kept, '', 0, 'Fix the build', true);
       const u5 = sm.tabTitle(u4.title, u4.kept, '', 0, 'Fix the build', false);
-      const ENV = '\u2709\uFE0F';
-      if (u1.title === 'Fix the build ' + ENV && u2.title === 'Fix the build ' + sm.MARK + ' ' + ENV && u3.title === 'Fix the build ' + sm.MARK
-          && u4.title === 'Renamed by Claude Code ' + ENV && u5.title === 'Renamed by Claude Code' && u5.kept === null && sm.ENVELOPE === ENV) {
-        ok('a tab whose conversation has a reply not read yet ends in an envelope, after the crown on a steward\'s tab, and loses it once the reply is read; '
-          + 'a new title from Claude Code meanwhile is kept');
+      if (u1.title === 'Fix the build ' + E && u2.title === C + ' Fix the build ' + E && u3.title === C + ' Fix the build'
+          && u4.title === 'Renamed by Claude Code ' + E && u5.title === 'Renamed by Claude Code' && u5.kept === null) {
+        ok('a tab whose conversation has a reply not read yet ends in one envelope, after the title and the crown before it, and loses it once the reply is read; '
+          + 'envelopes in a new title from Claude Code do not count');
       } else bad(`the envelope titles were ${JSON.stringify([u1, u2, u3, u4, u5])}`);
+
       const allDir = path.join(root, 'plans-all');
       st.setManaged(S(1), [], {}, { dir: allDir, every: true });
       const kept = st.read(allDir)[S(1)];
       st.setManaged(S(1), [S(2)], {}, { dir: allDir });
       const still = st.read(allDir)[S(1)].all;
-      const whole = sm.marked([{ sessionId: S(1), summary: 'x' }], st.read(allDir), new Map(), 0)[0].customTitle;
+      const ids = sm.stewardIds(st.read(allDir));
       const allTab = sm.tabTitle('x', null, '', sm.size(st.read(allDir)[S(1)]));
       st.setManaged(S(1), [], {}, { dir: allDir, every: false });
-      if (kept && kept.all === true && kept.manages.length === 0 && still === true && whole === 'x ' + sm.MARK
-          && allTab.title === whole && st.read(allDir)[S(1)] === undefined) {
-        ok('a steward with "all" set stays in the table with nothing open, keeps "all" when its list is rewritten, and keeps its own title with a crown');
-      } else bad(`managing all: ${JSON.stringify([kept, still, whole, allTab, st.read(allDir)])}`);
+      if (kept && kept.all === true && kept.manages.length === 0 && still === true && JSON.stringify(ids) === JSON.stringify([S(1).toLowerCase()])
+          && allTab.title === C + ' x' && st.read(allDir)[S(1)] === undefined && sm.stewardIds(st.read(allDir)).length === 0) {
+        ok('a steward with "all" set stays in the table with nothing open, keeps "all" when its list is rewritten, and keeps its crown');
+      } else bad(`managing all: ${JSON.stringify([kept, still, ids, allTab, st.read(allDir)])}`);
     }
 
     /* Another agent's conversation tab in front (src/other-agents.js): the Steward panel says so and shows no ticks, and a
@@ -10763,15 +10777,19 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
       vm.createContext(env);
       vm.runInContext(mr.out, env);
       const draw = (state, where) => env.Row({ session: { s: 1 }, id: 'r', openState: state, liveElsewhere: where }, null).props.children[0];
+      const rowKids = (state) => env.Row({ session: { s: 1 }, id: 'r', openState: state }, null).props.children;
       const own = draw('running', void 0);
       env.window.__cceRowMarks = (o) => { calls.push([o.state, o.where, !!o.session, o.Dot === env.Ef, typeof o.jsx]); return ['D', 'E']; };
       const marked = [draw('running', 'vscode'), draw('unread', void 0), draw(void 0, void 0)];
+      const kids = rowKids('unread');
+      const outside = JSON.stringify(kids[0]) === '["D","E"]' && kids[1].props.className === 'sn' && !JSON.stringify(kids[1]).includes('"E"');
       env.window.__cceRowMarks = () => null;
       const fallback = draw('waiting', void 0);
       if (own && own.type === env.Ef && own.props.state === 'running' && JSON.stringify(marked) === '[["D","E"],["D","E"],["D","E"]]'
-          && JSON.stringify(calls) === '[["running","Open in another VS Code window",true,true,"function"],["unread","",true,true,"function"],[null,"",true,true,"function"]]'
-          && fallback.type === env.Ef && fallback.props.state === 'waiting') {
-        ok('a session list row asks the page for its dot and envelope, with where the conversation is open, and draws its own dot when the page gives none');
+          && JSON.stringify(calls) === '[["running","Open in another VS Code window",true,true,"function"],["unread","",true,true,"function"],[null,"",true,true,"function"],["unread","",true,true,"function"]]'
+          && fallback.type === env.Ef && fallback.props.state === 'waiting' && outside) {
+        ok('a session list row asks the page for its dot, crown and envelope, with where the conversation is open, and draws its own dot when the page gives none; '
+          + 'they are children of the row beside the title element the list cuts short, not inside it');
       } else bad(`row marks ${JSON.stringify([own, marked, calls, fallback])}`);
     }
 
@@ -10780,21 +10798,23 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     const env = { window: {}, isOn: () => env.on, on: true, Date, Array, String, Math, isFinite, JSON, Object,
       head: { appendChild() {} }, document: { createElement: () => ({ setAttribute() {}, textContent: '' }) }, localStorage: { getItem: () => null } };
     env.window.__cceSignal = (v) => ({ value: v });
-    env.window.__cceSessionList = { comms: { unreadSessionKeys: sig(['U', 'T0']) } };
+    env.window.__cceSessionList = { comms: { unreadSessionKeys: sig(['U', 'T0', 'SU']) } };
     vm.createContext(env);
     for (const f of ['84-open-sessions.js', '84-row-marks.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', f), 'utf8'), env);
     const Dot = function Dot() {};
     const h = (type, props) => ({ type, props: props || {} });
     const s = (id, extra) => Object.assign({ sessionId: sig(id) }, extra || {});
-    env.window.__cceSetActivity({ W: 'working', B: 'background', Q: 'waiting', U: 'working' });
+    env.window.__cceSetActivity({ W: 'working', B: 'background', Q: 'waiting', U: 'working' }, ['ST', 'SU']);
     const marks = (session, state, where) => env.window.__cceRowMarks({ jsx: h, Dot, session, state, where });
     const shape = (out) => (out === null ? null : out.map((n) => (n === null ? '-' : n.type === Dot
-      ? `${n.props.state}${n.props.ring ? '/ring' : ''}:${n.props.title}` : n.props['data-cce-envelope'] === '' ? 'envelope:' + n.props.children : '?')));
+      ? `${n.props.state}${n.props.ring ? '/ring' : ''}:${n.props.title}` : n.props['data-cce-envelope'] === '' ? 'envelope' + (n.props.children === undefined ? '' : ':' + n.props.children)
+        : n.props['data-cce-crown'] === '' ? 'crown:' + n.props.children : '?')));
     const got = {
       working: shape(marks(s('W'), 'running', '')), background: shape(marks(s('B'), 'running', 'Open in this window')), waiting: shape(marks(s('Q'), 'idle', '')),
       unseenWorking: shape(marks(s('U'), 'running', '')), stopped: shape(marks(s('X'), 'idle', '')), unseenStopped: shape(marks(s('T1', { teleportedFromSessionId: sig('T0') }), 'unread', '')),
       fallback: shape(marks(s('Y'), 'waiting', '')), fallbackRun: shape(marks(s('Z'), 'running', '')),
       remote: marks(s('R', { isRemote: sig(true) }), 'running', ''),
+      steward: shape(marks(s('st'), 'idle', '')), stewardUnseen: shape(marks(s('SU'), 'unread', '')),
     };
     env.on = false;
     got.off = marks(s('W'), 'running', '');
@@ -10802,16 +10822,121 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     env.window.__cceSetActivity({});
     got.cleared = shape(marks(s('W'), 'idle', ''));
     const ENV = '\u2709\uFE0F';
+    const CROWN = '\u{1F451}';
     const want = {
-      working: ['running:Working', '-'], background: ['running/ring:Open in this window \u2014 Turn ended; background work still running', '-'],
-      waiting: ['waiting:Waiting for you', '-'], unseenWorking: ['running:Working', 'envelope:' + ENV], stopped: ['-', '-'],
-      unseenStopped: ['-', 'envelope:' + ENV], fallback: ['waiting:Waiting for you', '-'], fallbackRun: ['running:Working', '-'],
-      remote: null, off: null, cleared: ['-', '-'],
+      working: ['running:Working', '-', '-'], background: ['running/ring:Open in this window \u2014 Turn ended; background work still running', '-', '-'],
+      waiting: ['waiting:Waiting for you', '-', '-'], unseenWorking: ['running:Working', '-', 'envelope'], stopped: ['-', '-', '-'],
+      unseenStopped: ['-', '-', 'envelope'], fallback: ['waiting:Waiting for you', '-', '-'], fallbackRun: ['running:Working', '-', '-'],
+      remote: null, steward: ['-', 'crown:' + CROWN, '-'], stewardUnseen: ['-', 'crown:' + CROWN, 'envelope'], off: null, cleared: ['-', '-', '-'],
     };
     if (JSON.stringify(got) === JSON.stringify(want)) {
       ok('a row\'s dot is green while a turn runs, a green ring for background work only, red while it waits and absent once stopped, '
-        + 'with an envelope beside it for a reply not read yet whatever the dot; a web session, or the extension off, keeps Claude Code\'s dot');
+        + 'a steward\'s crown follows the dot, before the title, and an envelope comes last for a reply not read yet whatever the dot; '
+        + 'a web session, or the extension off, keeps Claude Code\'s dot');
     } else bad(`row marks: ${JSON.stringify(got)}`);
+  }
+
+  /* A rename never stores a mark, whatever was typed, by whichever path it goes; the tab's rename box is filled without
+     one; and a steward renamed while keeping the crown shows one crown, first. */
+  {
+    const tm = require('../src/title-marks');
+    const sm = require('../src/steward-marks');
+    const C = '\u{1F451}', E = '\u2709\uFE0F', BELL = '\u{1F6CE}\uFE0F';
+    const store = host.EDITS.find((e) => e.name === 'renamed titles carry no marks');
+    const box = host.EDITS.find((e) => e.name === 'rename box filled without marks');
+    const method = 'class K{constructor(){this.stored=[]}async renameSession(e,t,n){if(typeof e!=="string"||typeof t!=="string")'
+      + 'return{type:"rename_session_response",skipped:!0};let r=Iu(t);this.stored.push([e,r,n===!0]);return{type:"rename_session_response",skipped:!1}}}';
+    const command = 'class M{async renameTab(e,n){let r=await W.showInputBox({prompt:"Rename session tab",value:this.sessionStates.get(e)?.info.title??'
+      + 'Iu(await n.sessionTitleOnDisk(e)??""),validateInput:(o)=>o.trim()?void 0:"Enter a session name"});return r}}';
+    const sr = store ? applyEdits(method, [store]) : { error: 'no such edit' }, br = box ? applyEdits(command, [box]) : { error: 'no such edit' };
+    if (sr.error || br.error) bad('the rename edits did not apply: ' + (sr.error || br.error));
+    else {
+      const env = { Iu: (t) => t, W: { showInputBox: async (o) => o.value } };
+      env.globalThis = env;
+      env.__cceCleanTitle = tm.withoutMarks;
+      vm.createContext(env);
+      vm.runInContext(sr.out + ';' + br.out + ';this.K=K;this.M=M;', env);
+      (async () => {
+        const k = new env.K();
+        const results = [];
+        // The session list's rename box, kept crown and all: what Claude Code's list sends.
+        results.push(await k.renameSession('s', C + ' CSV export and budgets'));
+        // The tab's Rename Session Tab command, which passes true.
+        results.push(await k.renameSession('s', C + ' ' + C + ' Budgets ' + BELL + ' ' + E, true));
+        // A steward's rename through the panel (src/relay.js).
+        results.push(await k.renameSession('s', 'Ti ' + C + ' tle ' + E + E));
+        results.push(await k.renameSession('s', ' ' + C + ' ' + E + ' '));
+        results.push(await k.renameSession('s', 'Plain'));
+        delete env.__cceCleanTitle;
+        results.push(await k.renameSession('s', C + ' After the extension went'));
+        env.__cceCleanTitle = () => { throw new Error('x'); };
+        results.push(await k.renameSession('s', 'Thrown'));
+        env.__cceCleanTitle = tm.withoutMarks;
+        const m = new env.M();
+        m.sessionStates = new Map([['a', { info: { title: C + ' Shown title ' + E } }]]);
+        const prefilled = [await m.renameTab('a', {}), await m.renameTab('b', { sessionTitleOnDisk: async () => 'On disk ' + BELL })];
+        const stored = k.stored.map((x) => x[1]);
+        const skipped = results.map((r) => r.skipped);
+        // The whole round, renaming without deleting the mark: the list's box holds the clean title, the person keeps a
+        // crown in front anyway, it is stored without it, and the tab and the list show one crown first.
+        const listTitle = sm.cleaned([{ id: 's', summary: C + ' CSV export ' + BELL, customTitle: C + ' CSV export ' + BELL }])[0].summary;
+        await k.renameSession('s', C + ' ' + listTitle + ' and budgets');
+        const kept = k.stored[k.stored.length - 1][1];
+        const tab = sm.tabTitle(kept, null, kept, 2, kept, true).title;
+        const tabRead = sm.tabTitle(tab, null, kept, 2, kept, false).title;
+        if (JSON.stringify(stored) === JSON.stringify(['CSV export and budgets', 'Budgets', 'Ti tle', 'Plain', C + ' After the extension went', 'Thrown'])
+            && JSON.stringify(skipped) === '[false,false,false,true,false,false,false]' && k.stored[1][2] === true
+            && JSON.stringify(prefilled) === JSON.stringify(['Shown title', 'On disk'])
+            && listTitle === 'CSV export' && kept === 'CSV export and budgets' && tab === C + ' CSV export and budgets ' + E
+            && tabRead === C + ' CSV export and budgets') {
+          ok('a rename from the session list, from the tab\'s command or from a steward stores the name without any crown, envelope or bell, '
+            + 'and one left empty is not stored; the tab\'s rename box is filled without them; renaming without deleting the crown leaves one crown, first');
+        } else bad(`renames stored ${JSON.stringify(stored)}, skipped ${JSON.stringify(skipped)}, prefilled ${JSON.stringify(prefilled)}, round ${JSON.stringify([listTitle, kept, tab, tabRead])}`);
+      })().catch((e) => bad('the rename check threw: ' + e.message));
+    }
+    const rec = host.EDITS.find((e) => e.name === 'tab record at start');
+    const relayRename = rec && /cceC\.renameSession\(cceId,cceTitle\)/.test(String(rec.to('', 'S')));
+    const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    if (relayRename && /globalThis\.__cceCleanTitle = \(title\) => \(typeof title === 'string' \? titleMarks\.withoutMarks\(title\) : title\);/.test(ext)
+        && /const out = enabled\(\) \? stewardMarks\.cleaned\(listed\) : listed;/.test(ext)) {
+      ok('a steward\'s rename goes through the same method of the panel\'s connection, and the session list is given titles without marks');
+    } else bad('the rename paths are not all wired to the title cleaner');
+  }
+
+  /* The envelope's two forms (src/envelope.js, shared with Agent Plus): the text form in light themes, where a colour
+     emoji font draws it white; both forms are stripped from titles; each place redraws on a theme change. */
+  {
+    const env = require('../src/envelope');
+    const tm = require('../src/title-marks');
+    const sm = require('../src/steward-marks');
+    const fake = (kind) => ({ window: { activeColorTheme: { kind } } });
+    const forms = [1, 2, 3, 4].map((k) => env.envelope(fake(k)));
+    let heard = 0;
+    const d = env.onEnvelopeChange({ window: { onDidChangeActiveColorTheme: (fn) => { fn({}); return { dispose() {} }; } } }, () => heard++);
+    const none = env.onEnvelopeChange({ window: {} }, () => heard++);
+    const T = env.TEXT, Cl = env.COLOUR;
+    const stripped = [tm.withoutMarks('Fix ' + T), tm.withoutMarks('Fix ' + Cl + ' ' + T + ' \u2709'), tm.withoutEnvelope(T + ' Fix')];
+    const tab = sm.tabTitle('Fix it', null, '', 2, 'Fix it', true, T).title;
+    const tabBack = sm.tabTitle(tab, null, '', 2, 'Fix it', true, Cl).title;
+    const css = require('../src/webview').liveCss({});
+    const esc = (c) => [...c].map((x) => '\\' + x.codePointAt(0).toString(16).toUpperCase()).join(' ');
+    const cssOk = css.includes(`[data-cce-envelope]::after{content:"${esc(Cl)}";}`)
+      && css.includes(`body.vscode-light [data-cce-envelope]::after,body.vscode-high-contrast-light [data-cce-envelope]::after{content:"${esc(T)}";}`);
+    const sv = require('../src/steward-view');
+    const rowsOf = (e) => sv.body({ front: { id: 'f', title: 'F' }, rows: [], groups: [{ key: 'w:1', name: 'w', rows: [{ sessionId: 'x', title: 'x', cwd: '', state: 'unread', dot: '',
+      unseen: true, running: true, processes: [], lastActiveAt: 0, doing: [], questions: 0, managed: false }] }], managed: 0, hidden: 0, every: false, envelope: e });
+    const panel = [rowsOf(T), rowsOf(Cl)].map((h) => (/<span class="env"[^>]*>([^<]*)<\/span>/.exec(h) || [])[1]);
+    const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8'), view = fs.readFileSync(path.join(__dirname, '..', 'src', 'steward-view.js'), 'utf8');
+    const page = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-row-marks.js'), 'utf8');
+    if (JSON.stringify(forms) === JSON.stringify([T, Cl, Cl, T]) && heard === 1 && typeof d.dispose === 'function' && typeof none.dispose === 'function'
+        && JSON.stringify(stripped) === JSON.stringify(['Fix', 'Fix', 'Fix']) && tab === '\u{1F451} Fix it ' + T && tabBack === '\u{1F451} Fix it ' + Cl
+        && cssOk && panel[0] === '&#x2709;&#xFE0E;' && panel[1] === '&#x2709;&#xFE0F;'
+        && /envelope\.onEnvelopeChange\(vscode, \(\) => \{\s*try \{ if \(typeof globalThis\.__cceRefreshTabIcons === 'function'\) globalThis\.__cceRefreshTabIcons\(\);/.test(ext)
+        && /named\.custom \|\| named\.ai, unseen, envelope\.envelope\(vscode\)\);/.test(ext)
+        && /const themeWatch = envelope\.onEnvelopeChange\(vscode, \(\) => render\(\)\);/.test(view) && !/\\u2709/.test(page)) {
+      ok('the envelope is the text form in light and high-contrast light themes and the colour form otherwise, in the tab title, the Steward panel and the session list, '
+        + 'which picks it by the page\'s theme class; a theme change redraws the tabs and the panel; both forms are taken off titles');
+    } else bad(`envelope forms ${JSON.stringify({ forms, heard, stripped, tab, tabBack, cssOk, panel })}`);
   }
 
   /* The Steward panel draws the same dots and the envelope at the row's end. */
@@ -10830,11 +10955,18 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     const dots = [...html.matchAll(/<span class="dot ([a-z]*)"/g)].map((m) => m[1]);
     const envs = [...html.matchAll(/<span class="env"[^>]*>&#x2709;&#xFE0F;<\/span>\s*<\/li>/g)].length;
     const shell = sv.shell('', 'n');
-    if (JSON.stringify(rows) === JSON.stringify(['working/working/-', 'background/background/u', 'prompt/waiting/-', 'idle/waiting/-', 'unread//u'])
+    const long = 'A title far too long for the row, which the panel cuts short with an ellipsis before the envelope'.repeat(2);
+    const longHtml = sv.body({ front: { id: 'f', title: 'F' }, rows: [], groups: [{ key: 'w:1', name: 'w', rows: [Object.assign({ managed: false, processes: [] },
+      all.get(S(5)), { title: long })] }], managed: 0, hidden: 0, every: false });
+    const nameSpan = (/<a [^>]*class="name"[^>]*>([^<]*)<\/a>/.exec(longHtml) || [])[1] || '';
+    const cut = nameSpan === long && /<\/a>[\s\S]*<span class="env"[^>]*>&#x2709;&#xFE0F;<\/span>\s*<\/li>/.test(longHtml)
+      && /\.name \{[^}]*overflow: hidden; text-overflow: ellipsis;/.test(shell) && /\.env \{ flex: 0 0 auto;/.test(shell);
+    if (cut && JSON.stringify(rows) === JSON.stringify(['working/working/-', 'background/background/u', 'prompt/waiting/-', 'idle/waiting/-', 'unread//u'])
         && JSON.stringify(dots) === JSON.stringify(['working', 'background', 'waiting', 'waiting', '']) && envs === 2
         && /\.dot\.background \{ border: 2px solid #22c55e; \}/.test(shell) && !/3b82f6/i.test(shell)) {
-      ok('the Steward panel draws each conversation\'s dot as the tab does, red for a fresh question to the user, and an envelope last on the row for a reply not read yet');
-    } else bad(`steward rows ${JSON.stringify(rows)}, dots ${JSON.stringify(dots)}, envelopes ${envs}`);
+      ok('the Steward panel draws each conversation\'s dot as the tab does, red for a fresh question to the user, and an envelope last on the row for a reply not read yet, '
+        + 'outside the title, which a long title cuts short with an ellipsis while the envelope keeps its size');
+    } else bad(`steward rows ${JSON.stringify(rows)}, dots ${JSON.stringify(dots)}, envelopes ${envs}, long title kept apart ${cut}`);
   }
 
   /* A steward hears that a conversation finished only once it has stayed stopped; background work ending counts. */

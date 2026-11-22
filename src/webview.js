@@ -60,8 +60,9 @@ const { applyEdits, shapesOf } = require('./edits');
 const files = require('./files');
 const { patchTarget } = require('./patch-target');
 const tabdot = require('./tabdot');
+const envelope = require('./envelope');
 
-const VERSION = 33;
+const VERSION = 34;
 
 /* The marker written into the patched file has to answer one question: is the code in
  * the panel the code this tree produces? A hand-maintained number answers it only while
@@ -131,9 +132,15 @@ const EDGE_CSS = `${USER_SELECTOR}{`
   + 'padding-left:calc(6px + 2px * var(--cce-edge, 1) * var(--cce-on, 1)) !important;}';
 
 /* The session list's dots in the tab icons' green and red (src/tabdot.js), and its envelope pinned at the row's end
-   (src/page/84-row-marks.js): the row lays its children out in a row, and its time already takes the space left. */
+   (src/page/84-row-marks.js): the row lays its children out in a row, and its time already takes the space left. The
+   envelope is drawn here, in the form src/envelope.js gives for the page's theme class, so a theme change redraws it. */
+const cssChars = (s) => [...String(s)].map((c) => '\\' + c.codePointAt(0).toString(16).toUpperCase() + ' ').join('').trim();
+const LIGHT_BODY = ['body.vscode-light', 'body.vscode-high-contrast-light'];
 const LIST_DOTS_CSS = `[class*="sessionItem_"]{--app-status-busy:${tabdot.GREEN};--app-status-pending:${tabdot.RED};}`
-  + '[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;line-height:1;}';
+  + '[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;line-height:1;}'
+  + `[data-cce-envelope]::after{content:"${cssChars(envelope.COLOUR)}";}`
+  + `${LIGHT_BODY.map((b) => `${b} [data-cce-envelope]::after`).join(',')}{content:"${cssChars(envelope.TEXT)}";}`
+  + '[class*="sessionItem_"]>[data-cce-crown]{flex:none;line-height:1;}';
 
 /** A CSS colour the user typed, or '' when it is not a plain colour - nothing else may reach the stylesheet. */
 function safeColor(value) {
@@ -474,12 +481,13 @@ const EDITS = [
   },
   {
     // Whether the sidebar's conversation can be seen and the tabs closed recently, as the patched host sends them; OPEN
-    // SESSIONS and Recently closed read them as they draw. With them, the dot of each conversation (84-row-marks.js).
+    // SESSIONS and Recently closed read them as they draw. With them, the dot of each conversation and the stewards
+    // (84-row-marks.js).
     name: 'sidebar shown for open sessions',
     re: /case"session_states_update":if\(this\.sessionStates\.value=([\w$]+)\.request\.sessions,/g,
     to: (m, msg) => `case"session_states_update":if(window.__cceSidebarShown=${msg}.request.cceSidebarShown,`
       + `window.__cceRecentClosed=${msg}.request.cceRecentClosed,`
-      + `(()=>{try{typeof window.__cceSetActivity==="function"&&window.__cceSetActivity(${msg}.request.cceActivity)}catch(cceE){}})(),`
+      + `(()=>{try{typeof window.__cceSetActivity==="function"&&window.__cceSetActivity(${msg}.request.cceActivity,${msg}.request.cceStewards)}catch(cceE){}})(),`
       + `this.sessionStates.value=${msg}.request.sessions,`,
   },
   {

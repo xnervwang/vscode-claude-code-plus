@@ -28,6 +28,8 @@ const background = require('./src/background');
 const planNames = require('./src/plan-names');
 const stewardView = require('./src/steward-view');
 const stewardMarks = require('./src/steward-marks');
+const titleMarks = require('./src/title-marks');
+const envelope = require('./src/envelope');
 const stewards = require('./src/stewards');
 const detachedEnds = require('./src/detachedends');
 const bgEnds = require('./src/bgends');
@@ -965,6 +967,7 @@ function start(context, log, renamed, handing = false) {
      folder is watched. The folder may not exist yet at startup; the ten-second timer below retries the watch. */
   const redrawStewards = () => {
     try { if (typeof globalThis.__cceRefreshTabIcons === 'function') globalThis.__cceRefreshTabIcons(); } catch (_) { /* next change */ }
+    try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
   };
   let stewardWatch = null, stewardSettle = 0;
@@ -1256,6 +1259,10 @@ function start(context, log, renamed, handing = false) {
   };
   /* Each change of the dots is logged, like the set of work running, so that a wrong dot can be put down either to what
      was worked out here or to the drawing. */
+  /* The stewards, for the crown the session list draws before their titles (src/page/84-row-marks.js). */
+  globalThis.__cceStewardIds = () => (enabled() && !removed() ? stewardMarks.stewardIds(stewardTable()) : undefined);
+  /* A name typed into a rename box, or prefilled in one, without this extension's marks (src/host.js). */
+  globalThis.__cceCleanTitle = (title) => (typeof title === 'string' ? titleMarks.withoutMarks(title) : title);
   let marksSent = '', marksLogged = '';
   globalThis.__cceActivityMap = () => {
     try {
@@ -1285,9 +1292,11 @@ function start(context, log, renamed, handing = false) {
     clearInterval(bgTimer);
     if (globalThis.__cceWithBackground) delete globalThis.__cceWithBackground;
     if (globalThis.__cceActivityMap) delete globalThis.__cceActivityMap;
+    if (globalThis.__cceStewardIds) delete globalThis.__cceStewardIds;
+    if (globalThis.__cceCleanTitle) delete globalThis.__cceCleanTitle;
   } });
   const tabIcons = new Map(), tabIconUris = new Map();
-  const stewardTable = stewardMarks.tableReader(planDir()), stewardTabs = new WeakMap(), stewardListed = new Map();
+  const stewardTable = stewardMarks.tableReader(planDir()), stewardTabs = new WeakMap();
   /* `unread`: whether the conversation has a reply not read yet, which the host works out (src/host.js). */
   globalThis.__cceTabIcon = (panel, state, run, home, sessionId, unread) => {
     try {
@@ -1299,7 +1308,7 @@ function start(context, log, renamed, handing = false) {
         const t = on ? stewardTable()[sessionId.toLowerCase()] : null, unseen = on && unread === true;
         const named = t || unseen || stewardMarks.withoutMarks(panel.title) !== panel.title ? readTitles.titles({ sessionId }) || {} : {};
         const next = stewardMarks.tabTitle(panel.title, stewardTabs.get(panel) || null, named.custom, t ? stewardMarks.size(t) : 0,
-          named.custom || named.ai, unseen);
+          named.custom || named.ai, unseen, envelope.envelope(vscode));
         if (next.kept) stewardTabs.set(panel, next.kept); else stewardTabs.delete(panel);
         if (panel.title !== next.title) panel.title = next.title;
       }
@@ -1315,6 +1324,10 @@ function start(context, log, renamed, handing = false) {
     } catch (e) { return undefined; /* the host sets its own icon */ }
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceTabIcon) delete globalThis.__cceTabIcon; } });
+  /* The envelope after a tab's title takes its form from the theme (src/envelope.js); the session list's follows the page's own theme class. */
+  context.subscriptions.push(envelope.onEnvelopeChange(vscode, () => {
+    try { if (typeof globalThis.__cceRefreshTabIcons === 'function') globalThis.__cceRefreshTabIcons(); } catch (_) { /* next change */ }
+  }));
   /* Panels the editor restored before this extension started reported their icons and states before anything listened. */
   try { if (typeof globalThis.__cceRefreshTabIcons === 'function') globalThis.__cceRefreshTabIcons(); } catch (_) { /* next change */ }
   try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next change */ }
@@ -1405,8 +1418,7 @@ function start(context, log, renamed, handing = false) {
     if (removed()) return entries;
     const t0 = Date.now();
     const listed = cfg().get(HIDE_BG_SETTING, true) === false ? entries : bgSessions.withoutBackground(entries, cwd);
-    const out = enabled() ? stewardMarks.marked(listed, stewardTable(), stewardListed, Date.now(),
-      (id) => (readTitles.titles({ sessionId: id }) || {}).custom || '') : listed;
+    const out = enabled() ? stewardMarks.cleaned(listed) : listed;
     const ms = Date.now() - t0;
     if (listsLogged < 8 || ms >= 200) {
       listsLogged++;

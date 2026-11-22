@@ -84,12 +84,13 @@ function dotOf(activity, question = false) {
   return activity === 'working' || activity === 'background' ? activity : '';
 }
 
-/* Whether a plan row asks the user a question put after `since`, the time of the user's last message. */
+/* Whether a plan row asks the user a question put after `since`, the time of the user's last message; a row that does
+   not say when it asked counts from when it started waiting, as Agent Plus counts it. */
 function freshQuestion(nodes, since) {
   if (!(since > 0)) return false;
   for (const n of nodes || []) {
     if (!n) continue;
-    if (n.waitingOn === 'user' && (n.state === 'waiting' || n.state === 'discussing') && n.asked > since) return true;
+    if (n.waitingOn === 'user' && (n.state === 'waiting' || n.state === 'discussing') && (n.asked || n.since || 0) > since) return true;
     if (freshQuestion(n.children, since)) return true;
   }
   return false;
