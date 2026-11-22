@@ -1314,12 +1314,17 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           const recFile = path.join(profile.home, '.claude', 'sessions', `${r.pid}.json`);
           try { fs.writeFileSync(recFile, JSON.stringify(Object.assign({}, r, { name: belledName }))); } catch (_) { /* the process rewrote it */ }
         }
-        await frame.locator('input[data-id]').first().click();
+        /* One of the test conversations that has an editor tab: an earlier step can leave one in the sidebar, which closing
+           and the tab checks below need it not to be. */
+        const tabbed = await claudeTabs();
+        const inTab = (id) => { const t = threads.find((x) => x.id === id); return !!t && tabbed.some((x) => titled(x.label.replace(ENVELOPE, ''), t.title)); };
+        const chosen = (boxes.find(([id]) => inTab(id)) || boxes[0])[0];
+        await frame.locator(`input[data-id="${chosen}"]`).first().click();
         const file = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
         const table = await until(() => {
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
-        check(!!table && table.stewards[front.id].manages.includes(boxes[0][0]), 'ticking one makes the conversation in front its steward', table);
+        check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its steward', table);
         const belled = (label) => typeof label === 'string' && label.startsWith('\u{1F451} ') && (label.match(/\u{1F451}/gu) || []).length === 1
           && titled(label.slice('\u{1F451} '.length), front.title);
         const marked = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
@@ -1402,7 +1407,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await shot('steward-renamed');
         /* A message the steward passes on with its script: the window types it into the managed conversation, which
            sends it as the user's message. The steward's tool call that runs the script is in its transcript first. */
-        const target = threads.find((t) => t.id === boxes[0][0]);
+        const target = threads.find((t) => t.id === chosen);
         if (target) {
           const words = 'Please run the tests once more, then stop.';
           const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
@@ -1675,29 +1680,26 @@ async function run({ exe, profile, env, playwright, model, threads, background =
             }
           }
           await shot('steward-actions');
-          /* A second steward: the third conversation, ticking the managed one in its own panel. In the first steward's
-             panel its row shows one crown, and the managed conversation's row none. */
-          const second = threads.find((t) => t.id !== front.id && t.id !== target.id);
-          if (second) {
-            /* In an editor tab, so that it is the conversation the panel is about: an earlier step can have left it in the
-               sidebar, which opening it by id only brings into view. */
-            await openList();
-            retried(await pick(second, ['Resume in tab']), 'Resume in tab');
-            const box2 = frame.locator(`input[data-id="${target.id}"]`).first();
-            const ticked2 = await until(async () => (await header()) && (await header()).includes(second.title.slice(0, 20)) && await box2.isVisible().catch(() => false), 30000, 500);
-            if (ticked2 && !await box2.isChecked()) await box2.click();
-            const isSteward2 = await until(() => { try { const t2 = JSON.parse(fs.readFileSync(file, 'utf8')).stewards[second.id]; return t2 && t2.manages.includes(target.id); } catch (_) { return false; } }, 10000, 300);
-            await exec('claude-vscode.editor.open', front.id);
-            const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row [data-open]')].map((a) => [a.dataset.open, a.textContent])));
-            const shown2 = await until(async () => { const n = await names(); return n[second.id] === `${CROWN} ${second.title}` && n[target.id] === target.title && n; }, 30000, 500);
-            check(!!isSteward2 && !!shown2, 'in the first steward\'s panel, a second steward\'s row shows one crown before its title, and the row of a conversation that is no steward shows none',
-              { ticked2: !!ticked2, isSteward2: !!isSteward2, names: await names() });
-            await shot('steward-two-stewards');
-            await exec('claude-vscode.editor.open', second.id);
-            if (await until(async () => (await header()) && (await header()).includes(second.title.slice(0, 20)), 30000, 500)) await frame.locator('button[data-act="none"]').click();
-            await exec('claude-vscode.editor.open', front.id);
-            await until(async () => (await header()) === `${CROWN} ${front.title}`, 15000, 500);
-          }
+          /* A second steward: the managed conversation ticks the steward in its own panel. In the first steward's panel its
+             row then shows one crown, and the other rows none. */
+          await exec('claude-vscode.editor.open', target.id);
+          const box2 = frame.locator(`input[data-id="${front.id}"]`).first();
+          const ticked2 = await until(async () => { const h = await header(); return h && h.includes(target.title.slice(0, 20)) && await box2.isVisible().catch(() => false); }, 45000, 500);
+          if (ticked2 && !await box2.isChecked()) await box2.click();
+          const isSteward2 = await until(() => { try { const t2 = JSON.parse(fs.readFileSync(file, 'utf8')).stewards[target.id]; return t2 && t2.manages.includes(front.id); } catch (_) { return false; } }, 10000, 300);
+          await exec('claude-vscode.editor.open', front.id);
+          const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row [data-open]')].map((a) => [a.dataset.open, a.textContent])));
+          const shown2 = await until(async () => {
+            const n = await names(), others = Object.entries(n).filter(([id]) => id !== target.id);
+            return n[target.id] === `${CROWN} ${target.title}` && others.length && others.every(([, t]) => !t.includes(CROWN)) && n;
+          }, 30000, 500);
+          check(!!isSteward2 && !!shown2, 'in the first steward\'s panel, a second steward\'s row shows one crown before its title, and the rows of conversations that are no steward show none',
+            { ticked2: !!ticked2, isSteward2: !!isSteward2, names: await names() });
+          await shot('steward-two-stewards');
+          await exec('claude-vscode.editor.open', target.id);
+          if (await until(async () => { const h = await header(); return h && h.includes(target.title.slice(0, 20)); }, 30000, 500)) await frame.locator('button[data-act="none"]').click();
+          await exec('claude-vscode.editor.open', front.id);
+          await until(async () => (await header()) === `${CROWN} ${front.title}`, 15000, 500);
         } else note('the conversation ticked first is not one of the test conversations, so passing words on was not looked at');
         await frame.locator('button[data-act="none"]').click();
         const back = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, front.title)), 10000, 300);
