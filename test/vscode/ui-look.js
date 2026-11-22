@@ -1232,8 +1232,8 @@ const STEPS = [
       + 'carries its time, how long the turn took, "ctx" with a share, "cost $" with an amount and the model name, and then, '
       + 'after another separator dot, the word "skills" and the names of the skills that turn was given, separated by commas: '
       + 'zebra-ledger-reconcile among them, each name whole and none with a plugin\'s name and a colon in front of it. The '
-      + 'names are in the same small, dimmed type as the rest of that row, and any line they wrap onto breaks after a comma, '
-      + 'not inside a name. No other reply in view names skills.',
+      + 'names are in the same small, dimmed type as the rest of that row, and any line they wrap onto breaks after "skills" or '
+      + 'after a comma, not inside a name. No other reply in view names skills.',
     unchanged: 'The earlier messages of this conversation are as before.',
     act: async (d) => {
       const frame = await live(d);
@@ -1965,8 +1965,9 @@ const STEPS = [
     name: 'live-skills-sidebar', features: ['skill-names', 'narrow-panel'],
     expect: 'The same conversation, resumed in the secondary side bar on the right of the window, which is much narrower '
       + 'than the editor. The reply that names skills is in view: its first row shows the time, the figures and "skills" '
-      + 'followed by the names, wrapped onto further lines inside the side bar. Every line breaks after a separator dot or after '
-      + 'the comma between two names; no name is cut off at the edge or broken in the middle, and the reply\'s own text '
+      + 'followed by the names, wrapped onto further lines inside the side bar. Every line breaks after a separator dot, after the '
+      + 'word "skills" or after the comma between two names; no line starts with a comma, no name is cut off at the edge or '
+      + 'broken in the middle, and the reply\'s own text '
       + 'starts below the names, not under them.',
     unchanged: 'The editor no longer shows the live conversation\'s tab; the window is in the dark theme again.',
     act: async (d) => {
