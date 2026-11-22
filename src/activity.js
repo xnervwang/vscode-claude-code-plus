@@ -37,15 +37,17 @@ const MAX_BACK = 16 * 1024 * 1024;
  * { busy, bg } as its panel last reported, or null. bg: whether src/background.js finds background work. agent: its
  * merged `claude agents` record, or null.
  *
- * A panel here outranks `claude agents`, which is read at most every half minute. Its last report counts only while
- * the host still has it running, so a panel that went away mid-turn leaves nothing behind.
+ * A panel here outranks `claude agents`, which is read at most every half minute. Its last report of a turn counts only
+ * while the host still has it running, so a panel that went away mid-turn leaves nothing behind. Its report of
+ * background tasks counts whenever the host has the conversation: Claude Code reports a conversation whose only work is
+ * a command put in the background as idle, and src/background.js finds that command only on its next scan.
  */
 function activityOf({ host = '', turn = null, bg = false, agent = null } = {}) {
   if (host === 'waiting' || (!host && agent && agent.waitingFor)) return 'waiting';
   const told = !!turn && typeof turn.busy === 'boolean';
   const busy = host ? host === 'running' && (told ? turn.busy : !bg) : !!(agent && agent.busy);
   if (busy) return 'working';
-  if (bg || host === 'running') return 'background';
+  if (bg || host === 'running' || (host && told && turn.bg === true)) return 'background';
   return 'stopped';
 }
 

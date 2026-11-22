@@ -6717,6 +6717,8 @@ console.log('\na panel whose bundle never arrives says so');
       [{ host: 'running' }, 'working', 'an older panel that does not say whether a turn runs'],
       [{ host: 'running', bg: true }, 'background', 'an older panel, with background work found'],
       [{ host: 'idle', turn: { busy: true } }, 'stopped', 'a panel that went away mid-turn leaves its last report'],
+      [{ host: 'idle', turn: { busy: false, bg: true } }, 'background', 'a command put in the background, which Claude Code reports as idle'],
+      [{ turn: { busy: false, bg: true } }, 'stopped', 'a report from a panel the host no longer has'],
       [{ host: 'idle' }, 'stopped', 'nothing runs'],
       [{ agent: { busy: true } }, 'working', 'another window: claude agents says busy'],
       [{ agent: { busy: false }, bg: true }, 'background', 'another window: idle with background work'],
@@ -10761,9 +10763,18 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
           summary: { value: 'T' }, sessionIdFromCli: { value: 'S' } } };
       vm.createContext(env);
       vm.runInContext(rr.out, env);
+      const first = sent;
+      env.c.backgroundTaskIds = { value: new Set() };
+      env.c.backgroundTasks = { value: new Map([['b', { taskType: 'local_bash' }]]) };
+      vm.runInContext(rr.out, env);
+      const bash = sent;
+      env.c.backgroundTasks = { value: new Map() };
+      vm.runInContext(rr.out, env);
+      sent = sent && first && bash && first[3].cceBg === true && bash[1] === 'idle' && bash[3].cceBg === true && sent[3].cceBg === false ? first : null;
     }
     if (!rr.error && sent && sent[1] === 'running' && sent[3].cceBusy === false && sent[3].cceBg === true && sent[3].idConfirmed === 'S') {
-      ok('a panel reports whether a turn runs and whether background tasks run beside the one state Claude Code sends for both');
+      ok('a panel reports whether a turn runs and whether background tasks run beside the one state Claude Code sends for both, '
+        + 'a command put in the background included, which the panel\'s own set of background tasks leaves out');
     } else bad('the panel\'s report: ' + (rr.error || JSON.stringify(sent)));
     const row = 'var Row=W(function({session:t,id:n,isActive:i,openState:E,liveElsewhere:I},L){vt();return k("button",{ref:L,id:n,className:`${Dn.sessionItem}`,'
       + 'children:[E&&m(Ef,{state:E,ring:I!==void 0&&E!=="unread",title:THt(E,I)}),m("span",{className:Dn.sessionName,children:"x"})]})});';

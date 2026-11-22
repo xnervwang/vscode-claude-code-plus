@@ -62,7 +62,7 @@ const { patchTarget } = require('./patch-target');
 const tabdot = require('./tabdot');
 const envelope = require('./envelope');
 
-const VERSION = 34;
+const VERSION = 35;
 
 /* The marker written into the patched file has to answer one question: is the code in
  * the panel the code this tree produces? A hand-maintained number answers it only while
@@ -412,10 +412,11 @@ const EDITS = [
   {
     /* The panel's report of its conversation's state carries whether a turn runs and whether background tasks run,
        which its state alone does not tell apart (src/activity.js). Claude Code reads only the fields it knows; the
-       patched host passes these two to this extension (src/host.js). */
+       patched host passes these two to this extension (src/host.js). The panel's own set of background tasks holds
+       only subagents and workflows; a command put in the background is in its list of tasks, which counts too. */
     name: 'panel state says whether a turn runs',
     re: /(let [\w$]+=\(([\w$]+)\.permissionRequests\.value\.length\?\?0\)>0\|\|\2\.userDialogRequests\.value\.length>0,([\w$]+)=\2\.busy\.value,([\w$]+)=\2\.backgroundTaskIds\.value\.size>0,[\w$]+;[^;]*;else if\(\3\|\|\4\)[^;]*;else [^;]*;[\w$]+\.updateSessionState\([\w$]+,[\w$]+,\2\.summary\.value,\{)/g,
-    to: (m, head, session, busy, bg) => `${head}cceBusy:${busy},cceBg:${bg},`,
+    to: (m, head, session, busy, bg) => `${head}cceBusy:${busy},cceBg:${bg}||((${session}.backgroundTasks&&${session}.backgroundTasks.value&&${session}.backgroundTasks.value.size)>0),`,
   },
   {
     // The session list's search: a conversation also matches when part of its session ID was typed. The page decides
