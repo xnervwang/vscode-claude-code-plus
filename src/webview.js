@@ -146,8 +146,10 @@ const LIST_DOTS_CSS = `[class*="sessionItem_"]{--app-status-busy:${tabdot.GREEN}
   + `${LIGHT_BODY.map((b) => `${b} [data-cce-envelope]::after`).join(',')}{content:"${cssChars(envelope.TEXT)}";}`
   + '[class*="sessionItem_"]>[data-cce-crown]{flex:none;line-height:1;}';
 /* The same green and red for the dot on the footer's agents button and for every dot in the agent map it opens, whose
-   tree of rows (rowMain_ is the conversation's own row) is drawn in every view of it. */
-const MAP_DOTS_CSS = `[class*="agentsPill_"],[role="dialog"]:has([class*="rowMain_"]){--app-status-busy:${tabdot.GREEN};--app-status-pending:${tabdot.RED};}`;
+   tree of rows (rowMain_ is the conversation's own row) is drawn in every view of it. Two rules, so a browser that
+   cannot read :has() still colours the button. */
+const DOT_COLOURS = `{--app-status-busy:${tabdot.GREEN};--app-status-pending:${tabdot.RED};}`;
+const MAP_DOTS_CSS = `[class*="agentsPill_"]${DOT_COLOURS}[role="dialog"]:has([class*="rowMain_"])${DOT_COLOURS}`;
 
 /** A CSS colour the user typed, or '' when it is not a plain colour - nothing else may reach the stylesheet. */
 function safeColor(value) {

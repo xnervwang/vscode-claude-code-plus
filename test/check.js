@@ -2350,7 +2350,7 @@ console.log('\nworkers in the agent map, and the dots that follow background wor
   const offCss = webview.liveCss({ enabled: true, workers, detached: jobs, off: ['backgroundSessions'] });
   const marksOff = webview.liveCss({ enabled: false, workers });
   same([unpack(prop(css, '--cce-workers')).length, prop(offCss, '--cce-workers'), unpack(prop(css, '--cce-detached'))[0].workers,
-    /\[class\*="agentsPill_"\],\[role="dialog"\]:has\(\[class\*="rowMain_"\]\)\{--app-status-busy:#22c55e;--app-status-pending:#ef4444;\}/.test(css),
+    /\[class\*="agentsPill_"\]\{--app-status-busy:#22c55e;--app-status-pending:#ef4444;\}\[role="dialog"\]:has\(\[class\*="rowMain_"\]\)\{--app-status-busy:#22c55e;--app-status-pending:#ef4444;\}/.test(css),
     marksOff.includes('agentsPill_')],
   [3, '', [W], true, false],
   'the workers ride in the stylesheet unless background sessions are switched off, a detached command names the worker it holds, and the button and the map get the tabs\' green and red while the marks are on');

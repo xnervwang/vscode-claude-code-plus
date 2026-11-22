@@ -29,6 +29,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const fakeModel = require('./lib/fake-model');
 
 const ROOT = path.join(os.tmpdir(), 'claude-code-plus-look');
 const QUALITY = 80;
@@ -228,6 +229,33 @@ async function notesInFront(d) {
   await d.call(`await vscode.window.showTextDocument(vscode.Uri.file(arg[0]), { preview: false, viewColumn: vscode.window.tabGroups.activeTabGroup.viewColumn });
     return true;`, [file]);
   await d.sleep(800);
+}
+/* The area around the first element of `frame` matching `sel`, kept inside the editor; the editor when there is none. */
+async function around(d, frame, sel, padX = 240, padY = 40) {
+  const ed = await d.editor();
+  const b = await frame.locator(sel).first().boundingBox().catch(() => null);
+  if (!b || !ed) return ed;
+  const x = Math.max(ed.x, b.x - padX), y = Math.max(ed.y, b.y - padY);
+  return { x, y, width: Math.min(ed.x + ed.width, b.x + b.width + padX) - x, height: Math.min(ed.y + ed.height, b.y + b.height + padY) - y };
+}
+/* The footer's agents button of `frame`: its dot's state and its label, or null. */
+const agentsButton = (frame) => frame.evaluate(() => {
+  const b = document.querySelector('button[data-agents-dot]');
+  return b ? { dot: b.getAttribute('data-agents-dot'), label: b.getAttribute('aria-label') || '' } : null;
+});
+/* Sends `text` and waits for the turn to end: Claude Code asks to run the command it brings, which is allowed. */
+async function runAsked(d, frame, text, shown) {
+  const before = d.model.seen.length;
+  await send(d, frame, text);
+  if (!await d.until(() => d.model.seen.slice(before).some((x) => x.tool), 30000, 300)) throw new Error(`"${text}" got no tool call in 30 s`);
+  if (await d.until(() => frame.evaluate((c) => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes(c), shown), 8000, 500)) {
+    await permissionButton(frame, 'Yes').click({ timeout: 5000 });
+  }
+  if (!await d.until(() => d.model.seen.slice(before).some((x) => x.stream && !x.tool && (x.parts || []).includes('tool_result')), 30000, 300)) {
+    throw new Error(`the command "${text}" asked for did not come back to the model in 30 s`);
+  }
+  await d.sleep(3000);
+  return before;
 }
 const permissionAsked = (frame) => frame.evaluate(() => /Allow this bash command\?/.test(document.body.innerText));
 const permissionButton = (frame, label) => frame.locator('button, [role="button"]').filter({ hasText: new RegExp(`^\\s*\\d\\s*${label}\\s*$`) }).first();
@@ -517,7 +545,8 @@ const STEPS = [
     name: 'agent-map', features: ['agent-map'],
     expect: 'The agent map, opened from the footer\'s button that counts background work ("1 detached . 1 timer"). It lists one '
       + 'command left running detached (a sleep) with its command line, process id and start time, and one scheduled prompt '
-      + 'with its schedule and text. Rows are readable and inside the box; no empty rows; counts at the top match the rows.',
+      + 'with its schedule and text. The conversation\'s own row starts with a green ring, hollow in the middle, since the '
+      + 'detached command runs. Rows are readable and inside the box; no empty rows; counts at the top match the rows.',
     unchanged: 'The conversation behind the map is as before; the information box is closed.',
     act: async (d) => {
       await demoAt(d, BUDGET);
@@ -652,7 +681,8 @@ const STEPS = [
   {
     name: 'off-detached', features: ['agent-map'], ...off('claudeCodePlus.show.detachedCommands'),
     expect: 'The chart is drawn again in the reply. The footer\'s button for background work no longer counts the detached '
-      + 'command: it says only "1 timer" (or is gone if nothing else is counted).',
+      + 'command: it says only "1 timer" (or is gone if nothing else is counted), and its dot is grey, since a scheduled prompt '
+      + 'runs nothing until it is due.',
     unchanged: 'The conversation above the message box is as before.',
     area: async (d) => { await demoAt(d, '', { focus: true }); await toImage(d); return d.editor(); },
   },
@@ -1332,6 +1362,83 @@ const STEPS = [
       return d.editor();
     },
   },
+  /* A `claude -p` worker under a detached shell, and a command in the background beside it: the agents button and the
+     map it opens while both run, and once both have ended. The worker is a stand-in that writes a session record of the
+     CLI's shape; it is found through /proc, so these show it on Linux only. */
+  {
+    name: 'live-work-running', features: ['agent-map', 'dot-background'],
+    expect: 'A close-up of the footer under the message box. The conversation started a claude -p worker and then a command in '
+      + 'the background ("sleep 40"); its turn has ended and both still run. The agents button reads "1 task . 1 worker" and the '
+      + 'small dot at its start is a filled green dot - not grey. The button is whole and does not overlap the buttons beside it.',
+    unchanged: 'The conversation is as before, with two more short exchanges at its end.',
+    act: async (d) => {
+      const frame = await live(d);
+      const bin = path.join(d.profile.home, 'fake-bin');
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(path.join(bin, 'claude'), fakeModel.WORKER_SCRIPT('c0ffee00-1111-4222-8333-444444444444', 150), { mode: 0o755 });
+      d.workStarted = Date.now();
+      await runAsked(d, frame, `Please ${fakeModel.ASK_FOR_WORKER}.`, 'fake-bin');
+      await runAsked(d, frame, `Please ${fakeModel.ASK_TO_BACKGROUND}.`, fakeModel.BG_RUN);
+      const shown = await d.until(async () => { const b = await agentsButton(frame); return b && b.dot === 'running' && /\b1 worker\b/.test(b.label) && /\b1 task\b/.test(b.label) && b; }, 40000, 500);
+      if (!shown) throw new Error(`the agents button did not count the worker and the command within 40 s: ${JSON.stringify(await agentsButton(frame))}`);
+      await toBottom(frame);
+      await d.away();
+      await d.sleep(800);
+      return around(d, frame, 'button[data-agents-dot]');
+    },
+  },
+  {
+    name: 'live-work-map', features: ['agent-map', 'dot-background'],
+    expect: 'The agent map, opened from that button. A section at the top, "1 worker . claude -p, started from this '
+      + 'conversation", lists release-notes-worker as running, for how long, and under it its session id and process id. No '
+      + 'row lists a detached command or the shell that started the worker. The conversation\'s own row (its title, with the '
+      + 'tokens in context) starts with a green ring, hollow in the middle, and the background task (sleep 40) with a filled '
+      + 'green dot of the same green.',
+    unchanged: 'The conversation behind the map is as before.',
+    act: async (d) => {
+      const frame = await live(d);
+      await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+      if (!await d.until(() => frame.evaluate(() => /\b1 worker · claude -p/.test(document.body.innerText)), 10000, 500)) throw new Error('the map lists no worker');
+      await d.sleep(1200);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(400); },
+  },
+  {
+    name: 'live-work-ended', features: ['agent-map'],
+    expect: 'The same close-up of the footer once the worker and the command have both ended and the conversation has '
+      + 'answered the notices of their ends. The agents button counts neither: it reads "0 agents" (the helper of an earlier '
+      + 'step has finished), and its dot is grey, not green.',
+    unchanged: 'The conversation is as before, with the answers to those notices at its end.',
+    act: async (d) => {
+      const frame = await live(d);
+      const due = (d.workStarted || Date.now()) + 150000 - Date.now();
+      const over = await d.until(async () => { const b = await agentsButton(frame); return (!b || (b.dot !== 'running' && !/\b(task|worker)s?\b/.test(b.label))) && { b }; },
+        Math.max(due, 45000) + 90000, 1000);
+      if (!over) throw new Error(`the agents button still counted work: ${JSON.stringify(await agentsButton(frame))}`);
+      await d.sleep(15000);
+      if (!await agentsButton(frame)) throw new Error('the agents button is gone, so there is no grey dot to show');
+      await toBottom(frame);
+      await d.away();
+      await d.sleep(800);
+      return around(d, frame, 'button[data-agents-dot]');
+    },
+  },
+  {
+    name: 'live-work-ended-map', features: ['agent-map'],
+    expect: 'The agent map once both have ended: no worker section and no background task; the conversation\'s own row starts '
+      + 'with a grey dot, not a green one, and the finished helper is listed as done.',
+    unchanged: 'The conversation behind the map is as before.',
+    act: async (d) => {
+      const frame = await live(d);
+      await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+      await d.sleep(1500);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(400); },
+  },
 
   /* This extension's commands. */
   {
@@ -1577,7 +1684,8 @@ const STEPS = [
   {
     name: 'light-agent-map', features: ['light-theme', 'agent-map'],
     expect: 'The agent map in the light theme: its rows (the detached command, the scheduled prompt) readable, the map set apart '
-      + 'from the conversation behind it.',
+      + 'from the conversation behind it; the green ring at the start of the conversation\'s own row visible against the light '
+      + 'background.',
     unchanged: 'The meter\'s box is gone; the conversation is as before.',
     act: async (d) => {
       await demoAt(d, BUDGET);

@@ -16,6 +16,8 @@
  * running in a session of its own, outside Claude Code's account of its background work; ASK_TO_DETACH_SHORT the same with
  * DETACH_SHORT_RUN, which ends sooner. One whose message contains ASK_FOR_HELPER gets an Agent call run in the background, whose prompt is
  * HELPER_TASK; the helper's own turns are held until releaseHelper(), so it keeps running for as long as a test needs.
+ * One whose message contains ASK_FOR_WORKER gets a Bash call of WORKER_RUN, which starts $HOME/fake-bin/claude as a
+ * `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT).
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
@@ -35,6 +37,23 @@ const DETACH_RUN = 'setsid nohup sleep 45 > /dev/null 2>&1 &';
 const ASK_TO_DETACH_SHORT = 'start the short job detached';
 const DETACH_SHORT_RUN = 'setsid nohup sleep 20 > /dev/null 2>&1 &';
 const HELPER_TASK = 'Look through notes.txt for the retry delay.';
+const ASK_FOR_WORKER = 'start a worker detached';
+/* The shell stays behind as the worker's parent, as the one a `( setsid nohup ... claude -p ... & )` launch leaves. */
+const WORKER_RUN = 'setsid nohup bash -c \'"$HOME/fake-bin/claude" -p "Draft the release notes" --output-format stream-json'
+  + ' > "$HOME/worker.jsonl" 2>&1; echo done\' > /dev/null 2>&1 < /dev/null &';
+const WORKER_NAME = 'release-notes-worker';
+/*
+ * A stand-in for the CLI's `claude -p`, at $HOME/fake-bin/claude: it writes a session record of the CLI's shape for
+ * its own process, as a worker started with --output-format stream-json does, and runs for `seconds`.
+ */
+const WORKER_SCRIPT = (sessionId, seconds) => [
+  '#!/bin/bash',
+  'mkdir -p "$HOME/.claude/sessions"',
+  `printf '{"pid":%d,"sessionId":"${sessionId}","cwd":"%s","startedAt":%s,"kind":"interactive","entrypoint":"sdk-cli",`
+    + `"name":"${WORKER_NAME}","status":"busy"}\\n' "$$" "$PWD" "$(date +%s%3N)" > "$HOME/.claude/sessions/$$.json"`,
+  `sleep ${Number(seconds) || 60}`,
+  '',
+].join('\n');
 
 function sse(res, type, payload) {
   res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...payload })}\n\n`);
@@ -75,6 +94,7 @@ const asksToBackground = (ask) => { const t = lastAsk(ask); return t !== null &&
 const asksForHelper = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_HELPER); };
 const asksToDetach = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH); };
 const asksToDetachShort = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH_SHORT); };
+const asksForWorker = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_WORKER); };
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
@@ -115,7 +135,8 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const helper = asksForHelper(ask);
       const helping = !helper && isHelper(ask);
       const detach = asksToDetach(ask), detachShort = asksToDetachShort(ask);
-      const tool = background || helper || detach || detachShort || asksToRun(ask);
+      const worker = asksForWorker(ask);
+      const tool = background || helper || detach || detachShort || worker || asksToRun(ask);
       const linked = linkAsked(ask), picture = imageAsked(ask);
       const reply = linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
         : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain;
@@ -140,6 +161,7 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
         : background ? { command: BG_RUN, description: 'Start the long job', run_in_background: true }
           : detach ? { command: DETACH_RUN, description: 'Start the long job detached' }
           : detachShort ? { command: DETACH_SHORT_RUN, description: 'Start the short job detached' }
+          : worker ? { command: WORKER_RUN, description: 'Start a worker detached' }
           : { command: RUN, description: 'Run the test suite' };
       const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name: helper ? 'Agent' : 'Bash', input } : { type: 'text', text: reply };
       const stop = tool ? 'tool_use' : 'end_turn';
@@ -178,4 +200,4 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
 
 module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
   DETACH_SHORT_RUN, LINK_TEXT,
-  IMAGE_ALT, IMAGE_WEB };
+  IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT };

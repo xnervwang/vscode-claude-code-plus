@@ -21,7 +21,10 @@
  *   work left running
  *                  the green ring kept after the turn ends while a command it put in the background runs, a helper
  *                  (subagent) it started in the background, or, on Linux, a program it left running with setsid, and
- *                  gone once that has ended; the detached program in the agent map, and the notice once it is gone
+ *                  gone once that has ended; the detached program in the agent map, and the notice once it is gone;
+ *                  on Linux, a `claude -p` worker left running under a detached shell beside a command in the
+ *                  background: the agents button's dot green and its label counting both once, the map listing the
+ *                  worker by name in place of its shell and its own row a green ring, all grey once both have ended
  *   two windows    a second window of the same VS Code on a folder of its own: a conversation open there comes to
  *                  the front, in that window, from the first window's Steward panel and from a steward's link, and no
  *                  copy of it opens; a link to one open nowhere says so; once that window has reloaded with the
@@ -46,7 +49,8 @@ const { baselines } = require('./lib/baseline');
 const pixels = require('./lib/pixels');
 const fakeHome = require('./lib/fake-home');
 const { folderName } = fakeHome;
-const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB } = require('./lib/fake-model');
+const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB,
+  ASK_FOR_WORKER, WORKER_NAME, WORKER_SCRIPT } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
 const tabdot = require('../../src/tabdot');
@@ -839,6 +843,94 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         return status() === 'idle' && d && d.running === 0 && d.waiting === 0 && d;
       }, 60000, 1000);
       check(!!cleared, 'and once that turn is answered, the dot goes', { status: status(), dots: await dotsOn(t.label) });
+    });
+
+    /* A `claude -p` worker started through a shell that stays behind as its parent, as a `( setsid nohup ... claude -p
+       ... & )` launch leaves one, and a command put in the background beside it. The worker is a script named claude
+       that writes a session record of the CLI's shape (WORKER_SCRIPT in lib/fake-model.js), so its session id is printed
+       nowhere. It is found through /proc, so on Linux only. */
+    await step('a claude -p worker and a command in the background', async () => {
+      if (process.platform !== 'linux') { note('a worker is found through /proc, so this runs on Linux only'); return; }
+      if (!conv) throw new Error('the conversation did not open');
+      const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
+      if (!t) throw new Error('the conversation\'s tab is gone');
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const status = () => {
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+        for (const n of names) {
+          try { const d = JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); if (d.sessionId === tab0.id) return d.status || null; } catch (_) { /* being written */ }
+        }
+        return null;
+      };
+      const WORKER = 'c0ffee00-1111-4222-8333-444444444444', SECONDS = 100;
+      const bin = path.join(profile.home, 'fake-bin');
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(path.join(bin, 'claude'), WORKER_SCRIPT(WORKER, SECONDS), { mode: 0o755 });
+      const ask = async (text, shown) => {
+        const before = model.seen.length;
+        await conv.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(`Please ${text}.`);
+        await page.keyboard.press('Enter');
+        check(!!await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300), `the fake model answers "${text}" with a Bash call`, model.seen.slice(before));
+        const asking = await until(() => conv.evaluate((c) => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes(c), shown), 8000, 500);
+        if (asking) await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+        await sleep(2000);
+        check(!!await until(() => status() === 'idle', 60000, 500), `the turn that ran "${text}" ends while its command runs`, { status: status() });
+        return before;
+      };
+      const started = Date.now();
+      const from = await ask(ASK_FOR_WORKER, 'fake-bin');
+      await ask(ASK_TO_BACKGROUND, BG_RUN);
+      const backgrounded = Date.now();
+      const GREEN = `rgb(${DOTS.running.join(', ')})`;
+      const footer = () => conv.evaluate(() => {
+        const b = document.querySelector('button[data-agents-dot]');
+        if (!b) return null;
+        const dot = b.querySelector('[data-status-dot]');
+        return { dot: b.getAttribute('data-agents-dot'), label: b.getAttribute('aria-label') || '', colour: dot ? getComputedStyle(dot).backgroundColor : '' };
+      });
+      const mapState = () => conv.evaluate(() => {
+        const own = document.querySelector('[class*="rowMain_"] [data-status-dot]'), s = own && getComputedStyle(own);
+        return { text: document.body.innerText.slice(-3000), own: own ? { state: own.getAttribute('data-status-dot'),
+          ring: /statusDotElsewhere/.test(own.className), border: s.borderTopColor, background: s.backgroundColor } : null };
+      });
+      const green = await until(async () => { const f = await footer(); return f && f.dot === 'running' && /\b1 task\b/.test(f.label) && /\b1 worker\b/.test(f.label) && f; }, 40000, 500);
+      check(!!green && green.colour === GREEN && !/detached/.test(green.label),
+        'with the turn over, the agents button counts the command and the worker once each, not the worker\'s shell, and its dot is the tabs\' green', await footer());
+      const ring = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
+      check(!!ring, 'and the tab\'s logo carries the green ring', await dotsOn(t.label));
+      await shot('agents-button-work-running');
+      if (green) {
+        await conv.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+        const listed = await until(async () => { const m = await mapState(); return /1 worker · claude -p, started from this conversation/.test(m.text) && m.text.includes(WORKER_NAME) && m; }, 10000, 500);
+        check(!!listed && new RegExp(`session ${WORKER} · pid \\d+`).test(listed.text) && /\brunning\b/.test(listed.text) && !/detached command/.test(listed.text),
+          'the agent map lists the worker by name with its session id, pid and state, and not the shell that holds it', listed ? listed.text.slice(-900) : await mapState());
+        const own = listed && listed.own;
+        check(!!own && own.state === 'running' && own.ring && own.border === GREEN, 'the map\'s own row has a green ring', own);
+        await shot('agent-map-work-running');
+        await page.keyboard.press('Escape');
+        await sleep(500);
+      }
+      /* The command ends after 40 s and the worker after SECONDS; each end starts a turn that is answered at once. */
+      const told = await until(() => model.seen.slice(from).some((x) => /left running detached is no longer running/.test(x.ask || '')),
+        Math.max(started + SECONDS * 1000, backgrounded + 40000) - Date.now() + 90000, 1000);
+      check(!!told, 'once the worker has finished, the conversation is told its shell has stopped', model.seen.slice(from).map((x) => (x.ask || '').slice(0, 120)));
+      const grey = await until(async () => {
+        const f = await footer(), d = await dotsOn(t.label);
+        return status() === 'idle' && d && d.running === 0 && (!f || (f.dot !== 'running' && !/\b(task|worker)s?\b/.test(f.label))) && { f, d };
+      }, 90000, 1000);
+      check(!!grey, 'once both have ended and the conversation has answered, the button counts neither and its dot is not green, and the tab\'s dot is gone',
+        { footer: await footer(), dots: await dotsOn(t.label), status: status() });
+      const f = await footer();
+      if (!f) { note('the agents button is gone with nothing left to count, so there is no grey dot to look at'); return; }
+      check(f.colour !== GREEN, 'the button\'s dot is grey', f);
+      await shot('agents-button-work-ended');
+      await conv.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+      const m = await until(async () => { const x = await mapState(); return x.own && x; }, 10000, 500);
+      check(!!m && m.own.state === 'idle' && !m.own.ring && !/worker · claude -p/.test(m.text), 'and the map\'s own row is grey, with no worker listed', m && m.own);
+      await shot('agent-map-work-ended');
+      await page.keyboard.press('Escape');
     });
 
     /* The conversation was told to save an image in its own folder and link it by its absolute path. A reply that does
