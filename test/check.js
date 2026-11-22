@@ -11167,7 +11167,7 @@ console.log('\nthe window test\'s own parts');
   const from = { PATH: '/usr/bin', HOME: '/home/someone', VSCODE_IPC_HOOK_CLI: '/run/user/1/vscode-ipc.sock', ELECTRON_RUN_AS_NODE: '1',
     LD_LIBRARY_PATH: '/opt/lib', CLAUDECODE: '1', CLAUDE_CODE_USE_BEDROCK: '1', CLAUDE_CONFIG_DIR: '/home/someone/.claude',
     CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc.sock', ANTHROPIC_API_KEY: 'a key', AWS_PROFILE: 'work', OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel',
-    XDG_RUNTIME_DIR: '/run/user/1', CLAUDE_CODE_PLUS_UI_KEEP: '1' };
+    XDG_RUNTIME_DIR: '/run/user/1', CLAUDE_CODE_PLUS_UI_KEEP: '1', CODEX_HOME: '/home/someone/.codex' };
   const root = path.join(os.tmpdir(), 'cce-env-root');
   const lin = cleanEnv(root, { EXTRA: 'x' }, { env: from, platform: 'linux' });
   const winEnv = cleanEnv(root, {}, { env: from, platform: 'win32' });
@@ -11176,6 +11176,9 @@ console.log('\nthe window test\'s own parts');
   expect(gone.every((k) => !(k in lin) && !(k in winEnv)) && lin.PATH === '/usr/bin' && lin.CLAUDE_CODE_PLUS_UI_KEEP === '1' && lin.EXTRA === 'x',
     'the window\'s environment leaves out the other VS Code\'s variables, LD_LIBRARY_PATH and everything that steers Claude Code\'s CLI',
     JSON.stringify(Object.keys(lin)));
+  expect(!('CODEX_HOME' in lin) && !('CODEX_HOME' in winEnv),
+    'and CODEX_HOME, so the window\'s Codex reads and writes under the run\'s HOME, not in the developer\'s own Codex folder',
+    JSON.stringify([lin.CODEX_HOME, winEnv.CODEX_HOME]));
   const under = (v) => typeof v === 'string' && v.startsWith(root + path.sep);
   expect(['HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_RUNTIME_DIR'].every((k) => under(lin[k]))
     && ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA'].every((k) => under(winEnv[k])),
