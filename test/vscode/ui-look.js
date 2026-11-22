@@ -1224,8 +1224,8 @@ const STEPS = [
     unchanged: 'The conversation is otherwise as before.',
     area: async (d) => { const frame = await live(d); await toBottom(frame); await d.sleep(600); return d.editor(); },
   },
-  /* The skills skill suggestions gave a turn, after the figures of its first reply: in the tab, in the secondary side
-     bar, and switched off. */
+  /* The skills skill suggestions gave a turn, after the figures of its first reply: in the tab and switched off; the light
+     theme and the secondary side bar come later. */
   {
     name: 'live-skills', features: ['skill-names', 'reply-figures'],
     expect: 'The newest reply, "' + PLAIN + '", answers your message that asks to reconcile the zebra ledger. Its first row '
@@ -1238,36 +1238,12 @@ const STEPS = [
     act: async (d) => {
       const frame = await live(d);
       await skillTurn(d, frame);
-      await toBottom(frame);
       await d.sleep(1500);
+      await toSkillReply(frame);
+      await d.sleep(800);
       await d.away();
       return d.editor();
     },
-  },
-  {
-    name: 'live-skills-sidebar', features: ['skill-names', 'narrow-panel'],
-    expect: 'The same conversation, resumed in the secondary side bar on the right of the window, which is much narrower '
-      + 'than the editor. The reply that names skills is in view: its first row shows the time, the figures and "skills" '
-      + 'followed by the names, wrapped onto further lines inside the side bar. Every line breaks after a separator dot or after '
-      + 'the comma between two names; no name is cut off at the edge or broken in the middle, and the reply\'s own text '
-      + 'starts below the names, not under them.',
-    unchanged: 'The editor no longer shows this conversation\'s tab.',
-    act: async (d) => {
-      const t = d.threads[0];
-      await closeTab(d, t);
-      d.liveFrame = null;
-      const list = await sessionList(d);
-      await rowPick(d, list, t.id, 'Resume in sidebar');
-      const frame = await d.frameWhere((ask) => document.body.innerText.includes(ask.slice(0, 40))
-        && !!document.querySelector('[data-testid="assistant-message"] [data-cce-ts]'), 60000, SKILL_ASK);
-      if (!frame) throw new Error('the conversation did not open in the secondary side bar within 60 s');
-      await d.sleep(1500);
-      if (!await d.until(() => toSkillReply(frame), 20000, 500)) throw new Error('no reply in the side bar names skills');
-      await d.sleep(800);
-      await d.away();
-      return d.part('workbench.parts.auxiliarybar');
-    },
-    undo: async (d) => { await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {}); await d.sleep(800); },
   },
   {
     name: 'off-skill-names', features: ['skill-names'], ...off('claudeCodePlus.show.skillNames'),
@@ -1985,6 +1961,31 @@ const STEPS = [
     /* The demo conversation in front, the one with a plan; the step before left another there. */
     act: async (d) => { await demoAt(d, ''); await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.away(); return d.sidebar(); },
     undo: async (d) => { await theme(d, 'Default Dark Modern'); await d.sleep(2000); },
+  },  {
+    name: 'live-skills-sidebar', features: ['skill-names', 'narrow-panel'],
+    expect: 'The same conversation, resumed in the secondary side bar on the right of the window, which is much narrower '
+      + 'than the editor. The reply that names skills is in view: its first row shows the time, the figures and "skills" '
+      + 'followed by the names, wrapped onto further lines inside the side bar. Every line breaks after a separator dot or after '
+      + 'the comma between two names; no name is cut off at the edge or broken in the middle, and the reply\'s own text '
+      + 'starts below the names, not under them.',
+    unchanged: 'The editor no longer shows the live conversation\'s tab; the window is in the dark theme again.',
+    act: async (d) => {
+      /* Last of all: once resumed in the side bar, the conversation no longer opens in a tab for the steps that use it. */
+      const t = d.threads[0];
+      await closeTab(d, t);
+      d.liveFrame = null;
+      const list = await sessionList(d);
+      await rowPick(d, list, t.id, 'Resume in sidebar');
+      const frame = await d.frameWhere((ask) => document.body.innerText.includes(ask.slice(0, 40))
+        && !!document.querySelector('[data-testid="assistant-message"] [data-cce-ts]'), 60000, SKILL_ASK);
+      if (!frame) throw new Error('the conversation did not open in the secondary side bar within 60 s');
+      await d.sleep(1500);
+      if (!await d.until(() => toSkillReply(frame), 20000, 500)) throw new Error('no reply in the side bar names skills');
+      await d.sleep(800);
+      await d.away();
+      return d.part('workbench.parts.auxiliarybar');
+    },
+    undo: async (d) => { await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {}); await d.sleep(800); },
   },
 ];
 

@@ -42,14 +42,17 @@
     if (!live && textCache) textCache.set(el, out);
     return out;
   };
-  /* Where a stamp may wrap: after a "·", at the gap after the time, before an agent's tag, and after the comma between
-     two skills. Every other space becomes a no-break space, so a part such as "ctx 21%" stays on one line. A hyphen is
-     a place to wrap as well, so each one is followed by a word joiner, which shows nothing and keeps "opus-5-5" whole. */
+  /* Where a stamp may wrap: after a "·", at the gap after the time, before an agent's tag, and in a list of skills after
+     "skills" and after each comma, so in a narrow panel a name starts a line rather than the comma after it. Every other
+     space becomes a no-break space, so a part such as "ctx 21%" stays on one line. A hyphen is a place to wrap as well,
+     so each one is followed by a word joiner, which shows nothing and keeps "opus-5-5" whole. */
   var NBSP = String.fromCharCode(160), DOT = String.fromCharCode(183), JOIN = String.fromCharCode(8288);
+  var SKILLS_LEAD = 'skills' + NBSP;
   var breakable = function(v){
     return v.split('  ').map(function(gap){
       return gap.split(' ' + DOT + ' ').map(function(part){
-        return part.split(' ').join(NBSP).split('-').join('-' + JOIN).split(',' + NBSP).join(', ');
+        var out = part.split(' ').join(NBSP).split('-').join('-' + JOIN).split(',' + NBSP).join(', ');
+        return out.indexOf(SKILLS_LEAD) === 0 ? 'skills ' + out.slice(SKILLS_LEAD.length) : out;
       }).join(NBSP + DOT + ' ');
     }).join('  ').split(NBSP + '#').join(' #');
   };

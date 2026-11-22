@@ -1724,8 +1724,8 @@ console.log('\nthe skills each turn was given, after its first reply\'s figures'
     new vm.Script(`(function(){${marks}\n;out.breakable = breakable;})()`, { filename: '35-marks.js' }).runInNewContext(mbox);
     const NB = '\u00a0', SEP = `${NB}\u00b7 `, J = '\u2060';
     const line = mbox.out.breakable('11/09 04:05:06  40s · opus-5-5 high · skills web-fetching, disk-cleanup');
-    if (line === `11/09${NB}04:05:06  40s${SEP}opus-${J}5-${J}5${NB}high${SEP}skills${NB}web-${J}fetching, disk-${J}cleanup`) {
-      ok('a line of skills may also break between two of them, so a long one need not break inside a name');
+    if (line === `11/09${NB}04:05:06  40s${SEP}opus-${J}5-${J}5${NB}high${SEP}skills web-${J}fetching, disk-${J}cleanup`) {
+      ok('a line of skills may also break after "skills" and between two of them, so a long one need not break inside a name');
     } else bad(`the skills' line came out ${JSON.stringify(line)}`);
   }
 
@@ -1834,6 +1834,39 @@ console.log('\nthe skills each turn was given, after its first reply\'s figures'
         && JSON.stringify(skillsIn(mv.back)) === JSON.stringify(want(93, 0))) {
       ok('skills that arrive after the replies settled reach them, move to a turn\'s last reply while the others are off the page, and back after');
     } else bad(`skills moving: ${JSON.stringify({ before: skillsIn(mv.before).filter(Boolean).length, folded: (mv.folded || []).slice(0, 6).map((l) => skillsIn([l])[0]), back: skillsIn(mv.back).filter(Boolean).length })}`);
+    /* At every width from 60 to 400 px, in the stamp's own font, a name of a list of skills and the comma after it stay
+       on one line whenever the two fit on a line by themselves. */
+    {
+      const marks = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '35-marks.js'), 'utf8');
+      const mbox = { out: {}, ATTR: 'data-cce-ts', WALK: { text: 0 }, WeakMap, Set };
+      new vm.Script(`(function(){${marks}\n;out.breakable = breakable;})()`, { filename: '35-marks.js' }).runInNewContext(mbox);
+      const names = ['quarterly-books-close', 'zebra-ledger-reconcile', 'striped-invoice-matcher', 'stripe-number-finder', 'ledger-audit-trail'];
+      const v = mbox.out.breakable(`11/22 22:48:56  0s \u00b7 ctx 21% \u00b7 sonnet-5-5 medium \u00b7 skills ${names.join(', ')}`);
+      const spans = names.map((n) => { const b = n.split('-').join('-\u2060'), at = v.indexOf(b); return [at, at + b.length + (v[at + b.length] === ',' ? 1 : 0)]; });
+      const mark = ['CCE', 'SKILLS:'].join('-');
+      const html = '<!doctype html><html><head><style>:root{--vscode-chat-font-size:13px}</style></head><body><pre id="out"></pre>'
+        + '<div id="w" style="font-family:monospace;font-size:10.4px;white-space:normal;overflow-wrap:anywhere"></div>'
+        + '<span id="one" style="font-family:monospace;font-size:10.4px;white-space:nowrap"></span><script>'
+        + 'var v = ' + JSON.stringify(v) + ', spans = ' + JSON.stringify(spans) + ';'
+        + 'var w = document.getElementById("w"), one = document.getElementById("one"); w.textContent = v; var t = w.firstChild, bad = [];'
+        + 'var lineOf = function(i){ var r = document.createRange(); r.setStart(t, i); r.setEnd(t, i + 1); return Math.round(r.getBoundingClientRect().top); };'
+        + 'for (var px = 60; px <= 400; px += 2) { w.style.width = px + "px";'
+        + '  spans.forEach(function(s){ one.textContent = v.slice(s[0], s[1]); var tops = {};'
+        + '    for (var k = s[0]; k < s[1]; k++) tops[lineOf(k)] = 1;'
+        + '    if (Object.keys(tops).length > 1 && one.getBoundingClientRect().width <= px) bad.push(px + ": " + v.slice(s[0], s[1])); }); }'
+        + 'document.getElementById("out").textContent = "' + mark + '" + JSON.stringify(bad.slice(0, 8));'
+        + '</script></body></html>';
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-skills-wrap-'));
+      fs.writeFileSync(path.join(dir, 'p.html'), html);
+      const res = cp.spawnSync(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=3000', '--dump-dom',
+        'file://' + path.join(dir, 'p.html')], { encoding: 'utf8', timeout: 120000 });
+      fs.rmSync(dir, { recursive: true, force: true });
+      const i = (res.stdout || '').indexOf(mark);
+      let found = null;
+      try { found = JSON.parse(res.stdout.slice(i + mark.length, res.stdout.indexOf('<', i)).replace(/&quot;/g, '"').replace(/&amp;/g, '&')); } catch (_) { found = null; }
+      if (Array.isArray(found) && !found.length) ok('at no width from 60 to 400 px is a skill\'s name broken, or its comma put at the start of a line, while the two fit on a line');
+      else bad(`a line of skills broke badly: ${i === -1 ? 'no result (exit ' + res.status + ')' : JSON.stringify(found)}`);
+    }
     const offRun = harness.run(browser, { turns: 30, focus: false, subagent: false, settleCapMs: 15000, listMessages: true, offSwitches: ['skillNames'], efforts: { sid, css } });
     const offShown = skillsIn(offRun.labels);
     if (offRun.error) bad('the page with the skills switched off did not run: ' + offRun.error);
