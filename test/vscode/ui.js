@@ -1125,7 +1125,8 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
                 try { return fs.readFileSync(transcriptOf({ id: newId }), 'utf8').includes(JSON.stringify(later).slice(1, -1)); } catch (_) { return false; }
               }, 30000, 500) : false;
               const tab = await until(async () => (await claudeTabs()).find((x) => x.active), 10000, 300);
-              check(/^Opened: /.test(resumed) && !!arrived2, 'the steward opens a conversation no window shows in an editor tab of this window, and passes it a message',
+              check(/^Opened: /.test(resumed) && /It is now ticked for you in the Steward panel\./.test(resumed) && !!arrived2,
+                'the steward opens a conversation no window shows in an editor tab of this window, passes it a message, and has it ticked',
                 { resumed, arrived: !!arrived2, tab });
               await shot('steward-resume');
               if (/^Opened/.test(resumed)) {

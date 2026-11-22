@@ -135,18 +135,18 @@ def stewards_of(directory, sid):
             and sid in [m.lower() for m in listed(e.get("manages")) if isinstance(m, str)]]
 
 
-def watched(stewards):
-    """The line a managed conversation gets each turn, with the command that hands the first steward a message that
-    belongs elsewhere."""
-    handoff = " ".join([shlex.quote(w) for w in launcher()] + [shlex.quote(RELAY), "--handoff", stewards[0]])
-    return ("A steward conversation (%s) watches this one for the user through Claude Code Plus: it reads your work "
-            "plan and latest reply, and speaks for the user by typing messages here, which come as the user's own. Do "
-            "not send it status messages; put questions for the user in your plan as rows waiting on the user, where "
-            "it sees them. If a message plainly belongs elsewhere (meant for another conversation, unrelated to the "
-            "work here, or better done by another one), do not start background work for it here: run %s with a "
-            "here-document holding the user's words, where it should go (a session id, or a folder for a new "
-            "conversation) and why, and say in one sentence that you passed it to the steward."
-            % (", ".join(stewards), handoff))
+def watched():
+    """The line a managed conversation gets each turn. It names no steward: a conversation can have several, and the
+    window that delivers a handoff picks one."""
+    handoff = " ".join([shlex.quote(w) for w in launcher()] + [shlex.quote(RELAY), "--handoff"])
+    return ("A steward conversation watches this one for the user through Claude Code Plus: it reads your work plan and "
+            "latest reply, and speaks for the user by typing messages here, which come as the user's own. Do not send it "
+            "status messages; put questions for the user in your plan as rows waiting on the user, where it sees them. "
+            "If a message plainly belongs elsewhere (meant for another conversation, unrelated to the work here, or "
+            "better done by another one), do not start background work for it here: run %s with a here-document "
+            "holding the user's words, where it should go (a session id, or a folder for a new conversation) and why, "
+            "and say in one sentence what it answered."
+            % handoff)
 
 
 def lines_of(ids, names, now, directory):
@@ -194,7 +194,7 @@ def main():
     if not ids:
         if over:
             print(json.dumps({"hookSpecificOutput": {
-                "hookEventName": payload.get("hook_event_name", "UserPromptSubmit"), "additionalContext": watched(over)}}))
+                "hookEventName": payload.get("hook_event_name", "UserPromptSubmit"), "additionalContext": watched()}}))
         return 0
     now = states()
     seen_path = side_file(os.path.join(directory, sid + ".json"), SEEN_SUFFIX)
@@ -218,7 +218,7 @@ def main():
     else:
         text = block(ids, names, now, seen, lines)
     if over:
-        text += "\n" + watched(over)
+        text += "\n" + watched()
     write_quietly(seen_path, json.dumps({"states": {m: now.get(m, STOPPED) for m in ids}, "digest": digest, "compacted": compacted}))
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": payload.get("hook_event_name", "UserPromptSubmit"), "additionalContext": text}}))

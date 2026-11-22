@@ -605,14 +605,22 @@ function create(vscode, deps) {
         try { p = fs.realpathSync.native(f); } catch (_) { p = path.resolve(f); }
         return process.platform === 'win32' ? p.toLowerCase() : p;
       };
+      /* A conversation the list has not caught up with, such as one just opened, is named as the one in front is. */
+      const titleOf = (id) => {
+        const t = (last.get(id) && last.get(id).title)
+          || conversations.claudeTitle({ sessionId: id, name: '', cwd: '' }, deps.titles({ sessionId: id }), () => deps.readPlan(id));
+        return t && t !== id ? t : '';
+      };
       for (const r of await relay.take(deps.dir, { shownHere: deps.shownHere, stewards: () => stewards.read(deps.dir),
         hasFolder: (folder) => deps.windowFolders().map(real).includes(real(folder)),
         transcriptOf: deps.transcriptOf, deliver: deps.deliver, rename: deps.rename, close: deps.close, open: deps.open,
         resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsNow || deps.freshAgents,
-        records: deps.records, post: deps.post, titleOf: (id) => (last.get(id) || {}).title || '',
+        records: deps.records, post: deps.post, titleOf,
         manage: (steward, id) => {
           const t = stewards.read(deps.dir)[steward];
-          if (t && !t.manages.includes(id)) stewards.setManaged(steward, t.manages.concat(id), titlesOf(t.manages), { dir: deps.dir });
+          if (t && !t.manages.includes(id)) {
+            stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: titleOf(id) }), { dir: deps.dir });
+          }
           deps.changed();
         },
         pid: process.pid })) {

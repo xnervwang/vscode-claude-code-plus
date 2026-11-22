@@ -19,7 +19,7 @@
     <a message for it, sent once it is open>
     EOF]
     python3 steward-relay.py --windows [<plugin data directory>]
-    python3 steward-relay.py --handoff <steward session id> [<plugin data directory>] <<'EOF'
+    python3 steward-relay.py --handoff [<plugin data directory>] <<'EOF'
     <the user's words, where they should go, and why>
     EOF
 
@@ -36,11 +36,13 @@ and sends it the message, then prints the new conversation's session id; if no w
 
 --resume opens a conversation that no window shows, in an editor tab of a VS Code window one of whose folders holds the
 folder the conversation was started in, and then sends it the message, if one is given. It is not done while a window
-shows the conversation or another process runs it; it says which.
+shows the conversation or another process runs it; it says which. A conversation opened with --open or --resume is
+then ticked for this steward in the Steward panel, unless it manages all conversations.
 
---handoff is run from a conversation a steward manages, not from the steward: it gives that steward something the
-conversation thinks belongs elsewhere. The window showing the steward posts it to the steward as a notice, which is
-not the user's message.
+--handoff is run from a conversation a steward manages, not from the steward: it gives a steward something the
+conversation thinks belongs elsewhere, as a notice that is not the user's message. Of the stewards that manage the
+conversation, it goes to the one the user last typed to, or, if that one cannot be reached, the next; the answer names
+the steward it reached.
 
 Prints what happened and exits 0 when it was done, 1 otherwise.
 """
@@ -77,13 +79,15 @@ WINDOWS_DIR = "windows"
 # Claude Code Plus rewrites a window's entry once a minute while the window is open.
 WINDOW_STALE_SECONDS = 120
 FLAGS = ("--rename", "--close", "--open", "--resume", "--handoff")
+TICKED = " It is now ticked for you in the Steward panel."
 DONE = {
     "--rename": "Renamed.",
     "--close": "Closed: the conversation's tab was closed; it is not deleted and can be opened again from the session list.",
     "--open": "Opened: a new conversation was started and its first message sent.",
-    "--handoff": "Handed off: the steward was told, in a notice that is not the user's message. Say so in one sentence "
-                 "in your reply and leave it to the steward.",
 }
+HANDED = ("Handed off to the steward %s: it was told, in a notice that is not the user's message. Say so in one sentence in "
+          "your reply and leave it to the steward.")
+NOT_HANDED = " Say in your reply where it seems to belong, so the user decides."
 STEWARDS_FILE = "stewards.json"
 HEAD_BYTES = 64 * 1024
 CWD = re.compile(r'"cwd":"((?:[^"\\]|\\.)*)"')
@@ -201,12 +205,14 @@ def resume_check(data, sid):
     return [], cwd
 
 
-def handoff_check(data, me, steward):
-    """Why the steward cannot be given a handoff, as a line to print, or ''."""
-    if not manages(stewards_table(data), steward, me):
-        return "Not done: %s is not a steward that manages this conversation." % steward
-    if not any(shows(w, steward) for w in windows(data)):
-        return "Not done: the steward conversation is not open in any VS Code window, so it cannot be told. Tell the user instead."
+def handoff_check(data, me):
+    """Why no steward can be given a handoff from conversation `me`, as a line to print, or ''."""
+    table = stewards_table(data)
+    theirs = [s for s in table if manages(table, s, me)]
+    if not theirs:
+        return "Not done: no steward manages this conversation, so it cannot be handed off." + NOT_HANDED
+    if not any(shows(w, s) for w in windows(data) for s in theirs):
+        return "Not done: no steward of this conversation is open in a VS Code window, so none can be told." + NOT_HANDED
     return ""
 
 
@@ -214,13 +220,14 @@ def resume_said(r, name, text):
     """What a resume's answer says, and whether it was all done."""
     outcome, reason = r.get("outcome", ""), r.get("reason") or r.get("outcome", "")
     where = 'the VS Code window "%s"' % name if name else "a VS Code window"
+    ticked = TICKED if r.get("ticked") is True else ""
     if outcome == "submitted":
-        return ("Opened: the conversation was opened in an editor tab in %s%s" % (where, (
-            ", and the message was typed into its input and sent as the user's message." if text else "."))), True
+        return ("Opened: the conversation was opened in an editor tab in %s%s%s" % (where, (
+            ", and the message was typed into its input and sent as the user's message." if text else "."), ticked)), True
     if r.get("opened") is True:
         if outcome == "uncertain":
-            return "Opened in an editor tab in %s, but it is unclear whether the message was sent: %s" % (where, reason), False
-        return "Opened in an editor tab in %s, but the message was not sent: %s" % (where, reason), False
+            return "Opened in an editor tab in %s, but it is unclear whether the message was sent: %s.%s" % (where, reason, ticked), False
+        return "Opened in an editor tab in %s, but the message was not sent: %s.%s" % (where, reason, ticked), False
     if outcome == "uncertain":
         return "Unclear whether it was opened: %s" % reason, False
     return "Not done: %s" % reason, False
@@ -236,12 +243,17 @@ def main(argv):
         for line in window_lines(windows(rest[0] if rest else A.FALLBACK)):
             print(line)
         return 0
+    handing = action == "--handoff"
+    # A handoff names no conversation: its first argument, if any, is the plugin data directory.
+    if handing:
+        rest = [""] + rest
     target = rest[0] if rest else ""
     opening = action == "--open"
-    if (opening and not os.path.isabs(target)) or (not opening and not SESSION_NAME.match(target)) \
-            or (confirmed and action != "--close") or len([a for a in args if a in FLAGS]) > 1:
-        print("usage: steward-relay.py [--rename | --close [--confirmed] | --open | --resume | --handoff]"
-              " <session id or folder> [<plugin data directory>] < text")
+    if (opening and not os.path.isabs(target)) or (not opening and not handing and not SESSION_NAME.match(target)) \
+            or (confirmed and action != "--close") or len([a for a in args if a in FLAGS]) > 1 or len(rest) > 2:
+        print("usage: steward-relay.py [--rename | --close [--confirmed] | --open | --resume]"
+              " <session id or folder> [<plugin data directory>] < text\n"
+              "       steward-relay.py --handoff [<plugin data directory>] < text")
         return 2
     steward = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     if not SESSION_NAME.match(steward):
@@ -270,8 +282,8 @@ def main(argv):
         if said:
             print("\n".join(said))
             return 1
-    elif action == "--handoff":
-        said = handoff_check(data, steward.lower(), target)
+    elif handing:
+        said = handoff_check(data, steward.lower())
         if said:
             print(said)
             return 1
@@ -307,8 +319,15 @@ def main(argv):
                 line, done = resume_said(r, name, text)
                 print(line)
                 return 0 if done else 1
+            if handing:
+                sid = r.get("steward") or ""
+                if outcome == "submitted":
+                    print(HANDED % ('"%s" (%s)' % (r.get("stewardTitle"), sid) if r.get("stewardTitle") else sid or "(unknown)"))
+                    return 0
+                print("Not done: %s.%s" % (reason or outcome, NOT_HANDED))
+                return 1
             if outcome == "submitted":
-                print(DONE.get(action, SAID["submitted"]))
+                print(DONE.get(action, SAID["submitted"]) + (TICKED if r.get("ticked") is True else ""))
                 if opening:
                     sid = r.get("sessionId") or ""
                     print("Session id: %s" % sid if sid else "Its session id was not known yet; it is in the Steward panel.")
@@ -325,8 +344,8 @@ def main(argv):
             print("Not done: no VS Code window that has its folder, %s, open took the request. The open windows:" % cwd)
             for line in window_lines(windows(data)):
                 print("  " + line)
-        elif action == "--handoff":
-            print("Not done: no VS Code window that shows the steward conversation took the request. Tell the user instead.")
+        elif handing:
+            print("Not done: no VS Code window that shows a steward of this conversation took the request." + NOT_HANDED)
         else:
             print("Not done: no VS Code window that shows that conversation took the request. If no window has it open, "
                   "--resume opens it.")

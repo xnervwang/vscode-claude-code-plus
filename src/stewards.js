@@ -8,7 +8,8 @@
  * conversation for it in the Steward panel (src/steward-view.js), and stops being one when nothing is ticked.
  *
  * Who manages whom is kept in stewards.json in the plan directory, so every window and the plugin's steward hook
- * (claude-plugin/agent-work-plan/hooks/steward.py) read the same answer. Only the panel writes it, so a steward cannot
+ * (claude-plugin/agent-work-plan/hooks/steward.py) read the same answer. Only the panel writes it, and a window that has
+ * just opened a conversation for a steward, which ticks it for that steward (src/relay.js); a steward cannot otherwise
  * change what it manages. One conversation can be managed by several stewards.
  *
  *   { "version": 1, "stewards": { "<steward session id>": { "manages": ["<session id>", ...],

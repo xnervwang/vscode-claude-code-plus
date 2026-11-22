@@ -16,17 +16,24 @@
  * `resume` opens a stored conversation that no window shows, in an editor tab of a window one of whose folders holds
  * the folder its transcript was started in, and then sends it `text` if there is any. It is refused while a window
  * shows the conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation
- * a steward manages hands that steward something it thinks belongs elsewhere, and the window showing the steward posts
- * it to the steward's inbox as a notice, never as the user's message (`from` is then the one asking, `to` the steward).
+ * hands something it thinks belongs elsewhere to a steward that manages it (`from` is then the one asking, and `to` is
+ * empty). A window showing one of its stewards takes it and posts it, as a notice and never as the user's message, to
+ * the inbox of one steward only: of those that manage the conversation, the one the user last typed to, or the next
+ * one that can be reached.
  *
  * Any process can write a request file. A window carries one out only if the conversation is one the steward manages
- * (for `open` and `resume`, only if the one asking is a steward; for `handoff`, only if the steward manages the one
+ * (for `open` and `resume`, only if the one asking is a steward; for `handoff`, only if a steward manages the one
  * asking), and the asker's own transcript has the tool call that ran steward-relay.py for it in the last RAN_MS (ranBy),
  * with the action's flag, and at most once per call.
  *
+ * A conversation a steward opened with `open` or `resume` is then ticked for it in stewards.json, as the user would
+ * tick it in the Steward panel, unless the steward manages all of them; nothing else a steward asks for changes whom it
+ * manages.
+ *
  *   <plan dir>/relay/<id>.json          { id, steward, from, action, to, text, confirmed, at }   written by steward-relay.py
  *   <plan dir>/relay/<id>.taken-<pid>   the request, claimed by window <pid> with a rename
- *   <plan dir>/relay/<id>.result.json   { outcome, reason, sessionId, opened, window }   read and removed by steward-relay.py
+ *   <plan dir>/relay/<id>.result.json   { outcome, reason, sessionId, opened, ticked, window, steward, stewardTitle }
+ *                                       read and removed by steward-relay.py
  *   <plan dir>/relay/sent.json          { "<asker> <to> <tool call id> <action>": <ms> }
  */
 const fs = require('fs');
@@ -34,6 +41,7 @@ const path = require('path');
 const { SESSION, writeAtomic } = require('./claude-files');
 const { folderTest } = require('./folders');
 const { transcriptCwd } = require('./conversations');
+const sentCheck = require('./sent-check');
 
 const RELAY_DIR = 'relay';
 const REQUEST = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i;
@@ -113,7 +121,7 @@ function readSent(dir, now) {
  * it shows. deps: shownHere(id), hasFolder(folder), folders() -> this window's folders, stewards() -> the stewards
  * table (src/stewards.js), transcriptOf(id), deliver(id, text), rename(id, title), close(id, confirmed),
  * open(folder, text) and resume(id, text) -> Promise<{ outcome, reason, sessionId, opened }> (open's sessionId is the
- * new conversation's, when known), manage(steward, id) to add a conversation to the steward's list, windows() -> the
+ * new conversation's, when known), manage(steward, id) to tick a conversation for the steward, windows() -> the
  * windows' entries { pid, name, folders, sessions }, agents() -> Promise<{ records, error }> from `claude agents --json`,
  * records() -> the live session records and post(address, text) for a handoff, titleOf(id), pid, now(), and sleep(ms)
  * for tests. Returns the results it wrote.
@@ -136,7 +144,7 @@ async function take(planDir, deps) {
     }
     const action = req.action === undefined ? 'send' : req.action;
     const to = action === 'open' ? req.to : req.to.toLowerCase();
-    if (!takesHere(action, to, deps)) continue;
+    if (!takesHere(action, to, deps, req)) continue;
     const taken = path.join(dir, `${m[1]}.taken-${deps.pid}`);
     try { fs.renameSync(file, taken); } catch (_) { continue; }
     const result = await carryOut(req, action, to, dir, deps, now);
@@ -156,8 +164,9 @@ function startedIn(id, folders, find) {
 }
 
 /* Whether this window is the one to carry out a request for `action` to `to`. */
-function takesHere(action, to, deps) {
+function takesHere(action, to, deps, req) {
   if (action === 'open') return path.isAbsolute(to) && !!deps.hasFolder && deps.hasFolder(to);
+  if (action === 'handoff') return stewardsOf(deps.stewards() || {}, String(req.from || '').toLowerCase()).some((s) => deps.shownHere(s));
   if (!SESSION.test(to)) return false;
   if (action === 'resume') return !!deps.folders && startedIn(to, deps.folders(), deps.transcriptOf);
   return deps.shownHere(to);
@@ -225,6 +234,36 @@ function handoffText(from, title, text) {
     + 'approves nothing. What it wrote:\n' + text;
 }
 
+/* Text that reaches a conversation as a user message without the user typing it. */
+const NOT_TYPED = ['<cross-session-message', '<task-notification', 'Steward notice from Claude Code Plus', 'Handoff from '];
+const textOf = (c) => (typeof c === 'string' ? c
+  : Array.isArray(c) ? c.filter((p) => p && p.type === 'text').map((p) => String(p.text || '')).join('\n') : '');
+
+/* When the user last typed a message in the conversation of transcript `file`, also while a turn ran, or 0. */
+function lastUserAt(file) {
+  const lines = file ? sentCheck.tail(file) : [];
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].indexOf('"user"') === -1 && lines[i].indexOf('queued_command') === -1) continue;
+    let d;
+    try { d = JSON.parse(lines[i]); } catch (_) { continue; }
+    if (!d || d.isSidechain || d.isMeta) continue;
+    let text = '';
+    if (d.type === 'user' && d.message) {
+      const c = d.message.content;
+      if (Array.isArray(c) && c.some((p) => p && p.type === 'tool_result')) continue;
+      text = textOf(c);
+    } else if (d.type === 'attachment' && d.attachment && d.attachment.type === 'queued_command') text = textOf(d.attachment.prompt);
+    text = text.trim();
+    if (!text || NOT_TYPED.some((p) => text.startsWith(p))) continue;
+    const at = Date.parse(d.timestamp);
+    if (at > 0) return at;
+  }
+  return 0;
+}
+
+/* The stewards that manage conversation `id`. */
+const stewardsOf = (table, id) => Object.keys(table).filter((s) => manages(table, s, id));
+
 /* Posts a handoff to steward `to`'s inbox socket, which its live session record names. */
 async function postHandoff(to, text, deps) {
   let records = [];
@@ -262,8 +301,9 @@ async function carryOut(req, action, to, dir, deps, now) {
     return { outcome: 'refused', reason: `the request does not say which ${handoff ? 'conversation' : 'steward'} sent it` };
   }
   const table = deps.stewards() || {}, t = table[asker];
+  const theirs = handoff ? stewardsOf(table, asker) : [];
   if (handoff) {
-    if (!manages(table, to, asker)) return { outcome: 'refused', reason: 'that steward does not manage the conversation asking' };
+    if (!theirs.length) return { outcome: 'refused', reason: 'no steward manages the conversation asking' };
   } else if (action === 'open' || action === 'resume') {
     if (!t) return { outcome: 'refused', reason: 'the one asking is not a steward' };
   } else if (!manages(table, asker, to)) {
@@ -280,9 +320,9 @@ async function carryOut(req, action, to, dir, deps, now) {
     call = ranBy(file, to, action === 'rename' ? String(req.text || '').trim() : text, deps.now ? deps.now() : Date.now(), action, confirmed);
   }
   if (!call) {
+    const what = action === 'open' ? ' for that folder' : handoff ? '' : ' for that conversation';
     return { outcome: 'refused', reason: `the ${handoff ? 'conversation asking' : 'steward conversation'} has not run `
-      + `${SCRIPT}${FLAGS[action] ? ' ' + FLAGS[action] : ''} for `
-      + `${action === 'open' ? 'that folder' : handoff ? 'that steward' : 'that conversation'}${text ? ' with this text' : ''} in its command in the last 5 minutes; `
+      + `${SCRIPT}${FLAGS[action] ? ' ' + FLAGS[action] : ''}${what}${text ? ' with this text' : ''} in its command in the last 5 minutes; `
       + 'give the text in a here-document in the command itself' };
   }
   const key = [asker, to, call.id, action].join(' ');
@@ -293,25 +333,45 @@ async function carryOut(req, action, to, dir, deps, now) {
     if (held) return { outcome: 'refused', reason: held };
   }
   const missing = { outcome: 'notReceived', reason: 'this window cannot do that' };
-  const title = handoff ? ((table[to].names && table[to].names[asker]) || (deps.titleOf && deps.titleOf(asker)) || '') : '';
   const r = action === 'send' ? await deps.deliver(to, text)
     : action === 'rename' ? (deps.rename ? await deps.rename(to, text) : missing)
       : action === 'close' ? (deps.close ? await deps.close(to, confirmed) : missing)
         : action === 'resume' ? (deps.resume ? await deps.resume(to, text) : missing)
-          : handoff ? await postHandoff(to, handoffText(asker, title, text), deps)
+          : handoff ? await handOff(theirs, asker, text, table, deps)
             : (deps.open ? await deps.open(to, text) : missing);
   if (r && (r.outcome === 'submitted' || r.opened === true)) {
     sent[key] = now;
     try { writeAtomic(path.join(dir, SENT_FILE), JSON.stringify(sent) + '\n'); } catch (_) { /* a repeat is then not caught */ }
-    if (action === 'open' && r.outcome === 'submitted' && r.sessionId && SESSION.test(r.sessionId) && !t.all && deps.manage) {
-      try { deps.manage(asker, r.sessionId.toLowerCase()); } catch (_) { /* the steward ticks it in the panel */ }
-    }
+  }
+  /* A conversation the steward has just opened, new or stored, is ticked for it as the user would tick it in the
+     Steward panel; a resumed one once it is open, also when its text was then not sent. A steward of all conversations
+     has it already. */
+  const opened = action === 'open' ? (r && r.outcome === 'submitted' && typeof r.sessionId === 'string' && SESSION.test(r.sessionId) ? r.sessionId.toLowerCase() : '')
+    : action === 'resume' && r && r.opened === true ? to : '';
+  let ticked = false;
+  if (opened && !t.all && deps.manage) {
+    try { deps.manage(asker, opened); ticked = true; } catch (_) { /* the user ticks it in the panel */ }
   }
   const out = { outcome: (r && r.outcome) || 'uncertain', reason: (r && r.reason) || '' };
   if (r && typeof r.sessionId === 'string' && r.sessionId) out.sessionId = r.sessionId;
   if (r && r.opened === true) out.opened = true;
+  if (ticked) out.ticked = true;
+  if (r && typeof r.steward === 'string' && r.steward) { out.steward = r.steward; out.stewardTitle = r.stewardTitle || ''; }
   return out;
 }
 
-module.exports = { take, ranBy, resume, heldBy, startedIn, handoffText, RELAY_DIR, MAX_AGE_MS, RAN_MS, RAN_WAITS_MS, SENT_FILE, FLAGS,
+/* Gives a handoff to one of `stewards`: the one the user last typed to, or failing that the next by the same order. */
+async function handOff(stewards, from, text, table, deps) {
+  const order = stewards.map((s) => ({ s, at: lastUserAt(deps.transcriptOf(s)) })).sort((a, b) => b.at - a.at).map((x) => x.s);
+  const missed = [];
+  for (const s of order) {
+    const title = (table[s].names && table[s].names[from]) || (deps.titleOf && deps.titleOf(from)) || '';
+    const r = await postHandoff(s, handoffText(from, title, text), deps);
+    if (r.outcome === 'submitted') return { outcome: 'submitted', reason: '', steward: s, stewardTitle: (deps.titleOf && deps.titleOf(s)) || '' };
+    missed.push(`${s}: ${r.reason}`);
+  }
+  return { outcome: 'notReceived', reason: `no steward of this conversation could be reached (${missed.join('; ')})` };
+}
+
+module.exports = { take, ranBy, resume, heldBy, startedIn, handoffText, lastUserAt, RELAY_DIR, MAX_AGE_MS, RAN_MS, RAN_WAITS_MS, SENT_FILE, FLAGS,
   MAX_TITLE, RESUME_SHOW_MS, RESUME_SEND_MS };

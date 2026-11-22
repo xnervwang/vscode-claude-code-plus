@@ -9281,6 +9281,7 @@ console.log('\nthe Steward panel');
         call('b3', 'toolu_open', `${py} --open /w/proj <<'EOF'\nStart on the parser\nEOF`),
         call('b4', 'toolu_send', `${py} ${S(2)} <<'EOF'\nuse --close here\nEOF`),
         call('b5', 'toolu_send2', `${py} ${S(2)} <<'EOF'\nOnly a message\nEOF`),
+        call('b6', 'toolu_open2', `${py} --open /w/proj <<'EOF'\nNever mind\nEOF`),
       ].map((r) => JSON.stringify(r)).join('\n') + '\n');
       const by = (to, text, action, confirmed) => (relay.ranBy(transcript, to, text, now, action, confirmed) || {}).id || null;
       const calls = [by(S(2), 'Parser   rewrite', 'rename'), by(S(3), '', 'close'), by(S(3), '', 'close', true), by('/w/proj', 'Start on the parser', 'open'),
@@ -9294,8 +9295,10 @@ console.log('\nthe Steward panel');
         const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
         const dir = ${JSON.stringify(adir)}, S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, now = ${now};
         const R = (n) => 'bbbbbbbb-0000-4000-8000-00000000000' + n;
-        const table = { [S(1)]: { manages: [S(2), S(3)], names: {}, at: 0, all: false } };
+        const table = { [S(1)]: { manages: [S(2), S(3)], names: {}, at: 0, all: false }, [S('c')]: { manages: [], names: {}, at: 0, all: true } };
         const put = (id, req) => fs.writeFileSync(path.join(dir, relay.RELAY_DIR, id + '.json'), JSON.stringify(Object.assign({ id, steward: S(1), at: now }, req)));
+        put(R('a'), { action: 'open', steward: S('c'), to: '/w/proj', text: 'Start on the parser' });
+        put(R('b'), { action: 'open', to: '/w/proj', text: 'Never mind' });
         put(R(1), { action: 'rename', to: S(2), text: 'Parser   rewrite' });
         put(R(2), { action: 'close', to: S(3), text: '' });
         put(R(3), { action: 'close', to: S(3), text: '', confirmed: true });
@@ -9307,25 +9310,28 @@ console.log('\nthe Steward panel');
         put(R(9), { action: 'delete', to: S(2), text: '' });
         const did = [];
         const deps = { shownHere: () => true, hasFolder: (f) => f === '/w/proj', stewards: () => table,
-          transcriptOf: (id) => (id === S(1) || id === S(9) ? ${JSON.stringify(transcript)} : ''), pid: 78, now: () => now, sleep: async () => {},
+          transcriptOf: (id) => (id === S(1) || id === S(9) || id === S('c') ? ${JSON.stringify(transcript)} : ''), pid: 78, now: () => now, sleep: async () => {},
           deliver: async (id, text) => { did.push(['send', id, text]); return { outcome: 'submitted' }; },
           rename: async (id, title) => { did.push(['rename', id, title]); return { outcome: 'submitted' }; },
           close: async (id, confirmed) => { did.push(['close', id, confirmed]); return { outcome: 'submitted' }; },
-          open: async (folder, text) => { did.push(['open', folder, text]); return { outcome: 'submitted', sessionId: S(7) }; },
+          open: async (folder, text) => { did.push(['open', folder, text]);
+            return text === 'Never mind' ? { outcome: 'notReceived', reason: 'the new tab did not send it' } : { outcome: 'submitted', sessionId: S(7) }; },
           manage: (steward, id) => did.push(['manage', steward, id]) };
         (async () => {
-          const results = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, [r.action, r.outcome, r.sessionId || '']]));
+          const results = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, [r.action, r.outcome, r.sessionId || '', !!r.ticked]]));
           const left = fs.readdirSync(path.join(dir, relay.RELAY_DIR)).filter((n) => n.endsWith('.json') && !n.startsWith('sent')).sort();
           process.stdout.write(JSON.stringify({ did, results, left }));
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
       const R = (n) => `bbbbbbbb-0000-4000-8000-00000000000${n}`;
       const { did, results, left } = acted;
       const want = [['rename', S(2), 'Parser rewrite'], ['close', S(3), false], ['open', '/w/proj', 'Start on the parser'], ['manage', S(1), S(7)],
-        ['send', S(2), 'use --close here']];
+        ['send', S(2), 'use --close here'], ['open', '/w/proj', 'Start on the parser'], ['open', '/w/proj', 'Never mind']];
       if (did && JSON.stringify(did) === JSON.stringify(want) && results[R(3)][1] === 'refused' && results[R(7)][1] === 'refused'
-          && results[R(8)][1] === 'refused' && results[R(9)][1] === 'refused' && results[R(4)][2] === S(7)
+          && results[R(8)][1] === 'refused' && results[R(9)][1] === 'refused' && results[R(4)][2] === S(7) && results[R(4)][3] === true
+          && results[R('a')][1] === 'submitted' && results[R('a')][3] === false && results[R('b')][1] === 'notReceived' && results[R('b')][3] === false
           && left.includes(R(5) + '.json') && !left.includes(R(4) + '.json')) {
-        ok('a window renames, closes and opens for the steward that ran the script so, gives the new conversation\'s id back and adds it to the steward\'s list, '
+        ok('a window renames, closes and opens for the steward that ran the script so, gives the new conversation\'s id back and ticks it for that steward, '
+          + 'though not for a steward of all conversations nor after an open that failed, '
           + 'leaves an open for a folder it does not have to another window, and refuses a close not confirmed in the command, a title the steward did not send, '
           + 'an open from a conversation that is no steward and an action there is none of');
       } else bad(`steward actions gave ${JSON.stringify(acted)}`);
@@ -9353,7 +9359,7 @@ console.log('\nthe Steward panel');
             if (!m) continue;
             req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
             fs.unlinkSync(path.join(dir, n));
-            fs.writeFileSync(path.join(dir, m[1] + '.result.json'), JSON.stringify(req.action === 'open' ? { outcome: 'submitted', sessionId: ${JSON.stringify(S(7))} }
+            fs.writeFileSync(path.join(dir, m[1] + '.result.json'), JSON.stringify(req.action === 'open' ? { outcome: 'submitted', sessionId: ${JSON.stringify(S(7))}, ticked: true }
               : req.confirmed ? { outcome: 'submitted' } : { outcome: 'refused', reason: 'busy: it is working' }));
           }
         }, 100);
@@ -9365,7 +9371,8 @@ console.log('\nthe Steward panel');
       if (listed.status === 0 && listed.stdout.trim() === 'proj-a: /w/proj, /w/lib' && relative.status === 2
           && busy.code === 1 && /busy: it is working/.test(busy.out) && busy.req && busy.req.action === 'close' && busy.req.text === '' && !busy.req.confirmed
           && sure.code === 0 && /^Closed: /.test(sure.out) && sure.req && sure.req.confirmed === true
-          && opened.code === 0 && opened.out.includes('Session id: ' + S(7)) && opened.req && opened.req.action === 'open' && opened.req.to === '/w/proj'
+          && opened.code === 0 && opened.out.startsWith('Opened: a new conversation was started and its first message sent. It is now ticked for you in the Steward panel.\n')
+          && opened.out.includes('Session id: ' + S(7)) && opened.req && opened.req.action === 'open' && opened.req.to === '/w/proj'
           && opened.req.text === 'Start on the parser') {
         ok('steward-relay.py lists the open windows and their folders, asks for a close, confirmed or not, and an open of a folder given in full, and prints the new conversation\'s id');
       } else bad(`steward-relay.py options: ${JSON.stringify({ listed: [listed.status, listed.stdout], relative: relative.status, busy, sure, opened })}`);
@@ -9411,7 +9418,7 @@ console.log('\nthe Steward panel');
       const started = (id, cwd) => fs.writeFileSync(T(id), JSON.stringify({ type: 'user', uuid: 'h-' + id, timestamp: iso(now - 600000), cwd, sessionId: id,
         message: { role: 'user', content: 'Earlier work' } }) + '\n');
       started(S(3), proj); started(S(4), sub); started(S(5), elsewhere); started(S(6), linked ? path.join(link, 'pkg') : sub);
-      started(S(7), sub); started(S(8), proj); started('5e5e5e5e-0000-4000-8000-00000000000a', sibling);
+      started(S(7), sub); started(S(8), proj); started(S(0), sub); started('5e5e5e5e-0000-4000-8000-00000000000a', sibling);
       const call = (uuid, id, command) => ({ type: 'assistant', uuid, timestamp: iso(now - 30000), isSidechain: false,
         message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command, description: 'x' } }] } });
       const py = 'python3 /p/hooks/steward-relay.py';
@@ -9425,12 +9432,14 @@ console.log('\nthe Steward panel');
         call('r4', 'toolu_r3', `${py} --resume ${S(3)}`),
         call('r5', 'toolu_r6', `${py} --resume ${S(6)}`),
         call('r6', 'toolu_r4b', `${py} --resume ${S(4)} <<'EOF'\nSecond try\nEOF`),
+        call('r7', 'toolu_r0', `${py} --resume ${S(0)}`),
       ]));
-      fs.writeFileSync(T(S(2)), lines([call('m1', 'toolu_h1', `${py} --handoff ${S(1)} <<'EOF'\n${moved}\nEOF`)]));
+      fs.writeFileSync(T(S('c')), lines([call('c1', 'toolu_c4', `${py} --resume ${S(4)} <<'EOF'\n${words}\nEOF`)]));
+      fs.writeFileSync(T(S(2)), lines([call('m1', 'toolu_h1', `${py} --handoff <<'EOF'\n${moved}\nEOF`)]));
       fs.writeFileSync(T(S(9)), lines([call('n1', 'toolu_n1', `${py} --resume ${S(4)} <<'EOF'\n${words}\nEOF`),
-        call('n2', 'toolu_n2', `${py} --handoff ${S(1)} <<'EOF'\n${moved}\nEOF`)]));
+        call('n2', 'toolu_n2', `${py} --handoff <<'EOF'\n${moved}\nEOF`)]));
       const flagged = [relay.ranBy(T(S(1)), S(4), words, now, 'resume'), relay.ranBy(T(S(1)), S(4), words, now, 'send'),
-        relay.ranBy(T(S(2)), S(1), moved, now, 'handoff'), relay.ranBy(T(S(2)), S(1), moved, now, 'send')].map((c) => (c ? c.id : null));
+        relay.ranBy(T(S(2)), '', moved, now, 'handoff'), relay.ranBy(T(S(2)), '', moved, now, 'send')].map((c) => (c ? c.id : null));
       if (JSON.stringify(flagged) === JSON.stringify(['toolu_r4', null, 'toolu_h1', null])) {
         ok('a resume or handoff request counts only with a call whose line runs the script with that flag, and such a call is no plain send');
       } else bad(`resume and handoff calls read ${JSON.stringify(flagged)}`);
@@ -9486,7 +9495,7 @@ console.log('\nthe Steward panel');
           + 'for a while, an unclear send is not, and with no text opening is all');
       } else bad(`resuming in a window: ${JSON.stringify(o)}`);
 
-      /* The window's side of resume and handoff requests. */
+      /* The window's side of resume requests. */
       const R = (n) => `cccccccc-0000-4000-8000-00000000000${n}`;
       const took = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
         const fs = require('fs'), path = require('path');
@@ -9494,10 +9503,12 @@ console.log('\nthe Steward panel');
         const dir = ${JSON.stringify(xdir)}, S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, now = ${now};
         const R = (n) => 'cccccccc-0000-4000-8000-00000000000' + n;
         const T = (id) => path.join(${JSON.stringify(tdir)}, id + '.jsonl');
-        const words = ${JSON.stringify(words)}, moved = ${JSON.stringify(moved)};
-        // S(1) is a steward of S(2) only; S(4) to S(8) are managed by nobody.
-        const table = { [S(1)]: { manages: [S(2)], names: { [S(2)]: 'Parser work' }, at: 0, all: false } };
+        const words = ${JSON.stringify(words)};
+        // S(1) is a steward of S(2) only, S('c') a steward of all; S(4) to S(8) and S(0) are managed by nobody.
+        const table = { [S(1)]: { manages: [S(2)], names: { [S(2)]: 'Parser work' }, at: 0, all: false },
+          [S('c')]: { manages: [], names: {}, at: 0, all: true } };
         const put = (id, req) => fs.writeFileSync(path.join(dir, relay.RELAY_DIR, id + '.json'), JSON.stringify(Object.assign({ id, steward: S(1), at: now }, req)));
+        put(R(0), { action: 'resume', steward: S('c'), to: S(4), text: words });
         put(R(1), { action: 'resume', to: S(4), text: words });
         put(R(2), { action: 'resume', to: S(5), text: '' });
         put(R(3), { action: 'resume', to: S(7), text: 'hello' });
@@ -9506,22 +9517,18 @@ console.log('\nthe Steward panel');
         put(R(6), { action: 'resume', to: S(4), text: 'not in the command' });
         put(R(7), { action: 'resume', to: S(3), text: '' });
         put(R(8), { action: 'resume', to: S(6), text: '' });
-        put(R('a'), { action: 'handoff', steward: undefined, from: S(2), to: S(1), text: moved });
-        put(R('b'), { action: 'handoff', steward: undefined, from: S(9), to: S(1), text: moved });
-        put(R('c'), { action: 'handoff', steward: undefined, from: S(2), to: S(1), text: 'not in the command' });
-        put(R('d'), { action: 'handoff', steward: undefined, from: S(2), to: S(5), text: moved });
-        const did = [], posted = [];
+        put(R('f'), { action: 'resume', to: S(0), text: '' });
+        const did = [];
         const deps = { shownHere: (id) => id === S(1), folders: () => [${JSON.stringify(proj)}], stewards: () => table,
           transcriptOf: (id) => (fs.existsSync(T(id)) ? T(id) : ''), pid: 79, now: () => now, sleep: async () => {},
           windows: () => [{ pid: 79, name: 'proj', folders: [${JSON.stringify(proj)}], sessions: [S(1)] },
             { pid: 80, name: 'other-win', folders: [${JSON.stringify(elsewhere)}], sessions: [S(8)] }],
           agents: async () => ({ records: [{ sessionId: S(7), pid: 4242, kind: 'interactive' },
             { sessionId: S(3), kind: 'background', id: 'abcd1234', state: 'blocked' }, { sessionId: S(4), kind: 'background', id: 'done0001', state: 'done' }] }),
-          resume: async (id, text) => { did.push(['resume', id, text]); return { outcome: 'submitted', reason: '', opened: true }; },
+          resume: async (id, text) => { did.push(['resume', id, text]);
+            return id === S(0) ? { outcome: 'uncertain', reason: 'no panel here was ready for it' } : { outcome: 'submitted', reason: '', opened: true }; },
           deliver: async (id, text) => { did.push(['send', id, text]); return { outcome: 'submitted' }; },
-          manage: (steward, id) => did.push(['manage', steward, id]),
-          records: () => [{ sessionId: S(1), pid: 5, messagingSocketPath: '/run/s1.sock' }],
-          post: async (address, text) => { posted.push([address, text]); return true; } };
+          manage: (steward, id) => did.push(['manage', steward, id]) };
         (async () => {
           const first = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, r]));
           put(R(9), { action: 'resume', to: S(4), text: words });
@@ -9529,31 +9536,84 @@ console.log('\nthe Steward panel');
           const again = Object.fromEntries((await relay.take(dir, Object.assign({}, deps,
             { agents: async () => ({ records: null, error: 'claude was not found' }) }))).map((r) => [r.id, r]));
           const left = fs.readdirSync(path.join(dir, relay.RELAY_DIR)).filter((n) => /^c.*\\.json$/.test(n) && !n.includes('result')).sort();
-          process.stdout.write(JSON.stringify({ first, again, did, posted, left }));
+          process.stdout.write(JSON.stringify({ first, again, did, left }));
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
       const f = took.first || {}, g = took.again || {}, why = (r) => (r ? r.outcome + ': ' + (r.reason || '') : 'not taken');
-      if (took.did && JSON.stringify(took.did) === JSON.stringify([['resume', S(4), words], ['resume', S(6), '']])
-          && f[R(1)] && f[R(1)].outcome === 'submitted' && f[R(1)].opened === true && f[R(1)].window === 79
+      if (took.did && JSON.stringify(took.did) === JSON.stringify([['resume', S(4), words], ['resume', S(4), words], ['manage', S(1), S(4)],
+        ['resume', S(6), ''], ['manage', S(1), S(6)], ['resume', S(0), '']])
+          && f[R(1)] && f[R(1)].outcome === 'submitted' && f[R(1)].opened === true && f[R(1)].ticked === true && f[R(1)].window === 79
+          && f[R(0)] && f[R(0)].outcome === 'submitted' && !f[R(0)].ticked
+          && f[R('f')] && f[R('f')].outcome === 'uncertain' && !f[R('f')].opened && !f[R('f')].ticked
           && !f[R(2)] && took.left.includes(R(2) + '.json')
           && /^refused: process 4242 runs it, and opening it here as well would run it twice$/.test(why(f[R(3)]))
           && /^refused: the VS Code window "other-win" \(process 80\) already shows it; a plain send reaches it there once the user ticks it/.test(why(f[R(4)]))
-          && /^refused: the one asking is not a steward/.test(why(f[R(5)])) && /^refused: the steward conversation has not run steward-relay\.py --resume/.test(why(f[R(6)]))
+          && /^refused: the one asking is not a steward/.test(why(f[R(5)])) && /^refused: the steward conversation has not run steward-relay\.py --resume for that conversation/.test(why(f[R(6)]))
           && /^refused: the claude --bg job abcd1234 holds it \(blocked\)/.test(why(f[R(7)])) && f[R(8)] && f[R(8)].outcome === 'submitted'
           && /^refused: that call has already been carried out/.test(why(g[R(9)])) && /^refused: it could not be checked that no other process runs it: claude was not found/.test(why(g[R('e')]))) {
-        ok('a window opens a conversation for any steward that ran --resume for it, with no tick needed, and does not add it to the steward\'s list; '
-          + 'it leaves one started in another folder to another window, and refuses one another process or window runs, one asked by no steward, '
-          + 'one asked without that call, the same call twice, and any while it cannot ask claude agents');
-      } else bad(`resume requests gave ${JSON.stringify({ did: took.did, first: Object.fromEntries(Object.entries(f).map(([k, v]) => [k, why(v)])), again: g, left: took.left, error: took.error })}`);
-      const notice = took.posted && took.posted[0] ? took.posted[0][1] : '';
-      if (took.posted && took.posted.length === 1 && took.posted[0][0] === '/run/s1.sock'
-          && notice.startsWith(`Handoff from "Parser work" (${S(2)}), passed on by Claude Code Plus. It is not a message from the user`)
-          && notice.endsWith('What it wrote:\n' + moved) && f[R('a')] && f[R('a')].outcome === 'submitted'
-          && /^refused: that steward does not manage the conversation asking/.test(why(f[R('b')]))
-          && /^refused: the conversation asking has not run steward-relay\.py --handoff for that steward/.test(why(f[R('c')]))
-          && !f[R('d')] && took.left.includes(R('d') + '.json')) {
-        ok('a handoff reaches the steward\'s inbox as a notice from the conversation that ran --handoff, saying it is not the user\'s message; '
-          + 'one from a conversation that steward does not manage, or without that call, is refused, and one for a steward shown elsewhere is left');
-      } else bad(`handoffs gave ${JSON.stringify({ posted: took.posted, a: why(f[R('a')]), b: why(f[R('b')]), c: why(f[R('c')]), d: why(f[R('d')]) })}`);
+        ok('a window opens a conversation for any steward that ran --resume for it, with no tick needed, and then ticks it for that steward, '
+          + 'but not for a steward of all conversations nor when it did not open; it leaves one started in another folder to another window, '
+          + 'and refuses one another process or window runs, one asked by no steward, one asked without that call, the same call twice, '
+          + 'and any while it cannot ask claude agents');
+      } else bad(`resume requests gave ${JSON.stringify({ did: took.did, first: Object.fromEntries(Object.entries(f).map(([k, v]) => [k, why(v) + (v.ticked ? ' ticked' : '')])), again: g, left: took.left, error: took.error })}`);
+
+      /* Handoffs: to one steward of the conversation, the one the user typed to last, or the next that can be reached. */
+      const hdir = path.join(root, 'relay-handoff'), htdir = path.join(root, 'relay-handoff-transcripts');
+      for (const d of [path.join(hdir, relay.RELAY_DIR), htdir]) fs.mkdirSync(d, { recursive: true });
+      const H = (n) => `abababab-0000-4000-8000-00000000000${n}`;
+      const HT = (id) => path.join(htdir, id + '.jsonl');
+      const typed = (ms, text) => ({ type: 'user', uuid: 'u' + ms, timestamp: iso(ms), isSidechain: false, message: { role: 'user', content: text } });
+      const noticeRow = (ms) => ({ type: 'attachment', timestamp: iso(ms), attachment: { type: 'queued_command', prompt: '<cross-session-message from="x">Handoff from</cross-session-message>' } });
+      // The user typed to S(1) a minute ago, to H('d') a second ago and to H('f') half a second ago; H('e') has no process.
+      fs.writeFileSync(HT(S(1)), lines([typed(now - 60000, 'Watch the parser'), noticeRow(now - 100)]));
+      fs.writeFileSync(HT(H('d')), lines([typed(now - 1000, 'Keep an eye on the docs')]));
+      fs.writeFileSync(HT(H('f')), lines([typed(now - 500, 'Mind the release')]));
+      fs.writeFileSync(HT(H('e')), lines([typed(now - 3000, 'Look after the tests')]));
+      for (const id of [S(2), H(2), H(3), H(4), S(9)]) fs.writeFileSync(HT(id), lines([call('h-' + id, 'toolu_h_' + id.slice(-1), `${py} --handoff <<'EOF'\n${moved}\nEOF`)]));
+      const lastAt = [relay.lastUserAt(HT(S(1))), relay.lastUserAt(HT(H('f'))), relay.lastUserAt(HT(S(2))), relay.lastUserAt('')];
+      const D = (n) => `dddddddd-0000-4000-8000-00000000000${n}`;
+      const gave = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const fs = require('fs'), path = require('path');
+        const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
+        const dir = ${JSON.stringify(hdir)}, S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, now = ${now};
+        const H = (n) => 'abababab-0000-4000-8000-00000000000' + n, D = (n) => 'dddddddd-0000-4000-8000-00000000000' + n;
+        const HT = (id) => path.join(${JSON.stringify(htdir)}, id + '.jsonl');
+        const moved = ${JSON.stringify(moved)};
+        const table = { [S(1)]: { manages: [S(2), H(2), H(3)], names: { [S(2)]: 'Parser work' }, at: 0, all: false },
+          [H('d')]: { manages: [H(2)], names: {}, at: 0, all: false }, [H('f')]: { manages: [H(3)], names: {}, at: 0, all: false },
+          [H('e')]: { manages: [H(4)], names: {}, at: 0, all: false } };
+        const put = (id, req) => fs.writeFileSync(path.join(dir, relay.RELAY_DIR, id + '.json'), JSON.stringify(Object.assign({ id, action: 'handoff', to: '', at: now }, req)));
+        put(D(1), { from: S(2), text: moved });
+        put(D(2), { from: H(2), text: moved });
+        put(D(3), { from: H(3), text: moved });
+        put(D(4), { from: H(4), text: moved });
+        put(D(5), { from: S(9), text: moved });
+        put(D(6), { from: S(2), text: 'not in the command' });
+        const posted = [];
+        const sockets = { [S(1)]: '/run/s1.sock', [H('d')]: '/run/d.sock', [H('f')]: '/run/f.sock' };
+        const deps = { shownHere: (id) => id === S(1) || id === H('e'), stewards: () => table, pid: 81, now: () => now, sleep: async () => {},
+          transcriptOf: (id) => (fs.existsSync(HT(id)) ? HT(id) : ''), titleOf: (id) => (id === S(1) ? 'Steward one' : ''),
+          records: () => Object.entries(sockets).map(([sessionId, messagingSocketPath]) => ({ sessionId, pid: 5, messagingSocketPath })),
+          post: async (address, text) => { posted.push([address, text]); return address !== '/run/f.sock'; } };
+        (async () => {
+          const results = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, r]));
+          const left = fs.readdirSync(path.join(dir, relay.RELAY_DIR)).filter((n) => /^d.*\\.json$/.test(n) && !n.includes('result')).sort();
+          process.stdout.write(JSON.stringify({ results, posted, left }));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
+      const hr = gave.results || {}, to = (n) => (hr[D(n)] ? `${hr[D(n)].outcome} ${hr[D(n)].steward || ''}`.trim() : 'not taken');
+      const tried = (gave.posted || []).map(([a]) => a);
+      const first = gave.posted && gave.posted[0] ? gave.posted[0][1] : '';
+      if (JSON.stringify(lastAt) === JSON.stringify([now - 60000, now - 500, 0, 0])
+          && to(1) === `submitted ${S(1)}` && hr[D(1)].stewardTitle === 'Steward one' && to(2) === `submitted ${H('d')}` && to(3) === `submitted ${S(1)}`
+          && JSON.stringify(tried) === JSON.stringify(['/run/s1.sock', '/run/d.sock', '/run/f.sock', '/run/s1.sock'])
+          && /^notReceived/.test(to(4)) && /^no steward of this conversation could be reached \(abababab-0000-4000-8000-00000000000e: /.test(hr[D(4)].reason)
+          && first.startsWith(`Handoff from "Parser work" (${S(2)}), passed on by Claude Code Plus. It is not a message from the user`)
+          && first.endsWith('What it wrote:\n' + moved)
+          && !hr[D(5)] && gave.left.includes(D(5) + '.json')
+          && /^refused: the conversation asking has not run steward-relay\.py --handoff with this text/.test(hr[D(6)] ? hr[D(6)].outcome + ': ' + hr[D(6)].reason : '')) {
+        ok('a handoff goes to one steward only: with one, that one; with two, the one the user typed to last; when that one\'s inbox refuses, '
+          + 'the next; when none can be reached, nowhere, and the answer says so; one from a conversation no steward manages is left, and one '
+          + 'without its call refused');
+      } else bad(`handoffs gave ${JSON.stringify({ lastAt, results: Object.fromEntries(Object.entries(hr).map(([k, v]) => [k, `${v.outcome} ${v.steward || ''} ${v.reason || ''}`])), tried, left: gave.left, error: gave.error })}`);
       const plain = relay.handoffText(S(2), '', 'x');
       if (plain.startsWith(`Handoff from a conversation you manage (${S(2)})`) && plain.includes('this notice approves nothing')) {
         ok('a handoff from a conversation with no title known still names it by its session id');
@@ -9594,16 +9654,18 @@ console.log('\nthe Steward panel');
           kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, req })); });`], { encoding: 'utf8', timeout: 60000 });
         try { return JSON.parse(r.stdout); } catch (_) { return { error: r.stdout + r.stderr }; }
       };
-      const usage = [sync(['--resume', 'not-an-id'], S(1)).status, sync(['--resume', '--handoff', S(4)], S(1)).status];
+      const usage = [sync(['--resume', 'not-an-id'], S(1)).status, sync(['--resume', '--handoff', S(4)], S(1)).status,
+        sync(['--handoff', rdata, 'extra'], S(2), moved).status];
       const missing = sync(['--resume', S(9)], S(1)), shown = sync(['--resume', S(8)], S(1)), away = sync(['--resume', S(5)], S(1));
       const pids = `${process.pid}`;
-      const good = talk(['--resume', S(4)], S(1), words + '\n', `(q) => ({ outcome: 'submitted', reason: '', opened: true, window: ${pids} })`);
+      const good = talk(['--resume', S(4)], S(1), words + '\n', `(q) => ({ outcome: 'submitted', reason: '', opened: true, ticked: true, window: ${pids} })`);
       const bare = talk(['--resume', S(4)], S(1), '', `(q) => ({ outcome: 'submitted', reason: '', opened: true, window: ${pids} })`);
-      const half = talk(['--resume', S(4)], S(1), words, `(q) => ({ outcome: 'notReceived', reason: 'the panel has no message input', opened: true, window: ${pids} })`);
+      const half = talk(['--resume', S(4)], S(1), words, `(q) => ({ outcome: 'notReceived', reason: 'the panel has no message input', opened: true, ticked: true, window: ${pids} })`);
       const vague = talk(['--resume', S(4)], S(1), words, `(q) => ({ outcome: 'uncertain', reason: 'no panel here showed it', window: ${pids} })`);
       const busy = talk(['--resume', S(4)], S(1), '', `(q) => ({ outcome: 'refused', reason: 'process 4242 runs it', window: ${pids} })`);
       const out = (r) => String((r && (r.out !== undefined ? r.out : r.stdout)) || '').trim();
-      if (JSON.stringify(usage) === '[2,2]' && missing.status === 1 && /^Not done: no conversation with that session id was found under /.test(out(missing))
+      const TICKED = ' It is now ticked for you in the Steward panel.';
+      if (JSON.stringify(usage) === '[2,2,2]' && missing.status === 1 && /^Not done: no conversation with that session id was found under /.test(out(missing))
           && shown.status === 1 && out(shown) === 'Not done: it is already open in the VS Code window "other-win"; a plain send reaches it there once the user ticks it for this steward in the Steward panel.'
           && away.status === 1 && out(away).startsWith(`Not done: no open VS Code window has its folder, ${elsewhere}, or a folder above it, open; it was not opened in a window for another folder. The open windows:`)
           && out(away).includes(`  proj-a: ${linked ? link : proj}`) && out(away).includes(`  other-win: ${sibling}`)
@@ -9611,28 +9673,32 @@ console.log('\nthe Steward panel');
         ok('steward-relay.py --resume says at once, writing no request, when the conversation has no transcript, a window already shows it, '
           + 'or no window has its folder open, and then names the folder and lists the open windows');
       } else bad(`steward-relay.py --resume checks: ${JSON.stringify({ usage, missing: out(missing), shown: out(shown), away: out(away) })}`);
-      if (good.code === 0 && out(good) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a", and the message was typed into its input and sent as the user\'s message.'
+      if (good.code === 0 && out(good) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a", and the message was typed into its input and sent as the user\'s message.' + TICKED
           && good.req && good.req.action === 'resume' && good.req.to === S(4) && good.req.text === words && good.req.steward === S(1)
           && bare.code === 0 && out(bare) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a".' && bare.req && bare.req.text === ''
-          && half.code === 1 && out(half) === 'Opened in an editor tab in the VS Code window "proj-a", but the message was not sent: the panel has no message input'
+          && half.code === 1 && out(half) === 'Opened in an editor tab in the VS Code window "proj-a", but the message was not sent: the panel has no message input.' + TICKED
           && vague.code === 1 && out(vague) === 'Unclear whether it was opened: no panel here showed it'
           && busy.code === 1 && out(busy) === 'Not done: process 4242 runs it') {
-        ok('steward-relay.py --resume asks a window with the folder to open it, with the message or without, and says whether it opened and whether the message was sent');
+        ok('steward-relay.py --resume asks a window with the folder to open it, with the message or without, and says whether it opened, '
+          + 'whether the message was sent, and whether it is now ticked');
       } else bad(`steward-relay.py --resume answers: ${JSON.stringify({ good, bare, half: out(half), vague: out(vague), busy: out(busy) })}`);
-      const stranger = sync(['--handoff', S(1)], S(9), moved);
+      const NOT_HANDED = ' Say in your reply where it seems to belong, so the user decides.';
+      const stranger = sync(['--handoff'], S(9), moved);
       fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a', folders: [proj], sessions: [] }));
-      const unseen = sync(['--handoff', S(1)], S(2), moved);
+      const unseen = sync(['--handoff'], S(2), moved);
       fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a', folders: [proj], sessions: [S(1)] }));
-      const handed = talk(['--handoff', S(1)], S(2), moved + '\n', `(q) => ({ outcome: 'submitted', reason: '' })`);
-      const empty = sync(['--handoff', S(1)], S(2), '');
-      if (stranger.status === 1 && out(stranger) === `Not done: ${S(1)} is not a steward that manages this conversation.`
-          && unseen.status === 1 && /^Not done: the steward conversation is not open in any VS Code window/.test(out(unseen))
-          && handed.code === 0 && /^Handed off: the steward was told, in a notice that is not the user's message\./.test(out(handed))
-          && handed.req && handed.req.action === 'handoff' && handed.req.from === S(2) && handed.req.to === S(1) && handed.req.text === moved
-          && !('steward' in handed.req) && empty.status === 1 && out(empty) === 'Not done: nothing on standard input.') {
-        ok('steward-relay.py --handoff asks for the steward named only when it manages this conversation and a window shows it, '
-          + 'sends the text as from this conversation, and needs text');
-      } else bad(`steward-relay.py --handoff: ${JSON.stringify({ stranger: out(stranger), unseen: out(unseen), handed, empty: out(empty) })}`);
+      const handed = talk(['--handoff'], S(2), moved + '\n', `(q) => ({ outcome: 'submitted', reason: '', steward: ${JSON.stringify(S(1))}, stewardTitle: 'Steward one' })`);
+      const nobody = talk(['--handoff'], S(2), moved, `(q) => ({ outcome: 'notReceived', reason: 'no steward of this conversation could be reached (x)' })`);
+      const empty = sync(['--handoff'], S(2), '');
+      if (stranger.status === 1 && out(stranger) === 'Not done: no steward manages this conversation, so it cannot be handed off.' + NOT_HANDED
+          && unseen.status === 1 && out(unseen) === 'Not done: no steward of this conversation is open in a VS Code window, so none can be told.' + NOT_HANDED
+          && handed.code === 0 && out(handed).startsWith(`Handed off to the steward "Steward one" (${S(1)}): it was told, in a notice that is not the user's message.`)
+          && handed.req && handed.req.action === 'handoff' && handed.req.from === S(2) && handed.req.to === '' && handed.req.text === moved
+          && !('steward' in handed.req) && nobody.code === 1 && out(nobody) === 'Not done: no steward of this conversation could be reached (x).' + NOT_HANDED
+          && empty.status === 1 && out(empty) === 'Not done: nothing on standard input.') {
+        ok('steward-relay.py --handoff names no steward: it asks only when a steward manages this conversation and one is open in a window, '
+          + 'sends the text as from this conversation, names the steward it reached, says to tell the user when none was, and needs text');
+      } else bad(`steward-relay.py --handoff: ${JSON.stringify({ stranger: out(stranger), unseen: out(unseen), handed, nobody: out(nobody), empty: out(empty) })}`);
 
       /* The extension opens the conversation with Claude Code's own command, without moving the preferred location, and
          hands the text over only once the new tab's page listens for that conversation. */
@@ -9900,15 +9966,15 @@ console.log('\nthe Steward panel');
         && c5.includes(`- "Two" (${S(2)}): idle`) && !c5.includes('Changed since') && c6 === c4) {
       ok('a steward\'s list that has not changed since its previous turn is one sentence, and is given whole again after a compaction');
     } else bad(`steward.py on unchanged turns said ${JSON.stringify([c4, c5, c6])}`);
-    if (c3.startsWith(`A steward conversation (${S(1)}) watches this one`) && c3.includes('Do not send it status messages') && managed.status === 0) {
+    if (c3.startsWith('A steward conversation watches this one') && c3.includes('Do not send it status messages') && managed.status === 0) {
       ok('a managed conversation hears which steward watches it and is asked to leave questions in its plan, not message the steward');
     } else bad(`a managed conversation was told ${JSON.stringify(c3)}`);
     const relayScript = path.join(hooks, 'steward-relay.py');
     // The script's path is quoted for the shell where it needs it, as on Windows.
-    if (new RegExp(`steward-relay\\.py'? --handoff ${S(1)} with a here-document holding the user's words, where it should go`).test(c3)
-        && c3.includes('do not start background work for it here') && c3.includes('say in one sentence that you passed it to the steward')
+    if (/steward-relay\.py'? --handoff with a here-document holding the user's words, where it should go/.test(c3) && !c3.includes(S(1))
+        && c3.includes('do not start background work for it here') && c3.includes('say in one sentence what it answered')
         && c3.length < 900 + relayScript.length && !c1.includes('--handoff') && other.stdout === '') {
-      ok('a managed conversation is told to hand a message that belongs elsewhere to its steward with --handoff, in one short line; '
+      ok('a managed conversation is told to hand a message that belongs elsewhere to a steward with --handoff, in one short line naming no steward; '
         + 'a steward\'s own list and a conversation nobody manages get no such line');
     } else bad(`the handoff line: ${JSON.stringify(c3)}`);
     /* Background work comes from the set the windows share, while the window that wrote it runs. */
