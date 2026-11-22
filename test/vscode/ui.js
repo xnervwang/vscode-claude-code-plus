@@ -268,6 +268,8 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
     const said = [];
     const wanted = labels[labels.length - 1];
     for (let attempt = 1; attempt <= 3; attempt++) {
+      /* The dialog an item opens can come up a moment after the check below; the click before this one did land then. */
+      if (attempt > 1 && await dialog().catch(() => null)) return attempt - 1;
       await list.evaluate(() => { window.__cceLanded = []; });
       const opened = await openMenu(t);
       try {
