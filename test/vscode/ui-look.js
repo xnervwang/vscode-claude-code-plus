@@ -36,6 +36,8 @@ const LOG_LINES = 60;
 const PANEL_VIEW = 'mainThreadWebview-claudeVSCodePanel';
 const CSV = 'Start with the CSV export. Write it and its tests';
 const BUDGET = 'What happens if someone sets a budget for a category';
+/* A name too long for any session list row. */
+const LONG = 'Where the retry delay for the inventory sync is set, and why the staging config overrides it with a longer one';
 /* The fake model's plain answer (lib/fake-model.js). */
 const PLAIN = 'Done. The retry delay is set in config/sync.yml.';
 
@@ -230,6 +232,37 @@ async function askPermission(d, frame) {
   await send(d, frame, 'Please run the test suite.');
   if (!await d.until(() => permissionAsked(frame), 30000, 500)) throw new Error('Claude Code did not ask for permission to run the command within 30 s');
   await d.sleep(1500);
+}
+/* This extension's marks: the crown, the envelope in either form, the old bell (src/title-marks.js). */
+const CROWN = '\u{1F451}';
+const MARK_RE = /\u{1F451}|\u{1F6CE}|\u2709/u;
+const tabLabels = (d) => d.call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((x) => x.input
+  && String(x.input.viewType || '').endsWith('claudeVSCodePanel')).map((x) => x.label);`, []);
+/* The name a conversation's transcript stores, from its last custom-title record, or ''. */
+function storedTitle(d, id) {
+  const projects = path.join(d.profile.home, '.claude', 'projects');
+  for (const dir of fs.readdirSync(projects)) {
+    const file = path.join(projects, dir, `${id}.jsonl`);
+    if (!fs.existsSync(file)) continue;
+    const line = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.includes('"type":"custom-title"')).pop();
+    try { return line ? String(JSON.parse(line).customTitle || '') : ''; } catch (_) { return ''; }
+  }
+  return '';
+}
+/* Renames a conversation through its session list row's own Rename button, typing `name` over the title it holds. */
+async function renameInList(d, list, id, name) {
+  const row = listRow(list, id);
+  await row.hover();
+  await d.sleep(500);
+  await row.locator('[title="Rename session"]').first().click();
+  await d.sleep(600);
+  const held = await row.evaluate((r) => { const e = r.querySelector('[contenteditable]'); return e ? e.textContent : null; });
+  if (held === null) throw new Error('the row did not open its rename box');
+  await d.page.keyboard.press('Control+A');
+  await d.page.keyboard.insertText(name);
+  await d.page.keyboard.press('Enter');
+  await d.sleep(2000);
+  return held;
 }
 /* The live conversation (the first fake one), with the session list in the side bar for its row under OPEN SESSIONS. */
 async function live(d) {
@@ -906,14 +939,47 @@ const STEPS = [
   {
     name: 'steward-ticked', features: ['steward-marks', 'steward-panel'],
     expect: 'One conversation has been ticked in the Steward panel, so the conversation in front is now its steward: its tab\'s '
-      + 'title ends in a crown, and the panel shows the tick. Nothing else in the tab bar changed. In the panel, the rows show '
-      + 'no blue dot.',
+      + 'title starts with a crown, one only, and the panel shows the tick. Nothing else in the tab bar changed. In the panel, '
+      + 'the rows show no blue dot.',
     unchanged: 'The Steward panel lists the same rows as before.',
     act: async (d) => {
       if (!d.steward) throw new Error('the Steward panel is not open');
       await d.steward.locator('input[data-id]').first().click();
       await d.sleep(3000);
       await d.away();
+      return d.body();
+    },
+  },
+  {
+    name: 'steward-renamed', features: ['steward-rename', 'steward-marks'],
+    expect: 'The steward conversation in front was renamed through Claude Code\'s own Rename Session Tab, typing a name that '
+      + 'kept a crown in front and added a second crown and the old bell at the end. Its tab now reads a crown, a space and '
+      + '"CSV export and budgets": exactly one crown, first, no bell and no envelope. In the session list, both rows of that '
+      + 'conversation show its pin, its dot, one crown and then "CSV export and budgets", with no crown or bell inside the '
+      + 'title. No rename box is left open.',
+    unchanged: 'The other tabs and the Steward panel\'s tick are as before.',
+    act: async (d) => {
+      await d.exec('claude-vscode.editor.open', d.sid);
+      await d.sleep(800);
+      const asked = d.exec('claude-vscode.renameSessionTab').catch(() => false);
+      const input = d.page.locator('.quick-input-widget input').first();
+      if (!await d.until(() => input.isVisible().catch(() => false), 10000, 300)) throw new Error('Rename Session Tab did not open its box');
+      const filled = await input.inputValue();
+      await d.page.keyboard.press('Control+A');
+      await d.page.keyboard.insertText(`${CROWN} CSV export and budgets ${CROWN} \u{1F6CE}\uFE0F`);
+      await d.page.keyboard.press('Enter');
+      await asked;
+      await d.sleep(2500);
+      const list = await sessionList(d);
+      await d.sleep(1500);
+      await d.away();
+      const stored = storedTitle(d, d.sid), labels = await tabLabels(d);
+      const tab = labels.find((l) => l.includes('CSV export and budgets')) || '';
+      if (MARK_RE.test(filled)) throw new Error(`the rename box was filled with a mark: "${filled}"`);
+      if (stored !== 'CSV export and budgets') throw new Error(`the transcript stored "${stored}"`);
+      if (tab !== `${CROWN} CSV export and budgets`) throw new Error(`the tab reads "${tab}" (tabs: ${labels.join(' | ')})`);
+      const rows = await list.evaluate(() => [...document.querySelectorAll('[class*="sessionItem_"]')].map((r) => r.innerText).filter((t) => t.includes('CSV export and budgets')));
+      if (!rows.length || rows.some((t) => (t.match(/\u{1F451}/gu) || []).length !== 1)) throw new Error(`the list rows read ${JSON.stringify(rows)}`);
       return d.body();
     },
     undo: async (d) => {
@@ -1062,7 +1128,44 @@ const STEPS = [
       await d.away();
       return d.body();
     },
-    undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.sleep(2000); },
+  },
+  {
+    name: 'renamed-unread', features: ['rename-without-marks', 'long-title-envelope', 'unread-envelope'],
+    expect: 'The conversation with a reply not read yet was renamed through its session list row\'s own rename box, typing a '
+      + 'very long name with an envelope before it, an envelope and a crown after it. The side bar is narrow, the demo '
+      + 'conversation is in front, and the Steward panel is open at the bottom. In the side bar, both rows of the renamed '
+      + 'conversation show "Where the retry delay..." cut short with an ellipsis, and exactly one envelope at the row\'s right '
+      + 'end, after the time, not cut and not inside the title; no crown. In the Steward panel its row\'s title is cut short '
+      + 'the same way and ends with one envelope at the row\'s end. Its tab\'s title ends in one envelope and has no crown.',
+    unchanged: 'The other conversations\' rows are as before.',
+    act: async (d) => {
+      const list = await sessionList(d);
+      const id = d.threads[0].id;
+      const name = `\u2709\uFE0F ${LONG} \u2709\uFE0F ${CROWN}`;
+      const held = await renameInList(d, list, id, name);
+      await d.exec('claude-vscode.editor.open', d.sid);
+      await d.sleep(1200);
+      await d.sideTo(300);
+      await d.exec('workbench.view.extension.claudeCodePlusSteward');
+      const frame = await d.frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
+      if (frame) await d.until(() => frame.evaluate(() => !!document.querySelector('.env')), 20000, 1000);
+      await d.away();
+      const stored = storedTitle(d, id), labels = await tabLabels(d);
+      if (MARK_RE.test(held)) throw new Error(`the rename box held a mark: "${held}"`);
+      if (stored !== LONG) throw new Error(`the transcript stored "${stored}"`);
+      const tab = labels.find((l) => l.startsWith('Where the retry')) || '';
+      if (!/ \u2709[\uFE0E\uFE0F]$/u.test(tab) || /\u{1F451}/u.test(tab) || (tab.match(/\u2709/gu) || []).length !== 1) {
+        throw new Error(`the tab reads "${tab}" (tabs: ${labels.join(' | ')})`);
+      }
+      return d.body();
+    },
+    undo: async (d) => {
+      d.model.release();
+      await d.exec('workbench.action.closePanel').catch(() => {});
+      await d.exec('claude-vscode.editor.open', d.threads[0].id);
+      await d.widen();
+      await d.sleep(2000);
+    },
   },
   {
     name: 'live-background', features: ['dot-background', 'unread-envelope', 'open-sessions'],
@@ -1367,6 +1470,32 @@ const STEPS = [
       + 'blue and green titles readable against the light background; only the open conversation\'s two copies highlighted.',
     unchanged: 'The editor is as before; the map is closed.',
     act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
+  },
+  {
+    name: 'light-envelope', features: ['light-envelope', 'light-theme', 'unread-envelope'],
+    expect: 'In the light theme, a reply landed while the conversation "Where the retry delay..." was behind notes.txt: its tab\'s '
+      + 'title ends in an envelope drawn as a dark outline on the light tab, clearly readable, not a white or faint shape; '
+      + 'its rows in the session list show the same dark envelope at their right end. No colour emoji envelope anywhere.',
+    unchanged: 'The session list is as before, apart from the envelopes.',
+    act: async (d) => {
+      const frame = await live(d);
+      await sessionList(d);
+      await d.exec('claude-vscode.editor.open', d.threads[0].id);
+      await d.sleep(600);
+      d.model.hold();
+      const turns = d.model.turns();
+      await send(d, frame, 'And in the production config?');
+      if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error('the message did not reach the model in 30 s');
+      await notesInFront(d);
+      await d.sleep(800);
+      d.model.release();
+      await d.sleep(5000);
+      await d.away();
+      const tab = (await tabLabels(d)).find((l) => l.startsWith('Where the retry')) || '';
+      if (!tab.endsWith(' \u2709\uFE0E')) throw new Error(`the tab reads "${tab}", not ending in the envelope's text form`);
+      return d.body();
+    },
+    undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.sleep(2000); },
   },
   {
     name: 'light-work-plan', features: ['light-theme', 'work-plan-view'],

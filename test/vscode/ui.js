@@ -1032,9 +1032,10 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(boxes[0][0]), 'ticking one makes the conversation in front its steward', table);
-        const belled = (label) => typeof label === 'string' && label.endsWith(' \u{1F451}') && titled(label.slice(0, -' \u{1F451}'.length), front.title);
+        const belled = (label) => typeof label === 'string' && label.startsWith('\u{1F451} ') && (label.match(/\u{1F451}/gu) || []).length === 1
+          && titled(label.slice('\u{1F451} '.length), front.title);
         const marked = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
-        check(!!marked, 'and its tab keeps its title with a crown after it', await claudeTabs());
+        check(!!marked, 'and its tab keeps its title with one crown before it', await claudeTabs());
         const row = list ? await until(() => list.evaluate(() => (document.body.innerText.match(/\u{1F451}/gu) || []).length), 15000, 500) : 0;
         check(row >= 1, 'and its row in the session list too', row);
         await shot('steward-ticked');
