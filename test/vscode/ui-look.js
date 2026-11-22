@@ -1840,7 +1840,7 @@ const STEPS = [
       + 'notices" and a "Dismiss all" button. No text of one card is drawn over another card.',
     unchanged: 'The conversation, the message box and the front card are as before.',
     act: async (d) => { const f = await noticeCards(d); await noticePull(d, f, 2); return noticeArea(d, f, 240); },
-    undo: async (d) => { await d.away(); await d.sleep(600); },
+    undo: async (d) => { await rest(d, await noticePage(d)); await d.away(); await d.sleep(600); },
   },
   {
     name: 'notice-cards-light', features: ['notice-cards', 'light-theme'],

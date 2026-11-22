@@ -203,7 +203,7 @@ var agentPlusKit = (function () {
   function noticeStack(opts) {
     var doc = document, root = null, head = null, count = null, all = null, live = null;
     var els = {}, order = [], last = [], pulled = -1, hovered = -1, focused = -1, inside = false, drawn = false;
-    var skew = 0, ticker = 0, placer = 0, gone = {}, room = -1, spot = { bottom: 12, right: STACK.margin, width: STACK.width };
+    var skew = 0, placer = 0, gone = {}, room = -1, spot = { bottom: 12, right: STACK.margin, width: STACK.width };
     var GONE_WAIT_MS = 3000;
     var colors = (opts && opts.colors) || { waiting: '#ef4444', finished: '#22c55e' };
     var keyOf = function (c) { return JSON.stringify([String(c.sourceId), String(c.sessionId)]); };
@@ -250,6 +250,14 @@ var agentPlusKit = (function () {
         if (e.relatedTarget && root.contains(e.relatedTarget)) return;
         focused = -1; pull(); paintHead();
       });
+      /* The pointer can leave the whole page without passing over anything else in it, as when it moves straight onto
+         another part of the window; and a page that loses the focus is not being read. */
+      var away = function () {
+        if (hovered < 0 && !inside) return;
+        inside = false; hovered = -1; pull(); paintHead();
+      };
+      doc.documentElement.addEventListener('mouseleave', away);
+      globalThis.addEventListener('blur', away);
       (doc.body || doc.documentElement).appendChild(root);
     }
 
@@ -316,22 +324,29 @@ var agentPlusKit = (function () {
       if (had && next && next.isConnected) next.focus();
     }
 
+    /* Writes only what reads differently, since it runs every half second. */
     function fill(card, c) {
       card.__apCard = c;
       var kindText = KIND_TEXT[c.kind] || '';
       var title = String(c.title || c.sessionId || '');
       var meta = c.agent ? DOT + ' ' + c.agent : '';
+      var when = ageOf(c);
       var set = function (sel, text) { var n = card.querySelector(sel); if (n && n.textContent !== text) n.textContent = text; };
+      var put = function (el, prop, value) { if (el && el.style[prop] !== value) el.style[prop] = value; };
+      var attr = function (name, value) { if (card.getAttribute(name) !== value) card.setAttribute(name, value); };
       set('[data-ap-kind]', kindText);
       set('[data-ap-meta]', meta);
-      card.querySelector('[data-ap-meta]').style.display = meta ? '' : 'none';
-      set('[data-ap-age]', DOT + ' ' + ageOf(c));
+      put(card.querySelector('[data-ap-meta]'), 'display', meta ? '' : 'none');
+      set('[data-ap-age]', DOT + ' ' + when);
       set('[data-ap-title]', title);
-      var color = colors[c.kind] || colors.finished;
-      card.querySelector('[data-ap-dot]').style.background = color;
-      card.firstChild.style.borderTopColor = tint(color, 0.75);
-      card.setAttribute('data-ap-card-kind', c.kind);
-      card.setAttribute('aria-label', kindText + ': ' + title + (c.agent ? ', ' + c.agent : '') + ', ' + ageOf(c));
+      if (card.__apColor !== c.kind) {
+        card.__apColor = c.kind;
+        var color = colors[c.kind] || colors.finished;
+        card.querySelector('[data-ap-dot]').style.background = color;
+        card.firstChild.style.borderTopColor = tint(color, 0.75);
+      }
+      attr('data-ap-card-kind', c.kind);
+      attr('aria-label', kindText + ': ' + title + (c.agent ? ', ' + c.agent : '') + ', ' + when);
     }
 
     function pull() {
@@ -437,12 +452,11 @@ var agentPlusKit = (function () {
       setTimeout(function () { if (card.parentNode) card.parentNode.removeChild(card); }, STACK.leaveMs + 40);
     }
 
-    /* The time on each card, every half minute while there are cards; and the place, since the page below can grow. */
+    /* The place, since the page below can grow, and the time on each card, every half second while there are cards; a
+       card's text is written only when it reads differently. */
     function tick() {
-      if (order.length && !ticker) {
-        ticker = setInterval(function () { for (var i = 0; i < order.length; i++) fill(els[order[i]], els[order[i]].__apCard); }, 30000);
-        placer = setInterval(place, 500);
-      } else if (!order.length && ticker) { clearInterval(ticker); clearInterval(placer); ticker = placer = 0; }
+      if (order.length && !placer) placer = setInterval(function () { place(); for (var i = 0; i < order.length; i++) fill(els[order[i]], els[order[i]].__apCard); }, 500);
+      else if (!order.length && placer) { clearInterval(placer); placer = 0; }
       place();
     }
 
@@ -475,7 +489,7 @@ var agentPlusKit = (function () {
       /* Draws the last list again, after what skip() says has changed. */
       refresh: function () { if (root) render(last); },
       dispose: function () {
-        if (ticker) { clearInterval(ticker); clearInterval(placer); ticker = placer = 0; }
+        if (placer) { clearInterval(placer); placer = 0; }
         if (root && root.parentNode) root.parentNode.removeChild(root);
         if (room > 0) { try { if (opts.room) opts.room(0); } catch (e) { /* gone with the page */ } }
         root = null; els = {}; order = []; room = -1;

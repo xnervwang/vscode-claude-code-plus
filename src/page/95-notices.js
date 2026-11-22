@@ -4,15 +4,15 @@
 
 // Agent Plus's notices as a stack of cards at the bottom right of this panel, above the message input and level with its
 // right edge (src/notices.js sends them, agentPlusKit.noticeStack draws them). This panel leaves out the card of the
-// conversation it shows. While there are cards, the message list gets that much more room at its end, so the newest
-// reply can still be scrolled clear of them.
+// conversation it shows. While there are cards, the message list gets the height of a full stack more room at its end,
+// so the newest reply can still be scrolled clear of them.
 // Fragment of the in-page script - see README.md in this folder.
 
   var NOTICE_SOURCE = 'claude-code';
   var NOTICE_GAP = 8;
   var notices = null, noticeSession = '';
-  /* The message list given more room at its end, as { el, own, base }: its inline padding and its computed padding
-     before that; and the room. */
+  /* The message list given more room at its end, as { el, own, ownMove, base }: its inline padding and transition, and
+     its computed padding, before that; and the room. */
   var noticeRoomed = null, noticeRoomPx = 0;
   var noticePost = function(action, card){
     try {
@@ -31,23 +31,46 @@
     return { bottom: Math.max(12, (window.innerHeight || 0) - r.top + NOTICE_GAP), right: Math.max(4, (window.innerWidth || 0) - r.right),
       width: r.width };
   };
-  /* The message list scrolls inside messagesContainer_; its padding at the end grows by the stack's height. A list that
-     was scrolled to its end is kept there. Also called each time the stack is placed, since the panel can replace the
-     list. */
+  /*
+   * The message list scrolls inside messagesContainer_. While there are cards its padding at the end grows by the
+   * height of a full stack, whatever the number of cards, so a card coming or going does not move the conversation; a
+   * list that was scrolled to its end is kept there. The padding comes and goes over NOTICE_ROOM_MS, the list following
+   * it, and at once with reduced motion. Also called each time the stack is placed, since the panel can replace the
+   * list.
+   */
+  var NOTICE_ROOM_MS = 220;
   var noticeRoom = function(px){
-    noticeRoomPx = px > 0 ? px : 0;
+    var S = agentPlusKit.STACK;
+    noticeRoomPx = px > 0 ? S.height + S.peek * S.depth : 0;
     var list = document.querySelector('[class*="messagesContainer_"]');
-    if (noticeRoomed && (noticeRoomed.el !== list || !noticeRoomPx)) {
-      try { noticeRoomed.el.style.paddingBottom = noticeRoomed.own; } catch (e) { /* gone */ }
+    if (noticeRoomed && noticeRoomed.el !== list) {
+      try { noticeRoomed.el.style.paddingBottom = noticeRoomed.own; noticeRoomed.el.style.transition = noticeRoomed.ownMove; } catch (e) { /* gone */ }
       noticeRoomed = null;
     }
-    if (!list || !noticeRoomPx) return;
-    if (!noticeRoomed) noticeRoomed = { el: list, own: list.style.paddingBottom || '', base: parseFloat(getComputedStyle(list).paddingBottom) || 0 };
-    var want = (noticeRoomed.base + noticeRoomPx + NOTICE_GAP) + 'px';
+    if (!list) return;
+    if (!noticeRoomed) {
+      if (!noticeRoomPx) return;
+      noticeRoomed = { el: list, own: list.style.paddingBottom || '', ownMove: list.style.transition || '',
+        base: parseFloat(getComputedStyle(list).paddingBottom) || 0 };
+    }
+    var want = noticeRoomPx ? (noticeRoomed.base + noticeRoomPx + NOTICE_GAP) + 'px' : noticeRoomed.own;
     if (list.style.paddingBottom === want) return;
+    var calm = false;
+    try { calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.hidden; } catch (e) { calm = true; }
     var atEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 4;
+    list.style.transition = calm ? noticeRoomed.ownMove : 'padding-bottom ' + NOTICE_ROOM_MS + 'ms ease-out';
     list.style.paddingBottom = want;
-    if (atEnd) list.scrollTop = list.scrollHeight;
+    if (!noticeRoomPx) {
+      var gone = noticeRoomed;
+      noticeRoomed = null;
+      setTimeout(function(){ try { if (!noticeRoomed) gone.el.style.transition = gone.ownMove; } catch (e) { /* gone */ } }, NOTICE_ROOM_MS + 50);
+      return;
+    }
+    if (!atEnd) return;
+    if (calm) { list.scrollTop = list.scrollHeight; return; }
+    var until = Date.now() + NOTICE_ROOM_MS + 50;
+    var follow = function(){ list.scrollTop = list.scrollHeight; if (Date.now() < until) requestAnimationFrame(follow); };
+    follow();
   };
   var noticeLeave = function(){
     var box = document.querySelector(ANSWER_INPUT);

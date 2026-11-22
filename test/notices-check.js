@@ -166,18 +166,18 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     'setTimeout(function(){ var s = document.querySelector("[data-ap-stack]"), f = document.querySelector("form").getBoundingClientRect();',
     '  got.order = cards(); got.place = [parseFloat(s.style.bottom), Math.round(innerHeight - f.top + 8), parseFloat(s.style.right), Math.round(innerWidth - f.right)];',
     '  got.pad = document.querySelector(".messagesContainer_t").style.paddingBottom; got.rest = tf();',
-    '  got.ages = Q("[data-ap-age]").map(function(e){ return e.textContent; });',
-    '  var seen = 0; new MutationObserver(function(r){ seen += r.length; }).observe(s, { attributes: true, subtree: true, childList: true, characterData: true });',
-    '  setTimeout(function(){ got.idle = [seen, document.getAnimations().length]; }, 1500); }, 3500);',
+    '  got.ages = Q("[data-ap-age]").map(function(e){ return e.textContent; }); }, 3500);',
     'setTimeout(function(){ var c = Q("[data-ap-card]"); fire(document.querySelector("[data-ap-stack]"), "pointerenter"); fire(c[2], "pointerenter"); }, 5200);',
     'setTimeout(function(){ got.pulled = tf(); got.head = document.querySelector("[data-ap-head]").textContent; fire(document.querySelector("[data-ap-stack]"), "pointerleave"); }, 5600);',
-    'setTimeout(function(){ got.back = tf(); var c = Q("[data-ap-card]"); c[1].focus(); }, 6000);',
+    'setTimeout(function(){ got.back = tf(); var c = Q("[data-ap-card]"); fire(document.querySelector("[data-ap-stack]"), "pointerenter"); fire(c[2], "pointerenter");',
+    '  got.outAgain = tf()[2]; document.documentElement.dispatchEvent(new MouseEvent("mouseleave")); got.leftPage = tf(); }, 5800);',
+    'setTimeout(function(){ var c = Q("[data-ap-card]"); c[1].focus(); }, 6000);',
     'setTimeout(function(){ got.focused = tf(); var c = Q("[data-ap-card]"); fire(c[1], "keydown", { key: "Enter" }); }, 6300);',
     'setTimeout(function(){ var c = Q("[data-ap-card]"); fire(c[1], "keydown", { key: "Delete" }); got.afterDelete = cards();',
     '  fire(c[0], "click"); fire(Q("[data-ap-card]")[0].querySelector("[data-ap-dismiss]"), "click"); got.afterX = cards(); }, 6600);',
     'setTimeout(function(){ got.posted = posted.filter(function(m){ return m.type === "cce_notice" && m.action !== "ask"; }).map(function(m){ return [m.action, m.sessionId]; });',
     '  host([card("c", "waiting", "Third", 0), card("b", "finished", "Second", 60000), card("a", "finished", "First", 120000)]); }, 7000);',
-    'setTimeout(function(){ got.again = cards(); host([]); }, 7400);',
+    'setTimeout(function(){ got.again = cards(); got.padOne = document.querySelector(".messagesContainer_t").style.paddingBottom; host([]); }, 7400);',
     'setTimeout(function(){ got.empty = [cards().length, document.querySelector("[data-ap-stack]").style.display, document.querySelector(".messagesContainer_t").style.paddingBottom]; }, 8200);',
   ].join('\n'));
   if (got.error) bad(got.error);
@@ -188,10 +188,10 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
       'the cards are drawn newest first, each with how long ago, just above the message box and level with its right edge');
     eq(got.rest, ['translateY(0px) scale(1)', 'translateY(-8px) scale(0.96)', 'translateY(-16px) scale(0.92)'],
       'the front card is shown whole and each older one peeks out above it, a little narrower');
-    eq(got.pad, '120px', 'the message list gets the stack\'s height more room at its end, on top of its own padding');
-    eq(got.idle, [0, 0], 'once the cards have come in, nothing on the stack changes or moves while nothing happens');
+    eq([got.pad, got.padOne], ['128px', '128px'], 'the message list gets a full stack\'s height more room at its end, on top of its own padding, the same for one card as for three');
     eq([got.pulled, got.head], [['translateY(0px) scale(1)', 'translateY(-8px) scale(0.96)', 'translateY(-64px) scale(1)'], '3 noticesDismiss all'],
       'pointing at a card behind draws it out whole above the cards in front of it, and the bar above the stack offers Dismiss all');
+    eq([got.outAgain, got.leftPage], ['translateY(-64px) scale(1)', got.rest], 'a card drawn out goes back when the pointer leaves the whole page, even without passing over anything else in it');
     eq([got.back, got.focused], [got.rest, ['translateY(0px) scale(1)', 'translateY(-56px) scale(1)', 'translateY(-64px) scale(0.92)']],
       'leaving puts it back; a card given the focus from the keyboard is drawn out the same way, the cards behind it making room');
     eq([got.afterDelete, got.afterX, got.posted], [['Third', 'First'], ['First'],
@@ -200,6 +200,19 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     eq(got.again, ['First'], 'a list sent before the host heard of the dismissals does not bring them back');
     eq(got.empty, [0, 'none', ''], 'with no cards left the stack is gone and the message list has its own padding back');
   }
+  /* Once what moved has stopped, nothing on the stack or in the message list is written again for as long as nothing
+     happens, so nothing starts to move. Whether a transition has finished is not asked: under the browser's virtual time
+     one is sometimes left unfinished. */
+  const idle = run('idle', [
+    'setTimeout(function(){ host([card("c", "waiting", "Third", 0), card("b", "finished", "Second", 60000), card("a", "finished", "First", 120000)]); }, 2500);',
+    'var settled = function(then){ var n = 0; (function look(){ if (!document.getAnimations().length || ++n > 40) then(n); else setTimeout(look, 100); })(); };',
+    'setTimeout(function(){ settled(function(n){ var seen = 0, s = document.querySelector("[data-ap-stack]");',
+    '  new MutationObserver(function(r){ seen += r.length; }).observe(s, { attributes: true, subtree: true, childList: true, characterData: true });',
+    '  new MutationObserver(function(r){ seen += r.length; }).observe(document.querySelector(".messagesContainer_t"), { attributes: true });',
+    '  setTimeout(function(){ got.idle = { settled: n <= 40, changes: seen, moving: document.getAnimations().map(function(a){ return a.transitionProperty || a.animationName; }) }; }, 1500); }); }, 2800);',
+  ].join('\n'));
+  if (idle.error) bad(idle.error);
+  else eq(idle.idle && idle.idle.changes, 0, 'once the cards have come in, nothing on the stack or in the message list is written again while nothing happens, the half-second tick that keeps their times included');
   const calm = run('calm', [
     'setTimeout(function(){ host([card("b", "finished", "Second", 60000)]); }, 2500);',
     'setTimeout(function(){ host([card("c", "waiting", "Third", 0), card("b", "finished", "Second", 60000)]); }, 3000);',
