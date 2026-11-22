@@ -1751,9 +1751,13 @@ console.log('\nthe skills each turn was given, after its first reply\'s figures'
     const look = require('./vscode/ui-look');
     const fakeModel = require('./vscode/lib/fake-model');
     const source = fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look.js'), 'utf8');
-    const pic = path.join(os.tmpdir(), 'claude-code-plus-look', 'ws', 'expense-tracker', 'artifacts', 'chart.png');
-    const sent = [...source.matchAll(/(?:send|runAsked)\(d, frame, ((['`])(?:(?!\2).)*\2|SKILL_ASK)/g)]
-      .map((m) => new Function('fakeModel', 'pic', 'SKILL_ASK', `return ${m[1]};`)(fakeModel, pic, look.SKILL_ASK));
+    /* The picture's path is searched too, and its words depend on the machine's temporary folder and on how its paths
+       are written: a Windows path is split at each backslash, so "expense-tracker" is a word of its own there. */
+    const tail = ['claude-code-plus-look', 'ws', 'expense-tracker', 'artifacts', 'chart.png'];
+    const pics = [path.join(os.tmpdir(), ...tail), ['C:', 'Users', 'RUNNER~1', 'AppData', 'Local', 'Temp', ...tail].join('\\'),
+      ['', 'var', 'folders', 'zz', 'zyxvpxvq6csfxvn_n0000000000000', 'T', ...tail].join('/'), ['', 'tmp', ...tail].join('/')];
+    const calls = [...source.matchAll(/(?:send|runAsked)\(d, frame, ((['`])(?:(?!\2).)*\2|SKILL_ASK)/g)].map((m) => m[1]);
+    const sent = pics.flatMap((pic) => calls.map((c) => new Function('fakeModel', 'pic', 'SKILL_ASK', `return ${c};`)(fakeModel, pic, look.SKILL_ASK)));
     const others = [...new Set(sent.filter((m) => m !== look.SKILL_ASK))];
     const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-look-skills-')));
     try {
@@ -1784,8 +1788,8 @@ console.log('\nthe skills each turn was given, after its first reply\'s figures'
       const asked = given(look.SKILL_ASK);
       const stray = others.map((m) => [m, given(m)]).filter(([, names]) => names.length);
       if (others.length >= 8 && sent.includes(look.SKILL_ASK) && asked.length === look.SKILLS.length && !stray.length) {
-        ok(`the look steps' message about the zebra ledger is given all ${asked.length} of their skills, and none of the other ${others.length} messages they send is given any`);
-      } else bad(`the look steps' skills: asked ${JSON.stringify(asked)} of ${sent.length} messages; given to others ${JSON.stringify(stray)}`);
+        ok(`the look steps' message about the zebra ledger is given all ${asked.length} of their skills, and none of the other ${others.length} messages they send is given any, with a picture's path as Linux, macOS or Windows writes it`);
+      } else bad(`the look steps' skills: asked ${JSON.stringify(asked)} of ${new Set(sent).size} messages; given to others ${JSON.stringify(stray)}`);
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   }
 

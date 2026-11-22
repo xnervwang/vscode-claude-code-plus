@@ -51,7 +51,7 @@ const SKILLS = [
   { name: 'zebra-ledger-reconcile', description: 'Reconcile the zebra ledger with the striped invoices before the quarter closes, and list the ledger lines no invoice matches.' },
   { name: 'striped-invoice-matcher', description: 'Match each striped invoice to its zebra ledger line by the stripe number printed on it.' },
   { name: 'quarterly-books-close', description: 'Close the quarterly zebra books once every striped invoice is reconciled.' },
-  { name: 'ledger-audit-trail', description: 'Keep an audit trail of each zebra ledger edit: who made it, when, and the amount before and after.' },
+  { name: 'ledger-audit-log', description: 'Keep an audit log of each zebra ledger edit: who made it, when, and the amount before and after.' },
   { name: 'stripe-number-finder', description: 'Find the stripe number printed on a striped invoice when its ledger line cannot be found.' },
 ];
 const SKILL_ASK = 'Please reconcile the zebra ledger with the striped invoices: match each stripe number, keep an audit trail, and close the quarterly books.';
