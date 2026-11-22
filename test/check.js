@@ -9807,7 +9807,10 @@ console.log('\nthe Steward panel');
     {
       const relay = require('../src/relay');
       const xdir = path.join(root, 'relay-resume'), tdir = path.join(root, 'relay-resume-transcripts');
-      const work = path.join(root, 'relay-resume-work'), proj = path.join(work, 'proj'), sub = path.join(proj, 'pkg');
+      // Real paths: Claude Code files a conversation under the folder it ran in, and the temporary folder can itself sit
+      // under a symbolic link (macOS) or a short name (Windows) that a window's real path would not match.
+      fs.mkdirSync(path.join(root, 'relay-resume-work'), { recursive: true });
+      const work = fs.realpathSync.native(path.join(root, 'relay-resume-work')), proj = path.join(work, 'proj'), sub = path.join(proj, 'pkg');
       const elsewhere = path.join(work, 'other'), sibling = path.join(work, 'proj-old'), link = path.join(work, 'link');
       for (const d of [path.join(xdir, relay.RELAY_DIR), tdir, sub, elsewhere, sibling]) fs.mkdirSync(d, { recursive: true });
       let linked = true;
