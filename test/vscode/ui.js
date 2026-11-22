@@ -1383,13 +1383,21 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           /* A notice at the bottom right can lie over the box. */
           await exec('notifications.clearAll');
           await conv.getByText(CHOICE.options[0], { exact: true }).last().click({ timeout: 5000 });
-          if (!await until(async () => !(await box()), 2000, 300)) await conv.getByText(/^\s*Submit answers\s*$/).last().click({ timeout: 5000 });
+          /* The row that sends the answers reads "1 Submit answers", its key first. */
+          if (!await until(async () => !(await box()), 2000, 300)) await conv.getByText(/Submit answers\s*$/).last().click({ timeout: 5000 });
           const answered = await until(() => model.seen.slice(sent).some((x) => x.stream && (x.parts || []).includes('tool_result')), 20000, 300);
           check(!!answered && !await box(), 'picking an option closes the box and sends the choice back', { box: await box(), sent: model.seen.slice(sent).map((x) => x.result) });
           check(!!await clear(), 'and the dot goes', await dotsOn(t.label));
         }
       } finally {
         model.release();
+        /* A choice box left open would hold every later step's message back. */
+        const open = () => conv.evaluate((q) => document.body.innerText.includes(q) && /Esc to cancel/.test(document.body.innerText), CHOICE.question).catch(() => false);
+        if (await open()) {
+          await conv.locator('[contenteditable], button').first().focus().catch(() => {});
+          await page.keyboard.press('Escape');
+          await until(async () => !(await open()), 10000, 300);
+        }
         for (const k of ['waiting', 'enabled', 'finished']) await setNotify(k, null).catch(() => {});
         if (had !== null) fs.writeFileSync(plan, had); else fs.rmSync(plan, { force: true });
         await exec('notifications.clearAll');
