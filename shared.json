@@ -1,5 +1,5 @@
 {
-  "core": "ba1010f65647714e347a7db0ab3a40e7ff3b7dd6",
+  "core": "6a548254497ab98f00498fc568bf42d685189aef",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -119,7 +119,12 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_agent.py",
       "from": "shared/plugin/claude/plan_agent.py",
-      "sha256": "7f80ff6b8fd3a42fe7832f54b777efd63723ed206b5438023ff2e6bb4c8fcb33"
+      "sha256": "86830a84a6bb9441d2542e88d4ece453bb6f39cacb634d8159a2c60d4f8b0c56"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/hooks/skill_route.py",
+      "from": "shared/plugin/hooks/skill_route.py",
+      "sha256": "681bd9a4aaaa66b07e89359e342ce6b6b7ed3dbe7a9da85e58fb56a6a4104b6d"
     },
     {
       "path": "claude-plugin/agent-work-plan/skills/maintain/SKILL.md",
@@ -140,7 +145,7 @@
     {
       "path": "src/token-mode.js",
       "from": "src/token-mode.js",
-      "sha256": "21900f03eabd49c256e1f7dfa8dbacafe7584554d415401f59d9c6fd3a6ceeda"
+      "sha256": "0d9ba9f0576150496f549a7ce98d0ea887f7957fff44ecb967d650acc3989ba9"
     },
     {
       "path": "test/vscode/LOOK.md",

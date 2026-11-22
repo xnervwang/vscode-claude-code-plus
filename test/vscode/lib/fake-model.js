@@ -118,6 +118,23 @@ function contextOf(ask) {
   for (const [k, re] of Object.entries(CONTEXT)) out[k] = re.test(input);
   return out;
 }
+/* The skill suggestions block in this turn's input (route-skills.py), from its first words to the end of the hook's
+   text; '' without one. Claude Code wraps a hook's text in a system-reminder. */
+const ROUTE_MARK = 'Skills that may fit this message';
+function routeOf(ask) {
+  const msgs = Array.isArray(ask.messages) ? ask.messages : [];
+  let i = msgs.length;
+  while (i > 0 && !(msgs[i - 1] && msgs[i - 1].role === 'assistant')) i--;
+  for (const m of msgs.slice(i)) {
+    const texts = !m ? [] : typeof m.content === 'string' ? [m.content]
+      : Array.isArray(m.content) ? m.content.map((x) => (x && typeof x.text === 'string' ? x.text : '')) : [];
+    for (const text of texts) {
+      const at = text.indexOf(ROUTE_MARK);
+      if (at >= 0) return text.slice(at).replace(/\n*<\/system-reminder>[\s\S]*$/, '');
+    }
+  }
+  return '';
+}
 /* The folder named by the note on images in replies, wherever in the conversation it was added; '' without one. */
 const imagesNote = (ask) => {
   const m = /This panel shows images in your replies\. .*? in (\S+) \(create the folder/.exec(JSON.stringify(ask.messages || []));
@@ -148,7 +165,7 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping, choice,
         parts: lastParts(ask).map((p) => (p && p.type) || typeof p), result: resultText(ask), ask: (lastAsk(ask) || '').slice(0, 400),
         typed: typedText(ask).slice(0, 400),
-        picture, imagesNote: imagesNote(ask), context: contextOf(ask) });
+        picture, imagesNote: imagesNote(ask), context: contextOf(ask), route: routeOf(ask) });
       if (req.method === 'POST' && /\/v1\/messages\/count_tokens$/.test(url)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ input_tokens: 1200 }));
@@ -205,6 +222,6 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
     turns: () => seen.filter((s) => s.method === 'POST' && s.stream && /\/v1\/messages(\?|$)/.test(s.url)).length };
 }
 
-module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
+module.exports = { start, ROUTE_MARK, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
   DETACH_SHORT_RUN, LINK_TEXT,
   IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_CHOICE, CHOICE };
