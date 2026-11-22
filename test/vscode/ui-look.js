@@ -371,12 +371,12 @@ const STEPS = [
   {
     name: 'token-mode-notice', features: ['token-mode'],
     expect: 'The notice that asked which token mode to use (shown at the bottom right, or by now moved into the list of '
-      + 'notifications) has been answered with All features, the mode the status bar already named. The notice is gone, '
-      + 'nothing covers the panel\'s footer, the list of notifications is closed, and the token mode entry in the status bar '
-      + 'still says All.',
+      + 'notifications) has been answered: its Choose a Mode... button opened the list of modes, and All features, the one '
+      + 'selected in it, was taken. The notice and the list are gone, nothing covers the panel\'s footer, the list of '
+      + 'notifications is closed, and the token mode entry in the status bar still says All.',
     unchanged: 'The side bar, the tab bar and the conversation look as before.',
     act: async (d) => {
-      const button = (where) => d.page.locator(`${where} .monaco-button`).filter({ hasText: /^\s*All/ }).first();
+      const button = (where) => d.page.locator(`${where} .monaco-button`).filter({ hasText: /^\s*Choose a Mode/ }).first();
       let btn = button('.notifications-toasts');
       if (!await btn.isVisible().catch(() => false)) {
         await d.exec('notifications.showList');
@@ -388,13 +388,18 @@ const STEPS = [
         throw new Error('no notice about token modes was on screen or in the list of notifications');
       }
       await btn.click();
-      await d.sleep(1000);
+      const list = () => d.page.evaluate(() => { const q = document.querySelector('.quick-input-widget'); return !!q && !!q.offsetParent && /All features/.test(q.innerText); });
+      if (!await d.until(list, 10000, 300)) throw new Error('Choose a Mode... opened no list of the modes');
+      /* The list opens with the mode in use, All features, selected. */
+      await d.page.keyboard.press('Enter');
+      await d.until(async () => !(await list()), 5000, 300);
       await d.exec('notifications.hideList').catch(() => {});
       await d.sleep(500);
       await d.away();
       return d.body();
     },
   },
+
   {
     name: 'focus-view-on', features: ['focus-view'],
     expect: 'Focus view is on: your messages and the text of the replies, with each run of thinking and tool calls folded into '
