@@ -1635,34 +1635,31 @@ async function run({ exe, profile, env, playwright, model, threads, background =
                   await new Promise((r) => setTimeout(r, 2000));
                 }
               }
-              /* Opened only in a window whose workspace holds the folder the conversation started in: one started in a
-                 folder below this window's opens here, and one started in a folder of no window does not open at all. */
+              /* Opened only in a window that has the folder the conversation started in open. Claude Code's panel shows
+                 nothing for one started in a folder below the window's (it opens an empty tab), so that one is refused
+                 too, as is one started in a folder no window has open. */
               const [inside, outside] = [FOLDER_THREADS[0], FOLDER_THREADS[1]];
               const insideFolder = path.join(profile.folder, 'sub'), outsideFolder = path.join(path.dirname(profile.folder), 'ws-c');
               for (const d of [insideFolder, outsideFolder]) fs.mkdirSync(d, { recursive: true });
               fakeHome.writeThreads(profile.home, insideFolder, [inside]);
               fakeHome.writeThreads(profile.home, outsideFolder, [outside]);
               const away2 = await act(['--resume', outside.id]);
-              check(/^Not done: no open VS Code window has its folder, .*, or a folder above it, open/.test(away2) && !(await shownHere() || []).includes(outside.id),
+              check(/^Not done: no open VS Code window has its folder, .*, open; Claude Code opens a conversation only in a window with the folder it was started in/.test(away2) && !(await shownHere() || []).includes(outside.id),
                 'a conversation started in a folder no window has open is not opened, in this window or any other', { away2 });
+              const tabsBefore = (await claudeTabs()).length;
+              /* The script refuses before it writes any request, so nothing can open afterwards. */
               const below = await act(['--resume', inside.id]);
-              const belowShown = /^Opened: /.test(below) && await until(async () => (await shownHere() || []).includes(inside.id), 15000, 500);
-              check(!!belowShown, 'one started in a folder below this window\'s folder opens in an editor tab of this window', { below, shown: await shownHere(), tabs: await claudeTabs() });
-              await shot('steward-resume-below');
-              if (!belowShown) {
-                const blank = await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)} && x.label === 'Claude Code');
-                  if (t) await vscode.window.tabGroups.close(t); return !!t;`);
-                await exec('claude-vscode.editor.open', inside.id);
-                const direct = await conversation(inside, 30000);
-                note(`a conversation started in a folder below this window's, opened with claude-vscode.editor.open: ${direct ? 'it loads' : 'it does not load'}; the tab the steward's request left: ${blank ? 'closed' : 'none'}`);
-                await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)} && (x.label === 'Claude Code' || ${JSON.stringify(inside.title)}.startsWith(x.label.replace(/…$/, ''))));
-                  if (t) await vscode.window.tabGroups.close(t); return !!t;`);
-                await exec('claude-vscode.editor.open', front.id);
-              }
-              for (let i = 0; i < 15 && /^Opened: /.test(below); i++) {
-                if (/^Closed: /.test(await act(['--close', inside.id]))) break;
-                await new Promise((r) => setTimeout(r, 2000));
-              }
+              check(/^Not done: no open VS Code window has its folder, .*, open;/.test(below) && !(await shownHere() || []).includes(inside.id)
+                && (await claudeTabs()).length === tabsBefore,
+                'and so is one started in a folder below this window\'s folder, which Claude Code\'s panel would show as an empty tab: no tab opens', { below, tabs: await claudeTabs() });
+              /* Claude Code itself, asked to open it here, shows an empty tab: the reason for the refusal. */
+              await exec('claude-vscode.editor.open', inside.id);
+              const direct = await conversation(inside, 20000);
+              note(`a conversation started in a folder below this window's, opened with claude-vscode.editor.open: ${direct ? 'it loads' : 'it does not load'}`);
+              await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
+                && (x.label === 'Claude Code' || ${JSON.stringify(inside.title)}.startsWith(x.label.replace(/…$/, ''))));
+                if (t) await vscode.window.tabGroups.close(t); return !!t;`);
+              await exec('claude-vscode.editor.open', front.id);
             }
           }
           await shot('steward-actions');

@@ -13,8 +13,9 @@
  * `close` closes its editor tab, and `open` starts a new conversation in the window that has the folder `to` open,
  * typing `text` as its first message. A conversation is only closed, never deleted.
  *
- * `resume` opens a stored conversation that no window shows, in an editor tab of a window one of whose folders holds
- * the folder its transcript was started in, and then sends it `text` if there is any. It is refused while a window
+ * `resume` opens a stored conversation that no window shows, in an editor tab of a window that has the folder its
+ * transcript was started in open, and then sends it `text` if there is any. Not a window with a folder above that one:
+ * Claude Code's panel looks for a conversation in the folder it runs in, and opens an empty tab for one started below it. It is refused while a window
  * shows the conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation
  * hands something it thinks belongs elsewhere to a steward that manages it (`from` is then the one asking, and `to` is
  * empty). A window showing one of its stewards takes it and posts it, as a notice and never as the user's message, to
@@ -39,7 +40,7 @@
 const fs = require('fs');
 const path = require('path');
 const { SESSION, writeAtomic } = require('./claude-files');
-const { folderTest } = require('./folders');
+const { realPath } = require('./folders');
 const { transcriptCwd } = require('./conversations');
 const sentCheck = require('./sent-check');
 
@@ -156,11 +157,15 @@ async function take(planDir, deps) {
   return done;
 }
 
-/* Whether the conversation `id` was started in one of `folders` or below one, by the folder its transcript records. */
+/* Whether the conversation `id` was started in one of `folders` itself, by the folder its transcript records, symbolic
+   links resolved; as src/folders.js compares them, without case on Windows and macOS. */
+const caseOf = process.platform === 'win32' || process.platform === 'darwin' ? (s) => s.toLowerCase() : (s) => s;
 function startedIn(id, folders, find) {
   const file = find ? find(id) : '';
   const cwd = file ? transcriptCwd(file) : '';
-  return !!cwd && folderTest(folders || [])(cwd);
+  if (!cwd) return false;
+  const key = (p) => caseOf(realPath(p));
+  return (folders || []).filter(Boolean).some((f) => key(f) === key(cwd));
 }
 
 /* Whether this window is the one to carry out a request for `action` to `to`. */

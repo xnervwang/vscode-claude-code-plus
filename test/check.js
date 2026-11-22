@@ -9815,8 +9815,8 @@ console.log('\nthe Steward panel');
       const T = (id) => path.join(tdir, id + '.jsonl');
       const started = (id, cwd) => fs.writeFileSync(T(id), JSON.stringify({ type: 'user', uuid: 'h-' + id, timestamp: iso(now - 600000), cwd, sessionId: id,
         message: { role: 'user', content: 'Earlier work' } }) + '\n');
-      started(S(3), proj); started(S(4), sub); started(S(5), elsewhere); started(S(6), linked ? path.join(link, 'pkg') : sub);
-      started(S(7), sub); started(S(8), proj); started(S(0), sub); started('5e5e5e5e-0000-4000-8000-00000000000a', sibling);
+      started(S(3), proj); started(S(4), proj); started(S(5), elsewhere); started(S(6), linked ? link : proj);
+      started(S(7), proj); started(S(8), proj); started(S(0), proj); started('5e5e5e5e-0000-4000-8000-00000000000a', sibling); started(S('e'), sub);
       const call = (uuid, id, command) => ({ type: 'assistant', uuid, timestamp: iso(now - 30000), isSidechain: false,
         message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command, description: 'x' } }] } });
       const py = 'python3 /p/hooks/steward-relay.py';
@@ -9842,14 +9842,16 @@ console.log('\nthe Steward panel');
         ok('a resume or handoff request counts only with a call whose line runs the script with that flag, and such a call is no plain send');
       } else bad(`resume and handoff calls read ${JSON.stringify(flagged)}`);
 
-      /* Which window takes a resume: one with a folder holding the folder the conversation was started in. */
+      /* Which window takes a resume: one with the folder the conversation was started in open. Claude Code's panel shows
+         nothing for a conversation started below the folder it runs in. */
       const find = (id) => (fs.existsSync(T(id)) ? T(id) : '');
-      const inside = [relay.startedIn(S(4), [proj], find), relay.startedIn(S(4), [sub], find), relay.startedIn(S(5), [proj], find),
+      const inside = [relay.startedIn(S(4), [proj], find), relay.startedIn(S('e'), [proj], find), relay.startedIn(S('e'), [sub], find),
+        relay.startedIn(S(4), [sub], find), relay.startedIn(S(5), [proj], find),
         relay.startedIn('5e5e5e5e-0000-4000-8000-00000000000a', [proj], find), relay.startedIn(S(9) + '0', [proj], find)];
       const through = linked ? [relay.startedIn(S(4), [link], find), relay.startedIn(S(6), [proj], find)] : [true, true];
-      if (JSON.stringify(inside) === JSON.stringify([true, true, false, false, false]) && through.every(Boolean)) {
-        ok('a resume is for a window with the conversation\'s folder or a folder above it open, also through a symbolic link on either side; '
-          + 'not for another folder, nor one whose name only starts the same, nor a conversation with no transcript');
+      if (JSON.stringify(inside) === JSON.stringify([true, false, true, false, false, false, false]) && through.every(Boolean)) {
+        ok('a resume is for a window with the conversation\'s own folder open, also through a symbolic link on either side; '
+          + 'not for a folder above it or below it, nor another folder, nor one whose name only starts the same, nor a conversation with no transcript');
       } else bad(`folder matching for a resume: ${JSON.stringify({ inside, through, linked })}`);
       if (!linked) note('symbolic links could not be made here, so matching through one was not checked');
 
@@ -10026,7 +10028,7 @@ console.log('\nthe Steward panel');
       fs.mkdirSync(path.join(rdata, relay.RELAY_DIR), { recursive: true });
       fs.mkdirSync(path.join(rdata, 'windows'), { recursive: true });
       fs.mkdirSync(path.join(rconf, 'projects', '-w'), { recursive: true });
-      for (const id of [S(4), S(5), S(8)]) fs.copyFileSync(T(id), path.join(rconf, 'projects', '-w', id + '.jsonl'));
+      for (const id of [S(4), S(5), S(8), S('e')]) fs.copyFileSync(T(id), path.join(rconf, 'projects', '-w', id + '.jsonl'));
       fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a',
         folders: [linked ? link : proj], sessions: [S(1)] }));
       fs.writeFileSync(path.join(rdata, 'windows', process.ppid + '.json'), JSON.stringify({ pid: process.ppid, at: Date.now(), name: 'other-win',
@@ -10058,6 +10060,7 @@ console.log('\nthe Steward panel');
       const usage = [sync(['--resume', 'not-an-id'], S(1)).status, sync(['--resume', '--handoff', S(4)], S(1)).status,
         sync(['--handoff', rdata, 'extra'], S(2), moved).status];
       const missing = sync(['--resume', S(9)], S(1)), shown = sync(['--resume', S(8)], S(1)), away = sync(['--resume', S(5)], S(1));
+      const below = sync(['--resume', S('e')], S(1));
       const pids = `${process.pid}`;
       const good = talk(['--resume', S(4)], S(1), words + '\n', `(q) => ({ outcome: 'submitted', reason: '', opened: true, ticked: true, window: ${pids} })`);
       const bare = talk(['--resume', S(4)], S(1), '', `(q) => ({ outcome: 'submitted', reason: '', opened: true, window: ${pids} })`);
@@ -10068,12 +10071,13 @@ console.log('\nthe Steward panel');
       const TICKED = ' It is now ticked for you in the Steward panel.';
       if (JSON.stringify(usage) === '[2,2,2]' && missing.status === 1 && /^Not done: no conversation with that session id was found under /.test(out(missing))
           && shown.status === 1 && out(shown) === 'Not done: it is already open in the VS Code window "other-win"; a plain send reaches it there once the user ticks it for this steward in the Steward panel.'
-          && away.status === 1 && out(away).startsWith(`Not done: no open VS Code window has its folder, ${elsewhere}, or a folder above it, open; it was not opened in a window for another folder. The open windows:`)
+          && away.status === 1 && out(away).startsWith(`Not done: no open VS Code window has its folder, ${elsewhere}, open; Claude Code opens a conversation only in a window with the folder it was started in, not one above it or another. The open windows:`)
+          && below.status === 1 && out(below).startsWith(`Not done: no open VS Code window has its folder, ${sub}, open;`)
           && out(away).includes(`  proj-a: ${linked ? link : proj}`) && out(away).includes(`  other-win: ${sibling}`)
           && fs.readdirSync(path.join(rdata, relay.RELAY_DIR)).length === 0) {
         ok('steward-relay.py --resume says at once, writing no request, when the conversation has no transcript, a window already shows it, '
-          + 'or no window has its folder open, and then names the folder and lists the open windows');
-      } else bad(`steward-relay.py --resume checks: ${JSON.stringify({ usage, missing: out(missing), shown: out(shown), away: out(away) })}`);
+          + 'or no window has its folder open, a window with a folder above it included, and then names the folder and lists the open windows');
+      } else bad(`steward-relay.py --resume checks: ${JSON.stringify({ usage, missing: out(missing), shown: out(shown), away: out(away), below: out(below) })}`);
       if (good.code === 0 && out(good) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a", and the message was typed into its input and sent as the user\'s message.' + TICKED
           && good.req && good.req.action === 'resume' && good.req.to === S(4) && good.req.text === words && good.req.steward === S(1)
           && bare.code === 0 && out(bare) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a".' && bare.req && bare.req.text === ''

@@ -34,8 +34,9 @@ work is closed only with --confirmed. --open starts a new conversation in the VS
 and sends it the message, then prints the new conversation's session id; if no window has the folder open, it says so.
 --windows prints the open windows and their folders.
 
---resume opens a conversation that no window shows, in an editor tab of a VS Code window one of whose folders holds the
-folder the conversation was started in, and then sends it the message, if one is given. It is not done while a window
+--resume opens a conversation that no window shows, in an editor tab of a VS Code window that has the folder the
+conversation was started in open, and then sends it the message, if one is given. A window with a folder above that one
+does not do: Claude Code's panel looks for a conversation in the folder it runs in. It is not done while a window
 shows the conversation or another process runs it; it says which. A conversation opened with --open or --resume is
 then ticked for this steward in the Steward panel, unless it manages all conversations.
 
@@ -152,13 +153,9 @@ def real(path):
     return os.path.normcase(p) if sys.platform == "win32" else (p.lower() if sys.platform == "darwin" else p)
 
 
-def holds(root, path):
-    """Whether folder `root` is `path` or one of its parents, symbolic links resolved."""
-    try:
-        rel = os.path.relpath(real(path), real(root)) if root and path else ".."
-    except ValueError:  # on Windows, paths on two drives
-        return False
-    return rel == "." or not (rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel))
+def same(folder, path):
+    """Whether `folder` and `path` are one folder, symbolic links resolved."""
+    return bool(folder and path) and real(folder) == real(path)
 
 
 def shows(w, sid):
@@ -199,9 +196,10 @@ def resume_check(data, sid):
     cwd = started_in(path)
     if not cwd:
         return ["Not done: its transcript does not say which folder it was started in."], ""
-    if not any(holds(f, cwd) for w in found for f in listed(w.get("folders"))):
-        return (["Not done: no open VS Code window has its folder, %s, or a folder above it, open; it was not opened in "
-                 "a window for another folder. The open windows:" % cwd] + ["  " + line for line in window_lines(found)]), cwd
+    if not any(same(f, cwd) for w in found for f in listed(w.get("folders"))):
+        return (["Not done: no open VS Code window has its folder, %s, open; Claude Code opens a conversation only in a "
+                 "window with the folder it was started in, not one above it or another. The open windows:" % cwd]
+                + ["  " + line for line in window_lines(found)]), cwd
     return [], cwd
 
 

@@ -77,7 +77,7 @@
       "relay": ["--close", "--confirmed"], "window": ["the steward panel"] },
     { "id": "steward-open", "what": "A steward starts a new conversation in the window that has a folder open, sends it the first message and then manages it; it can list the open windows and their folders.",
       "relay": ["--open", "--windows"], "window": ["the steward panel"] },
-    { "id": "steward-resume", "what": "A steward opens a conversation that no window shows, in an editor tab of a window whose workspace holds the folder it started in, passes it a message and has it ticked; not while a window shows it or another process runs it, and in no window for another folder.",
+    { "id": "steward-resume", "what": "A steward opens a conversation that no window shows, in an editor tab of a window that has the folder it started in open, passes it a message and has it ticked; not while a window shows it or another process runs it, and in no window for another folder or a folder above it.",
       "relay": ["--resume"], "window": ["the steward panel"] },
     { "id": "steward-handoff", "what": "A managed conversation hands something that belongs elsewhere to its steward, which gets it as a notice that is not the user's message; on native Windows the answer says the steward cannot be reached.",
       "relay": ["--handoff"], "window": ["the steward panel"] },

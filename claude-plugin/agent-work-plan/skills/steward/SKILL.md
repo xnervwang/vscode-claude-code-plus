@@ -152,8 +152,9 @@ ticks it for you in the Steward panel, as it does a conversation you start with 
 conversations; the script says so. Opening a conversation does not approve anything waiting in it. The message counts
 there as the user's own, like any message you pass on.
 
-Claude Code Plus opens it in an editor tab, in a VS Code window that has the conversation's own folder open, or a
-folder above it. It never opens it in a window for another folder. It also never opens a conversation that another
+Claude Code Plus opens it in an editor tab, in a VS Code window that has the conversation's own folder open; a window
+with a folder above it does not do, since Claude Code would show an empty tab there. It never opens it in a window for
+another folder. It also never opens a conversation that another
 process is running, because the conversation would then run twice. The script prints one of these:
 
 - `Opened: ...`: the conversation is open, and the message, if you gave one, was sent.
