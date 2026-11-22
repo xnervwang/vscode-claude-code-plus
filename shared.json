@@ -1,5 +1,5 @@
 {
-  "core": "91acb4435a1b962e6be36d035a68eecc08aa87ac",
+  "core": "5774012c47e369cd4928065d04d4807762f2a3df",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -140,7 +140,7 @@
     {
       "path": "src/token-mode.js",
       "from": "src/token-mode.js",
-      "sha256": "6976e3978111e3bca0eaf116db5ee10ffbf0edb8595f599af11bdf20b10609d9"
+      "sha256": "21900f03eabd49c256e1f7dfa8dbacafe7584554d415401f59d9c6fd3a6ceeda"
     },
     {
       "path": "test/vscode/LOOK.md",
@@ -155,7 +155,7 @@
     {
       "path": "src/title-marks.js",
       "from": "src/title-marks.js",
-      "sha256": "f2cdb28fb964cc0ae7b41c12559ded6ada46dccf8c250726d454533c171a09ab"
+      "sha256": "f92c3452c20bc9fd4da45545b37ae404e72d292b43291fbf034c4d6d203ff6dc"
     }
   ]
 }
