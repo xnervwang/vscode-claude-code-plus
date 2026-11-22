@@ -120,7 +120,7 @@ Verified against Claude Code 2.1.328, 2.1.329 and 2.1.330.
 | Pinned conversations | Click the pin at the start of a session-list row to keep that conversation from Claude Code's transcript cleanup (`cleanupPeriodDays`) and out of Archived sessions. |
 | Text colors | Right-click a conversation and choose **Text color** to give its title one of the colors of Claude Code's `/color`. The color shows wherever the conversation is listed. |
 | Delete archived conversations | **Delete session…** in an archived conversation's right-click menu permanently deletes it from disk once you confirm. You cannot delete a conversation that is running or open in any VS Code window on the same machine. This includes a tab that VS Code restored after a window reload but has not yet loaded. Claude Code Plus then names the window that has it open. |
-| Background sessions left out | The list skips sessions started with `claude --bg` or `claude -p`, and empty transcripts. Turn off `claudeCodePlus.hideBackgroundSessions` to see them, `claude -p` sessions included, which Claude Code itself does not list. Claude Code's own daemon sessions stay hidden either way. |
+| Background sessions left out | The list skips sessions started with `claude --bg` or `claude -p`, and empty transcripts. Turn off `claudeCodePlus.hideBackgroundSessions` to see them, including the `claude -p` sessions that Claude Code's own list leaves out. Claude Code's daemon sessions stay hidden either way. |
 
 ![Open sessions, a pinned conversation, a colored title, session dates and a session ID on hover](images/shots/session-list.png)
 
