@@ -11130,6 +11130,41 @@ console.log('\nthe window test\'s own parts');
     for (const k of listed) if (!keys.includes(k)) gaps.push(`${k} is not in package.json`);
   }
   expect(!gaps.length, 'every setting, command and view in package.json belongs to exactly one of those features', gaps.join('; '));
+  /* The steward's actions are what its script can be asked for, the plain message with no option among them, plus what
+     it is told and what its links do. Each is a feature with a step here, and with a step of the window test that CI runs
+     (test/vscode/ui.js), which asserts it in code. */
+  const featureFile = JSON.parse(fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look-features.json'), 'utf8'));
+  const relayScript = fs.readFileSync(path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py'), 'utf8');
+  const docEnd = relayScript.indexOf('"""', relayScript.indexOf('"""') + 3);
+  const relayUsage = relayScript.slice(0, docEnd).split('\n').filter((l) => /^\s+python3 steward-relay\.py /.test(l))
+    .flatMap((l) => l.match(/--[a-z-]+/g) || ['send']);
+  const relayOptions = [...new Set(['send', ...[...relayScript.slice(docEnd).matchAll(/"(--[a-z-]+)"/g)].map((m) => m[1])])];
+  const relayed = featureList.flatMap((f) => (f.relay || []).map((o) => [o, f.id]));
+  const actions = Array.isArray(featureFile.stewardActions) ? featureFile.stewardActions : [];
+  const stewardGaps = [];
+  for (const o of relayOptions) {
+    const n = relayed.filter(([x]) => x === o).length;
+    if (n !== 1) stewardGaps.push(`${o} belongs to ${n} features`);
+    if (!relayUsage.includes(o)) stewardGaps.push(`${o} is not in the script's usage lines`);
+  }
+  for (const [o, id] of relayed) {
+    if (!relayOptions.includes(o)) stewardGaps.push(`${id}: ${o} is not an option of steward-relay.py`);
+    if (!actions.includes(id)) stewardGaps.push(`${id} has options of the script but is not in stewardActions`);
+  }
+  for (const id of actions) {
+    const f = featureList.find((x) => x.id === id);
+    if (!f) { stewardGaps.push(`${id} is not a feature`); continue; }
+    if (f.notShown !== undefined || !shownBy.has(id)) stewardGaps.push(`${id} has no step in ui-look.js`);
+    if (!Array.isArray(f.window) || !f.window.length) stewardGaps.push(`${id} names no step of the window test`);
+  }
+  expect(relayOptions.length >= 8 && actions.length >= relayed.length / 2 && !stewardGaps.length,
+    'every option of the steward\'s script belongs to exactly one feature, and every steward action has a step here and a step in the window test',
+    JSON.stringify({ relayOptions, gaps: stewardGaps }));
+  const windowSteps = [...fs.readFileSync(path.join(__dirname, 'vscode', 'ui.js'), 'utf8').matchAll(/await step\('((?:[^'\\]|\\.)*)'/g)]
+    .map((m) => m[1].replace(/\\'/g, "'"));
+  const strayWindow = featureList.flatMap((f) => (f.window === undefined ? [] : Array.isArray(f.window) && f.window.length ? f.window : [''])
+    .filter((w) => !windowSteps.includes(w)).map((w) => `${f.id}: "${w}"`));
+  expect(windowSteps.length > 10 && !strayWindow.length, 'and every window step a feature names is a step of test/vscode/ui.js', strayWindow.join(', '));
   const lookMd = (() => { try { return fs.readFileSync(path.join(__dirname, 'vscode', 'LOOK.md'), 'utf8'); } catch (_) { return null; } })();
   expect(lookMd !== null && lookMd.includes('look.json') && lookMd.includes('REVIEW.md') && !/[^\x09\x0a\x20-\x7e]/.test(lookMd),
     'and test/vscode/LOOK.md, in ASCII, tells the agent that reviews the pictures what to read and what to write');

@@ -303,22 +303,73 @@ async function live(d) {
   else { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
   return d.liveFrame;
 }
-/* Before the window opens: transcripts as Claude Code's CLI writes them for `claude --bg`, for `claude -p` and for
-   one of its daemon sessions. This extension leaves all three out of the session list while
-   claudeCodePlus.hideBackgroundSessions is on, and with it off lists the first two. */
-const BACKGROUND_TITLE = 'Nightly report run in the background';
-const PRINT_TITLE = 'Weekly digest written by claude -p';
-const DAEMON_TITLE = 'Daemon session never listed';
-function prepare({ projects, threads }) {
-  const t = threads[2];
-  const src = fs.readFileSync(path.join(projects, `${t.id}.jsonl`), 'utf8');
-  /* Every record id of the conversation it is copied from starts with that conversation's first 24 characters. */
-  const copy = (head, entry, title) => fs.writeFileSync(path.join(projects, `${head + t.id.slice(24)}.jsonl`),
-    src.split(t.id.slice(0, 24)).join(head).split('"entrypoint":"claude-vscode"').join(entry).split(t.title).join(title));
-  copy('5b0d1c2e-9a8f-4c6b-8d7e-', '"entrypoint":"cli","sessionKind":"bg"', BACKGROUND_TITLE);
-  copy('6c1e2d3f-0b9a-4d7c-9e8f-', '"entrypoint":"sdk-cli"', PRINT_TITLE);
-  copy('7d2f3e4a-1c0b-4e8d-af90-', '"entrypoint":"cli","sessionKind":"daemon"', DAEMON_TITLE);
+/* The file of conversation `id`'s transcript. */
+function transcriptFile(d, id) {
+  const projects = path.join(d.profile.home, '.claude', 'projects');
+  for (const dir of fs.readdirSync(projects)) {
+    const file = path.join(projects, dir, `${id}.jsonl`);
+    if (fs.existsSync(file)) return file;
+  }
+  return '';
 }
+/* Runs the steward's script as conversation `asker` would: the tool call that runs it goes in that conversation's
+   transcript first, since a window carries out only what the asker's own transcript shows it asked for. */
+const RELAY = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
+let relayCalls = 0;
+function relay(d, asker, args, input) {
+  const line = `python3 ${RELAY} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
+  fs.appendFileSync(transcriptFile(d, asker), JSON.stringify({ type: 'assistant', uuid: `${asker.slice(0, 24)}${String(790000 + relayCalls++).padStart(12, '0')}`,
+    timestamp: new Date().toISOString(), sessionId: asker, cwd: d.profile.folder, isSidechain: false,
+    message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_look_${relayCalls}`, name: 'Bash', input: { command: line, description: 'Act for the user' } }] } }) + '\n');
+  const data = path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+  return new Promise((resolve) => {
+    /* The demo's home, and none of the variables that would point the script at another ~/.claude. */
+    const env = Object.assign(require('./lib/env').cleanEnv(path.dirname(d.profile.home)), { CLAUDE_CODE_SESSION_ID: asker });
+    const kid = require('child_process').spawn('python3', [RELAY, ...args, data], { env });
+    let out = '';
+    kid.stdout.on('data', (x) => { out += x; });
+    kid.stderr.on('data', (x) => { out += x; });
+    kid.on('error', (e) => resolve('could not run the script: ' + e.message));
+    kid.on('exit', () => resolve(out.trim()));
+    kid.stdin.end(input || '');
+  });
+}
+/* The Steward panel at the bottom, for the conversation in front. */
+async function stewardPanel(d) {
+  await d.exec('workbench.view.extension.claudeCodePlusSteward');
+  const frame = await d.frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
+  if (!frame) throw new Error('the Steward panel did not open in 30 s');
+  return frame;
+}
+/* The demo conversation in front with the Steward panel open, and `ids` ticked in it. */
+async function stewardOf(d, ids) {
+  await d.exec('claude-vscode.editor.open', d.sid);
+  await d.sleep(1000);
+  const frame = await stewardPanel(d);
+  for (const id of ids) {
+    const box = frame.locator(`input[data-id="${id}"]`).first();
+    if (!await d.until(() => box.isVisible().catch(() => false), 40000, 1000)) throw new Error(`the Steward panel does not list ${id}`);
+    if (!await box.isChecked()) await box.click();
+  }
+  await d.sleep(1500);
+  return frame;
+}
+const transcriptHas = (d, id, text) => { try { return fs.readFileSync(transcriptFile(d, id), 'utf8').includes(text); } catch (_) { return false; } };
+/* Claude Code's own command line, of the newest build installed in the cache. */
+const claudeCli = (d) => {
+  const dir = fs.readdirSync(d.profile.exts).filter((n) => n.startsWith('anthropic.claude-code-')).sort().pop();
+  return dir ? path.join(d.profile.exts, dir, 'resources', 'native-binary', 'claude') : '';
+};
+const liveOf = (d, id) => {
+  const dir = path.join(d.profile.home, '.claude', 'sessions');
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+  return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } })
+    .filter((r) => r && r.sessionId === id && (() => { try { process.kill(r.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } })());
+};
+
+/* Transcripts of a `claude --bg`, a `claude -p` and a daemon session, written with the demo's home (lib/fake-home.js). */
+const [BACKGROUND_TITLE, PRINT_TITLE, DAEMON_TITLE] = require('./lib/fake-home').BACKGROUND.map((b) => b.title);
 
 /* The steps. */
 
@@ -868,6 +919,26 @@ const STEPS = [
     },
   },
   {
+    name: 'delete-open-refused', features: ['delete-open-refused'],
+    expect: 'The archived conversation "Why does the nightly export skip archived rows?" is open in a tab, and "Delete session..." '
+      + 'was picked from its menu. Nothing was deleted and no dialog asks: a notification says it was not deleted, naming the '
+      + 'conversation and saying it is open in this VS Code window. The conversation is still listed under Archived sessions.',
+    unchanged: 'The side bar shows the same rows; the menu is closed.',
+    act: async (d) => {
+      await thread(d, d.threads[1]);
+      const list = await sessionList(d);
+      const id = d.threads[1].id;
+      await showArchived(d, list, id);
+      await rowPick(d, list, id, 'Delete session');
+      const said = () => d.page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].some((e) => /^Not deleted:/.test(e.innerText)));
+      if (!await d.until(said, 15000, 300)) throw new Error('no notice that it was not deleted appeared within 15 s');
+      await d.sleep(800);
+      await d.away();
+      return d.body();
+    },
+    undo: async (d) => { await d.exec('notifications.clearAll'); await closeTab(d, d.threads[1]); },
+  },
+  {
     name: 'delete-confirm', features: ['delete-archived'],
     expect: 'After "Delete session..." was picked, VS Code asks in a dialog in the middle of the window whether to delete "Why '
       + 'does the nightly export skip archived rows?" from disk, says it cannot be undone, and offers Delete and Cancel. The '
@@ -1026,6 +1097,228 @@ const STEPS = [
       await d.sleep(1500);
       for (const t of d.threads.slice(1)) await closeTab(d, t);
       await d.exec('workbench.action.closePanel').catch(() => {});
+      await d.sleep(800);
+    },
+  },
+  /* What a steward does for the conversations it manages, each through its script as the steward runs it, and the mark
+     on a conversation that two processes run. The last undo leaves the Steward panel closed, the extra tabs gone and the
+     first tab without its crown, as the work-plan step expects. */
+  {
+    name: 'steward-relayed', features: ['steward-send'],
+    expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. Its last message of yours reads '
+      + '"Please check the export query once more, then stop.": the demo conversation, its steward, passed it on and Claude '
+      + 'Code Plus typed it in, so it is drawn like any message you typed, and the fake model\'s reply follows it.',
+    unchanged: null,
+    act: async (d) => {
+      for (const t of d.threads.slice(1)) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
+      const t = d.threads[1];
+      await stewardOf(d, [t.id]);
+      const words = 'Please check the export query once more, then stop.';
+      const said = await relay(d, d.sid, [t.id], words);
+      if (!/^Sent: /.test(said)) throw new Error(`the steward could not pass the message on: ${said}`);
+      if (!await d.until(() => d.model.seen.some((x) => (x.typed || '').includes(words)), 30000, 500)) throw new Error('the message did not reach the model');
+      const frame = await thread(d, t);
+      await d.until(() => lastReplyHas(frame, PLAIN), 20000, 500);
+      await toBottom(frame);
+      await d.away();
+      return d.editor();
+    },
+  },
+  {
+    name: 'steward-renamed-managed', features: ['steward-renames-managed'],
+    expect: 'The demo conversation is in front again, with the Steward panel open at the bottom. Its steward renamed the '
+      + 'conversation it manages: that conversation\'s tab in the tab bar and its row in the Steward panel now read "Export '
+      + 'query and archived rows".',
+    unchanged: null,
+    act: async (d) => {
+      const t = d.threads[1];
+      await stewardOf(d, [t.id]);
+      const said = await relay(d, d.sid, ['--rename', t.id], 'Export query and archived rows');
+      if (!/^Renamed\./.test(said)) throw new Error(`the steward could not rename it: ${said}`);
+      await d.sleep(4000);
+      await d.away();
+      return d.body();
+    },
+    undo: async (d) => { await relay(d, d.sid, ['--rename', d.threads[1].id], d.threads[1].title); await d.sleep(2000); },
+  },
+  {
+    name: 'steward-notice', features: ['steward-notices'],
+    expect: 'The demo conversation, the steward, is in front. The conversation it manages was asked to run the test suite and '
+      + 'waits for permission. At the end of the steward conversation, a message that you did not type, from Claude Code '
+      + 'Plus, says that "Why does the nightly export skip archived rows?" (with its session id) is waiting for the user, '
+      + 'and names the command it asks to run; the fake model replied to it. In the Steward panel, that conversation\'s '
+      + 'row starts with a filled red dot.',
+    unchanged: 'The other conversation\'s title is its own again.',
+    act: async (d) => {
+      const t = d.threads[1];
+      await stewardOf(d, [t.id]);
+      const said = await relay(d, d.sid, [t.id], 'Please run the test suite.');
+      if (!/^Sent: /.test(said)) throw new Error(`the steward could not pass the message on: ${said}`);
+      if (!await d.until(() => transcriptHas(d, d.sid, `(${t.id}) is waiting for the user`), 60000, 1000)) throw new Error('the steward was not sent a notice within 60 s');
+      await d.sleep(6000);
+      await toBottom(d.conv);
+      await d.away();
+      return d.body();
+    },
+  },
+  {
+    name: 'steward-closed', features: ['steward-close'],
+    expect: 'The steward asked to close the conversation that waits for permission; without the user\'s confirmation that was '
+      + 'refused, and with it the tab was closed. "Why does the nightly export skip archived rows?" has no tab any more. The '
+      + 'Steward panel says one ticked conversation is not open in any VS Code window, with a button to untick it.',
+    unchanged: 'The steward conversation is as before.',
+    act: async (d) => {
+      const t = d.threads[1];
+      await stewardOf(d, []);
+      const refused = await relay(d, d.sid, ['--close', t.id]);
+      if (!/^Not done: busy:/.test(refused)) throw new Error(`closing it without --confirmed was not refused: ${refused}`);
+      const closed = await relay(d, d.sid, ['--close', '--confirmed', t.id]);
+      if (!/^Closed: /.test(closed)) throw new Error(`closing it with --confirmed failed: ${closed}`);
+      await d.sleep(6000);
+      await d.away();
+      return d.body();
+    },
+  },
+  {
+    name: 'steward-resumed', features: ['steward-resume'],
+    expect: 'The steward opened that conversation again, in a tab of this window: "Why does the nightly export skip archived '
+      + 'rows?" is in front and ends with your message "Carry on where you left off, please." and the fake model\'s reply.',
+    unchanged: null,
+    act: async (d) => {
+      const t = d.threads[1];
+      await d.until(() => !liveOf(d, t.id).length, 30000, 500);
+      let said = '';
+      for (let i = 0; i < 10 && !/^Opened/.test(said); i++) {
+        said = await relay(d, d.sid, ['--resume', t.id], 'Carry on where you left off, please.');
+        if (!/^Opened/.test(said)) await d.sleep(2000);
+      }
+      if (!/^Opened: /.test(said)) throw new Error(`the steward could not open it: ${said}`);
+      const frame = await thread(d, t);
+      await d.until(() => lastReplyHas(frame, PLAIN), 20000, 500);
+      await toBottom(frame);
+      await d.away();
+      return d.editor();
+    },
+  },
+  {
+    name: 'steward-opened', features: ['steward-open'],
+    expect: 'A new conversation, which the steward started in this window\'s folder, is in a new tab in front: its first '
+      + 'message, "Start a new piece of work: list the scripts in the repository.", is drawn as your own, followed by the '
+      + 'fake model\'s reply.',
+    unchanged: null,
+    act: async (d) => {
+      await stewardOf(d, []);
+      const first = 'Start a new piece of work: list the scripts in the repository.';
+      const said = await relay(d, d.sid, ['--open', d.profile.folder], first);
+      d.openedId = (/Session id: ([0-9a-f-]{36})/.exec(said) || [])[1] || '';
+      if (!/^Opened: /.test(said) || !d.openedId) throw new Error(`the steward could not open a new conversation: ${said}`);
+      await d.until(() => transcriptHas(d, d.openedId, PLAIN), 30000, 500);
+      await d.sleep(2000);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => {
+      for (let i = 0; i < 10 && d.openedId; i++) {
+        if (/^Closed: /.test(await relay(d, d.sid, ['--close', '--confirmed', d.openedId]))) break;
+        await d.sleep(2000);
+      }
+    },
+  },
+  {
+    name: 'steward-handoff', features: ['steward-handoff'],
+    expect: 'The demo conversation, the steward, is in front. At its end, a message that you did not type, from Claude Code '
+      + 'Plus, is a handoff from "Why does the nightly export skip archived rows?" (with its session id): it says it is not '
+      + 'a message from the user and quotes what that conversation wrote, that the release notes belong in another '
+      + 'conversation; the fake model replied to it.',
+    unchanged: null,
+    act: async (d) => {
+      const t = d.threads[1];
+      await stewardOf(d, [t.id]);
+      const said = await relay(d, t.id, ['--handoff'], 'The user asked here for the release notes, which belong in another conversation.');
+      if (!/^Handed off to the steward /.test(said)) throw new Error(`the handoff did not reach the steward: ${said}`);
+      if (!await d.until(() => transcriptHas(d, d.sid, `(${t.id}), passed on by Claude Code Plus`), 30000, 1000)) throw new Error('the steward did not get the handoff within 30 s');
+      await d.sleep(6000);
+      await toBottom(d.conv);
+      await d.away();
+      return d.editor();
+    },
+  },
+  {
+    name: 'steward-link', features: ['steward-links'],
+    expect: 'The steward was asked for a link to another conversation and its reply held one ("that conversation"); clicked, '
+      + 'it brought that conversation\'s tab, "Add a dry-run flag to the cleanup script", to the front, with no prompt from '
+      + 'VS Code about opening a link.',
+    unchanged: null,
+    act: async (d) => {
+      const t = d.threads[2];
+      await d.exec('claude-vscode.editor.open', d.sid);
+      await d.sleep(800);
+      await send(d, d.conv, `Give me a link to conversation ${t.id}.`);
+      const link = d.conv.locator('[data-testid="assistant-message"] a', { hasText: fakeModel.LINK_TEXT }).last();
+      if (!await d.until(() => link.isVisible().catch(() => false), 30000, 500)) throw new Error('no link was drawn in the reply');
+      await d.exec('workbench.action.closePanel');
+      await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+      await link.click({ timeout: 15000 });
+      await thread(d, t);
+      await d.away();
+      return d.body();
+    },
+  },
+  {
+    name: 'session-twice', features: ['session-twice'],
+    expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once: one its tab '
+      + 'started, and an older claude -p run of it. In the session list in the side bar, each of its rows ends with "2 '
+      + 'processes" in red after the title. In the Steward panel at the bottom, its row says "2 processes" and has a "Stop '
+      + 'the old process" button. Nothing overlaps.',
+    unchanged: null,
+    act: async (d) => {
+      const t = d.threads[2];
+      await closeTab(d, t);
+      await d.until(() => !liveOf(d, t.id).length, 30000, 500);
+      d.model.hold();
+      d.twicePid = await d.call(`const k = require('child_process').spawn(arg.bin, ['-p', '--resume', arg.id, 'Check the build once more.'],
+        { cwd: arg.cwd, env: Object.assign({}, process.env, arg.env), stdio: 'ignore' }); k.unref(); return k.pid;`,
+      { bin: claudeCli(d), id: t.id, cwd: d.profile.folder,
+        env: { ANTHROPIC_BASE_URL: d.model.url, ANTHROPIC_API_KEY: require('./lib/fake-home').KEY, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_AUTOUPDATER: '1' } });
+      if (!await d.until(() => liveOf(d, t.id).some((r) => r.pid === d.twicePid), 30000, 500)) throw new Error('the claude -p run did not start');
+      await d.exec('claude-vscode.editor.open', t.id);
+      if (!await d.until(() => liveOf(d, t.id).length >= 2, 60000, 500)) throw new Error('its tab did not start a process of its own');
+      const frame = await stewardOf(d, []);
+      if (!await d.until(() => frame.evaluate((id) => { const a = document.querySelector(`li.row [data-open="${id}"]`), li = a && a.closest('li.row'); return !!li && !!li.querySelector('[data-stop-old]'); }, t.id), 45000, 1000)) {
+        throw new Error('the Steward panel does not mark it as run twice');
+      }
+      d.twiceFrame = frame;
+      await sessionList(d);
+      await d.sleep(2000);
+      await d.away();
+      return d.body();
+    },
+  },
+  {
+    name: 'session-twice-stopped', features: ['session-twice'],
+    expect: 'Stop the old process was clicked: a notification says "Stopped process <a number> of that conversation." The "2 '
+      + 'processes" marks are gone from the session list and the Steward panel, and the conversation is still listed there.',
+    unchanged: 'The side bar and the Steward panel are as before, less the marks.',
+    act: async (d) => {
+      const t = d.threads[2];
+      if (!d.twiceFrame) throw new Error('the conversation was not run twice');
+      await d.twiceFrame.locator(`[data-stop-old="${t.id}"]`).first().click({ timeout: 5000 });
+      const said = () => d.page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].some((e) => /^Stopped process \d+/.test(e.innerText)));
+      if (!await d.until(said, 15000, 300)) throw new Error('no notice that the old process was stopped appeared within 15 s');
+      await d.until(() => d.twiceFrame.evaluate(() => !document.querySelector('[data-stop-old]')), 45000, 1000);
+      await d.sleep(1500);
+      await d.away();
+      return d.body();
+    },
+    undo: async (d) => {
+      d.model.release();
+      await d.exec('notifications.clearAll').catch(() => {});
+      const frame = await stewardOf(d, []).catch(() => null);
+      if (frame) await frame.locator('button[data-act="none"]').click().catch(() => {});
+      await d.sleep(1500);
+      for (const t of d.threads.slice(1)) await closeTab(d, t);
+      await d.exec('workbench.action.closePanel').catch(() => {});
+      await d.exec('claude-vscode.editor.open', d.sid);
       await d.sleep(800);
     },
   },
@@ -1450,6 +1743,101 @@ const STEPS = [
     },
     undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(400); },
   },
+  /* A `claude --bg` session the conversation started, through the stand-in of lib/fake-model.js (BG_SESSION_SCRIPT): the
+     agents button and the map while it runs, once it has finished and the conversation has answered the notice of its
+     end, and with the setting that lists such sessions off. */
+  {
+    name: 'live-bg-running', features: ['background-sessions', 'agent-map'],
+    expect: 'A close-up of the footer under the message box. The conversation started a session with claude --bg and its turn '
+      + 'has ended; the session still runs. The agents button reads "1 bg" and the small dot at its start is a filled green '
+      + 'dot, not grey. The button is whole and does not overlap the buttons beside it.',
+    unchanged: 'The conversation is as before, with one more short exchange at its end.',
+    act: async (d) => {
+      const frame = await live(d);
+      const bin = path.join(d.profile.home, 'fake-bg');
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(path.join(bin, 'claude'), fakeModel.BG_SESSION_SCRIPT(120), { mode: 0o755 });
+      d.bgStarted = Date.now();
+      d.bgFrom = d.model.seen.length;
+      await runAsked(d, frame, `Please ${fakeModel.ASK_FOR_BG_SESSION}.`, '--bg');
+      const shown = await d.until(async () => { const b = await agentsButton(frame); return b && b.dot === 'running' && /\b1 bg\b/.test(b.label) && b; }, 40000, 500);
+      if (!shown) throw new Error(`the agents button did not count the session within 40 s: ${JSON.stringify(await agentsButton(frame))}`);
+      await toBottom(frame);
+      await d.away();
+      await d.sleep(800);
+      return around(d, frame, 'button[data-agents-dot]');
+    },
+  },
+  {
+    name: 'live-bg-map', features: ['background-sessions', 'agent-map'],
+    expect: 'The agent map, opened from that button. A section headed "1 background session . 1 running . started from this '
+      + 'conversation", the "1 running" in green, lists nightly-report as running, for how long, and its eight-digit job id. '
+      + 'The conversation\'s own row starts with a green ring, hollow in the middle. Nothing in the map overlaps.',
+    unchanged: 'The conversation behind the map is as before.',
+    act: async (d) => {
+      const frame = await live(d);
+      await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+      if (!await d.until(() => frame.evaluate(() => /1 background session/.test(document.body.innerText)), 10000, 500)) throw new Error('the map lists no background session');
+      await d.sleep(1200);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(400); },
+  },
+  {
+    name: 'live-bg-ended', features: ['background-sessions', 'detached-end-notices'],
+    expect: 'The conversation once the claude --bg session has finished. At its end, a message that you did not type, from '
+      + 'Claude Code Plus, says that a claude --bg session this conversation started has finished, names nightly-report, and '
+      + 'gives its result (the nightly report is written, 2 failed tests); the fake model replied to it. In the footer the '
+      + 'agents button reads "1 bg done" and its dot is grey, not green; the tab\'s logo has no green ring.',
+    unchanged: 'The conversation is as before, with the notice and its answer at its end.',
+    act: async (d) => {
+      const frame = await live(d);
+      const due = (d.bgStarted || Date.now()) + 120000 - Date.now();
+      const over = await d.until(async () => { const b = await agentsButton(frame); return b && b.dot !== 'running' && /\b1 bg done\b/.test(b.label) && b; }, Math.max(due, 0) + 90000, 1000);
+      if (!over) throw new Error(`the agents button did not say 1 bg done: ${JSON.stringify(await agentsButton(frame))}`);
+      const from = d.bgFrom || 0;
+      if (!await d.until(() => d.model.seen.slice(from).some((x) => /news of a `claude --bg` session/.test(x.ask || '')), 60000, 1000)) throw new Error('the conversation was not told the session ended within 60 s');
+      await d.sleep(6000);
+      await toBottom(frame);
+      await d.away();
+      await d.sleep(800);
+      return d.editor();
+    },
+  },
+  {
+    name: 'live-bg-ended-map', features: ['background-sessions', 'agent-map'],
+    expect: 'The agent map once the session has finished: "1 background session . 1 done", the "1 done" in blue, lists '
+      + 'nightly-report as done, with its result in a box ("The nightly report is written: 2 failed tests, both in the export '
+      + 'job.") and buttons for claude attach and claude logs with its id. The conversation\'s own row starts with a grey dot.',
+    unchanged: 'The conversation behind the map is as before.',
+    act: async (d) => {
+      const frame = await live(d);
+      await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+      const row = frame.locator('details summary').filter({ hasText: 'nightly-report' }).first();
+      if (await d.until(() => row.isVisible().catch(() => false), 10000, 500)) await row.click();
+      await d.sleep(1200);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(400); },
+  },
+  {
+    name: 'off-background-sessions', features: ['background-sessions'],
+    expect: 'With the setting that lists claude --bg sessions turned off, the agent map is opened again: it has no background '
+      + 'session section and nightly-report is not listed, and the agents button no longer says "1 bg done".',
+    unchanged: 'The conversation behind the map is as before.',
+    act: async (d) => {
+      await setting(d, 'claudeCodePlus.show.backgroundSessions', false);
+      await d.sleep(2000);
+      const frame = await live(d);
+      await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 }).catch(() => {});
+      await d.sleep(1500);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => { await d.page.keyboard.press('Escape'); await setting(d, 'claudeCodePlus.show.backgroundSessions', undefined); await d.sleep(1500); },
+  },
 
   /* This extension's commands. */
   {
@@ -1843,7 +2231,7 @@ async function main() {
   const steps = opt.rest.length ? STEPS.filter((s) => opt.rest.includes(s.name)) : STEPS;
   fs.mkdirSync(opt.out, { recursive: true });
   const started = Date.now();
-  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, cache: opt.cache, root: ROOT, salt: 'ui-look', prepare,
+  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, cache: opt.cache, root: ROOT, salt: 'ui-look',
     /* Manual, as in run.js, so that a tool call stops for permission: auto mode needs a check the fake model cannot do. */
     settings: { 'claudeCode.initialPermissionMode': 'default' } });
   Object.assign(d, { sleep: demo.sleep, until: demo.until, log: demo.log });
