@@ -140,7 +140,8 @@ async function hoverLabel(d, frame, sel) {
 /* Claude Code's session list in the side bar, found again each time: switching views can rebuild its page. */
 async function sessionList(d) {
   await d.exec('workbench.view.extension.claude-sessions-sidebar');
-  const list = await d.frameWhere(() => !!document.querySelector('[data-cce-new-session]'), 60000);
+  /* Known by its rows: claudeCodePlus.show.openInTabOrSidebar off takes this extension's buttons out of it. */
+  const list = await d.frameWhere(() => !!document.querySelector('[data-cce-new-session], [class*="sessionItem_"] [data-cce-pin]'), 60000);
   if (!list) throw new Error('the session list did not open in 60 s');
   await d.sleep(1500);
   await d.widen();
