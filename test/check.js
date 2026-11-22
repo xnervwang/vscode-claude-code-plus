@@ -10318,17 +10318,18 @@ console.log('\nthe Steward panel');
         const rec = (pid, sessionId, o) => Object.assign({ pid, sessionId, kind: 'interactive', status: 'idle', statusUpdatedAt: old,
           startedAt: old + pid, procStart: String(pid === 100 ? 111 : pid === 200 ? 222 : pid === 300 ? 333 : pid === 400 ? 444 : 555) }, o);
         const records = [rec(100, A), rec(200, A, { status: 'busy' }), rec(300, A), rec(400, B), rec(500, B, { kind: 'bg' })];
-        /* The desktop app's extension host is a utility process whose kind is in its environment; its pty host has the same
-           command line and another kind. */
+        /* The desktop app's extension host is a utility process, with the same command line as its pty host, and known by
+           the window entry it keeps; an entry two minutes old no longer vouches for its pid. */
         const UTILITY = ['/opt/code/code', '--type=utility', '--utility-sub-type=node.mojom.NodeService'];
-        put(80, 'code', 1, UTILITY); fs.writeFileSync(path.join(proc, '80', 'environ'), 'HOME=/h\0VSCODE_CRASH_REPORTER_PROCESS_TYPE=extensionHost\0');
-        put(81, 'code', 1, UTILITY); fs.writeFileSync(path.join(proc, '81', 'environ'), 'HOME=/h\0VSCODE_CRASH_REPORTER_PROCESS_TYPE=ptyHost\0');
-        put(600, 'claude', 80, ['claude', '--output-format', 'stream-json'], 666); put(700, 'claude', 81, ['claude'], 777);
+        put(80, 'code', 1, UTILITY); put(81, 'code', 1, UTILITY); put(82, 'code', 1, UTILITY);
+        fs.writeFileSync(path.join(ddir, 'windows', '80.json'), JSON.stringify({ pid: 80, at: now - 30000, name: 'desk', pageAt: now - 30000 }));
+        fs.writeFileSync(path.join(ddir, 'windows', '82.json'), JSON.stringify({ pid: 82, at: now - 3 * 60000, name: 'old', pageAt: now - 3 * 60000 }));
+        put(600, 'claude', 80, ['claude', '--output-format', 'stream-json'], 666); put(700, 'claude', 81, ['claude'], 777); put(800, 'claude', 82, ['claude'], 888);
         const C = 'dddddddd-0000-4000-8000-000000000003';
-        const desktop = dup.find({ records: [rec(600, C, { procStart: '666' }), rec(700, C, { procStart: '777' }), rec(500, C, { procStart: '555' })],
-          dir: ddir, proc, now, transcript: () => tr });
-        if (JSON.stringify((desktop.get(C) || []).map((p) => [p.pid, p.host])) === '[[500,50],[600,80]]') {
-          ok('a process under the desktop app\'s extension host counts, known by the kind in its environment; one under its pty host does not');
+        const desktop = dup.find({ records: [rec(600, C, { procStart: '666' }), rec(700, C, { procStart: '777' }), rec(800, C, { procStart: '888' }),
+          rec(500, C, { procStart: '555' })], dir: ddir, proc, now, transcript: () => tr });
+        if (JSON.stringify((desktop.get(C) || []).map((p) => [p.pid, p.host, p.window])) === '[[500,50,"gone"],[600,80,"desk"]]') {
+          ok('a process under the desktop app\'s extension host counts, known by the window entry it keeps; one under its pty host, or under a pid an old entry names, does not');
         } else bad(`the processes found under the desktop app: ${JSON.stringify([...desktop])}`);
         const groups = dup.find({ records, dir: ddir, proc, now, transcript: () => tr });
         const g = groups.get(A) || [];

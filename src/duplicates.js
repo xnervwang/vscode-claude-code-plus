@@ -26,9 +26,11 @@ const NO_PAGE_MS = 5 * 60000;
 /* A process counts as idle once neither its transcript nor its status has changed for this long. */
 const IDLE_MS = 2 * 60000;
 /* A VS Code server starts its extension host with this argument. The desktop app starts it as a utility process, whose
-   command line says --type=utility like its other helpers', and tells it its kind in its environment. */
+   command line says --type=utility like its other helpers' and whose kind it learns only once started, so there the host
+   is known by the window entry it keeps under its own pid (src/steward-view.js). An entry is rewritten every minute while
+   its host runs; an older one may name a pid given to another process since. */
 const HOST_ARG = '--type=extensionHost';
-const HOST_ENV = 'VSCODE_CRASH_REPORTER_PROCESS_TYPE=extensionHost';
+const ENTRY_FRESH_MS = 2 * 60000;
 const MAX_HOPS = 6;
 const STOPPED_DIR = 'stopped';
 const STOPPED_KEEP_MS = 24 * 3600000;
@@ -43,19 +45,14 @@ function stat(proc, pid) {
 function args(proc, pid) {
   try { return fs.readFileSync(path.join(proc, String(pid), 'cmdline'), 'latin1').split('\0').join(' '); } catch (_) { return ''; }
 }
-function isHost(proc, pid) {
-  if (args(proc, pid).includes(HOST_ARG)) return true;
-  try { return fs.readFileSync(path.join(proc, String(pid), 'environ'), 'latin1').split('\0').includes(HOST_ENV); } catch (_) { return false; }
-}
-
-/* The pid of the extension host above `pid`, or 0. */
-function hostOf(pid, proc) {
+/* The pid of the extension host above `pid`, or 0. `hosts` holds the pids of the hosts that keep a fresh window entry. */
+function hostOf(pid, proc, hosts) {
   let p = pid;
   for (let i = 0; i < MAX_HOPS; i++) {
     const st = stat(proc, p);
     if (!st || st.ppid <= 1) return 0;
     p = st.ppid;
-    if (isHost(proc, p)) return p;
+    if ((hosts && hosts.has(p)) || args(proc, p).includes(HOST_ARG)) return p;
   }
   return 0;
 }
@@ -90,16 +87,19 @@ function find({ records, dir, proc = '/proc', now = Date.now(), transcript = tra
     by.get(id).push(r);
   }
   const out = new Map();
-  let wins = null;
+  let wins = null, hosts = null;
   for (const [id, rs] of by) {
     if (rs.length < 2) continue;
+    if (!wins) {
+      wins = windowsIn(dir);
+      hosts = new Set([...wins].filter(([, w]) => typeof w.at === 'number' && now - w.at < ENTRY_FRESH_MS).map(([pid]) => pid));
+    }
     const procs = [];
     for (const r of rs) {
-      const host = hostOf(r.pid, proc);
+      const host = hostOf(r.pid, proc, hosts);
       if (host) procs.push({ r, host });
     }
     if (procs.length < 2) continue;
-    if (!wins) wins = windowsIn(dir);
     let written = 0;
     try { written = fs.statSync(transcript(id)).mtimeMs; } catch (_) { /* none yet */ }
     out.set(id, procs.map(({ r, host }) => {
