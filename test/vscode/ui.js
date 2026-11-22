@@ -1411,10 +1411,8 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         if (target) {
           const words = 'Please run the tests once more, then stop.';
           const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
-          fs.appendFileSync(transcriptOf(front), JSON.stringify({ type: 'assistant', uuid: `${front.id.slice(0, 24)}000000000777`,
-            timestamp: new Date().toISOString(), sessionId: front.id, cwd: profile.folder, isSidechain: false,
-            message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_relay_test', name: 'Bash',
-              input: { command: `python3 ${hooks} ${target.id} <<'EOF'\n${words}\nEOF`, description: 'Pass the message on' } }] } }) + '\n');
+          const answered = fakeHome.appendToolCall(transcriptOf(front), { sessionId: front.id, cwd: profile.folder, uuid: `${front.id.slice(0, 24)}000000000777`,
+            toolId: 'toolu_relay_test', command: `python3 ${hooks} ${target.id} <<'EOF'\n${words}\nEOF`, description: 'Pass the message on' });
           const said = await new Promise((resolve) => {
             const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, target.id, dataDir],
               { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: front.id }) });
@@ -1425,6 +1423,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
             kid.on('exit', () => resolve(out.trim()));
             kid.stdin.end(words);
           });
+          answered(said);
           const arrived = /^Sent: /.test(said) ? await until(() => {
             try { return fs.readFileSync(transcriptOf(target), 'utf8').includes(JSON.stringify(words).slice(1, -1)); } catch (_) { return false; }
           }, 30000, 500) : false;
@@ -1438,10 +1437,8 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           /* `asker` runs the script: its tool call goes in its own transcript first. */
           const actAs = (asker, args, input) => {
             const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
-            fs.appendFileSync(transcriptOf({ id: asker }), JSON.stringify({ type: 'assistant', uuid: `${asker.slice(0, 24)}${String(780000 + calls++).padStart(12, '0')}`,
-              timestamp: new Date().toISOString(), sessionId: asker, cwd: profile.folder, isSidechain: false,
-              message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_act_${calls}`, name: 'Bash',
-                input: { command: line, description: 'Act for the user' } }] } }) + '\n');
+            const answered = fakeHome.appendToolCall(transcriptOf({ id: asker }), { sessionId: asker, cwd: profile.folder,
+              uuid: `${asker.slice(0, 24)}${String(780000 + calls++).padStart(12, '0')}`, toolId: `toolu_act_${calls}`, command: line, description: 'Act for the user' });
             return new Promise((resolve) => {
               const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
                 { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: asker }) });
@@ -1451,7 +1448,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
               kid.on('error', (e) => resolve('could not run the script: ' + e.message));
               kid.on('exit', () => resolve(out.trim()));
               kid.stdin.end(input || '');
-            });
+            }).then((said) => { answered(said); return said; });
           };
           const act = (args, input) => actAs(front.id, args, input);
           const title = 'Renamed by its steward';
@@ -2115,8 +2112,10 @@ async function run({ exe, profile, env, playwright, model, threads, background =
     await step('a steward reopening a conversation in the window of its folder', async () => {
       const front = threads[0];
       const base = path.dirname(profile.folder);
-      const folderR = path.join(base, 'ws-r'), folderQ = path.join(base, 'ws-q');
-      for (const d of [folderR, folderQ]) fs.mkdirSync(d, { recursive: true });
+      for (const d of ['ws-r', 'ws-q']) fs.mkdirSync(path.join(base, d), { recursive: true });
+      /* Real paths, as Claude Code names a conversation's folder after the real one: on macOS the temporary folder is
+         under a symbolic link, and on Windows it can carry a short name. */
+      const [folderR, folderQ] = ['ws-r', 'ws-q'].map((d) => fs.realpathSync.native(path.join(base, d)));
       const Z = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f8', title: 'Carry the parser work over to the new folder', days: 0,
         turns: [['Carry the parser work over to the new folder.', 'Moved it; the tests pass in the new folder.'], ['Anything left?', 'Only the docs.']] };
       const W = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f9', title: 'Notes kept in the third folder', days: 0,
@@ -2135,9 +2134,8 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       let calls = 0;
       const act = (args, input) => {
         const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
-        fs.appendFileSync(transcriptOf(front), JSON.stringify({ type: 'assistant', uuid: `${front.id.slice(0, 24)}${String(880000 + calls++).padStart(12, '0')}`,
-          timestamp: new Date().toISOString(), sessionId: front.id, cwd: profile.folder, isSidechain: false,
-          message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_reopen_${calls}`, name: 'Bash', input: { command: line, description: 'Act for the user' } }] } }) + '\n');
+        const answered = fakeHome.appendToolCall(transcriptOf(front), { sessionId: front.id, cwd: profile.folder,
+          uuid: `${front.id.slice(0, 24)}${String(880000 + calls++).padStart(12, '0')}`, toolId: `toolu_reopen_${calls}`, command: line, description: 'Act for the user' });
         return new Promise((resolve) => {
           const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
             { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: front.id }) });
@@ -2147,7 +2145,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           kid.on('error', (e) => resolve('could not run the script: ' + e.message));
           kid.on('exit', () => resolve(said.trim()));
           kid.stdin.end(input || '');
-        });
+        }).then((said) => { answered(said); return said; });
       };
       /* What this window has before: its Claude Code tabs, the transcripts under its folder, and the conversations its
          processes run. */

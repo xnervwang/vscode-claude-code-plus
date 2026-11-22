@@ -211,4 +211,22 @@ function writeThreads(home, folder, threads, now = Date.now()) {
   return threads;
 }
 
-module.exports = { trustKeys, write, writeThreads, folderName, THREADS, OTHER_THREADS, BACKGROUND, MODEL, KEY };
+/* Appends to the transcript in `file` an assistant record whose only content is a Bash tool call running `command`.
+   It hangs off the transcript's last message, as Claude Code's own records do: a record with no parent is a new
+   leaf, and Claude Code reopening the conversation would show only that record. The function returned appends the
+   call's result, given the command's output. */
+function appendToolCall(file, { sessionId, cwd, uuid, toolId, command, description }) {
+  let parentUuid = null;
+  for (const line of fs.readFileSync(file, 'utf8').split('\n').reverse()) {
+    let r;
+    try { r = JSON.parse(line); } catch (_) { continue; }
+    if ((r.type === 'user' || r.type === 'assistant') && r.uuid) { parentUuid = r.uuid; break; }
+  }
+  const base = { sessionId, cwd, isSidechain: false };
+  fs.appendFileSync(file, JSON.stringify({ parentUuid, ...base, type: 'assistant', uuid, timestamp: new Date().toISOString(),
+    message: { role: 'assistant', content: [{ type: 'tool_use', id: toolId, name: 'Bash', input: { command, description } }] } }) + '\n');
+  return (output) => fs.appendFileSync(file, JSON.stringify({ parentUuid: uuid, ...base, type: 'user', uuid: `${uuid.slice(0, 24)}f${uuid.slice(25)}`,
+    timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: output }] } }) + '\n');
+}
+
+module.exports = { trustKeys, write, writeThreads, appendToolCall, folderName, THREADS, OTHER_THREADS, BACKGROUND, MODEL, KEY };

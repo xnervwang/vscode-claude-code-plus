@@ -324,9 +324,8 @@ const RELAY = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan
 let relayCalls = 0;
 function relay(d, asker, args, input) {
   const line = `python3 ${RELAY} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
-  fs.appendFileSync(transcriptFile(d, asker), JSON.stringify({ type: 'assistant', uuid: `${asker.slice(0, 24)}${String(790000 + relayCalls++).padStart(12, '0')}`,
-    timestamp: new Date().toISOString(), sessionId: asker, cwd: d.profile.folder, isSidechain: false,
-    message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_look_${relayCalls}`, name: 'Bash', input: { command: line, description: 'Act for the user' } }] } }) + '\n');
+  const answered = require('./lib/fake-home').appendToolCall(transcriptFile(d, asker), { sessionId: asker, cwd: d.profile.folder,
+    uuid: `${asker.slice(0, 24)}${String(790000 + relayCalls++).padStart(12, '0')}`, toolId: `toolu_look_${relayCalls}`, command: line, description: 'Act for the user' });
   const data = path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
   return new Promise((resolve) => {
     /* The demo's home, and none of the variables that would point the script at another ~/.claude. */
@@ -338,7 +337,7 @@ function relay(d, asker, args, input) {
     kid.on('error', (e) => resolve('could not run the script: ' + e.message));
     kid.on('exit', () => resolve(out.trim()));
     kid.stdin.end(input || '');
-  });
+  }).then((said) => { answered(said); return said; });
 }
 /* The Steward panel at the bottom, for the conversation in front. */
 async function stewardPanel(d) {
