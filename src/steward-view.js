@@ -590,12 +590,6 @@ function create(vscode, deps) {
     if (relaying || !deps.canShare()) return;
     relaying = true;
     try {
-      /* Windows paths differ in case between sources (VS Code gives the drive letter in lower case). */
-      const real = (f) => {
-        let p;
-        try { p = fs.realpathSync.native(f); } catch (_) { p = path.resolve(f); }
-        return process.platform === 'win32' ? p.toLowerCase() : p;
-      };
       /* A conversation the list has not caught up with, such as one just opened, is named as the one in front is. */
       const titleOf = (id) => {
         const t = (last.get(id) && last.get(id).title)
@@ -603,7 +597,6 @@ function create(vscode, deps) {
         return t && t !== id ? t : '';
       };
       for (const r of await relay.take(deps.dir, { shownHere: deps.shownHere, stewards: () => stewards.read(deps.dir),
-        hasFolder: (folder) => deps.windowFolders().map(real).includes(real(folder)),
         transcriptOf: deps.transcriptOf, deliver: deps.deliver, rename: deps.rename, close: deps.close, open: deps.open,
         resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsFresh || deps.freshAgents,
         records: deps.records, post: deps.post, titleOf,

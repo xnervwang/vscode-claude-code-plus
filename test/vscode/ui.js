@@ -1652,21 +1652,21 @@ async function run({ exe, profile, env, playwright, model, threads, background =
                   await new Promise((r) => setTimeout(r, 2000));
                 }
               }
-              /* Opened only in a window that has the folder the conversation started in open. Claude Code's panel shows
-                 nothing for one started in a folder below the window's (it opens an empty tab), so that one is refused
-                 too, as is one started in a folder no window has open. */
+              /* Opened only in the window whose first folder is the one Claude Code keeps the conversation under: one kept
+                 under a folder no window has open is refused, and so is one kept under a folder below this window's, which
+                 Claude Code's panel would show as an empty tab. */
               const [inside, outside] = [FOLDER_THREADS[0], FOLDER_THREADS[1]];
               const insideFolder = path.join(profile.folder, 'sub'), outsideFolder = path.join(path.dirname(profile.folder), 'ws-c');
               for (const d of [insideFolder, outsideFolder]) fs.mkdirSync(d, { recursive: true });
               fakeHome.writeThreads(profile.home, insideFolder, [inside]);
               fakeHome.writeThreads(profile.home, outsideFolder, [outside]);
               const away2 = await act(['--resume', outside.id]);
-              check(/^Not done: no open VS Code window has its folder, .*, open; Claude Code opens a conversation only in a window with the folder it was started in/.test(away2) && !(await shownHere() || []).includes(outside.id),
+              check(/^Not done: no open VS Code window has its folder, .*, as its first folder/.test(away2) && !(await shownHere() || []).includes(outside.id),
                 'a conversation started in a folder no window has open is not opened, in this window or any other', { away2 });
               const tabsBefore = (await claudeTabs()).length;
               /* The script refuses before it writes any request, so nothing can open afterwards. */
               const below = await act(['--resume', inside.id]);
-              check(/^Not done: no open VS Code window has its folder, .*, open;/.test(below) && !(await shownHere() || []).includes(inside.id)
+              check(/^Not done: no open VS Code window has its folder, .*, as its first folder/.test(below) && !(await shownHere() || []).includes(inside.id)
                 && (await claudeTabs()).length === tabsBefore,
                 'and so is one started in a folder below this window\'s folder, which Claude Code\'s panel would show as an empty tab: no tab opens', { below, tabs: await claudeTabs() });
               /* Claude Code itself, asked to open it here, shows an empty tab: the reason for the refusal. */
@@ -2088,6 +2088,113 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await until(async () => !(await w.pageOf(path.basename(folderB), 1000)), 20000, 500);
         w.pin(undefined);
       }
+    });
+
+    /* A steward reopens a stored conversation in the window whose first folder Claude Code keeps it under, and nowhere
+       else. A second window opens a workspace whose folders are R, then this window's own folder A, then Q. Conversation
+       Z was started in A and later resumed in R, so its transcript is kept under R's folder of projects while its first
+       record still names A: it opens in the second window, and this one starts no new conversation. One kept under Q,
+       which no window has first, is refused at once and opens nowhere. */
+    await step('a steward reopening a conversation in the window of its folder', async () => {
+      const front = threads[0];
+      const base = path.dirname(profile.folder);
+      const folderR = path.join(base, 'ws-r'), folderQ = path.join(base, 'ws-q');
+      for (const d of [folderR, folderQ]) fs.mkdirSync(d, { recursive: true });
+      const Z = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f8', title: 'Carry the parser work over to the new folder', days: 0,
+        turns: [['Carry the parser work over to the new folder.', 'Moved it; the tests pass in the new folder.'], ['Anything left?', 'Only the docs.']] };
+      const W = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f9', title: 'Notes kept in the third folder', days: 0,
+        turns: [['Write down the notes for the third folder.', 'Written to notes.md.']] };
+      fakeHome.writeThreads(profile.home, folderR, [Z]);
+      fakeHome.writeThreads(profile.home, folderQ, [W]);
+      const zFile = path.join(profile.home, '.claude', 'projects', folderName(folderR), `${Z.id}.jsonl`);
+      const records = fs.readFileSync(zFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+      const firstAt = records.findIndex((r) => r.cwd);
+      records[firstAt].cwd = profile.folder;
+      fs.writeFileSync(zFile, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const workspace = path.join(base, 'resume-b.code-workspace');
+      fs.writeFileSync(workspace, JSON.stringify({ folders: [{ path: folderR }, { path: profile.folder }, { path: folderQ }] }, null, 2));
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
+      let calls = 0;
+      const act = (args, input) => {
+        const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
+        fs.appendFileSync(transcriptOf(front), JSON.stringify({ type: 'assistant', uuid: `${front.id.slice(0, 24)}${String(880000 + calls++).padStart(12, '0')}`,
+          timestamp: new Date().toISOString(), sessionId: front.id, cwd: profile.folder, isSidechain: false,
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_reopen_${calls}`, name: 'Bash', input: { command: line, description: 'Act for the user' } }] } }) + '\n');
+        return new Promise((resolve) => {
+          const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
+            { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: front.id }) });
+          let said = '';
+          kid.stdout.on('data', (d) => { said += d; });
+          kid.stderr.on('data', (d) => { said += d; });
+          kid.on('error', (e) => resolve('could not run the script: ' + e.message));
+          kid.on('exit', () => resolve(said.trim()));
+          kid.stdin.end(input || '');
+        });
+      };
+      /* What this window has before: its Claude Code tabs, the transcripts under its folder, and the conversations its
+         processes run. */
+      const sessionsNow = () => liveRecords().map((r) => r.sessionId);
+      const transcriptsOf = (folder) => { try { return fs.readdirSync(path.join(profile.home, '.claude', 'projects', folderName(folder))).sort(); } catch (_) { return []; } };
+      /* The steward: the conversation in front, ticking one other in the Steward panel. */
+      await exec('claude-vscode.editor.open', front.id);
+      await exec('workbench.view.extension.claudeCodePlusSteward');
+      const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
+      const box = panel && await until(async () => { const b = panel.locator('input[data-id]').first(); return (await b.isVisible().catch(() => false)) && b; }, 40000, 1000);
+      if (box && !await box.isChecked()) await box.click();
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', workspace);
+      const pageB = await w.pageOf('resume-b', 90000);
+      const hostB = pageB ? await w.hostUp(before, folderR).catch(() => null) : null;
+      check(!!box && !!pageB && !!hostB, 'a steward in this window, and a second window on a workspace whose first folder is R and whose second is this window\'s folder', { box: !!box, pageB: !!pageB });
+      if (!pageB || !hostB) {
+        if (pageB) await pageB.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        return;
+      }
+      w.pin(profile.folder);
+      try {
+        await until(() => call(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`, undefined, 60000, folderR), 60000, 1000);
+        const entryB = await until(() => {
+          let names = [];
+          try { names = fs.readdirSync(path.join(dataDir, 'windows')).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return null; }
+          for (const n of names) {
+            try { const e = JSON.parse(fs.readFileSync(path.join(dataDir, 'windows', n), 'utf8')); if (Array.isArray(e.folders) && e.folders.length === 3) return e; } catch (_) { /* being written */ }
+          }
+          return null;
+        }, 60000, 500);
+        const tabsA = (await claudeTabs()).length, filesA = transcriptsOf(profile.folder), runningA = sessionsNow();
+        const words = 'Carry on with the docs, please.';
+        const said = await act(['--resume', Z.id], words);
+        const tabB = await until(async () => (await call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)})
+          .map((t) => t.label);`, undefined, 60000, folderR)).find((l) => titled(l, Z.title)), 60000, 1000);
+        const drawn = await until(async () => {
+          for (const f of pageB.frames()) { try { if (await f.evaluate((t) => !!document.body && document.body.innerText.includes(t), Z.turns[0][1])) return true; } catch (_) { /* gone */ } }
+          return false;
+        }, 60000, 1000);
+        const sent = await until(() => { try { return fs.readFileSync(zFile, 'utf8').includes(words); } catch (_) { return false; } }, 60000, 1000);
+        check(!!entryB && said.startsWith(`Opened: the conversation was opened in an editor tab in the VS Code window "${entryB.name}"`) && !!tabB && !!drawn && !!sent,
+          'a conversation started in A and resumed in R opens in the window whose first folder is R, which shows it, the answer names that window, and the message reaches it',
+          { said, entryB: entryB && entryB.name, tabB, drawn: !!drawn, sent: !!sent });
+        await shotB();
+        const runningAfter = sessionsNow().filter((id) => !runningA.includes(id) && id !== Z.id);
+        check((await claudeTabs()).length === tabsA && JSON.stringify(transcriptsOf(profile.folder)) === JSON.stringify(filesA) && !runningAfter.length,
+          'and this window, whose first folder is the one the conversation\'s first record names, gets no tab, no new conversation and no new transcript',
+          { tabs: [tabsA, (await claudeTabs()).length], newTranscripts: transcriptsOf(profile.folder).filter((n) => !filesA.includes(n)), runningAfter });
+        const tabsB = (await call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;`, undefined, 60000, folderR));
+        const refused = await act(['--resume', W.id], 'Pick it up again, please.');
+        const tabsB2 = (await call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;`, undefined, 60000, folderR));
+        check(refused.startsWith(`Not done: no open VS Code window has its folder, ${folderQ}, as its first folder`)
+          && (await claudeTabs()).length === tabsA && tabsB2 === tabsB && !fs.readdirSync(path.join(dataDir, 'relay')).some((n) => /^[0-9a-f-]{36}\.json$/.test(n)),
+          'one kept under a folder that a window has open but not first is refused at once, and nothing opens anywhere', { refused, tabsB: [tabsB, tabsB2] });
+      } finally {
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderR).catch(() => {});
+        await until(async () => !(await w.pageOf('resume-b', 1000)), 20000, 500);
+        w.pin(undefined);
+        if (panel) await panel.locator('button[data-act="none"]').click().catch(() => {});
+        await exec('workbench.action.closePanel');
+      }
+      /* The second window's screenshot, taken while it is open. */
+      async function shotB() { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-reopen-in-window-b.png`) }).catch(() => {}); }
     });
 
     /* Agent Plus's agentPlus.tokenMode in each mode in turn, without a reload: All, Essential, Interface, Custom with

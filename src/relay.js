@@ -13,9 +13,10 @@
  * `close` closes its editor tab, and `open` starts a new conversation in the window that has the folder `to` open,
  * typing `text` as its first message. A conversation is only closed, never deleted.
  *
- * `resume` opens a stored conversation that no window shows, in an editor tab of a window that has the folder its
- * transcript was started in open, and then sends it `text` if there is any. Not a window with a folder above that one:
- * Claude Code's panel looks for a conversation in the folder it runs in, and opens an empty tab for one started below it. It is refused while a window
+ * `resume` opens a stored conversation that no window shows, in an editor tab of the window whose first folder is the
+ * one Claude Code files the conversation under (Claude Code looks for a window's conversations only there, src/
+ * claude-files.js filedUnder), and then sends it `text` if there is any. `open` likewise goes to a window whose first
+ * folder is `to`: Claude Code starts a new conversation in a window's first folder. It is refused while a window
  * shows the conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation
  * hands something it thinks belongs elsewhere to a steward that manages it (`from` is then the one asking, and `to` is
  * empty). A window showing one of its stewards takes it and posts it, as a notice and never as the user's message, to
@@ -39,9 +40,9 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { SESSION, writeAtomic } = require('./claude-files');
+const { SESSION, writeAtomic, filedUnder } = require('./claude-files');
 const { realPath } = require('./folders');
-const { transcriptCwd } = require('./conversations');
+const os = require('os');
 const sentCheck = require('./sent-check');
 
 const RELAY_DIR = 'relay';
@@ -65,6 +66,8 @@ const SENT_KEEP_MS = 24 * 3600000;
 const SCRIPT = 'steward-relay.py';
 /* How long a resumed conversation's panel may take to show it, and then to have a message input that takes the text. */
 const RESUME_SHOW_MS = 30000;
+/* How long a long conversation may take to load once its tab is open. */
+const RESUME_LOAD_MS = 180000;
 const RESUME_SEND_MS = 20000;
 const RESUME_ASK_MS = 500;
 const RESUME_RETRY_MS = 1000;
@@ -117,9 +120,9 @@ function readSent(dir, now) {
 }
 
 /*
- * Carries out the requests in `planDir` for conversations this window shows, the `open` requests for a folder it has
- * open, the `resume` requests for a conversation started in one of its folders, and the `handoff` requests to a steward
- * it shows. deps: shownHere(id), hasFolder(folder), folders() -> this window's folders, stewards() -> the stewards
+ * Carries out the requests in `planDir` for conversations this window shows, the `open` requests for its first folder,
+ * the `resume` requests for a conversation Claude Code here can open (opensHere), and the `handoff` requests to a
+ * steward it shows. deps: shownHere(id), folders() -> this window's folders, first first, stewards() -> the stewards
  * table (src/stewards.js), transcriptOf(id), deliver(id, text), rename(id, title), close(id, confirmed),
  * open(folder, text) and resume(id, text) -> Promise<{ outcome, reason, sessionId, opened }> (open's sessionId is the
  * new conversation's, when known), manage(steward, id) to tick a conversation for the steward, windows() -> the
@@ -157,23 +160,29 @@ async function take(planDir, deps) {
   return done;
 }
 
-/* Whether the conversation `id` was started in one of `folders` itself, by the folder its transcript records, symbolic
-   links resolved; as src/folders.js compares them, without case on Windows and macOS. */
-const caseOf = process.platform === 'win32' || process.platform === 'darwin' ? (s) => s.toLowerCase() : (s) => s;
-function startedIn(id, folders, find) {
+/*
+ * Whether Claude Code in a window with `folders` open finds the stored conversation `id`: it looks only under the
+ * folder of the window's first folder (or of the home folder in a window with none), by that folder's path or the one
+ * its symbolic links lead to.
+ */
+function opensHere(id, folders, find) {
   const file = find ? find(id) : '';
-  const cwd = file ? transcriptCwd(file) : '';
-  if (!cwd) return false;
-  const key = (p) => caseOf(realPath(p));
-  return (folders || []).filter(Boolean).some((f) => key(f) === key(cwd));
+  if (!file) return false;
+  const first = (folders || [])[0] || os.homedir();
+  const dir = path.basename(path.dirname(file));
+  return filedUnder(dir, first) || filedUnder(dir, realPath(first));
 }
+
+/* Whether this window's first folder is `folder`, through symbolic links on either side. */
+const caseOf = process.platform === 'win32' || process.platform === 'darwin' ? (s) => s.toLowerCase() : (s) => s;
+const firstFolderIs = (folders, folder) => !!(folders || [])[0] && caseOf(realPath(folders[0])) === caseOf(realPath(folder));
 
 /* Whether this window is the one to carry out a request for `action` to `to`. */
 function takesHere(action, to, deps, req) {
-  if (action === 'open') return path.isAbsolute(to) && !!deps.hasFolder && deps.hasFolder(to);
+  if (action === 'open') return path.isAbsolute(to) && !!deps.folders && firstFolderIs(deps.folders(), to);
   if (action === 'handoff') return stewardsOf(deps.stewards() || {}, String(req.from || '').toLowerCase()).some((s) => deps.shownHere(s));
   if (!SESSION.test(to)) return false;
-  if (action === 'resume') return !!deps.folders && startedIn(to, deps.folders(), deps.transcriptOf);
+  if (action === 'resume') return !!deps.folders && opensHere(to, deps.folders(), deps.transcriptOf);
   return deps.shownHere(to);
 }
 
@@ -208,17 +217,23 @@ async function heldElsewhere(id, deps, managed) {
 
 /*
  * Opens a stored conversation in an editor tab here and, with `text`, sends it once a panel here shows it. deps:
- * open(id), shows(id) -> whether a panel here has the conversation and its page takes answers, deliver(id, text) -> a send's result, sleep(ms) and
- * now() for tests. The result has opened: true once a panel showed it, also when the text was then not sent.
+ * open(id), shows(id) -> whether a panel here has the conversation and its page takes answers, tabOpen(id) -> whether a
+ * tab here is for it, still loading or not, deliver(id, text) -> a send's result, sleep(ms) and now() for tests. A tab
+ * must come within RESUME_SHOW_MS; once it has, the conversation may take up to RESUME_LOAD_MS to load. The result has
+ * opened: true once a tab here is for it, also when the text was then not sent.
  */
 async function resume(id, text, deps) {
   const now = deps.now || Date.now;
   const sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   try { await deps.open(id); } catch (e) { return { outcome: 'notReceived', reason: 'Claude Code could not open it: ' + ((e && e.message) || e) }; }
-  const shownBy = now() + RESUME_SHOW_MS;
+  const shownBy = now() + RESUME_SHOW_MS, loadedBy = now() + RESUME_LOAD_MS;
+  let tab = false;
   while (!deps.shows(id)) {
-    if (now() >= shownBy) {
-      return { outcome: 'uncertain', reason: `Claude Code was asked to open it, but no panel here was ready for it within ${RESUME_SHOW_MS / 1000} seconds` };
+    if (!tab && deps.tabOpen && deps.tabOpen(id)) tab = true;
+    if (now() >= (tab ? loadedBy : shownBy)) {
+      return tab
+        ? { outcome: 'uncertain', reason: `its tab here opened, but the conversation had not loaded within ${RESUME_LOAD_MS / 1000} seconds`, opened: true }
+        : { outcome: 'uncertain', reason: `Claude Code was asked to open it, but no tab here showed it within ${RESUME_SHOW_MS / 1000} seconds` };
     }
     await sleep(RESUME_ASK_MS);
   }
@@ -379,5 +394,5 @@ async function handOff(stewards, from, text, table, deps) {
   return { outcome: 'notReceived', reason: `no steward of this conversation could be reached (${missed.join('; ')})` };
 }
 
-module.exports = { take, ranBy, resume, heldBy, startedIn, handoffText, lastUserAt, RELAY_DIR, MAX_AGE_MS, RAN_MS, RAN_WAITS_MS, SENT_FILE, FLAGS,
+module.exports = { take, ranBy, resume, heldBy, opensHere, handoffText, lastUserAt, RELAY_DIR, MAX_AGE_MS, RAN_MS, RAN_WAITS_MS, SENT_FILE, FLAGS, RESUME_LOAD_MS,
   MAX_TITLE, RESUME_SHOW_MS, RESUME_SEND_MS };
