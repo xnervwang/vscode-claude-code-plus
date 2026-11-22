@@ -1254,12 +1254,18 @@ function start(context, log, renamed, handing = false) {
     for (const id of [...ids].sort()) { const dot = dotFor(id); if (dot) out[id] = dot; }
     return out;
   };
-  let marksSent = '';
+  /* Each change of the dots is logged, like the set of work running, so that a wrong dot can be put down either to what
+     was worked out here or to the drawing. */
+  let marksSent = '', marksLogged = '';
   globalThis.__cceActivityMap = () => {
     try {
       if (!enabled() || removed()) return undefined;
       const m = marksNow();
       marksSent = JSON.stringify(m);
+      if (marksSent !== marksLogged) {
+        marksLogged = marksSent;
+        log.appendLine('dots: ' + (Object.entries(m).map(([id, dot]) => `${id.slice(0, 8)} ${dot}`).join(', ') || 'none'));
+      }
       return m;
     } catch (_) { return undefined; }
   };
