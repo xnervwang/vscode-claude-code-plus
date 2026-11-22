@@ -1506,7 +1506,7 @@ const STEPS = [
     name: 'token-mode-essential-status', features: ['token-mode', 'show-status'],
     expect: 'The token mode is now Essential features. A notification at the bottom right, from Claude Code Plus: Show Status, '
       + 'ends with "Token mode: Essential features (agentPlus.tokenMode); in Claude Code: work plan on, time-zone note on, '
-      + 'conversation brief off, notices when a detached command stops off". It is readable and not cut off. In the whole-window '
+      + 'conversation brief off, skill suggestions off, notices when a detached command stops off". It is readable and not cut off. In the whole-window '
       + 'picture, Agent Plus\'s token mode entry at the right of the status bar says Essential.',
     unchanged: 'The editor and side bar are as before.',
     act: async (d) => { await modeTo(d, 'essential'); await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
@@ -1558,7 +1558,8 @@ const STEPS = [
   {
     name: 'token-mode-interface-status', features: ['token-mode', 'show-status'],
     expect: 'A notification from Claude Code Plus: Show Status ends with "Token mode: Interface features (agentPlus.tokenMode); in '
-      + 'Claude Code: work plan off, time-zone note off, conversation brief off, notices when a detached command stops off". '
+      + 'Claude Code: work plan off, time-zone note off, conversation brief off, skill suggestions off, notices when a detached '
+      + 'command stops off". '
       + 'Readable, not cut off. Agent Plus\'s status bar entry (whole-window picture) says Interface.',
     unchanged: 'The editor and side bar are as before.',
     act: async (d) => { await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
@@ -1568,7 +1569,7 @@ const STEPS = [
     name: 'token-mode-custom-status', features: ['token-mode', 'show-status'],
     expect: 'The token mode is now Custom, and claudeCodePlus.conversationBrief was then turned off. Show Status\'s notification '
       + 'ends with "Token mode: Custom (agentPlus.tokenMode); in Claude Code: work plan on, time-zone note on, conversation brief '
-      + 'off, notices when a detached command stops on". No notification says a setting has no effect. Agent Plus\'s status '
+      + 'off, skill suggestions on, notices when a detached command stops on". No notification says a setting has no effect. Agent Plus\'s status '
       + 'bar entry (whole-window picture) says Custom.',
     unchanged: 'The editor and side bar are as before.',
     act: async (d) => {
@@ -1603,7 +1604,7 @@ const STEPS = [
   {
     name: 'token-mode-all-again', features: ['token-mode', 'session-info', 'show-status'],
     expect: 'Back in All features: Show Status\'s notification ends with "Token mode: All features (agentPlus.tokenMode); in Claude '
-      + 'Code: work plan on, time-zone note on, conversation brief on, notices when a detached command stops on". The information '
+      + 'Code: work plan on, time-zone note on, conversation brief on, skill suggestions on, notices when a detached command stops on". The information '
       + 'box in the conversation has a Token mode row saying All features, and Agent Plus\'s status bar entry (whole-window '
       + 'picture) says All. No notification says a setting has no effect.',
     unchanged: 'The settings editor is closed; the side bar is as before.',
