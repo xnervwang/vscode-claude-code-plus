@@ -1218,9 +1218,8 @@ const STEPS = [
   },
   {
     name: 'need-you-count', features: ['need-you-notices'],
-    expect: 'A close-up of the right end of the status bar: Agent Plus\'s entry for the conversations that need you shows a bell '
-      + 'and the number 1, for the one conversation whose reply is not read yet. It is readable and does not overlap the entries '
-      + 'beside it.',
+    expect: 'A close-up of the status bar around Agent Plus\'s entry for the conversations that need you: it shows a bell and the '
+      + 'number 1, for the one conversation whose reply is not read yet. It is readable and does not overlap the entries beside it.',
     unchanged: 'The window is as before.',
     act: async (d) => {
       const b = await d.until(() => needCountBox(d), 15000, 300);
@@ -1242,9 +1241,13 @@ const STEPS = [
       const open = () => d.page.evaluate(() => { const q = document.querySelector('.quick-input-widget'); return !!q && !!q.offsetParent && q.innerText; });
       if (!await d.until(async () => /finished/.test((await open()) || ''), 10000, 300)) throw new Error(`the list did not open with the conversation: ${await open()}`);
       await d.sleep(600);
-      return d.body();
+      /* The list lies over the title bar, which the other pictures leave out. */
+      const b = await d.page.evaluate(() => { const r = document.querySelector('.quick-input-widget').getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; });
+      const pad = 16;
+      return { x: Math.max(0, b.x - pad), y: Math.max(0, b.y - pad), width: b.width + 2 * pad, height: b.height + 2 * pad };
     },
-    undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(500); },
+    /* Agent Plus never takes a notice back; the one live-unread waited for would lie over the footer from here on. */
+    undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(500); await d.exec('notifications.clearAll'); await d.sleep(300); },
   },
   {
     name: 'renamed-unread', features: ['rename-without-marks', 'long-title-envelope', 'unread-envelope'],
@@ -1288,7 +1291,8 @@ const STEPS = [
     name: 'live-background', features: ['dot-background', 'unread-envelope', 'open-sessions'],
     expect: 'A turn that put a command in the background ("sleep 40") ended while the conversation\'s tab was behind notes.txt: '
       + 'the tab\'s logo carries a green ring, hollow in the middle, and its title ends in a white envelope, so both show at '
-      + 'once. Its row under OPEN SESSIONS starts with the same green ring and has the envelope after the title, before the time.',
+      + 'once. Its row under OPEN SESSIONS starts with the same green ring and has the envelope after the title, before the time. '
+      + 'Agent Plus does not count it in the status bar or tell of it while its work still runs.',
     unchanged: 'The tab bar has the same tabs as before; notes.txt is in front.',
     act: async (d) => {
       const frame = await live(d);
@@ -1546,6 +1550,8 @@ const STEPS = [
       + 'xnervwang.claude-code-plus, plans in" followed by a folder. The lines are readable and none is cut off.',
     unchanged: 'The editor and the side bar are as before.',
     act: async (d) => {
+      /* Show Status of the step before would lie over the panel. */
+      await d.exec('notifications.clearAll');
       const lines = await d.call('return await vscode.commands.executeCommand("agentPlus.showStatus");');
       if (!Array.isArray(lines) || !lines.some((l) => /^Source claude-code: Claude Code, from xnervwang\.claude-code-plus, plans in /.test(l))) {
         throw new Error(`Agent Plus's status names no Claude Code source: ${JSON.stringify(lines)}`);
@@ -1852,7 +1858,7 @@ const STEPS = [
       }
       return d.body();
     },
-    undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.sleep(2000); },
+    undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.exec('notifications.clearAll'); await d.sleep(2000); },
   },
   {
     name: 'light-work-plan', features: ['light-theme', 'work-plan-view'],
