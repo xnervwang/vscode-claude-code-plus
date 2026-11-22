@@ -256,15 +256,16 @@ function prepare({ projects, threads }) {
 const STEPS = [
   /* The demo conversation, dark theme. */
   {
-    name: 'conversation', features: ['timestamps', 'reply-figures', 'user-messages', 'navigation', 'self-check', 'tab-dots'],
+    name: 'conversation', features: ['timestamps', 'reply-figures', 'user-messages', 'navigation', 'self-check', 'dot-background'],
     expect: 'A conversation in an editor tab with its tool rows shown (rows headed Bash, Read, Edit, Write and the like, with IN '
       + 'and OUT boxes). Each of your own messages is a box with a colored bar down its left edge and starts with a date and '
       + 'time. Every row of a reply starts with a small grey date and time: a thinking row, a text row, and each tool row, where '
       + 'the time reads start->end (two times joined by an arrow) on a line of its own above the tool\'s name. The first row of '
       + 'each reply also shows, after its time, how long the turn had taken, the model and its effort (for example "22s . '
       + 'opus-5-5 xhigh"). A narrow column of buttons runs down the right edge and covers no letters. No warning banner from '
-      + 'the page. The tab\'s logo carries a green dot: the demo left a command running detached, which counts as work '
-      + 'still running.',
+      + 'the page. The tab\'s logo carries a green ring at its top right, hollow in the middle rather than a filled dot: no '
+      + 'turn runs, and the demo left a command running detached, which counts as background work. The tab\'s title ends '
+      + 'without an envelope.',
     unchanged: null,
     act: async (d) => { await demoAt(d, CSV); return d.editor(); },
   },
@@ -651,14 +652,16 @@ const STEPS = [
 
   /* The session list. */
   {
-    name: 'session-list', features: ['open-sessions', 'session-dates', 'session-pins', 'session-colors', 'new-in-tab-or-sidebar', 'session-selection', 'tab-dots'],
+    name: 'session-list', features: ['open-sessions', 'session-dates', 'session-pins', 'session-colors', 'new-in-tab-or-sidebar', 'session-selection', 'dot-background', 'dot-stopped'],
     expect: 'Claude Code\'s session list in the side bar. From the top: Claude Code\'s ACCOUNT & USAGE section, then (when a '
       + 'tab was closed earlier) RECENTLY CLOSED, then OPEN SESSIONS listing the open conversation, then SESSION MANAGER with '
       + 'New in tab and New in sidebar buttons whose icons are of normal size; each section is set apart by space and a '
       + 'divider line. Below, rows of conversations, each with a pin at its start (one pin filled and purple, the others '
       + 'hollow), a title, and the last-active time followed by dates such as "09/05->09/16"; one title is drawn in blue. '
       + 'The open conversation is listed twice, under OPEN SESSIONS and among the rows below, and both copies are highlighted; '
-      + 'no other row looks selected or outlined. Titles are readable and none overlaps a pin or a date.',
+      + 'no other row looks selected or outlined. Titles are readable and none overlaps a pin or a date. Both rows of the '
+      + 'open conversation start with a small green ring, hollow in the middle; no other row has a dot, and no row has a '
+      + 'blue dot or an envelope.',
     unchanged: 'The editor shows the same conversation as before.',
     act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
   },
@@ -903,7 +906,8 @@ const STEPS = [
   {
     name: 'steward-ticked', features: ['steward-marks', 'steward-panel'],
     expect: 'One conversation has been ticked in the Steward panel, so the conversation in front is now its steward: its tab\'s '
-      + 'title ends in a bell, and the panel shows the tick. Nothing else in the tab bar changed.',
+      + 'title ends in a crown, and the panel shows the tick. Nothing else in the tab bar changed. In the panel, the rows show '
+      + 'no blue dot.',
     unchanged: 'The Steward panel lists the same rows as before.',
     act: async (d) => {
       if (!d.steward) throw new Error('the Steward panel is not open');
@@ -927,7 +931,7 @@ const STEPS = [
     expect: 'Agent Plus\'s work plan view in the side bar: the demo conversation\'s plan as a tree of numbered rows, each with a '
       + 'mark for its state (done, to do, waiting, parked, discussing), indented to show which rows sit under which. Titles '
       + 'are readable; rows do not overlap; there are no empty rows.',
-    unchanged: 'The Steward panel is closed, the extra tabs are gone, and the first tab\'s title has no bell.',
+    unchanged: 'The Steward panel is closed, the extra tabs are gone, and the first tab\'s title has no crown.',
     act: async (d) => { await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.widen(); await d.away(); return d.sidebar(); },
   },
   {
@@ -984,11 +988,11 @@ const STEPS = [
 
   /* Live turns, in the first fake conversation, against the fake model. */
   {
-    name: 'live-running', features: ['tab-dots', 'open-sessions', 'tool-clock'],
+    name: 'live-running', features: ['dot-working', 'open-sessions', 'tool-clock'],
     expect: 'A turn is running in the conversation "Find where the retry delay for the inventory sync is set", in a tab of its '
-      + 'own, with Focus view on: its tab\'s logo carries a green dot, its row under OPEN SESSIONS in the side bar has a green '
-      + 'dot too, and the working line above the message box says no tool has been called yet this turn and how long ago your '
-      + 'message was sent.',
+      + 'own, with Focus view on: its tab\'s logo carries a filled green dot at its top right, its row under OPEN SESSIONS in '
+      + 'the side bar starts with a filled green dot too, and the working line above the message box says no tool has been '
+      + 'called yet this turn and how long ago your message was sent.',
     unchanged: 'The panel at the bottom is closed; the side bar now shows the session list.',
     act: async (d) => {
       const frame = await live(d);
@@ -1006,10 +1010,10 @@ const STEPS = [
     },
   },
   {
-    name: 'live-reply', features: ['reply-figures', 'context-meter', 'tab-dots'],
+    name: 'live-reply', features: ['reply-figures', 'context-meter', 'dot-stopped'],
     expect: 'The reply has landed: "' + PLAIN + '" is the newest reply. Its first row carries its time, how long the turn took, '
-      + '"ctx" with a share between 1% and 100%, "cost $" with an amount, and the model name. The green dot is gone from the '
-      + 'tab\'s logo. The usage meter shows in the footer.',
+      + '"ctx" with a share between 1% and 100%, "cost $" with an amount, and the model name. The tab\'s logo has no dot at '
+      + 'all and its title no envelope: the conversation stopped while its tab was in front. The usage meter shows in the footer.',
     unchanged: 'The earlier messages of this conversation are as before.',
     act: async (d) => {
       const frame = await live(d);
@@ -1036,9 +1040,11 @@ const STEPS = [
     area: async (d) => { const frame = await live(d); await toBottom(frame); await d.sleep(600); return d.editor(); },
   },
   {
-    name: 'live-unread', features: ['tab-dots', 'open-sessions'],
+    name: 'live-unread', features: ['unread-envelope', 'dot-stopped', 'open-sessions'],
     expect: 'A reply landed while the conversation\'s tab was in the background, behind a text file (notes.txt) opened in the '
-      + 'same group: that tab\'s logo carries a red dot, and its row under OPEN SESSIONS in the side bar has a red dot too.',
+      + 'same group: that tab\'s logo has no dot, and its title ends in a white envelope. Its row under OPEN SESSIONS in the '
+      + 'side bar has no dot either and shows the envelope at the row\'s right end, after the time, with the title before it '
+      + 'not running into it. No red or blue dot anywhere.',
     unchanged: 'The tab bar has the same Claude Code tabs as before, plus notes.txt.',
     act: async (d) => {
       const frame = await live(d);
@@ -1059,11 +1065,42 @@ const STEPS = [
     undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.sleep(2000); },
   },
   {
-    name: 'live-permission', features: ['tab-dots', 'timestamps'],
+    name: 'live-background', features: ['dot-background', 'unread-envelope', 'open-sessions'],
+    expect: 'A turn that put a command in the background ("sleep 40") ended while the conversation\'s tab was behind notes.txt: '
+      + 'the tab\'s logo carries a green ring, hollow in the middle, and its title ends in a white envelope, so both show at '
+      + 'once. Its row under OPEN SESSIONS starts with the same green ring and has the envelope at its right end.',
+    unchanged: 'The tab bar has the same tabs as before; notes.txt is in front.',
+    act: async (d) => {
+      const frame = await live(d);
+      await sessionList(d);
+      await d.exec('claude-vscode.editor.open', d.threads[0].id);
+      await d.sleep(600);
+      d.model.hold();
+      const turns = d.model.turns();
+      await send(d, frame, 'Please start the long job in the background.');
+      if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error('the message did not reach the model in 30 s');
+      await notesInFront(d);
+      await d.sleep(800);
+      d.model.release();
+      // The command runs for 40 s; the turn that started it ends a few seconds after the release.
+      await d.sleep(8000);
+      await d.away();
+      return d.body();
+    },
+    undo: async (d) => {
+      d.model.release();
+      await d.exec('claude-vscode.editor.open', d.threads[0].id);
+      // The command's end starts one more turn, which is answered at once; it is let finish before the next step.
+      await d.sleep(40000);
+    },
+  },
+  {
+    name: 'live-permission', features: ['dot-waiting', 'timestamps'],
     expect: 'Claude Code asks for permission to run "npm test": the question and its Yes and No choices are in the panel. The '
-      + 'tab\'s logo carries a blue dot. The tool row of that call has its time on a line of its own above "Bash" and its '
+      + 'tab\'s logo carries a filled red dot at its top right, its row under OPEN SESSIONS starts with a red dot, and no blue '
+      + 'dot is anywhere. The tool row of that call has its time on a line of its own above "Bash" and its '
       + 'description, which stays on one line.',
-    unchanged: 'The red dot is gone now that the tab is in front again; the earlier messages are as before.',
+    unchanged: 'The earlier messages are as before; the tab\'s title has no envelope now that the tab is in front.',
     act: async (d) => { const frame = await live(d); await askPermission(d, frame); await d.away(); return d.body(); },
   },
   {

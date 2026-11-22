@@ -15,10 +15,11 @@
  *   a tab          a conversation resumed in a tab: its title, the times on every message and reply, the bar on your
  *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
- *   the dots       the dot on the tab's logo while a turn sent through fake-model.js runs, once its reply lands with the
- *                  tab in the background, and while Claude Code waits for permission to run a command
+ *   the dots       the dot on the tab's logo while a turn sent through fake-model.js runs, the envelope after the tab's
+ *                  title once its reply lands with the tab in the background, and the red dot while Claude Code waits
+ *                  for permission to run a command
  *   work left running
- *                  the green dot kept after the turn ends while a command it put in the background runs, a helper
+ *                  the green ring kept after the turn ends while a command it put in the background runs, a helper
  *                  (subagent) it started in the background, or, on Linux, a program it left running with setsid, and
  *                  gone once that has ended; the detached program in the agent map, and the notice once it is gone
  *   closed, sidebar, archived, commands
@@ -43,7 +44,8 @@ const tabdot = require('../../src/tabdot');
 
 const { sleep, until } = win;
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-const DOTS = { running: rgb(tabdot.GREEN), unread: rgb(tabdot.RED), waiting: rgb(tabdot.BLUE) };
+const DOTS = { running: rgb(tabdot.GREEN), waiting: rgb(tabdot.RED) };
+const ENVELOPE = ' \u2709\uFE0F';
 const PANEL_VIEW = 'mainThreadWebview-claudeVSCodePanel';
 const CLAUDE_BUTTON = 'Claude Code: Open';
 const RELOAD = /^Claude Code Plus is installed in Claude Code panel and Claude Code host\. Reload the window once to start/;
@@ -611,14 +613,14 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
       if (!t) throw new Error('the conversation\'s tab is gone');
       const idle = await dotsOn(t.label);
-      check(!!idle && idle.running === 0 && idle.unread === 0 && idle.waiting === 0, 'an idle conversation\'s tab has no dot', idle);
+      check(!!idle && idle.running === 0 && idle.waiting === 0 && !t.label.endsWith(ENVELOPE), 'an idle conversation\'s tab has no dot and no envelope', idle);
       model.hold();
       const turns = model.turns();
       await conv.locator('[contenteditable][role="textbox"]').first().click();
       await page.keyboard.type('Run the tests again.');
       await page.keyboard.press('Enter');
       check(!!await until(() => model.turns() > turns, 30000, 300), 'a message sent from the tab reaches the fake model', model.seen.slice(-3));
-      const running = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d.unread === 0 && d.waiting === 0 && d; }, 20000, 500);
+      const running = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d.waiting === 0 && d; }, 20000, 500);
       check(!!running, 'while the turn runs the tab\'s logo carries the green dot', await dotsOn(t.label));
       const listRunning = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
       check(!!listRunning, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
@@ -631,16 +633,20 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       check(!!hidden, 'another editor in the same group puts the tab in the background', await tabs());
       await sleep(800);
       model.release();
-      const unread = await until(async () => { const d = await dotsOn(t.label); return d && d.unread >= 6 && d.running === 0 && d; }, 30000, 500);
-      check(!!unread, 'once the reply lands with the tab in the background, the dot turns red', await dotsOn(t.label));
-      const listUnread = await until(async () => { const d = await listDot(tab0); return d && d.unread >= 4 && d.running === 0 && d; }, 10000, 500);
-      check(!!listUnread, 'and so does the one on its row in OPEN SESSIONS', await listDot(tab0));
+      const unread = await until(async () => {
+        const x = (await claudeTabs()).find((y) => titled(y.label.replace(ENVELOPE, ''), tab0.title)), d = x && await dotsOn(x.label);
+        return x && x.label.endsWith(ENVELOPE) && d && d.running === 0 && d.waiting === 0 && { label: x.label, dots: d };
+      }, 30000, 500);
+      check(!!unread, 'once the reply lands with the tab in the background, the dot goes and the tab\'s title ends in an envelope', await claudeTabs());
+      const listUnread = await until(async () => {
+        const d = await listDot(tab0), env = await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${tab0.id}"] [data-cce-envelope]`).count();
+        return d && d.running === 0 && env === 1 && d;
+      }, 10000, 500);
+      check(!!listUnread, 'and its row in OPEN SESSIONS has an envelope and no dot', await listDot(tab0));
       await shot('tab-dot-unread');
-      const red = await tabLogo(t.label);
-      if (unread && red) base.compare('tab-dot-unread', red.png);
       await page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first().click();
       await page.bringToFront().catch(() => {});
-      const read = await until(async () => { const d = await dotsOn(t.label); return d && d.unread === 0 && d.running === 0 && d; }, 20000, 500);
+      const read = await until(async () => { const d = await dotsOn(t.label); return d && d.running === 0 && !(await claudeTabs()).some((y) => y.label.endsWith(ENVELOPE)) && d; }, 20000, 500);
       check(!!read, 'and bringing the tab to the front clears it', { dots: await dotsOn(t.label), windowFocused: await call('return vscode.window.state.focused;') });
       const after = await stampsIn(conv);
       const latest = after.reply[after.reply.length - 1] || '';
@@ -667,13 +673,13 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       }), 10000, 500);
       check(!!toolRow && !toolRow.inHeader && toolRow.below >= 8 && toolRow.descLines === 1,
         'the tool call\'s stamp has a line of its own above Claude Code\'s header, whose description stays on one line', toolRow);
-      const waiting = await until(async () => { const d = await dotsOn(t.label); return d && d.waiting >= 6 && d.running === 0 && d.unread === 0 && d; }, 20000, 500);
-      check(!!waiting, 'and while it waits the tab\'s logo carries the blue dot', await dotsOn(t.label));
+      const waiting = await until(async () => { const d = await dotsOn(t.label); return d && d.waiting >= 6 && d.running === 0 && d; }, 20000, 500);
+      check(!!waiting, 'and while it waits the tab\'s logo carries the red dot', await dotsOn(t.label));
       const listWaiting = await until(async () => { const d = await listDot(tab0); return d && d.waiting >= 4 && d; }, 10000, 500);
       check(!!listWaiting, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
       await shot('tab-dot-waiting');
-      const blue = await tabLogo(t.label);
-      if (waiting && blue) base.compare('tab-dot-waiting', blue.png);
+      const red = await tabLogo(t.label);
+      if (waiting && red) base.compare('tab-dot-red', red.png);
       const no = conv.locator('button, [role="button"]').filter({ hasText: /^\s*3\s*No\s*$/ }).first();
       await no.click({ timeout: 5000 });
       const answered = await until(() => conv.evaluate(() => !/Allow this bash command\?/.test(document.body.innerText)), 15000, 500);
@@ -712,7 +718,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       check(!!ended, 'the turn that started the command ends while the command runs', seen());
       /* The windows look for work running every ten seconds. */
       const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && status() === 'idle' && d; }, 25000, 500);
-      check(!!green, 'with the turn over and the command still running, the tab keeps its green dot', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+      check(!!green, 'with the turn over and the command still running, the tab\'s logo carries a green ring', Object.assign(seen(), { dots: await dotsOn(t.label) }));
       const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
       check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
       await shot('tab-dot-background-work');
@@ -757,7 +763,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         check(!!replied, 'Claude Code runs the helper in the background, and the conversation sends its reply while the helper runs', turns());
         await sleep(5000);
         const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
-        check(!!green, 'with the reply sent and the helper still running, the tab keeps its green dot', Object.assign(seen(), { dots: await dotsOn(t.label) }));
+        check(!!green, 'with the reply sent and the helper still running, the tab\'s logo carries a green ring', Object.assign(seen(), { dots: await dotsOn(t.label) }));
         const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
         check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
         await shot('tab-dot-background-helper');
@@ -797,7 +803,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       const ended = await until(() => status() === 'idle', 60000, 500);
       check(!!ended, 'the turn that started it ends while it runs', { status: status() });
       const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && status() === 'idle' && d; }, 25000, 500);
-      check(!!green, 'with the turn over and the detached command running, the tab keeps its green dot', { status: status(), dots: await dotsOn(t.label) });
+      check(!!green, 'with the turn over and the detached command running, the tab\'s logo carries a green ring', { status: status(), dots: await dotsOn(t.label) });
       const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
       check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
       const button = conv.locator('button, [role="button"]').filter({ hasText: /\b1 detached\b/ }).first();
@@ -1026,10 +1032,10 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(boxes[0][0]), 'ticking one makes the conversation in front its steward', table);
-        const belled = (label) => typeof label === 'string' && label.endsWith(' \u{1F6CE}\uFE0F') && titled(label.slice(0, -' \u{1F6CE}\uFE0F'.length), front.title);
+        const belled = (label) => typeof label === 'string' && label.endsWith(' \u{1F451}') && titled(label.slice(0, -' \u{1F451}'.length), front.title);
         const marked = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
-        check(!!marked, 'and its tab keeps its title with a bell after it', await claudeTabs());
-        const row = list ? await until(() => list.evaluate(() => (document.body.innerText.match(/\u{1F6CE}/gu) || []).length), 15000, 500) : 0;
+        check(!!marked, 'and its tab keeps its title with a crown after it', await claudeTabs());
+        const row = list ? await until(() => list.evaluate(() => (document.body.innerText.match(/\u{1F451}/gu) || []).length), 15000, 500) : 0;
         check(row >= 1, 'and its row in the session list too', row);
         await shot('steward-ticked');
         /* A message the steward passes on with its script: the window types it into the managed conversation, which
@@ -1119,7 +1125,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           return rows.length && rows.every((b) => b.checked && b.disabled) ? rows.length : 0;
         }), 10000, 300) : 0;
         const allTab = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
-        check(!!every && !!locked && !!allTab, 'the All box in the panel page reaches the extension: rows locked on, the tab keeps its bell',
+        check(!!every && !!locked && !!allTab, 'the All box in the panel page reaches the extension: rows locked on, the tab keeps its crown',
           { every, locked, tabs: await claudeTabs() });
         await frame.locator('input[data-every]').click();
         await until(() => frame.evaluate(() => [...document.querySelectorAll('input[data-id]')].every((b) => !b.disabled)), 10000, 300);
