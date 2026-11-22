@@ -29,6 +29,7 @@ const waiting = require('./waiting');
 const conversations = require('./conversations');
 const { SESSION } = require('./claude-files');
 const { oncePerDelivery } = require('./core-link');
+const titleMarks = require('./title-marks');
 
 /* The protocol major this source implements; package.json repeats it under "agentPlus". */
 const PROTOCOL = 1;
@@ -100,6 +101,7 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   open(sessionId)                 optional: Promise of 'here', 'sent' or 'nowhere'
  *   logo()                          { light, dark } Uris, or null
  *   timeZone()                      the zone a panel reported, or ''
+ *   isSteward(sessionId)            optional: whether the conversation is a steward, which gets the crown
  *   isBackground(id, cwd)           optional, for tests
  */
 function createClaudeSource(deps) {
@@ -129,10 +131,14 @@ function createClaudeSource(deps) {
   };
   const activityOf = (id) => { try { return typeof deps.activity === 'function' ? deps.activity(id) || 'stopped' : 'stopped'; } catch (_) { return 'stopped'; } };
   const lastUserOf = (id) => { try { return typeof deps.lastUserAt === 'function' ? Number(deps.lastUserAt(id)) || 0 : 0; } catch (_) { return 0; } };
+  const stewardOf = (id) => { try { return typeof deps.isSteward === 'function' && deps.isSteward(id) === true; } catch (_) { return false; } };
+  /* The title as every view shows it: without the marks an older build or a rename box left in the stored name, and
+     with the crown first for a steward (src/title-marks.js). `steward` says the same to a view that draws it itself. */
   const listed = (s, on, live, unread) => {
+    const steward = stewardOf(s.sessionId);
     const out = {
       sessionId: s.sessionId,
-      title: conversations.claudeTitle(s, deps.titles(s), () => deps.readPlan(s.sessionId)),
+      title: titleMarks.withMarks(conversations.claudeTitle(s, deps.titles(s), () => deps.readPlan(s.sessionId)), { steward }),
       cwd: s.cwd,
       state: on ? conversations.stateOf(s, live, unread) : 'idle',
       activity: on ? activityOf(s.sessionId) : 'stopped',
@@ -143,6 +149,7 @@ function createClaudeSource(deps) {
     };
     const at = lastUserOf(s.sessionId);
     if (at > 0) out.lastUserAt = at;
+    if (steward) out.steward = true;
     return out;
   };
 
