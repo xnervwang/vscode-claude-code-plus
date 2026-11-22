@@ -1266,23 +1266,23 @@ const STEPS = [
   },
   {
     name: 'session-twice', features: ['session-twice'],
-    expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once: one its tab '
-      + 'started, and an older claude -p run of it. In the session list in the side bar, each of its rows ends with "2 '
+    expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once: the one its '
+      + 'tab started, and a second one started later as the panel starts one. In the session list in the side bar, each of its rows ends with "2 '
       + 'processes" in red after the title. In the Steward panel at the bottom, its row says "2 processes" and has a "Stop '
       + 'the old process" button. Nothing overlaps.',
     unchanged: null,
     act: async (d) => {
       const t = d.threads[2];
-      await closeTab(d, t);
-      await d.until(() => !liveOf(d, t.id).length, 30000, 500);
-      d.model.hold();
-      d.twicePid = await d.call(`const k = require('child_process').spawn(arg.bin, ['-p', '--resume', arg.id, 'Check the build once more.'],
-        { cwd: arg.cwd, env: Object.assign({}, process.env, arg.env), stdio: 'ignore' }); k.unref(); return k.pid;`,
-      { bin: claudeCli(d), id: t.id, cwd: d.profile.folder,
-        env: { ANTHROPIC_BASE_URL: d.model.url, ANTHROPIC_API_KEY: require('./lib/fake-home').KEY, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_AUTOUPDATER: '1' } });
-      if (!await d.until(() => liveOf(d, t.id).some((r) => r.pid === d.twicePid), 30000, 500)) throw new Error('the claude -p run did not start');
+      /* Its tab first: Claude Code starts no process of its own for a conversation another process runs. */
       await d.exec('claude-vscode.editor.open', t.id);
-      if (!await d.until(() => liveOf(d, t.id).length >= 2, 60000, 500)) throw new Error('its tab did not start a process of its own');
+      if (!await d.until(() => liveOf(d, t.id).length === 1, 60000, 500)) throw new Error('its tab runs no process of its own');
+      d.twicePid = await d.call(`const k = require('child_process').spawn(arg.bin, ['--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose',
+        '--resume', arg.id], { cwd: arg.cwd, env: Object.assign({}, process.env, arg.env), stdio: ['pipe', 'ignore', 'ignore'] });
+        globalThis.__cceLookSecond = k; return k.pid;`,
+      { bin: claudeCli(d), id: t.id, cwd: d.profile.folder,
+        env: { ANTHROPIC_BASE_URL: d.model.url, ANTHROPIC_API_KEY: require('./lib/fake-home').KEY, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+          DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' } });
+      if (!await d.until(() => liveOf(d, t.id).some((r) => r.pid === d.twicePid) && liveOf(d, t.id).length === 2, 30000, 500)) throw new Error('the second process did not start');
       const frame = await stewardOf(d, []);
       if (!await d.until(() => frame.evaluate((id) => { const a = document.querySelector(`li.row [data-open="${id}"]`), li = a && a.closest('li.row'); return !!li && !!li.querySelector('[data-stop-old]'); }, t.id), 45000, 1000)) {
         throw new Error('the Steward panel does not mark it as run twice');
@@ -1311,7 +1311,7 @@ const STEPS = [
       return d.body();
     },
     undo: async (d) => {
-      d.model.release();
+      await d.call('if (globalThis.__cceLookSecond) globalThis.__cceLookSecond.kill(); return true;').catch(() => {});
       await d.exec('notifications.clearAll').catch(() => {});
       const frame = await stewardOf(d, []).catch(() => null);
       if (frame) await frame.locator('button[data-act="none"]').click().catch(() => {});

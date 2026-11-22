@@ -1567,6 +1567,10 @@ async function run({ exe, profile, env, playwright, model, threads, background =
             const managed = await until(() => {
               try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(newId); } catch (_) { return false; }
             }, 10000, 300);
+            /* A title of its own: Claude Code counts a closed tab it remembers as shown while another tab has its label, and a
+               new conversation's tab is labelled Claude Code, as is the empty one a step before leaves. */
+            const ownTitle = await act(['--rename', newId], 'A new piece of work');
+            check(/^Renamed\./.test(ownTitle), 'the steward gives the new conversation a title', { ownTitle });
             /* With a turn of the new conversation running, closing it needs --confirmed. */
             const idleNew = await until(() => sessionStatus(newId) === 'idle', 60000, 500);
             let refusedClose = '', closed = '';
@@ -1598,7 +1602,11 @@ async function run({ exe, profile, env, playwright, model, threads, background =
               const shownHere = () => call(`if (typeof globalThis.__cceSessionsShown !== 'function') return null;
                 const away = typeof globalThis.__cceSessionsElsewhere === 'function' ? globalThis.__cceSessionsElsewhere() : [];
                 return globalThis.__cceSessionsShown().filter((id) => !away.includes(id));`);
-              /* Another process runs it: a `claude -p --resume`, held by the fake model. */
+              /* Another process runs it: a `claude -p --resume`, held by the fake model. Started once no window's entry, which
+                 the script reads, lists the conversation as shown. */
+              const listedBy = () => readAll(path.join(dataDir, 'windows')).filter((x) => Array.isArray(x.sessions) && x.sessions.includes(newId)).map((x) => x.name);
+              const unlisted = await until(() => !listedBy().length, 30000, 500);
+              check(!!unlisted, 'once its tab is closed, no window\'s entry lists the conversation', { listedBy: listedBy() });
               const cli = claudeCli();
               let other = null;
               model.hold();
@@ -1671,7 +1679,10 @@ async function run({ exe, profile, env, playwright, model, threads, background =
              panel its row shows one crown, and the managed conversation's row none. */
           const second = threads.find((t) => t.id !== front.id && t.id !== target.id);
           if (second) {
-            await exec('claude-vscode.editor.open', second.id);
+            /* In an editor tab, so that it is the conversation the panel is about: an earlier step can have left it in the
+               sidebar, which opening it by id only brings into view. */
+            await openList();
+            retried(await pick(second, ['Resume in tab']), 'Resume in tab');
             const box2 = frame.locator(`input[data-id="${target.id}"]`).first();
             const ticked2 = await until(async () => (await header()) && (await header()).includes(second.title.slice(0, 20)) && await box2.isVisible().catch(() => false), 30000, 500);
             if (ticked2 && !await box2.isChecked()) await box2.click();
@@ -1680,7 +1691,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
             const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row [data-open]')].map((a) => [a.dataset.open, a.textContent])));
             const shown2 = await until(async () => { const n = await names(); return n[second.id] === `${CROWN} ${second.title}` && n[target.id] === target.title && n; }, 30000, 500);
             check(!!isSteward2 && !!shown2, 'in the first steward\'s panel, a second steward\'s row shows one crown before its title, and the row of a conversation that is no steward shows none',
-              { isSteward2, names: await names() });
+              { ticked2: !!ticked2, isSteward2: !!isSteward2, names: await names() });
             await shot('steward-two-stewards');
             await exec('claude-vscode.editor.open', second.id);
             if (await until(async () => (await header()) && (await header()).includes(second.title.slice(0, 20)), 30000, 500)) await frame.locator('button[data-act="none"]').click();
@@ -1748,7 +1759,8 @@ async function run({ exe, profile, env, playwright, model, threads, background =
     });
 
     /* Two Claude Code processes under VS Code's extension host for one conversation, as after a window went away while
-       its extension host stayed: a `claude -p --resume` started from the extension host, then the conversation's own tab.
+       its extension host stayed: the conversation's own tab, and then its CLI started from the extension host the way the
+       panel starts it (stream-json, entry point claude-vscode), idle. Stop the old process then stops the tab's, the older.
        A process is tied to its extension host through /proc, so on Linux only. */
     await step('a conversation run by two processes', async () => {
       if (process.platform !== 'linux') { note('a conversation\'s processes are tied to their extension host through /proc, so this runs on Linux only'); return; }
@@ -1760,13 +1772,14 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       /* Its tab first: Claude Code starts no process of its own for a conversation another process runs. */
       await exec('claude-vscode.editor.open', t.id);
       const own = await until(() => { const r = of(t.id); return r.length === 1 && r[0]; }, 60000, 500);
-      model.hold();
       let pid = 0;
       try {
-        pid = await call(`const k = require('child_process').spawn(arg.bin, ['-p', '--resume', arg.id, 'Check the build once more.'],
-          { cwd: arg.cwd, env: arg.env, stdio: 'ignore' }); k.unref(); return k.pid;`, { bin: claudeCli(), id: t.id, cwd: profile.folder, env: modelEnv() });
+        pid = await call(`const k = require('child_process').spawn(arg.bin, ['--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose',
+          '--resume', arg.id], { cwd: arg.cwd, env: arg.env, stdio: ['pipe', 'ignore', 'ignore'] });
+          globalThis.__cceTestSecond = k; return k.pid;`, { bin: claudeCli(), id: t.id, cwd: profile.folder,
+          env: Object.assign(modelEnv(), { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' }) });
         const two = await until(() => of(t.id).some((r) => r.pid === pid) && of(t.id).length === 2 && of(t.id), 30000, 500);
-        check(!!own && !!two, 'its tab runs the conversation, and so does a claude -p --resume started after it from the extension host', of(t.id));
+        check(!!own && !!two, 'its tab runs the conversation, and so does its CLI started after it from the extension host as the panel starts it', of(t.id));
         const older = own ? own.pid : 0;
         await exec('claude-vscode.editor.open', front.id);
         await openList();
@@ -1793,7 +1806,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           const cleared = await until(async () => { const r = await rowNow(), m = await mark(); return r && !r.twice && !r.stop && m.every((c) => !/processes/.test(c)); }, 45000, 1000);
           check(!!cleared, 'and the marks go from the panel and the session list', { row: await rowNow(), list: await mark() });
         }
-      } finally { model.release(); }
+      } finally { await call('if (globalThis.__cceTestSecond) globalThis.__cceTestSecond.kill(); return true;').catch(() => {}); }
       await exec('workbench.action.closePanel');
     });
 
