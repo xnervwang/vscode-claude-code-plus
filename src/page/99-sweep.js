@@ -33,6 +33,31 @@
     var held = document.querySelectorAll('[' + ATTR + ']');
     for (var k = 0; k < held.length; k++) marked.add(held[k]);
   };
+  /* One reply worked out again on the next sweep, as resetMarks does for all of them. A settled reply's marks were taken
+     out of `marked`, so they go back in, and any the next sweep does not produce again are removed. */
+  var unsettle = function(msg){
+    if (!msg.hasAttribute(OWNER_ATTR)) return;
+    if (msg.getAttribute(SETTLED_ATTR) === '1') {
+      var held = msg.querySelectorAll('[' + ATTR + ']');
+      for (var k = 0; k < held.length; k++) marked.add(held[k]);
+    }
+    msg.removeAttribute(OWNER_ATTR);
+    msg.removeAttribute(SETTLED_ATTR);
+  };
+  /*
+   * A settled reply is not visited again, so an element the panel draws anew inside one keeps no mark: in a reopened
+   * conversation, the panel draws tool rows again after their replies have settled. So a change of structure inside a
+   * reply unsettles it.
+   */
+  var unsettleRedrawn = function(records){
+    for (var i = 0; i < records.length; i++) {
+      var rec = records[i];
+      if (rec.type !== 'childList' || oursOnly(rec)) continue;
+      var t = rec.target, el = t && (t.nodeType === 1 ? t : t.parentElement);
+      var msg = el && el.closest ? el.closest(ASSIST) : null;
+      if (msg) unsettle(msg);
+    }
+  };
   /* Switches that affect a mark's content. Marks are cached, so a change to one of these, or to the marks switch
      itself, recomputes everything on that sweep; otherwise only the newest message and the last LIVE_TAIL replies would
      update. */
@@ -153,6 +178,10 @@
         }
       }
       fullMsgs++;
+      /* Worked out in full again, as a settled reply is when it is among the newest LIVE_TAIL while most replies are off
+         the page (Focus view), it is not settled any more: when it falls behind them, its marks are taken out of
+         `marked` again rather than removed at the end of the sweep. */
+      if (msgs[j].getAttribute(SETTLED_ATTR) === '1') msgs[j].removeAttribute(SETTLED_ATTR);
       var rows = msgs[j].children, ownerDone = false, own = 'main', uus = [], effHere = '', figured = false, tools = null;
       var quietN = 0, loudN = 0, thinkN = 0;
       blocks += rows.length;
@@ -173,7 +202,7 @@
         }
         if (cx.message && cx.message.uuid) {
           var effRow = effortAt(effState, own, cx.message.uuid);
-          if (!uus.length) effHere = effRow;
+          if (!uus.length) { var listed = effortOf(cx.message.uuid); effHere = listed === undefined ? effRow : listed; }
           uus.push(cx.message.uuid);
         }
         /* Whether this row gets an annotation at all, which used to be read off `v` being non-empty. With the time
@@ -453,6 +482,7 @@
 
   var onMutations = function(records){
     try { if (typeof ctxTipWatch === 'function') ctxTipWatch(records); } catch (e) {}
+    try { unsettleRedrawn(records); } catch (e) {}
     /* Changes inside the document's head are stylesheets coming and going - this script's own reloads among them - and
        none of them can change a message. A panel that mounts something there changes the body as well, which is what
        gets swept. Without this, every reload of a stylesheet was a sweep of its own. The same goes for our own nodes. */

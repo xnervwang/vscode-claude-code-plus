@@ -132,6 +132,9 @@ const SETUP = String.raw`
     subagentTasks: { value: new Map() },
     sessionId: { value: CFG.efforts && !CFG.efforts.sidAfterMs ? CFG.efforts.sid : '' },
   };
+  /* The panel's own list of the conversation's messages, which holds every reply whether or not it has a row on the page.
+     With foldFirst the first replies are in the list only, as Focus view leaves the ones it folds away. */
+  if (CFG.listMessages) session.messages = { value: [] };
   // A context window size and a token count, so the newest reply's figures show which conversation they belong to: 10%
   // here and 50% in the conversation switched to.
   if (CFG.switchSession) session.usageData = { value: { totalTokens: 100000, contextWindow: 1000000 } };
@@ -171,7 +174,9 @@ const SETUP = String.raw`
     var u = document.createElement('div');
     u.className = 'userMessage_k3j2';
     u.innerHTML = '<div class="content_c1"><span>question ' + i + ' about the hooks</span></div>';
-    hang(u, { content: { type: 'text', text: 'question ' + i } }, { uuid: 'u' + (++uuid), timestamp: ts });
+    var said = { uuid: 'u' + (++uuid), timestamp: ts };
+    hang(u, { content: { type: 'text', text: 'question ' + i } }, said);
+    if (CFG.listMessages) session.messages.value.push(Object.assign({ type: 'user' }, said));
     // Claude Code's own time on a prompt sits in the message's container, ahead of the box this script marks.
     if (CFG.panelStamp === 'time') {
       var holder = document.createElement('div');
@@ -185,8 +190,9 @@ const SETUP = String.raw`
   var reply = function(ts, owner){
     var m = document.createElement('div');
     m.setAttribute('data-testid', 'assistant-message');
-    var message = { uuid: replyId(++replies), timestamp: ts, model: 'claude-opus-5-5' };
+    var message = { type: 'assistant', uuid: replyId(++replies), timestamp: ts, model: 'claude-opus-5-5' };
     if (owner) message.parentToolUseId = owner;
+    if (CFG.listMessages) session.messages.value.push(message);
     // Claude Code's own time line, drawn ahead of the blocks and carrying none of them.
     // 'time' is the stamp as drawn once Claude Code has a time to show; otherwise it is the empty line it holds meanwhile.
     var stampLine = function(){
@@ -217,7 +223,19 @@ const SETUP = String.raw`
       m.appendChild(row);
       lastRow = row.firstChild;
     }
-    list.appendChild(m);
+    if (!(CFG.foldFirst && replies <= CFG.foldFirst)) list.appendChild(m);
+  };
+  /* The rows of one reply drawn again as React does: new elements with the same props, in place of the old ones. */
+  var redrawReply = function(m){
+    var kids = Array.prototype.slice.call(m.children);
+    kids.forEach(function(old){
+      var row = document.createElement('div');
+      row.className = old.className;
+      row.innerHTML = '<div class="markdown_m1"><p><span>a</span><code>b</code><span>c</span></p><p><span>d</span></p></div>';
+      row[FIBER] = old[FIBER];
+      m.replaceChild(row, old);
+    });
+    return Array.prototype.slice.call(m.children);
   };
   var compaction = function(){
     var d = document.createElement('details');
@@ -514,7 +532,45 @@ const PHASES = String.raw`
       });
     });
   };
+  /* The oldest reply, settled long since, drawn again: its new rows have to get their marks. */
+  var redrawn = function(){
+    var first = document.querySelector('[data-testid="assistant-message"]');
+    var before = Array.prototype.map.call(first.children, labelOf);
+    var rows = redrawReply(first);
+    later(1500, function(){
+      R.redrawn = { before: before, settled: first.getAttribute('data-cce-settled') || '', after: rows.map(labelOf) };
+      next();
+    });
+  };
+  /* Focus view as Claude Code draws it: most replies taken off the page and the rest left in place, then all put back.
+     The ones that stayed were worked out again while the page held few replies; back among the settled ones, they keep
+     their marks. */
+  var foldedBack = function(){
+    var all = Array.prototype.slice.call(document.querySelectorAll('[data-testid="assistant-message"]'));
+    var away = [];
+    all.forEach(function(m, i){
+      if (i % 3 === 2) return;
+      var spot = document.createComment('folded');
+      m.parentNode.replaceChild(spot, m);
+      away.push([spot, m]);
+    });
+    later(1500, function(){
+      away.forEach(function(p){ p[0].parentNode.replaceChild(p[1], p[0]); });
+      later(1500, function(){
+        var settled = 0, marked = 0;
+        for (var i = 2; i < all.length - 60; i += 3) {
+          settled++;
+          var kids = all[i].children;
+          if (TIME.test(labelOf(kids[kids.length - 1]))) marked++;
+        }
+        R.foldedBack = { settled: settled, marked: marked };
+        next();
+      });
+    });
+  };
   if (CFG.clickFocus) STEPS.push(clickFocus);
+  if (CFG.redraw) STEPS.push(redrawn);
+  if (CFG.foldBack) STEPS.push(foldedBack);
   if (CFG.switchSession) STEPS.push(switched);
   if (CFG.pickView) STEPS.push(pickView);
   if (CFG.flip) STEPS.push(flipped);
@@ -544,8 +600,10 @@ function page(cfg, script) {
 
 /**
  * Run one simulated panel to completion. `cfg`: turns, compactEvery, focus, focusCtx, clickFocus, subagent,
- * subagentTurn, switchSession, offSwitches (off from the start), pickView, flip (switches turned off later), and the
- * phase lengths. Resolves to the page's counts or { error }.
+ * subagentTurn, switchSession, offSwitches (off from the start), pickView, flip (switches turned off later), listMessages
+ * and foldFirst (the session's message list, and how many replies have no row), redraw (the oldest reply's rows drawn
+ * again), foldBack (most replies taken off the page and put back), and the phase lengths. Resolves to the page's counts
+ * or { error }.
  */
 const DEFAULTS = { turns: 100, compactEvery: 20, focus: true, subagent: true, settleCapMs: 6000, idleMs: 3000, grows: 8 };
 
@@ -571,7 +629,7 @@ function run(browser, cfg, script) {
       fs.writeFileSync(path.join(dir, 'claude-code-extras.css'), `:root[data-cce-test-flip]{${offRules(full.flip)}}\n` + wv.liveCss({ enabled: true }));
     }
     const steps = (full.clickFocus ? 1000 : 0) + (full.switchSession ? 2000 : 0) + (full.pickView ? 1000 : 0)
-      + (full.flip ? 8500 : 0);
+      + (full.flip ? 8500 : 0) + (full.redraw ? 2000 : 0) + (full.foldBack ? 3500 : 0);
     const budget = full.settleCapMs + full.idleMs + full.grows * 300 + 3000 + steps;
     /* No --user-data-dir. Headless already starts from a temporary profile of its own, which is what keeps it apart
        from a browser the person is using; naming a directory instead makes it set that up as a lasting profile, and

@@ -58,11 +58,7 @@
     EFFORT_RUNS = got.runs; EFFORT_LASTS = got.lasts;
     // A settled reply is never labelled again, so the ones labelled without an effort are unsettled for one more pass.
     var msgs = document.querySelectorAll(ASSIST);
-    for (var i = 0; i < msgs.length; i++) {
-      if (!effortPending.has(msgs[i])) continue;
-      msgs[i].removeAttribute(OWNER_ATTR);
-      msgs[i].removeAttribute(SETTLED_ATTR);
-    }
+    for (var i = 0; i < msgs.length; i++) if (effortPending.has(msgs[i])) unsettle(msgs[i]);
     effortPending = new WeakSet();
     schedule();
   };
@@ -131,4 +127,25 @@
     var mine = s.done ? '' : s.eff;
     if (EFFORT_LASTS[h]) s.done = true;
     return mine;
+  };
+  /*
+   * The same walk over the conversation's messages in the panel's own list, which holds every reply whether or not it
+   * has a row on the page: with Focus view on, the replies Claude Code folds away have none, and the first reply of a
+   * run is often one of them, so a walk over the rows carried no effort past it. Kept from one sweep to the next and
+   * taken further as the list grows; walked again from the start when the list is another one or the efforts change.
+   */
+  var effortWalk = null;
+  var effortOf = function(uuid){
+    var list = sessionRef && sessionRef.messages && sessionRef.messages.value;
+    if (!Array.isArray(list) || typeof uuid !== 'string') return undefined;
+    var w = effortWalk;
+    if (!w || w.raw !== effortRaw || w.n > list.length || (w.n && list[w.n - 1] !== w.last)) {
+      w = effortWalk = { raw: effortRaw, n: 0, last: null, state: {}, of: {} };
+    }
+    for (; w.n < list.length; w.n++) {
+      var m = list[w.n];
+      if (m && m.type === 'assistant' && typeof m.uuid === 'string') w.of[m.uuid] = effortAt(w.state, agentOf(m) || 'main', m.uuid);
+    }
+    w.last = list.length ? list[list.length - 1] : null;
+    return Object.prototype.hasOwnProperty.call(w.of, uuid) ? w.of[uuid] : undefined;
   };

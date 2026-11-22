@@ -1467,6 +1467,33 @@ console.log('\nreply efforts');
       ok(`efforts that come with a later probe are waited for, and the page rests after them (in at ${late.effortsAt} ms)`);
     } else bad(`with late efforts the replies showed ${JSON.stringify([...new Set(lateShown)])}, ${late.idleSweeps} idle sweeps, `
       + `efforts in at ${late.effortsAt} ms`);
+    /* Focus view draws no row for the replies it folds away, and the first of those is where the first run starts. The
+       panel's own list of messages still holds them, so the replies after them carry that run's effort. */
+    const folded = harness.run(browser, { turns: 30, focus: false, subagent: false, settleCapMs: 15000, listMessages: true, foldFirst: 3,
+      efforts: { sid, css: `#cce-effort{--cce-effort:"${H(1)}=max,${H(40)}=high!${H(80)}"}\n` } });
+    const foldShown = (folded.labels || []).map((l) => plain(l).split('  ').pop().replace(/^\d+s · /, ''));
+    if (folded.error) bad('the page with folded replies did not run: ' + folded.error);
+    else if (foldShown.length === 87 && foldShown.join('|') === want.slice(3).join('|') && folded.idleSweeps === 0) {
+      ok('with the first replies folded away and only in the panel\'s list of messages, the replies after them still show their run\'s effort');
+    } else bad(`with three replies folded the replies showed ${JSON.stringify([...new Set(foldShown)])} over ${foldShown.length} replies, `
+      + `${folded.idleSweeps} idle sweeps`);
+    /* A reply long settled whose rows the panel draws again, as it does for a reopened conversation's tool rows when their
+       results come in, and for every reply when Focus view is switched: the new rows get their marks. */
+    const redrawn = harness.run(browser, { turns: 30, focus: false, subagent: false, redraw: true });
+    const rd = redrawn.redrawn;
+    if (redrawn.error) bad('the page with a redrawn reply did not run: ' + redrawn.error);
+    else if (rd && rd.settled === '1' && rd.before.length === 3 && rd.before.every((l) => /\d\d:\d\d:\d\d/.test(l))
+        && JSON.stringify(rd.after) === JSON.stringify(rd.before)) {
+      ok('a settled reply whose rows are drawn again gets the same marks on its new rows');
+    } else bad(`a settled reply drawn again: ${JSON.stringify(rd)}`);
+    /* Focus view takes most replies off the page and leaves the rest, which are then among the newest and worked out
+       again; once it is off they are back among the settled ones, and keep their marks. */
+    const back = harness.run(browser, { turns: 30, focus: false, subagent: false, foldBack: true });
+    const fb = back.foldedBack;
+    if (back.error) bad('the page with replies folded away and back did not run: ' + back.error);
+    else if (fb && fb.settled > 0 && fb.marked === fb.settled) {
+      ok(`replies left on the page while most were folded away keep their marks once all are back (${fb.marked} of ${fb.settled})`);
+    } else bad(`replies left on the page while most were folded away, once all are back: ${JSON.stringify(fb)}`);
   }
 
   /* The page learns of a change from the request it already makes: no timer and no image of its own. */
