@@ -22,6 +22,11 @@
  *                  the green ring kept after the turn ends while a command it put in the background runs, a helper
  *                  (subagent) it started in the background, or, on Linux, a program it left running with setsid, and
  *                  gone once that has ended; the detached program in the agent map, and the notice once it is gone
+ *   two windows    a second window of the same VS Code on a folder of its own: a conversation open there comes to
+ *                  the front, in that window, from the first window's Steward panel and from a steward's link, and no
+ *                  copy of it opens; a link to one open nowhere says so; once that window has reloaded with the
+ *                  conversation's tab restored behind another and not loaded, deleting it from the first window is
+ *                  refused and names the second
  *   closed, sidebar, archived, commands
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation; Show
@@ -36,7 +41,8 @@ const path = require('path');
 const win = require('./lib/window');
 const { baselines } = require('./lib/baseline');
 const pixels = require('./lib/pixels');
-const { folderName } = require('./lib/fake-home');
+const fakeHome = require('./lib/fake-home');
+const { folderName } = fakeHome;
 const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, LINK_TEXT, IMAGE_ALT, IMAGE_WEB } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
@@ -73,7 +79,11 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
   const w = await win.open({ exe, profile, env, playwright, log: path.join(out, 'vscode-window.log') });
   const { page, call } = w;
   const shot = (name) => page.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-${name}.png`) }).catch(() => {});
+  /* CLAUDE_CODE_PLUS_UI_STEPS, step names separated by commas, runs only those, after the two that patch Claude Code and
+     reload the window: for trying one step without the whole run. */
+  const only = (process.env.CLAUDE_CODE_PLUS_UI_STEPS || '').split(',').map((x) => x.trim()).filter(Boolean);
   const step = async (name, fn) => {
+    if (only.length && !only.includes(name) && name !== 'the patch' && name !== 'the reload') return;
     console.log(`\n── ${name}`);
     try { await fn(); } catch (e) { check(false, `${name}: ran to its end`, String((e && e.stack) || e).split('\n').slice(0, 4).join(' | ')); await shot(`${name.replace(/\W+/g, '-')}-error`); }
   };
@@ -1273,6 +1283,200 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         { without, withIt: !!withIt, tabs: await claudeTabs() });
       await shot('restored-tabs-loaded');
       await setLoad(undefined);
+    });
+
+    await step('two windows', async () => {
+      /* A second window of the same VS Code, on a folder of its own with conversations started in it: X is opened in a
+         tab there, Y in no window. */
+      const folderB = path.join(path.dirname(profile.folder), 'ws-b');
+      fs.mkdirSync(folderB, { recursive: true });
+      fs.writeFileSync(path.join(folderB, 'notes-b.txt'), 'A file for the second window.\n');
+      const [X, Y] = fakeHome.writeThreads(profile.home, folderB, fakeHome.OTHER_THREADS);
+      const transcriptIn = (t) => path.join(profile.home, '.claude', 'projects', folderName(folderB), `${t.id}.jsonl`);
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const entries = () => {
+        const dir = path.join(dataDir, 'windows');
+        let names = [];
+        try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+        return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } }).filter(Boolean);
+      };
+      const entryOf = (folder) => entries().find((e) => Array.isArray(e.folders) && e.folders.includes(folder));
+      const processesOf = (t) => {
+        const dir = path.join(profile.home, '.claude', 'sessions');
+        let names = [];
+        try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch (_) { return []; }
+        return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } })
+          .filter((d) => d && d.sessionId === t.id && (() => { try { process.kill(d.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } })())
+          .map((d) => d.pid);
+      };
+      const tabsIn = (folder) => call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs.map((t) => ({ label: t.label, column: g.viewColumn,
+        active: t.isActive && g.isActive, view: (t.input && t.input.viewType) || '', input: t.input ? Object.keys(t.input) : [] })));`, undefined, 60000, folder);
+      const tabOf = async (folder, t) => (await tabsIn(folder)).find((x) => x.view === PANEL_VIEW && titled(x.label, t.title));
+      /* Whether VS Code counts that window as the focused one. A page's document.hasFocus() does not tell: Playwright
+         makes every page it drives report focus. */
+      const focused = (folder) => call('return vscode.window.state.focused;', undefined, 60000, folder).catch(() => null);
+      /* The title of the window in front. Under xvfb-run there is no window manager, and VS Code then counts a window it
+         has focused once as focused for good, so on Linux the X server is asked which window has the input focus
+         (lib/xfocus.py); elsewhere it is the window VS Code counts as focused. */
+      const frontTitle = async (pages) => {
+        if (process.platform === 'linux') {
+          const r = require('child_process').spawnSync('python3', [path.join(__dirname, 'lib', 'xfocus.py')], { encoding: 'utf8', env: process.env });
+          return (r.stdout || '').trim();
+        }
+        for (const [p, folder] of pages) if ((await focused(folder)) === true) return p.title();
+        return '';
+      };
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderB);
+      const pageB = await w.pageOf(path.basename(folderB), 90000);
+      const hostB = pageB ? await w.hostUp(before, folderB).catch(() => null) : null;
+      check(!!pageB && !!hostB, 'a second window of the same VS Code opens on another folder, with the test helper in it',
+        { pageB: !!pageB, hosts: fs.readdirSync(profile.control).filter((n) => /^host-/.test(n)) });
+      if (!pageB || !hostB) return;
+      w.pin(profile.folder);
+      const shotB = (name) => pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-${name}.png`) }).catch(() => {});
+      const inB = (body, arg) => call(body, arg, 60000, folderB);
+      try {
+        await until(async () => { const st = await call(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`, undefined, 60000, folderB); return st; }, 60000, 1000);
+        await inB('await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar"); return true;');
+        await inB(`await vscode.commands.executeCommand('claude-vscode.editor.open', arg); return true;`, X.id);
+        const xInB = await until(() => tabOf(folderB, X), 30000, 500);
+        const listed = await until(() => { const e = entryOf(folderB); return e && e.sessions.includes(X.id) ? e : null; }, 30000, 500);
+        check(!!xInB && !!listed, 'X is open in a tab of the second window, and that window\'s entry among the windows lists it',
+          { tab: xInB, entry: entryOf(folderB) });
+        const nameB = listed ? listed.name : '';
+        /* Window A has a conversation of its own in front, as a steward would be, and the Steward panel open. */
+        await exec('claude-vscode.editor.open', threads[0].id);
+        const own = await conversation(threads[0], 60000).catch(() => null);
+        /* notes-b.txt in front of X in X's own column, so that X's tab is behind another. */
+        const coverX = async () => {
+          const t = await tabOf(folderB, X);
+          await inB(`await vscode.window.showTextDocument(vscode.Uri.file(arg[0]), { preview: false, viewColumn: arg[1] }); return true;`,
+            [path.join(folderB, 'notes-b.txt'), t ? t.column : 1]);
+        };
+        /* Window A is brought to the front the way this extension brings any window there: VS Code's CLI opening the
+           folder the window has open, with this VS Code's user data folder. Playwright's bringToFront does not make
+           VS Code count a window as focused. */
+        const [cliPath] = require('@vscode/test-electron').resolveCliArgsFromVSCodeExecutablePath(exe, { reuseMachineInstall: true });
+        const frontWith = (folder) => require('child_process').spawnSync(process.platform === 'win32' ? `"${cliPath}"` : cliPath,
+          ['--user-data-dir', profile.user, folder].map((a) => (process.platform === 'win32' ? `"${a}"` : a)),
+          { env: process.env, encoding: 'utf8', shell: process.platform === 'win32', timeout: 30000 });
+        const workbenches = () => w.browser.contexts().flatMap((c) => c.pages()).filter((x) => /workbench\.html/.test(x.url())).length;
+        const both = [[page, profile.folder], [pageB, folderB]];
+        /* The X window's own title can lag behind the page's, so the window is known by its folder's name in it. */
+        const inFront = async (p) => {
+          const [mine] = both.filter(([x]) => x === p), name = path.basename(mine[1]);
+          const t = await frontTitle(p === page ? both : [both[1], both[0]]);
+          return !!t && (t === await p.title() || t.includes(` - ${name} - `) || t.startsWith(`${name} - `));
+        };
+        const backToA = async () => {
+          await coverX();
+          await exec('claude-vscode.editor.open', threads[0].id);
+          frontWith(profile.folder);
+          return until(async () => (await inFront(page)) && !((await tabOf(folderB, X)) || {}).active, 15000, 300);
+        };
+        note(`window B's extension host has ${JSON.stringify(Object.keys(await inB('return process.env;')).filter((k) => /^VSCODE_/.test(k)))}`);
+        /* What a jump to X looks like: window B in front with X's tab active, and A with no tab of X and no second process. */
+        const jumped = async (what) => {
+          const ok = await until(async () => {
+            const t = await tabOf(folderB, X);
+            return t && t.active && (await inFront(pageB));
+          }, 20000, 300);
+          const seen = { tabInB: await tabOf(folderB, X), front: await frontTitle(both), titleB: await pageB.title(),
+            tabInA: await tabOf(profile.folder, X), processes: processesOf(X), windows: workbenches() };
+          check(!!ok && !seen.tabInA && seen.processes.length <= 1 && seen.windows === 2,
+            `${what}: window B comes to the front with X's tab active, window A opens no copy of X, and no other window opens`, seen);
+          return seen;
+        };
+        const readyA = await backToA();
+        check(!!readyA, 'window A is in front before the jump', { front: await frontTitle(both), titleA: await page.title() });
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        const steward = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
+        const rowLink = steward ? await until(() => steward.evaluate((id) => !!document.querySelector(`[data-open="${id}"]`), X.id), 45000, 1000) : false;
+        check(!!rowLink, 'the Steward panel in window A lists X, open in window B', steward ? await steward.evaluate(() => document.body.innerText.slice(0, 400)) : 'no Steward panel');
+        if (rowLink) {
+          await steward.locator(`[data-open="${X.id}"]`).first().click();
+          await jumped('clicking X\'s row in the Steward panel');
+          await shotB('two-windows-row-jump');
+        }
+        /* The link a steward gives, clicked in a Claude Code panel's page: the page hands it to the extension itself
+           (src/page/93-steward-links.js), as Claude Code drops such links from replies. */
+        const clickLink = (frame, id) => frame.evaluate((href) => {
+          const a = document.createElement('a');
+          a.href = href; a.textContent = 'x';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          return true;
+        }, `vscode://xnervwang.claude-code-plus/open?session=${id}`);
+        if (own) {
+          check(!!await backToA(), 'window A is in front again before the link is clicked', { front: await frontTitle(both), titleA: await page.title() });
+          await exec('notifications.clearAll');
+          await clickLink(own, X.id);
+          await jumped('a steward\'s link to X clicked in window A');
+          await shotB('two-windows-link-jump');
+          /* Y is open in no window. */
+          frontWith(profile.folder);
+          await exec('notifications.clearAll');
+          await clickLink(own, Y.id);
+          const said = await until(async () => (await toasts()).find((x) => /not open in any VS Code window/.test(x)) || '', 10000, 300);
+          check(said === 'That conversation is not open in any VS Code window on this machine.' && !(await tabOf(profile.folder, Y)) && !(await tabOf(folderB, Y)),
+            'a link to a conversation open in no window says so, and opens it nowhere', { said, toasts: await toasts() });
+          await shot('two-windows-open-nowhere');
+        } else note('window A\'s own conversation did not load, so the link was not clicked');
+
+        /* B reloaded with X's tab restored behind another: what each window knows, then a delete from window A. */
+        const setLoad = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('loadRestoredTabs', arg, vscode.ConfigurationTarget.Global); return true;`, v);
+        const reloadB = async () => {
+          const at = Date.now();
+          await inB('setTimeout(() => vscode.commands.executeCommand("workbench.action.reloadWindow"), 200); return true;');
+          await sleep(1500);
+          await w.hostUp(at, folderB);
+          await until(async () => call(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`, undefined, 60000, folderB), 60000, 1000);
+          return at;
+        };
+        /* Whether a page of window B shows X's conversation, that is, whether X's tab has loaded. */
+        const drawnInB = async () => {
+          for (const f of pageB.frames()) {
+            try { if (await f.evaluate((t) => !!document.body && document.body.innerText.includes(t), X.turns[0][1])) return true; } catch (_) { /* gone */ }
+          }
+          return false;
+        };
+        const known = async (at) => {
+          await sleep(12000);
+          const e = await until(() => { const x = entryOf(folderB); return x && x.at > at ? x : null; }, 30000, 500);
+          return { tab: await tabOf(folderB, X), loaded: await drawnInB(), processes: processesOf(X), entryLists: !!(e && e.sessions.includes(X.id)),
+            shownThere: await inB('return typeof globalThis.__cceSessionsShown === "function" ? globalThis.__cceSessionsShown() : null;') };
+        };
+        await coverX();
+        const offAt = await reloadB();
+        const off = await known(offAt);
+        check(!!off.tab && !off.tab.active && !off.loaded && off.processes.length === 0 && off.entryLists,
+          'after a reload of window B, X\'s restored tab behind another has not loaded and has no process, and B\'s entry still lists it', off);
+        await shotB('two-windows-restored-unloaded');
+        if (own) {
+          frontWith(profile.folder);
+          await exec('notifications.clearAll');
+          await own.evaluate((s) => { acquireVsCodeApi().postMessage({ type: 'cce_delete_sessions', sessions: [s] }); return true; }, { id: X.id, title: X.title });
+          const refused = await until(async () => (await toasts()).find((x) => /^Not deleted:/.test(x)) || '', 15000, 300);
+          const asked = await dialog();
+          check(refused === `Not deleted: "${X.title}" is open in the VS Code window "${nameB}".` && !asked && fs.existsSync(transcriptIn(X)),
+            'deleting X from window A, while only window B has it as a tab that has not loaded, deletes nothing and names window B',
+            { refused, asked, toasts: await toasts(), transcript: fs.existsSync(transcriptIn(X)) });
+          await shot('two-windows-delete-refused');
+          if (asked) await answerDialog('Cancel');
+        }
+        await setLoad(true);
+        const onAt = await reloadB();
+        const on = await known(onAt);
+        check(!!on.tab && on.entryLists, 'with claudeCodePlus.loadRestoredTabs on, B\'s entry lists X after the reload as well', on);
+        note(`what the windows knew of X's restored tab: loadRestoredTabs off ${JSON.stringify(off)}; on ${JSON.stringify(on)}`);
+        await setLoad(undefined);
+      } finally {
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderB).catch(() => {});
+        await until(async () => !(await w.pageOf(path.basename(folderB), 1000)), 20000, 500);
+        w.pin(undefined);
+      }
     });
 
     await step('commands', async () => {

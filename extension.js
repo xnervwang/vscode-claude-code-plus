@@ -954,10 +954,20 @@ function start(context, log, renamed, handing = false) {
     const target = ws && ws.scheme !== 'untitled' ? ws : (!ws && folder ? folder.uri : null);
     if (!target) return;
     const name = process.platform === 'win32' ? 'code.cmd' : 'code';
-    const cli = [path.join(vscode.env.appRoot, 'bin', 'remote-cli', name), path.join(vscode.env.appRoot, 'bin', name)]
+    /* A remote server's CLI; then the desktop's, inside the app on macOS and beside resources/app on Linux and Windows. */
+    const remote = path.join(vscode.env.appRoot, 'bin', 'remote-cli', name);
+    const cli = [remote, path.join(vscode.env.appRoot, 'bin', name), path.join(vscode.env.appRoot, '..', '..', 'bin', name)]
       .find((p) => { try { return fs.statSync(p).isFile(); } catch (_) { return false; } });
     if (!cli) { log.appendLine('steward panel: no command line found to bring this window to the front'); return; }
-    cp.execFile(cli, [target.fsPath], { timeout: 15000, shell: process.platform === 'win32', windowsHide: true },
+    /* The desktop CLI finds the running VS Code by its user data folder, which is not the default one when VS Code was
+       started with --user-data-dir; it would then start another VS Code. That folder holds User/globalStorage. */
+    const args = [target.fsPath];
+    if (cli !== remote && context.globalStorageUri && context.globalStorageUri.scheme === 'file') {
+      let dir = context.globalStorageUri.fsPath;
+      while (path.dirname(dir) !== dir && path.basename(dir) !== 'User') dir = path.dirname(dir);
+      if (path.basename(dir) === 'User') args.unshift('--user-data-dir', path.dirname(dir));
+    }
+    cp.execFile(cli, args, { timeout: 15000, shell: process.platform === 'win32', windowsHide: true },
       (e) => { if (e) log.appendLine('steward panel: bringing this window to the front: ' + e.message); });
   };
   /* The same link clicked in a Claude Code panel, which the page hands here directly (src/page/93-steward-links.js). */
@@ -1548,7 +1558,8 @@ function start(context, log, renamed, handing = false) {
   /*
    * Archived conversations deleted from disk, asked for from the Archived sessions menu (src/deletesession.js). Nothing
    * goes before the person accepts a confirmation that names each conversation and what of it is on disk. One that is
-   * open in this window or running anywhere on this machine is left alone and named as such.
+   * open in this window, shown by another window (its entry says so even for a restored tab that has not loaded and has
+   * no process yet), or running anywhere on this machine is left alone and named as such.
    *
    * Called by the patched host inside its own message handling, so the work is deferred, as the pin hook's is: finding
    * what is on disk walks every project folder.
@@ -1584,21 +1595,22 @@ function start(context, log, renamed, handing = false) {
       return;
     }
     const running = deleteSession.runningSessions();
-    const busy = want.filter((w) => shown.includes(w.id) || running.has(w.id));
+    const elsewhere = deleteSession.shownElsewhere(planDir());
+    const busy = want.filter((w) => shown.includes(w.id) || running.has(w.id) || elsewhere.has(w.id));
     const free = want.filter((w) => !busy.includes(w));
+    const whyBusy = (b) => (!shown.includes(b.id) && elsewhere.has(b.id)
+      ? `"${b.title}" is open in the VS Code window ${elsewhere.get(b.id).map((n) => `"${n}"`).join(', ')}` : `"${b.title}" is open or running`);
     const found = deleteSession.findAll(free.map((w) => w.id), {
       planDir: planDir(),
       extra: (id) => installs(webview, true).map((d) => path.join(d, 'webview', webview.EFFORT_PREFIX + id + '.css')),
     });
     const go = free.filter((w) => found.get(w.id).length).map((w) => ({ ...w, found: found.get(w.id) }));
     if (!go.length) {
-      vscode.window.showInformationMessage(busy.length
-        ? `Not deleted: ${busy.map((b) => `"${b.title}"`).join(', ')} ${busy.length === 1 ? 'is' : 'are'} open or running.`
-        : 'Nothing of that conversation is left on disk.');
+      vscode.window.showInformationMessage(busy.length ? `Not deleted: ${busy.map(whyBusy).join('; ')}.` : 'Nothing of that conversation is left on disk.');
       return;
     }
     const lines = go.map((g) => `"${g.title}": ${deleteSession.describe(g.found)}`);
-    if (busy.length) lines.push('', `Left alone, open or running: ${busy.map((b) => `"${b.title}"`).join(', ')}`);
+    if (busy.length) lines.push('', `Left alone: ${busy.map(whyBusy).join('; ')}`);
     lines.push('', 'This cannot be undone.');
     const pick = await vscode.window.showWarningMessage(
       go.length === 1 ? `Delete "${go[0].title}" from disk?` : `Delete ${go.length} conversations from disk?`,
@@ -1608,8 +1620,8 @@ function start(context, log, renamed, handing = false) {
        open ones can no longer be read. */
     let shownNow;
     try { shownNow = typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown() : null; } catch (_) { shownNow = null; }
-    const runningNow = deleteSession.runningSessions();
-    const late = go.filter((g) => !Array.isArray(shownNow) || shownNow.includes(g.id) || runningNow.has(g.id));
+    const runningNow = deleteSession.runningSessions(), elsewhereNow = deleteSession.shownElsewhere(planDir());
+    const late = go.filter((g) => !Array.isArray(shownNow) || shownNow.includes(g.id) || runningNow.has(g.id) || elsewhereNow.has(g.id));
     if (late.length) {
       vscode.window.showWarningMessage(`Not deleted: ${late.map((g) => `"${g.title}"`).join(', ')} ${late.length === 1 ? 'was' : 'were'} opened or started meanwhile.`);
     }

@@ -119,7 +119,7 @@ Verified against Claude Code 2.1.328, 2.1.329 and 2.1.330.
 | Session dates | Adds the dates of the first and last messages after Claude Code's last-active time: `11d` becomes `11d · 09/05→09/16`. |
 | Pinned conversations | Click the pin at the start of a session-list row to keep that conversation from Claude Code's transcript cleanup (`cleanupPeriodDays`) and out of Archived sessions. |
 | Text colors | Right-click a conversation and choose **Text color** to give its title one of the colors of Claude Code's `/color`. The color shows wherever the conversation is listed. |
-| Delete archived conversations | **Delete session…** in an archived conversation's right-click menu permanently deletes it from disk once you confirm. |
+| Delete archived conversations | **Delete session…** in an archived conversation's right-click menu permanently deletes it from disk once you confirm. It leaves alone a conversation that is running, or open in any VS Code window on this machine, including a tab restored after a reload that has not loaded yet, and names that window. |
 | Background sessions left out | The list skips sessions started with `claude --bg` or `claude -p`, and empty transcripts. Turn off `claudeCodePlus.hideBackgroundSessions` to see them. |
 
 ![Open sessions, a pinned conversation, a colored title, session dates and a session ID on hover](images/shots/session-list.png)

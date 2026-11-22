@@ -7803,6 +7803,37 @@ console.log('\ndeleting an archived conversation');
     else bad(`the running check gave ${JSON.stringify([...live])}`);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 
+  /* The conversations other windows show, from the entries each window keeps; a restored tab that has not loaded is
+     among them though no process runs it, so a delete must not count only processes (src/deletesession.js). */
+  {
+    const wroot = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cce-delete-windows-'));
+    try {
+      fs.mkdirSync(path.join(wroot, 'windows'));
+      const now = Date.now(), id = (n) => `abcdabcd-0000-4000-8000-00000000000${n}`;
+      const put = (pid, d) => fs.writeFileSync(path.join(wroot, 'windows', pid + '.json'), JSON.stringify(d));
+      put(101, { pid: 101, at: now - 1000, name: 'ws-b', folders: ['/b'], sessions: [id(1), id(2)] });
+      put(102, { pid: 102, at: now, name: 'ws-c', folders: ['/c'], sessions: [id(1)] });
+      put(103, { pid: 103, at: now - del.WINDOW_STALE_MS - 1, name: 'old', sessions: [id(3)] });
+      put(104, { pid: 104, at: now, name: 'gone', sessions: [id(4)] });
+      put(105, { pid: 105, at: now, name: 'this one', sessions: [id(4), id(2)] });
+      put(107, { pid: 107, at: now, sessions: ['not-an-id', id(5)] });
+      fs.writeFileSync(path.join(wroot, 'windows', '106.open.json'), JSON.stringify({ session: id(4), at: now }));
+      fs.writeFileSync(path.join(wroot, 'windows', '108.json'), '{ half written');
+      const got = Object.fromEntries(del.shownElsewhere(wroot, { self: 105, now, alive: (pid) => pid !== 104 }));
+      const none = del.shownElsewhere(path.join(wroot, 'nowhere'), { self: 105, now });
+      if (JSON.stringify(got) === JSON.stringify({ [id(1)]: ['ws-b', 'ws-c'], [id(2)]: ['ws-b'], [id(5)]: ['untitled'] }) && none.size === 0) {
+        ok('the conversations other windows show come from their entries, with each window\'s name; this window\'s own, an old one, '
+          + 'one whose process is gone and one being written are left out');
+      } else bad(`shown elsewhere: ${JSON.stringify(got)}`);
+    } finally { fs.rmSync(wroot, { recursive: true, force: true }); }
+    const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    if (/const elsewhere = deleteSession\.shownElsewhere\(planDir\(\)\);\s*const busy = want\.filter\(\(w\) => shown\.includes\(w\.id\) \|\| running\.has\(w\.id\) \|\| elsewhere\.has\(w\.id\)\);/.test(ext)
+        && /is open in the VS Code window \$\{elsewhere\.get\(b\.id\)/.test(ext)
+        && /const late = go\.filter\(\(g\) => !Array\.isArray\(shownNow\) \|\| shownNow\.includes\(g\.id\) \|\| runningNow\.has\(g\.id\) \|\| elsewhereNow\.has\(g\.id\)\);/.test(ext)) {
+      ok('a delete leaves alone a conversation another window shows, before the question and again after it, and names that window');
+    } else bad('extension.js does not refuse a conversation another window shows');
+  }
+
   /* A session folder that is a symlink is deleted as a link; following it would add the target, which could be
      anywhere, to the confirmation and the deletion. */
   {
@@ -9459,10 +9490,13 @@ console.log('\nthe Steward panel');
       const held = [relay.heldBy([{ sessionId: S(7), pid: 4242, kind: 'interactive' }], S(7)),
         relay.heldBy([{ sessionId: S(3).toUpperCase(), kind: 'background', id: 'abcd1234', state: 'blocked' }], S(3)),
         relay.heldBy([{ sessionId: S(4), kind: 'background', id: 'done0001', state: 'done' }, { sessionId: S(5), pid: 7 }], S(4)),
-        relay.heldBy([{ sessionId: S(4), pid: 99, kind: 'background', id: 'job00001', state: 'working' }], S(4))];
+        relay.heldBy([{ sessionId: S(4), pid: 99, kind: 'background', id: 'job00001', state: 'working' }], S(4)),
+        relay.heldBy([{ sessionId: S(4), kind: 'background', id: 'stop0001', state: 'stopped' }, { sessionId: S(4), kind: 'background', id: 'fail0001', state: 'failed' }], S(4)),
+        relay.heldBy([{ sessionId: S(4), kind: 'background', id: 'work0001', state: 'working' }], S(4))];
       if (held[0] === 'process 4242 runs it' && held[1] === 'the claude --bg job abcd1234 holds it (blocked)' && held[2] === ''
-          && held[3] === 'process 99 runs it (the claude --bg job job00001)') {
-        ok('a conversation counts as run elsewhere while a process holds it, or a claude --bg job that is not done, also with no process of its own');
+          && held[3] === 'process 99 runs it (the claude --bg job job00001)' && held[4] === '' && held[5] === 'the claude --bg job work0001 holds it (working)') {
+        ok('a conversation counts as run elsewhere while a process holds it, or a claude --bg job that is working or blocked with no process of its own; '
+          + 'one done, stopped or failed holds nothing');
       } else bad(`held by: ${JSON.stringify(held)}`);
 
       /* A window opens the conversation, waits for its panel, and only then sends; text not received is tried again. */
@@ -9712,6 +9746,13 @@ console.log('\nthe Steward panel');
         ok('the window opens a stored conversation with Claude Code\'s own command, sends only once that tab\'s page says it listens, '
           + 'keeps that word out of the answers it waits for, and asks claude agents afresh');
       } else bad('extension.js does not wire the resume request as expected');
+      /* Bringing a window to the front runs its own `code` CLI: the remote server's, or the desktop's, which sits inside
+         the app on macOS and beside resources/app on Linux and Windows, and is told this VS Code's user data folder. */
+      if (/const cli = \[remote, path\.join\(vscode\.env\.appRoot, 'bin', name\), path\.join\(vscode\.env\.appRoot, '\.\.', '\.\.', 'bin', name\)\]/.test(ext)
+          && /if \(path\.basename\(dir\) === 'User'\) args\.unshift\('--user-data-dir', path\.dirname\(dir\)\);/.test(ext)
+          && /cp\.execFile\(cli, args,/.test(ext)) {
+        ok('a window is brought to the front with its own code CLI, found on a remote server and on every desktop, and given the user data folder on a desktop');
+      } else bad('extension.js does not look for the code CLI where every VS Code build has it');
       /* The page's side: it says it listens once it does and knows its conversation, and not before. */
       const readyPage = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
         const vm = require('vm'), fs = require('fs');

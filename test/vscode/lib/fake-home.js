@@ -40,6 +40,14 @@ const THREADS = [
     ] },
 ];
 
+/* Conversations started in a second folder, which a second window opens (the two-window step of ui.js). */
+const OTHER_THREADS = [
+  { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f4', title: 'Plan the schema change for the reports table', days: 0,
+    turns: [['Plan the schema change for the reports table.', 'Add the column first, backfill it in batches, then switch the readers.']] },
+  { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f5', title: 'Rename the columns of the billing export', days: 1,
+    turns: [['Rename the columns of the billing export.', 'Renamed them in export/billing.sql and in its two readers.']] },
+];
+
 /* Claude Code's folder name for a working directory (folderName in src/bgsessions.js). */
 const folderName = (cwd) => String(cwd).replace(/[^a-zA-Z0-9]/g, '-');
 
@@ -169,4 +177,22 @@ function write(home, { folder, now = Date.now() }) {
   return { dir, files, threads: THREADS };
 }
 
-module.exports = { trustKeys, write, folderName, THREADS, MODEL, KEY };
+/* Writes the transcripts of `threads` started in another `folder`, and trusts that folder as write() does its own. */
+function writeThreads(home, folder, threads, now = Date.now()) {
+  const conf = path.join(home, '.claude.json');
+  const d = JSON.parse(fs.readFileSync(conf, 'utf8'));
+  d.projects = d.projects || {};
+  for (const key of trustKeys(folder)) d.projects[key] = Object.assign({}, d.projects[key], { hasTrustDialogAccepted: true });
+  fs.writeFileSync(conf, JSON.stringify(d, null, 2));
+  const dir = path.join(home, '.claude', 'projects', folderName(folder));
+  fs.mkdirSync(dir, { recursive: true });
+  for (const t of threads) {
+    const file = path.join(dir, `${t.id}.jsonl`);
+    fs.writeFileSync(file, transcript(t, folder, now));
+    const at = new Date(now - t.days * 86400000);
+    fs.utimesSync(file, at, at);
+  }
+  return threads;
+}
+
+module.exports = { trustKeys, write, writeThreads, folderName, THREADS, OTHER_THREADS, MODEL, KEY };

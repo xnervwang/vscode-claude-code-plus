@@ -173,13 +173,14 @@ function takesHere(action, to, deps, req) {
 }
 
 /* Why a process other than a window's panel holds conversation `id`, from `claude agents --json`, or ''. A `claude --bg`
-   job counts until it is done, also while no process of it runs. */
+   job with no process of its own counts only while it is working or blocked on an answer: one done, stopped or failed
+   holds nothing. */
 function heldBy(records, id) {
   for (const r of records || []) {
     if (!r || String(r.sessionId || '').toLowerCase() !== id) continue;
     const job = r.kind === 'background' ? `the claude --bg job ${r.id || '(no id)'}` : '';
     if (Number.isInteger(r.pid) && r.pid > 0) return `process ${r.pid} runs it${job ? ` (${job})` : ''}`;
-    if (job && r.state !== 'done') return `${job} holds it (${r.state || 'state unknown'})`;
+    if (job && (r.state === 'working' || r.state === 'blocked')) return `${job} holds it (${r.state})`;
   }
   return '';
 }

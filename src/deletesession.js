@@ -21,9 +21,10 @@
  * A background session started with `claude --bg` is a conversation of its own and is not touched.
  *
  * Paths are built only from IDs that match the session-id format, so nothing outside these locations can be targeted,
- * and a session folder that is a symlink is unlinked, not followed. Running conversations are refused: the caller
- * passes those open in this window, and Claude Code's session registry (sessions/*.json) lists those running anywhere
- * on the machine.
+ * and a session folder that is a symlink is unlinked, not followed. Open and running conversations are refused: the
+ * caller passes those open in this window, Claude Code's session registry (sessions/*.json) lists those running anywhere
+ * on the machine, and the entries every window of this extension keeps (shownElsewhere) list those another window
+ * shows, including a tab restored after a reload whose page has not loaded, which no process runs yet.
  */
 const fs = require('fs');
 const path = require('path');
@@ -109,6 +110,35 @@ function runningSessions(root = claudeDir(), alive = (pid) => { try { process.ki
   return out;
 }
 
+/* The entries each window writes in <plan dir>/windows (src/steward-view.js), and how old one may be before its window
+   counts as gone: it is rewritten once a minute. */
+const WINDOWS_DIR = 'windows';
+const WINDOW_STALE_MS = 120000;
+
+/*
+ * The conversations other windows show, as session id -> the names of those windows, from their entries in
+ * `planDir`/windows. An entry of this process, one older than WINDOW_STALE_MS, or one whose process is gone is left out.
+ */
+function shownElsewhere(planDir, { self = process.pid, now = Date.now(),
+  alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } } } = {}) {
+  const out = new Map();
+  const dir = path.join(planDir, WINDOWS_DIR);
+  for (const name of list(dir)) {
+    if (!/^\d+\.json$/.test(name)) continue;
+    let d;
+    try { d = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); } catch (_) { continue; }
+    const pid = Number(name.slice(0, -5));
+    if (!d || pid === self || !(now - d.at < WINDOW_STALE_MS) || !alive(pid) || !Array.isArray(d.sessions)) continue;
+    const label = typeof d.name === 'string' && d.name ? d.name : 'untitled';
+    for (const id of d.sessions) {
+      if (typeof id !== 'string' || !SESSION.test(id)) continue;
+      if (!out.has(id)) out.set(id, []);
+      if (!out.get(id).includes(label)) out.get(id).push(label);
+    }
+  }
+  return out;
+}
+
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + 's'}`;
 function size(bytes) {
   if (bytes < 1024) return bytes + ' B';
@@ -145,4 +175,4 @@ function remove(found) {
   return failed;
 }
 
-module.exports = { find, findAll, runningSessions, describe, remove, size, SESSION };
+module.exports = { find, findAll, runningSessions, shownElsewhere, describe, remove, size, SESSION, WINDOW_STALE_MS };

@@ -107,7 +107,7 @@ async function fetchStage() {
   const child = cp.spawnSync(prog, rest, { stdio: 'inherit', env: { ...process.env, CLAUDE_CODE_PLUS_UI_OFFLINE_HOW: offline } });
   process.exitCode = child.status === 0 ? 0 : 1;
   /* On a machine of someone's own the root is removed once the results are somewhere else; a CI runner is thrown away. */
-  if (!out.startsWith(root + path.sep) && process.env.CI !== 'true' && !process.env.CLAUDE_CODE_PLUS_UI_KEEP) fs.rmSync(root, { recursive: true, force: true });
+  if (!out.startsWith(root + path.sep) && process.env.CI !== 'true' && !process.env.CLAUDE_CODE_PLUS_UI_KEEP) fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
 }
 
 /* The user settings of every window this run opens. */
@@ -173,6 +173,13 @@ async function testStage() {
   }
   await model.close();
 
+  if (process.env.CLAUDE_CODE_PLUS_UI_STEPS) {
+    note('only the window steps CLAUDE_CODE_PLUS_UI_STEPS names ran, so the suite inside VS Code and test/check.js did not');
+    keepLogs(p.user, path.join(out, 'logs'));
+    console.log(`\nVS Code window: ${passed} passed, ${failed} failed, ${notes} notes; screenshots in ${path.join(out, 'shots')}`);
+    process.exitCode = failed ? 1 : 0;
+    return;
+  }
   console.log('\n── inside VS Code');
   try {
     await te.runTests({ vscodeExecutablePath: exe, extensionDevelopmentPath: path.join(HERE, 'suite'), extensionTestsPath: path.join(HERE, 'suite', 'index.js'),
