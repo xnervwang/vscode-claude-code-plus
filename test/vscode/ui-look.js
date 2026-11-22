@@ -1482,6 +1482,8 @@ const STEPS = [
       await sessionList(d);
       await d.exec('claude-vscode.editor.open', d.threads[0].id);
       await d.sleep(600);
+      // A permission question left open by an earlier step holds back any new message.
+      if (await permissionAsked(frame)) { await permissionButton(frame, 'No').click({ timeout: 5000 }).catch(() => {}); await d.sleep(2000); }
       d.model.hold();
       const turns = d.model.turns();
       await send(d, frame, 'And in the production config?');
