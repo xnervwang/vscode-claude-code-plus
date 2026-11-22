@@ -1395,7 +1395,9 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
         return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } }).filter(Boolean);
       };
-      const entryOf = (folder) => entries().find((e) => Array.isArray(e.folders) && e.folders.includes(folder));
+      /* On Windows VS Code gives a folder with its drive letter in lower case. */
+      const sameFolder = (a, b) => (process.platform === 'win32' ? path.resolve(String(a)).toLowerCase() === path.resolve(String(b)).toLowerCase() : a === b);
+      const entryOf = (folder) => entries().find((e) => Array.isArray(e.folders) && e.folders.some((f) => sameFolder(f, folder)));
       const processesOf = (t) => {
         const dir = path.join(profile.home, '.claude', 'sessions');
         let names = [];
@@ -1742,12 +1744,14 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         r.plugin = plugin;
         check(want(plugin), `${name}: Claude Code ${unload ? 'no longer loads' : 'loads'} the work plan plugin (claude plugin list), ${unload ? 'with' : 'without'} the mark that the mode unloaded it`, plugin);
 
-        /* 5: a turn of the conversation already running, and the first turn of a new one. */
+        /* 5: a turn of the conversation already running, and the first turn of a new one. On Windows the hook has no zone
+           files to describe another zone with (claude-plugin/agent-work-plan/hooks/tell-time-zone.py), so it says nothing. */
+        const carried = { plan: m.on.plan, zone: m.on.zone && process.platform !== 'win32', brief: m.on.brief };
         setZone(m.zone);
         const got = await turn(frame, `Token mode check: ${name}, a running conversation.`, tab0.id);
         r.running = got && got.context;
-        check(!!got && ['plan', 'zone', 'brief'].every((k) => got.context[k] === m.on[k]),
-          `${name}: a turn of a running conversation carries what the mode runs: work plan ${m.on.plan}, time-zone note ${m.on.zone}, brief request ${m.on.brief}`,
+        check(!!got && ['plan', 'zone', 'brief'].every((k) => got.context[k] === carried[k]),
+          `${name}: a turn of a running conversation carries what the mode runs: work plan ${carried.plan}, time-zone note ${carried.zone}, brief request ${carried.brief}`,
           got ? got.context : model.seen.slice(-3));
         let detached = null;
         if (m.detached !== undefined && process.platform === 'linux') detached = await detachShort(frame, tab0.id);
@@ -1759,8 +1763,8 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           setZone(m.zone);
           const first = await turn(fresh, `Token mode check: ${name}, a new conversation.`);
           r.fresh = first && first.context;
-          check(!!first && first.context.skill === !unload && first.context.zone === m.on.zone,
-            `${name}: the first turn of a new conversation ${unload ? 'lists no' : 'lists the'} work plan skill, ${m.on.zone ? 'with' : 'without'} the time-zone note`,
+          check(!!first && first.context.skill === !unload && first.context.zone === carried.zone,
+            `${name}: the first turn of a new conversation ${unload ? 'lists no' : 'lists the'} work plan skill, ${carried.zone ? 'with' : 'without'} the time-zone note`,
             first ? first.context : model.seen.slice(-3));
           if (first && first.context.images) note(`${name}: the first turn of a new conversation carries the note on images in replies`);
           await call(`const t = vscode.window.tabGroups.activeTabGroup.activeTab; if (t && t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)}) await vscode.window.tabGroups.close(t); return true;`);
@@ -1850,6 +1854,9 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
             link: [...e.querySelectorAll('.setting-item-description a')].map((a) => a.innerText.trim()) } : null;
         }, name), 15000, 500);
         if (row) items.push(row);
+        /* On macOS the Settings editor can open as a modal over the panel, which would take the next steps' clicks. */
+        await exec('workbench.action.closeActiveEditor');
+        await page.keyboard.press('Escape').catch(() => {});
       }
       check(items.length === keys.length && items.every((i) => /Used only while .+ is Custom\.$/.test(i.text) && !/#agentPlus/.test(i.text) && i.link.length >= 1),
         'the Settings editor shows the four settings, each description ending that it is used only while the token mode (a link) is Custom', items);
