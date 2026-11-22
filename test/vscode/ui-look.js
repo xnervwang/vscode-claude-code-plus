@@ -290,6 +290,8 @@ function seenWorking(d, id) {
     try { return (JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')).items || []).some((x) => x.sessionId === id && x.activity === 'working'); } catch (_) { return false; }
   });
 }
+/* How long Agent Plus can take to see a conversation's new activity: two of its 30 s refreshes (ui.js says why). */
+const SEEN_MS = 60000;
 /* Agent Plus's count in the status bar of the conversations that need you, as a box, or null while it is hidden. */
 const needCountBox = (d) => d.page.evaluate(() => {
   const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.attention$/.test(x.id));
@@ -1197,7 +1199,7 @@ const STEPS = [
       const turns = d.model.turns();
       await send(d, frame, 'And in the staging config?');
       if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error('the message did not reach the model in 30 s');
-      if (!await d.until(() => seenWorking(d, d.threads[0].id), 20000, 300)) throw new Error('Agent Plus did not see the turn running in 20 s');
+      if (!await d.until(() => seenWorking(d, d.threads[0].id), SEEN_MS, 300)) throw new Error('Agent Plus did not see the turn running in 60 s');
       await notesInFront(d);
       await d.sleep(800);
       d.model.release();
@@ -1825,7 +1827,7 @@ const STEPS = [
       const turns = d.model.turns();
       await send(d, frame, 'And in the production config?');
       if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error('the message did not reach the model in 30 s');
-      if (!await d.until(() => seenWorking(d, d.threads[0].id), 20000, 300)) throw new Error('Agent Plus did not see the turn running in 20 s');
+      if (!await d.until(() => seenWorking(d, d.threads[0].id), SEEN_MS, 300)) throw new Error('Agent Plus did not see the turn running in 60 s');
       await notesInFront(d);
       await d.sleep(800);
       d.model.release();

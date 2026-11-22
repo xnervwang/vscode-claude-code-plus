@@ -231,6 +231,10 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
   /* What the page's own functions make of the agents button now, whatever the button last drew. */
   const footerNow = (frame = conv) => frame.evaluate(() => ({ dot: typeof window.__cceAgentsDot === 'function' ? window.__cceAgentsDot('idle') : null,
     label: typeof window.__cceAgentsLabel === 'function' ? window.__cceAgentsLabel('0 agents', 0) : null })).catch(() => null);
+  /* How long Agent Plus can take to see a conversation's new activity: it lists every source at least once a refresh
+     (REFRESH_MS in its src/views.js, 30 s), and this extension's list waits on `claude agents --json`, read again
+     after 30 s (src/claude-source.js). Two refreshes. */
+  const SEEN_MS = 60000;
   /* How long Agent Plus takes to show a notice once it has seen what the notice is about, from the copy this run
      installed: it gathers changes for BATCH_MS, and holds back one of a reply left unread until it has been so for
      STABLE_MS. */
@@ -870,7 +874,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       const green = await tabLogo(t.label);
       if (running && green) base.compare('tab-dot-running', green.png);
       /* Agent Plus tells of a reply left unread only in a conversation it has seen working. */
-      const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working' && a; }, 20000, 300);
+      const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working' && a; }, SEEN_MS, 300);
       check(!!working, 'Agent Plus has the conversation working, in the folder its windows share', attentionOf(tab0.id));
       /* The tab's group is locked by Claude Code, so the file is opened into that group by name. */
       await openNotes(t.column);
@@ -1341,7 +1345,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           await page.keyboard.type('Once more, please.');
           await page.keyboard.press('Enter');
           await until(() => model.turns() > turns, 30000, 300);
-          await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working'; }, 20000, 300);
+          await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working'; }, SEEN_MS, 300);
           await hide();
         } finally { model.release(); }
         const unread = await until(async () => (await claudeTabs()).find((y) => y.label.endsWith(ENVELOPE) && titled(y.label.replace(ENVELOPE, ''), tab0.title)), 30000, 500);
@@ -2236,9 +2240,14 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         /* Behind a text file in its own column, so no window shows it in front. */
         await inC('await vscode.window.showTextDocument(vscode.Uri.file(arg), { preview: false, viewColumn: vscode.window.tabGroups.activeTabGroup.viewColumn }); return true;',
           path.join(folderC, 'notes-c.txt'));
+        /* The first window's own conversation loaded first, as the two-window step has it before it brings that window
+           forward; a second try if VS Code still counts the other as focused. */
         await exec('claude-vscode.editor.open', tab0.id);
-        win.frontWindow(exe, profile.user, profile.folder, process.env);
-        await until(async () => (await focused()) === true, 15000, 300);
+        await conversation(tab0, 60000).catch(() => null);
+        for (let i = 0; i < 2 && (await focused()) !== true; i++) {
+          win.frontWindow(exe, profile.user, profile.folder, process.env);
+          await until(async () => (await focused()) === true && (await focused(folderC)) !== true, 15000, 300);
+        }
         /* Which window VS Code counts as focused. Under xvfb-run, with no window manager, bringing the first one forward
            need not move that from the second, which took it on opening. */
         const fa = await focused(), fc = await focused(folderC);
