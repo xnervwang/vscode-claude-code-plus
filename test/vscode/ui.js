@@ -27,10 +27,13 @@
  *                  copy of it opens; a link to one open nowhere says so; once that window has reloaded with the
  *                  conversation's tab restored behind another and not loaded, deleting it from the first window is
  *                  refused and names the second
- *   closed, sidebar, archived, commands
+ *   closed, sidebar, archived
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
- *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation; Show
- *                  Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
+ *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
+ *   token mode     each of Agent Plus's token modes in turn: Show Status, the status bar, the information box, the hooks'
+ *                  settings, Claude Code's list of plugins, the notice for a feature's own setting, what the fake model
+ *                  receives, a detached command's end, and the four settings in the Settings editor
+ *   commands       Show Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
  *
  * Every step saves a screenshot to <out>/shots, and crops of the parts this extension draws are compared with the
  * approved copies (lib/baseline.js). Claude Code's own parts are never cropped: where one of ours sits between two of
@@ -43,7 +46,7 @@ const { baselines } = require('./lib/baseline');
 const pixels = require('./lib/pixels');
 const fakeHome = require('./lib/fake-home');
 const { folderName } = fakeHome;
-const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, LINK_TEXT, IMAGE_ALT, IMAGE_WEB } = require('./lib/fake-model');
+const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
 const tabdot = require('../../src/tabdot');
@@ -1477,6 +1480,279 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         await until(async () => !(await w.pageOf(path.basename(folderB), 1000)), 20000, 500);
         w.pin(undefined);
       }
+    });
+
+    /* Agent Plus's agentPlus.tokenMode in each mode in turn, without a reload: All, Essential, Interface, Custom with
+       two features off, and All again. Each mode is checked in Show Status, Agent Plus's status bar entry, the information
+       box, the config.json the hooks read, Claude Code's own list of plugins, the notice for a change of a feature's own
+       setting, what the fake model receives on a turn of a conversation already running and on the first turn of a new
+       one, and, in three of the modes, whether a detached command's end is told. */
+    await step('the token mode', async () => {
+      const tm = require('../../src/token-mode');
+      const pi = require('../../src/plugin-install');
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', pi.DATA_DIR);
+      const setMode = (m) => call(`await vscode.workspace.getConfiguration('agentPlus').update('tokenMode', arg, vscode.ConfigurationTarget.Global); return true;`, m);
+      /* The request goes as JSON, where an undefined in an array arrives as null; undefined is what removes a setting. */
+      const setOwn = (k, v) => call(`await vscode.workspace.getConfiguration().update(arg[0], arg[1] === null ? undefined : arg[1], vscode.ConfigurationTarget.Global); return true;`, [k, v]);
+      const ownNow = (k) => call('return vscode.workspace.getConfiguration().inspect(arg).globalValue;', k);
+      const hooksNow = () => { try { const c = JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8')); return [c.enabled, c.tellTimeZone, c.brief]; } catch (_) { return null; } };
+      const marked = () => fs.existsSync(path.join(dataDir, pi.UNLOADED_MARKER));
+      /* Claude Code's own answer, from its command line in this run's home, and the line in its settings.json. */
+      const pluginState = () => {
+        const dir = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
+        const bin = dir ? path.join(profile.exts, dir, pi.BINARY) : '';
+        const r = bin ? require('child_process').spawnSync(bin, ['plugin', 'list', '--json'], { env, encoding: 'utf8', timeout: 90000 }) : null;
+        let listed = null;
+        try {
+          const all = JSON.parse((r && r.stdout) || 'null');
+          const found = (Array.isArray(all) ? all : (all && (all.plugins || all.installed)) || []).find((p) => JSON.stringify(p).includes(pi.REF));
+          listed = found ? { enabled: found.enabled, raw: JSON.stringify(found).slice(0, 300) } : { enabled: undefined, raw: String((r && r.stdout) || '').slice(0, 300) };
+        } catch (e) { listed = { enabled: undefined, raw: `${String((r && r.stdout) || '').slice(0, 200)} ${String((r && r.stderr) || '').slice(0, 200)}` }; }
+        return { listed, inSettings: pi.enabledIn(path.join(profile.home, '.claude')), marker: marked() };
+      };
+      const statusBar = () => page.evaluate(() => {
+        const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.tokenMode$/.test(x.id));
+        return e ? e.innerText.trim() : null;
+      });
+      const zoneFile = path.join(dataDir, 'client-time-zone.json');
+      const setZone = (z) => fs.writeFileSync(zoneFile, JSON.stringify({ timeZone: z }) + '\n');
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const statusOf = (id) => {
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+        for (const n of names) {
+          try { const d = JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); if (d.sessionId === id) return d.status || null; } catch (_) { /* being written */ }
+        }
+        return null;
+      };
+      /* Types `text` into `frame`'s message box and resolves to the fake model's record of the request that carried it,
+         once the turn has ended (`id`, when known). */
+      const turn = async (frame, text, id) => {
+        const before = model.seen.length;
+        await frame.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(text);
+        await page.keyboard.press('Enter');
+        /* The turn's own request, which offers tools; a side request such as the one for a title can carry the text too. */
+        const got = await until(() => model.seen.slice(before).find((x) => x.stream && (x.typed || '').includes(text) && x.context && x.context.tools > 0), 60000, 300);
+        if (id) await until(() => statusOf(id) === 'idle', 60000, 500);
+        await sleep(1500);
+        return got || null;
+      };
+      /* A click anywhere outside the box closes it. The box is placed above its button when it opens, and a footer that
+         moves while the page is still settling can end up under it. */
+      const closeBox = async (frame) => { await frame.evaluate(() => document.body.click()); await sleep(300); };
+      const infoMode = async (frame, expected) => {
+        await exec('notifications.hideToasts');
+        await frame.locator('[data-cce-info]').first().click();
+        const read = () => frame.evaluate(() => {
+          const b = document.getElementById('cce-info');
+          if (!b || b.style.display !== 'block') return null;
+          const r = Object.fromEntries([...b.children].map((x) => [x.children[0].textContent, x.children[1].textContent]));
+          return r['Token mode'] || null;
+        });
+        const said = await until(async () => { const v = await read(); return v === expected ? v : null; }, 8000, 200) || await read();
+        await closeBox(frame);
+        return said;
+      };
+      const notices = () => page.evaluate(() => [...document.querySelectorAll('.notification-list-item')].map((n) => ({
+        text: ((n.querySelector('.notification-list-item-message') || {}).innerText || '').trim(),
+        buttons: [...n.querySelectorAll('.monaco-button')].map((b) => b.innerText.trim()).filter(Boolean) }))
+        .filter((n) => /has no effect until the mode is Custom/.test(n.text)));
+      const statusLine = async () => {
+        await exec('notifications.clearAll');
+        await exec('claudeCodePlus.status');
+        const s = await until(async () => (await toasts()).find((x) => x.startsWith('Claude Code Plus — ')) || '', 10000, 300);
+        await exec('notifications.clearAll');
+        return s.replace(/^.*\| (Token mode: )/, '$1');
+      };
+      /* A command left running with setsid that ends 20 s after it starts. */
+      const detachShort = async (frame, id) => {
+        const before = model.seen.length;
+        await frame.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(`Please ${ASK_TO_DETACH_SHORT}.`);
+        await page.keyboard.press('Enter');
+        const asked = await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300);
+        const asking = await until(() => frame.evaluate(() => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes('setsid')), 8000, 500);
+        if (asking) await frame.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+        await until(() => statusOf(id) === 'idle', 60000, 500);
+        return { asked: !!asked, at: Date.now(), from: model.seen.length };
+      };
+      const toldDetached = (job) => model.seen.slice(job.from).some((x) => x.context && x.context.detached);
+
+      await exec('workbench.action.closeAllEditors');
+      await exec('workbench.action.closeAuxiliaryBar');
+      await exec('claude-vscode.editor.open', tab0.id);
+      const frame = await conversation(tab0, 60000);
+      if (!frame) throw new Error('the conversation did not open');
+      await sleep(3000);
+      fs.mkdirSync(dataDir, { recursive: true });
+      const since = new Date().toISOString();
+      fs.writeFileSync(path.join(dataDir, `${tab0.id}.json`), JSON.stringify({ nodes: [{ title: 'Check each token mode', state: 'todo', opened: since, since }] }, null, 2));
+
+      const LABEL = Object.fromEntries(tm.MODES.map((m) => [m.id, m]));
+      const OFF_IN_CUSTOM = { 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false };
+      const MODES = [
+        { mode: 'all', zone: 'Asia/Tokyo', key: 'claudeCodePlus.detachedEndNotices', on: { plan: true, zone: true, brief: true } },
+        { mode: 'essential', zone: 'Europe/Berlin', key: 'claudeCodePlus.workPlan', detached: false, on: { plan: true, zone: true, brief: false } },
+        { mode: 'interface', zone: 'America/New_York', key: 'claudeCodePlus.tellClaudeYourTimeZone', detached: false, on: { plan: false, zone: false, brief: false } },
+        { mode: 'custom', zone: 'Asia/Kolkata', own: OFF_IN_CUSTOM, key: 'claudeCodePlus.workPlan', detached: true, on: { plan: true, zone: false, brief: false } },
+        { mode: 'all', zone: 'Australia/Sydney', key: 'claudeCodePlus.conversationBrief', again: true, on: { plan: true, zone: true, brief: true } },
+      ];
+      const results = [];
+      for (const m of MODES) {
+        const name = `${LABEL[m.mode].label}${m.again ? ' again' : ''}`;
+        console.log(`  -- ${name}`);
+        await exec('notifications.clearAll');
+        /* An information box left open while the mode changes. */
+        await exec('notifications.hideToasts');
+        const openBox = () => frame.evaluate(() => { const b = document.getElementById('cce-info'); return !!b && b.style.display === 'block'; });
+        if (!await openBox()) await frame.locator('[data-cce-info]').first().click();
+        await until(() => frame.evaluate(() => /Token mode/.test((document.getElementById('cce-info') || {}).innerText || '')), 8000, 200);
+        await setMode(m.mode);
+        const boxSays = () => frame.evaluate(() => {
+          const b = document.getElementById('cce-info');
+          const row = b && [...b.children].find((x) => x.children[0] && x.children[0].textContent === 'Token mode');
+          return row ? row.children[1].textContent : null;
+        });
+        const followed = await until(async () => (await boxSays()) === LABEL[m.mode].label, 8000, 300);
+        check(!!followed, `${name}: an information box left open names the new mode without being opened again`, await boxSays());
+        if (await openBox()) await closeBox(frame);
+        if (m.own) for (const [k, v] of Object.entries(m.own)) await setOwn(k, v);
+        const unload = m.mode === 'interface';
+        const want = (s) => s && (s.inSettings === !unload) && (s.listed && s.listed.enabled === !unload) && s.marker === unload;
+        const plugin = await until(async () => { const s = pluginState(); return want(s) ? s : null; }, 60000, 3000) || pluginState();
+        const r = { mode: name };
+
+        /* 1: Show Status. */
+        const own = (k) => (m.own && k in m.own ? m.own[k] : true);
+        const on = tm.SWITCHES.filter((s) => s.key.startsWith('claudeCodePlus.')).map((s) => {
+          const by = tm.onIn(m.mode, s.feature);
+          return `${tm.featureOf(s.feature).name} ${(by === null ? own(s.key) : by) ? 'on' : 'off'}`;
+        });
+        r.status = await statusLine();
+        check(r.status === `Token mode: ${LABEL[m.mode].label} (agentPlus.tokenMode); in Claude Code: ${on.join(', ')}`,
+          `${name}: Show Status names the mode and says which of the four features run`, r.status);
+
+        /* 2: the status bar and the information box. */
+        r.bar = await until(async () => { const t = await statusBar(); return t === LABEL[m.mode].short ? t : null; }, 10000, 500) || await statusBar();
+        r.info = await infoMode(frame, LABEL[m.mode].label);
+        check(r.bar === LABEL[m.mode].short && r.info === LABEL[m.mode].label,
+          `${name}: Agent Plus's status bar entry says ${LABEL[m.mode].short} and the information box ${LABEL[m.mode].label}`, { bar: r.bar, info: r.info });
+        await shot(`token-mode-${m.mode}${m.again ? '-again' : ''}-info`);
+
+        /* 3: the hooks' settings and whether Claude Code loads the plugin. */
+        r.hooks = await until(() => { const h = hooksNow(); return JSON.stringify(h) === JSON.stringify([m.on.plan, m.on.zone, m.on.brief]) ? h : null; }, 10000, 300) || hooksNow();
+        check(JSON.stringify(r.hooks) === JSON.stringify([m.on.plan, m.on.zone, m.on.brief]), `${name}: config.json hands the hooks work plan ${m.on.plan}, time zone ${m.on.zone}, brief ${m.on.brief}`, r.hooks);
+        r.plugin = plugin;
+        check(want(plugin), `${name}: Claude Code ${unload ? 'no longer loads' : 'loads'} the work plan plugin (claude plugin list), ${unload ? 'with' : 'without'} the mark that the mode unloaded it`, plugin);
+
+        /* 5: a turn of the conversation already running, and the first turn of a new one. */
+        setZone(m.zone);
+        const got = await turn(frame, `Token mode check: ${name}, a running conversation.`, tab0.id);
+        r.running = got && got.context;
+        check(!!got && ['plan', 'zone', 'brief'].every((k) => got.context[k] === m.on[k]),
+          `${name}: a turn of a running conversation carries what the mode runs: work plan ${m.on.plan}, time-zone note ${m.on.zone}, brief request ${m.on.brief}`,
+          got ? got.context : model.seen.slice(-3));
+        let detached = null;
+        if (m.detached !== undefined && process.platform === 'linux') detached = await detachShort(frame, tab0.id);
+
+        await exec('claude-vscode.editor.open');
+        const fresh = await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]') && !document.querySelector('[class*="userMessage_"]'), 60000);
+        if (fresh) {
+          await sleep(2000);
+          setZone(m.zone);
+          const first = await turn(fresh, `Token mode check: ${name}, a new conversation.`);
+          r.fresh = first && first.context;
+          check(!!first && first.context.skill === !unload && first.context.zone === m.on.zone,
+            `${name}: the first turn of a new conversation ${unload ? 'lists no' : 'lists the'} work plan skill, ${m.on.zone ? 'with' : 'without'} the time-zone note`,
+            first ? first.context : model.seen.slice(-3));
+          if (first && first.context.images) note(`${name}: the first turn of a new conversation carries the note on images in replies`);
+          await call(`const t = vscode.window.tabGroups.activeTabGroup.activeTab; if (t && t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)}) await vscode.window.tabGroups.close(t); return true;`);
+          await sleep(1000);
+        } else check(false, `${name}: a new conversation opens`, await tabs());
+        await exec('claude-vscode.editor.open', tab0.id);
+        await sleep(1000);
+
+        /* 4: a change of a feature's own setting. */
+        await exec('notifications.clearAll');
+        const had = await ownNow(m.key);
+        await setOwn(m.key, had === false);
+        const said = await until(async () => { const n = await notices(); return n.length ? n : null; }, m.mode === 'custom' ? 4000 : 10000, 300) || [];
+        await exec('notifications.clearAll');
+        await setOwn(m.key, had);
+        await sleep(2500);
+        const again = await notices();
+        r.notices = { first: said, second: again };
+        if (m.mode === 'custom') {
+          check(!said.length && !again.length, `${name}: changing ${m.key} shows no notice`, r.notices);
+        } else {
+          check(said.length === 1 && said[0].text === `Claude Code Plus: the token mode is ${LABEL[m.mode].label}, so ${m.key} has no effect until the mode is Custom.`
+            && said[0].buttons.includes(tm.SWITCH_BUTTON) && !again.length,
+          `${name}: changing ${m.key} says once that it has no effect in this mode, with ${tm.SWITCH_BUTTON}, and changing it back says nothing`, r.notices);
+        }
+        await exec('notifications.clearAll');
+
+        /* The detached command's end, told only where the mode runs the notices. */
+        if (detached) {
+          const end = detached.at + 20000;
+          const told = await until(() => toldDetached(detached), m.detached ? 180000 : Math.max(5000, end + 90000 - Date.now()), 1000);
+          r.detached = { asked: detached.asked, told: !!told };
+          check(detached.asked && !!told === m.detached, `${name}: a detached command's end ${m.detached ? 'is' : 'is not'} told to the conversation`, r.detached);
+          await until(() => statusOf(tab0.id) === 'idle', 60000, 500);
+        }
+        results.push(r);
+      }
+      fs.writeFileSync(path.join(out, 'token-modes.json'), JSON.stringify(results, null, 2) + '\n');
+      for (const k of Object.keys(OFF_IN_CUSTOM)) await setOwn(k, undefined);
+
+      /* 3, the other half: a plugin the user stopped loading stays stopped through Interface features and back. */
+      await start('claudeCodePlus.disableWorkPlanPlugin');
+      if (await until(dialog, 10000, 300)) await answerDialog('Stop loading it');
+      const stopped = await until(() => { const s = pluginState(); return s.inSettings === false && s.listed && s.listed.enabled === false && !s.marker ? s : null; }, 60000, 3000) || pluginState();
+      check(stopped.inSettings === false && !stopped.marker, 'Stop Loading the Work Plan Plugin stops Claude Code loading it, with no token mode mark', stopped);
+      await exec('notifications.clearAll');
+      await setMode('interface');
+      await sleep(8000);
+      const inInterface = pluginState();
+      await setMode('all');
+      await sleep(8000);
+      const back = pluginState();
+      check(inInterface.inSettings === false && !inInterface.marker && back.inSettings === false && back.listed && back.listed.enabled === false && !back.marker,
+        'a plugin the user stopped loading is left stopped in Interface features, and All features does not load it again', { inInterface, back });
+      const bin = path.join(profile.exts, fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-')), pi.BINARY);
+      const enable = () => require('child_process').spawnSync(bin, ['plugin', 'enable', pi.REF], { env, encoding: 'utf8', timeout: 90000 });
+      /* Stopped by the user while Interface features has it unloaded: the next mode leaves it stopped too. */
+      enable();
+      await setMode('interface');
+      const unloaded = await until(() => { const s = pluginState(); return s.inSettings === false && s.marker ? s : null; }, 60000, 3000) || pluginState();
+      await start('claudeCodePlus.disableWorkPlanPlugin');
+      if (await until(dialog, 10000, 300)) await answerDialog('Stop loading it');
+      await sleep(8000);
+      const afterStop = pluginState();
+      await exec('notifications.clearAll');
+      await setMode('all');
+      await sleep(8000);
+      const leftStopped = pluginState();
+      check(unloaded.marker && !afterStop.marker && leftStopped.inSettings === false && !leftStopped.marker,
+        'Stop Loading the Work Plan Plugin while Interface features has it unloaded keeps it stopped once All features is chosen', { unloaded, afterStop, leftStopped });
+      enable();
+      check(pluginState().inSettings === true, 'and claude plugin enable loads it again, for the steps after this one', pluginState());
+      await exec('notifications.clearAll');
+
+      /* 6: the four settings' descriptions in the Settings editor. */
+      const keys = tm.SWITCHES.filter((s) => s.key.startsWith('claudeCodePlus.')).map((s) => s.key);
+      await exec('workbench.action.openSettings', `@id:${keys.join(',')}`);
+      const items = await until(() => page.evaluate((n) => {
+        const rows = [...document.querySelectorAll('.settings-editor .setting-item-contents')].filter((e) => e.offsetParent).map((e) => ({
+          title: ((e.querySelector('.setting-item-title') || {}).innerText || '').replace(/\s+/g, ' ').trim(),
+          text: ((e.querySelector('.setting-item-description') || {}).innerText || '').replace(/\s+/g, ' ').trim(),
+          link: [...e.querySelectorAll('.setting-item-description a')].map((a) => a.innerText.trim()) }));
+        return rows.length >= n ? rows : null;
+      }, keys.length), 15000, 500) || [];
+      check(items.length === keys.length && items.every((i) => /Used only while .+ is Custom\.$/.test(i.text) && !/#agentPlus/.test(i.text) && i.link.length >= 1),
+        'the Settings editor shows the four settings, each description ending that it is used only while the token mode (a link) is Custom', items);
+      await shot('token-mode-settings');
+      await exec('workbench.action.closeActiveEditor');
     });
 
     await step('commands', async () => {
