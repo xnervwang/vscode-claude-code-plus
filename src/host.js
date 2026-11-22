@@ -28,7 +28,7 @@ const { applyEdits, shapesOf } = require('./edits');
 const { writeAtomic } = require('./files');
 const { patchTarget } = require('./patch-target');
 
-const VERSION = 16;
+const VERSION = 17;
 const ANY_MARK = '/* CLAUDE-CODE-EXTRAS-HOST v';
 const BACKUP_SUFFIX = '.claude-code-extras-host.bak';
 const TMP_SUFFIX = '.claude-code-extras-host.tmp';
@@ -95,8 +95,9 @@ const EDITS = [
    * Messages from a panel meant for this extension: the panel's time zone, a conversation pinned or unpinned in the
    * session list, a text color chosen for conversations there, archived conversations to delete, whether an answer
    * from the Conversations tab was sent (src/page/91-answer.js), the info box asking for its conversation's
-   * process id (src/page/80-session-info.js), the panel's page getting focus (src/page/92-focus.js), and the page
-   * saying it is still there (src/page/99-sweep.js, for src/duplicates.js).
+   * process id (src/page/80-session-info.js), the panel's page getting focus (src/page/92-focus.js), the page
+   * saying it is still there (src/page/99-sweep.js, for src/duplicates.js), and the state a panel reports for its
+   * conversation with whether a turn runs beside it (src/webview.js, for src/activity.js).
    *
    * Every message a panel sends passes through the one function that logs it, before anything decides what the message
    * is, and Claude Code itself ignores all of these types. A global is how each reaches this extension - both run in one
@@ -128,7 +129,10 @@ const EDITS = [
       + `globalThis.__cceOpenSessionHook&&globalThis.__cceOpenSessionHook(${msg}.sessionId)}`
       + `else if(${msg}&&${msg}.type==="cce_image"&&typeof ${msg}.id==="string"&&typeof ${msg}.src==="string"&&typeof ${msg}.sessionId==="string"){`
       + `globalThis.__cceImageHook&&globalThis.__cceImageHook(${msg}.sessionId,${msg}.id,${msg}.src)}`
-      + `else if(${msg}&&${msg}.type==="cce_alive"){globalThis.__cceAliveHook&&globalThis.__cceAliveHook()}}catch(e){}${rest}`,
+      + `else if(${msg}&&${msg}.type==="cce_alive"){globalThis.__cceAliveHook&&globalThis.__cceAliveHook()}`
+      + `else if(${msg}&&${msg}.type==="request"&&${msg}.request&&${msg}.request.type==="update_session_state"`
+      + `&&typeof ${msg}.request.sessionId==="string"){globalThis.__cceTurnHook&&globalThis.__cceTurnHook(${msg}.request.sessionId,`
+      + `${msg}.request.cceBusy,${msg}.request.cceBg,${msg}.request.isFarewell===true)}}catch(e){}${rest}`,
   },
   /*
    * A conversation opened from the session list in the place asked for (src/page/86-open-in-tab-or-sidebar.js). The
@@ -172,7 +176,11 @@ const EDITS = [
    * panel that the conversations on disk changed, which makes the session list read them again, used after a delete.
    * And a way to hand an answer to the panel showing a conversation, in a tab or in the sidebar (deliverAnswer in src/claude-source.js): asked
    * without text, it only says whether this window has such a panel. The same lookup sends the info box its process id
-   * (__cceToPanel). And a way to have every tab pick its icon again (__cceRefreshTabIcons). For a steward
+   * (__cceToPanel). And a way to have every tab pick its icon again (__cceRefreshTabIcons). The host's own way to
+   * mark a conversation as having a reply not read yet, which its session list and its clearing on view then treat
+   * like its own marks (__cceSetUnread), and whether a tab or the sidebar shows a conversation on screen now
+   * (__cceShownVisibly), the test Claude Code makes before it marks one (src/activity.js says when this extension
+   * does). For a steward
    * (src/relay.js): renaming a conversation through the panel showing it, which tells its CLI too (__cceRename), and a
    * message to every panel of this window (__cceToAllPanels), which a new tab with no conversation yet can answer.
    */
@@ -187,6 +195,9 @@ const EDITS = [
       + 'globalThis.__cceSessionsChanged=()=>{for(let cceC of this.allComms)try{cceC.sendSessionStoreChanged()}catch(e){}},'
       + 'globalThis.__cceSendSessionStates=()=>{try{this.broadcastSessionStates()}catch(e){}},'
       + 'globalThis.__cceRefreshTabIcons=()=>{for(let cceC of this.allComms)try{cceC.refreshTabIcon()}catch(e){}},'
+      + 'globalThis.__cceSetUnread=(cceId,cceOn)=>this.setSessionUnread(cceId,cceOn===!0),'
+      + 'globalThis.__cceShownVisibly=(cceId)=>{let cceP=this.sessionPanels.get(cceId);if(cceP&&cceP.visible)return!0;'
+      + 'return this.sidebarComms!==void 0&&this.sidebarChatShows?.()===cceId&&[...this.webviews].some((cceV)=>cceV.comms===this.sidebarComms&&cceV.isVisible())},'
       + 'globalThis.__cceAnswer=(cceId,cceText,cceKey)=>{let cceP=this.sessionPanels.get(cceId),cceC=cceP?this.panelComms.get(cceP):void 0;'
       + 'if(!cceC&&this.sidebarComms&&this.sidebarChatShows?.()===cceId)cceC=this.sidebarComms;'
       + 'if(!cceC)return!1;if(cceText===void 0)return!0;'
@@ -208,7 +219,8 @@ const EDITS = [
    * and the sidebar showing or hiding sends one.
    *
    * The same update also reaches this extension: each conversation's state as the host knows it and the replies not read
-   * yet, for the Conversations view. It comes the moment something changes, where `claude agents` is asked every half
+   * yet, for the Conversations view. And the message carries the dot this extension draws for each conversation
+   * (cceActivity, src/activity.js), which the session list's rows read. It comes the moment something changes, where `claude agents` is asked every half
    * minute. The states pass through this extension first, which may mark an idle conversation running
    * (__cceWithBackground in extension.js).
    *
@@ -232,7 +244,8 @@ const EDITS = [
     re: /sendSessionStates\(([\w$]+),([\w$]+),([\w$]+),([\w$]+),([\w$]+),([\w$]+)\)\{let ([\w$]+)=\{type:"request",channelId:"",requestId:([\w$]+)\(\),request:\{type:"session_states_update",([^{}]*?),sidebarSessionIds:\6\}\}/g,
     to: (m, a, b, c, d, e, f, z, id, fields) => `sendSessionStates(${a},${b},${c},${d},${e},${f},cceShown){let ${z}={type:"request",channelId:"",`
       + `requestId:${id}(),request:{type:"session_states_update",${fields},sidebarSessionIds:${f},cceSidebarShown:cceShown,`
-      + 'cceRecentClosed:(()=>{try{return typeof globalThis.__cceRecentClosed==="function"?globalThis.__cceRecentClosed():void 0}catch(e){return void 0}})()}}',
+      + 'cceRecentClosed:(()=>{try{return typeof globalThis.__cceRecentClosed==="function"?globalThis.__cceRecentClosed():void 0}catch(e){return void 0}})(),'
+      + 'cceActivity:(()=>{try{return typeof globalThis.__cceActivityMap==="function"?globalThis.__cceActivityMap():void 0}catch(e){return void 0}})()}}',
   },
   {
     // A tab the person closed, as Claude Code notes it for its own reopen-closed command, reaches this extension too.
@@ -250,15 +263,21 @@ const EDITS = [
    * The colour of a tab's icon (src/tabdot.js says what it is for).
    *
    * applyTabIcon gets the icon from this extension through a global, passing the icon key, tabBadgeAnchor.state, the
-   * host's folder and the tab's session id, and keeps its own only when none comes back. Setting the host's icon and then ours made the tab
-   * show the host's for a moment.
+   * host's folder, the tab's session id and whether the conversation has a reply not read yet, and keeps its own only
+   * when none comes back. Setting the host's icon and then ours made the tab show the host's for a moment.
+   *
+   * Claude Code's pick says a reply is unread only while nothing runs and no permission is pending. The same pick, asked
+   * again as if neither held, says whether one is unread at all, for the envelope after the tab's title.
    */
   {
     name: 'tab dot',
-    re: /(let ([\w$]+)=[\w$]+\(this\.lastRenameTabFlags,this\.([\w$]+),[^;]*;)this\.panelTab\.iconPath=([\w$]+\.Uri\.file\([\w$]+\.join\(this\.context\.extensionPath,"resources",[\w$]+\[\2\]\)\))\}/g,
-    to: (m, pick, state, anchor, icon) => `${pick}let cceIcon;try{cceIcon=globalThis.__cceTabIcon&&`
+    re: /(let ([\w$]+)=([\w$]+)\(this\.lastRenameTabFlags,this\.([\w$]+),(\{[^;{}]*\})\);)this\.panelTab\.iconPath=([\w$]+\.Uri\.file\([\w$]+\.join\(this\.context\.extensionPath,"resources",[\w$]+\[\2\]\)\))\}/g,
+    to: (m, pick, state, fn, anchor, opts, icon) => `${pick}let cceIcon,cceUnread=!1;`
+      + `try{cceUnread=${fn}(Object.assign({},this.lastRenameTabFlags,{hasPendingPermissions:!1}),`
+      + `this.${anchor}&&Object.assign({},this.${anchor},{state:"idle"}),${opts})==="done"}catch(cceE){}`
+      + `try{cceIcon=globalThis.__cceTabIcon&&`
       + `globalThis.__cceTabIcon(this.panelTab,${state},this.${anchor}&&this.${anchor}.state,`
-      + `this.context.extensionPath,this.${anchor}&&this.${anchor}.sessionId)}catch(cceE){}`
+      + `this.context.extensionPath,this.${anchor}&&this.${anchor}.sessionId,cceUnread)}catch(cceE){}`
       + `this.panelTab.iconPath=cceIcon||${icon}}`,
   },
   /*

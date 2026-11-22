@@ -103,7 +103,8 @@ function rename(names, { dir = planDir() } = {}) {
 /*
  * The notices a steward is sent when one of its conversations stops: a turn that ended, or a conversation that started
  * waiting for the user. `before` and `after` map a session id to its state in the Conversations view's words
- * (working, prompt, unread, idle). A conversation seen for the first time sends nothing.
+ * (working, background, prompt, unread, idle). One that had only background work left stops when that work ends. A
+ * conversation seen for the first time sends nothing.
  */
 function changes(before, after, manages) {
   const out = [];
@@ -111,7 +112,7 @@ function changes(before, after, manages) {
     const was = before.get(id), now = after.get(id);
     if (was === undefined || now === undefined || was === now) continue;
     if (now === 'prompt') out.push({ id, what: 'waiting' });
-    else if (was === 'working' && (now === 'idle' || now === 'unread')) out.push({ id, what: 'done' });
+    else if ((was === 'working' || was === 'background') && (now === 'idle' || now === 'unread')) out.push({ id, what: 'done' });
   }
   return out;
 }

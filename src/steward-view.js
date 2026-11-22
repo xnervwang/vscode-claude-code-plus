@@ -30,6 +30,8 @@ const { planQuestions } = require('./folders');
 const { writeAtomic, SESSION, transcriptOf } = require('./claude-files');
 const { liveRecords, readState } = require('./background');
 const { OPEN_STATES } = require('./workplan');
+const activity = require('./activity');
+const { GREEN, RED } = require('./tabdot');
 
 const VIEW = 'claudeCodePlus.steward';
 /* How often the list and the notices are refreshed. `claude agents --json` is asked at most every half minute
@@ -70,9 +72,25 @@ function doingRows(nodes, out = []) {
   return out.slice(0, MAX_DOING);
 }
 
+/* A conversation's state for the panel and the notices, from what it is doing (src/activity.js) and whether it has a
+   reply not read yet. Without deps.activity, from Claude Code's states alone. */
+const STATE_OF = { waiting: 'prompt', working: 'working', background: 'background' };
+function rowState(s, live, unread, deps) {
+  let act;
+  try { act = typeof deps.activity === 'function' ? deps.activity(s.sessionId) : ''; } catch (_) { act = ''; }
+  if (!act) {
+    const st = conversations.stateOf(s, live, unread);
+    act = st === 'prompt' ? 'waiting' : st === 'working' ? 'working' : 'stopped';
+  }
+  const unseen = !!(unread && unread.has(s.sessionId));
+  let question = false;
+  try { question = typeof deps.question === 'function' && act !== 'working' && act !== 'waiting' && deps.question(s.sessionId) === true; } catch (_) { question = false; }
+  return { state: STATE_OF[act] || (unseen ? 'unread' : 'idle'), dot: activity.dotOf(act, question), unseen };
+}
+
 /*
- * Every conversation the panel can list, by session id: { sessionId, title, cwd, state, running, lastActiveAt, doing,
- * questions }. `deps` are those of create() below.
+ * Every conversation the panel can list, by session id: { sessionId, title, cwd, state, dot, unseen, running,
+ * lastActiveAt, doing, questions }. `deps` are those of create() below.
  */
 function gather(records, deps) {
   const all = records ? waiting.merge(records) : new Map();
@@ -90,11 +108,14 @@ function gather(records, deps) {
     const plan = deps.readPlan(s.sessionId);
     const nodes = plan && plan.nodes;
     const qs = planQuestions(nodes);
+    const now = on ? rowState(s, live, unread, deps) : { state: 'idle', dot: '', unseen: !!(unread && unread.has(s.sessionId)) };
     out.set(s.sessionId, {
       sessionId: s.sessionId,
       title: conversations.claudeTitle(s, deps.titles(s), () => plan),
       cwd: s.cwd,
-      state: on ? conversations.stateOf(s, live, unread) : 'idle',
+      state: now.state,
+      dot: now.dot,
+      unseen: now.unseen,
       running: on,
       processes: on && twice.get(s.sessionId) ? twice.get(s.sessionId).slice() : [],
       lastActiveAt: deps.since(s) || 0,
@@ -112,9 +133,14 @@ const twiceText = (procs) => `Claude Code runs this conversation in ${procs.leng
   + `any of them: ${procs.map(duplicates.describe).join('; ')}.`;
 const stopText = (procs) => `Stops ${duplicates.describe(duplicates.oldOne(procs))}. The conversation stays in its transcript.`;
 
-const STATE_TEXT = { working: 'working', prompt: 'waiting for you', unread: 'finished, not read yet', idle: 'idle' };
+const STATE_TEXT = { working: 'working', background: 'running background work', prompt: 'waiting for you',
+  unread: 'finished, not read yet', idle: 'idle' };
 /* STATE_TEXT for the steward's notices, which speak of the user in the third person. */
-const NOTICE_STATE = { working: 'working', prompt: 'waiting for the user', unread: 'finished, not read by the user', idle: 'idle' };
+const NOTICE_STATE = { working: 'working', background: 'running background work', prompt: 'waiting for the user',
+  unread: 'finished, not read by the user', idle: 'idle' };
+const DOT_TEXT = { working: 'working', background: 'turn ended; background work still running', waiting: 'waiting for you' };
+const ENVELOPE = '&#x2709;&#xFE0F;';
+const ENVELOPE_TEXT = 'Reply not read yet';
 
 function ago(ms, now) {
   if (!ms) return '';
@@ -171,13 +197,14 @@ function body(model) {
   const row = (c) => `
     <li class="row ${c.managed ? 'managed' : ''}">
       <input type="checkbox" data-id="${esc(c.sessionId)}" ${c.managed ? 'checked' : ''} ${model.every ? 'disabled' : ''} title="Managed by this conversation">
-      <span class="dot ${esc(c.state)}" title="${esc(STATE_TEXT[c.state] || c.state)}"></span>
+      <span class="dot ${esc(c.dot || '')}" ${c.dot ? `title="${esc(DOT_TEXT[c.dot] || c.dot)}"` : ''}></span>
       <a href="#" class="name" data-open="${esc(c.sessionId)}" title="${esc(c.cwd)}">${esc(c.title)}</a>
       ${c.processes.length > 1 ? `<span class="twice" title="${esc(twiceText(c.processes))}">${c.processes.length} processes</span>
       <button class="stop-old" data-stop-old="${esc(c.sessionId)}" title="${esc(stopText(c.processes))}">Stop the old process</button>` : ''}
       ${c.managed ? `<span class="doing">${esc(c.doing.join(' · ') || (c.running ? STATE_TEXT[c.state] : 'stopped'))}</span>
       ${c.questions ? `<span class="questions">${c.questions} question${c.questions === 1 ? '' : 's'} for you</span>` : ''}
       <span class="when">${esc(ago(c.lastActiveAt, now))}</span>` : `<span class="when">${esc(ago(c.lastActiveAt, now))}</span>`}
+      ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${ENVELOPE}</span>` : ''}
     </li>`;
   const group = (g) => {
     const on = g.rows.filter((c) => c.managed).length;
@@ -229,8 +256,9 @@ function shell(list, nonce) {
   .twice { color: var(--vscode-errorForeground, #f14c4c); }
   .stop-old { padding: 0 6px; }
   .when { opacity: 0.6; margin-left: auto; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--vscode-disabledForeground, #888); }
-  .dot.working { background: #22c55e; } .dot.unread { background: #ef4444; } .dot.prompt { background: #3b82f6; }
+  .dot { box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .dot.working { background: ${GREEN}; } .dot.background { border: 2px solid ${GREEN}; } .dot.waiting { background: ${RED}; }
+  .env { flex: 0 0 auto; line-height: 1; }
   .empty, .away { opacity: 0.7; }
   .away button { margin-left: 6px; }
   .group { margin-bottom: 6px; }
@@ -262,6 +290,7 @@ function shell(list, nonce) {
 
 /*
  * deps: activeChat(), freshAgents() -> { records }, readPlan(id), titles(s), since(s), live(), unread(), reveal(id),
+ * optionally activity(id) and question(id) for a conversation's dot (src/activity.js),
  * shownHere(id) -> whether this window shows that conversation's panel, canWrite() -> whether this window may write
  * shared files, canShare() -> whether it may still publish its own entry and take relay requests (true also in a window
  * whose build has been replaced, which keeps showing its conversations until it is reloaded), enabled(), log(message),
@@ -415,13 +444,33 @@ function create(vscode, deps) {
    * told (src/steward-watch.js) is read from its file once and written back as it changes.
    */
   const pending = new Map(), sentAt = new Map(), asked = new Map(), told = new Map(), workAt = new Map();
+  /* When each conversation was first seen stopped after working or running background work. Its state counts as
+     changed only once it is still stopped activity.STABLE_MS later, since a queued message or a relayed one starts the
+     next turn right away. */
+  const leftAt = new Map();
+  const BUSY = new Set(['working', 'background']);
+  const settled = (now) => {
+    const after = new Map();
+    for (const [id, c] of last) {
+      const was = states.get(id);
+      let state = c.state;
+      if (BUSY.has(was) && !BUSY.has(state) && state !== 'prompt') {
+        if (!leftAt.has(id)) leftAt.set(id, now);
+        if (now - leftAt.get(id) < activity.STABLE_MS) state = was;
+        else leftAt.delete(id);
+      } else leftAt.delete(id);
+      after.set(id, state);
+    }
+    for (const id of leftAt.keys()) if (!last.has(id)) leftAt.delete(id);
+    return after;
+  };
   const toldOf = (steward) => {
     if (!told.has(steward)) told.set(steward, watch.load(deps.dir, steward));
     return told.get(steward);
   };
   const notify = async (now = Date.now()) => {
     const table = stewards.read(deps.dir);
-    const after = new Map([...last].map(([id, c]) => [id, c.state]));
+    const after = settled(now);
     let records = null;
     const live = () => records || (records = deps.records());
     for (const steward of Object.keys(table)) {

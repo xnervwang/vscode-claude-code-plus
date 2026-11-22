@@ -6703,27 +6703,49 @@ console.log('\na panel whose bundle never arrives says so');
       } else bad(`after the pin messages: heard pins ${JSON.stringify(pins)}, zones ${JSON.stringify(heard)}, logged without a hook: ${unheard}`);
     }
   }
-  /* The colour of a tab's icon: the host hands over the state it picked the icon for and the conversation's state, and
-     this extension swaps the icon for the logo in that state's colour, made from the logo the host just set. */
+  /* The dot on a tab's icon says what the conversation is doing (src/activity.js): the host hands over the icon key it
+     picked, the state the panel reported and whether a reply is unread, and this extension swaps the icon for the logo
+     with that state's dot, made from the logo the host just set. */
   {
     const tabdot = require('../src/tabdot');
-    const states = [['pending', 'running'], ['pending', 'idle'], ['plain', 'running'], ['done', 'idle'], ['plain', 'idle'],
-      ['plain', undefined], ['done', 'waiting_input']].map(([i, r]) => tabdot.stateOf(i, r));
-    if (JSON.stringify(states) === JSON.stringify(['waiting', 'waiting', 'running', 'unread', 'idle', 'idle', 'unread'])) {
-      ok('stateOf maps the icon key and session state to waiting, running, unread or idle');
-    } else bad(`tab states: ${JSON.stringify(states)}`);
+    const act = require('../src/activity');
+    const cases = [
+      [{ host: 'waiting' }, 'waiting', 'a permission prompt or a choice box'],
+      [{ host: 'running', turn: { busy: true, bg: true } }, 'working', 'a turn runs, with background work besides'],
+      [{ host: 'running', turn: { busy: false, bg: true } }, 'background', 'the turn ended and the panel still runs background tasks'],
+      [{ host: 'running', turn: { busy: false, bg: false }, bg: true }, 'background', 'the turn ended and detached work runs'],
+      [{ host: 'running' }, 'working', 'an older panel that does not say whether a turn runs'],
+      [{ host: 'running', bg: true }, 'background', 'an older panel, with background work found'],
+      [{ host: 'idle', turn: { busy: true } }, 'stopped', 'a panel that went away mid-turn leaves its last report'],
+      [{ host: 'idle' }, 'stopped', 'nothing runs'],
+      [{ agent: { busy: true } }, 'working', 'another window: claude agents says busy'],
+      [{ agent: { busy: false }, bg: true }, 'background', 'another window: idle with background work'],
+      [{ agent: { waitingFor: 'permission' } }, 'waiting', 'another window: claude agents says waiting'],
+      [{ host: 'idle', agent: { busy: true } }, 'stopped', 'this window\'s report outranks an older claude agents list'],
+      [{}, 'stopped', 'nothing known'],
+    ];
+    const wrong = cases.filter(([inp, want]) => act.activityOf(inp) !== want);
+    if (!wrong.length) ok('activityOf tells working, background work, waiting and stopped apart (' + cases.length + ' cases)');
+    else bad('activityOf: ' + wrong.map(([inp, want, why]) => `${why}: got ${act.activityOf(inp)}, want ${want}`).join('; '));
+    const dots = [['working', false], ['working', true], ['background', false], ['background', true], ['waiting', false],
+      ['stopped', false], ['stopped', true]].map(([a, q]) => act.dotOf(a, q));
+    if (JSON.stringify(dots) === JSON.stringify(['working', 'working', 'background', 'waiting', 'waiting', '', 'waiting'])) {
+      ok('dotOf draws a question the plan put to the user as waiting, unless a turn runs');
+    } else bad('dotOf: ' + JSON.stringify(dots));
 
     const waiting = '<svg viewBox="0 0 24 24"><defs><mask id="m"><rect width="24" height="24" fill="white"/>'
       + '<circle cx="19.5" cy="4.5" r="6.5" fill="black"/></mask></defs><path mask="url(#m)" d="M4 4h16v16z" fill="#D97757"/>'
       + '<circle cx="19.5" cy="4.5" r="4.5" fill="#3B82F6"/></svg>';
-    const blue = tabdot.withDot(waiting, tabdot.BLUE), green = tabdot.withDot(waiting, tabdot.GREEN), red = tabdot.withDot(waiting, tabdot.RED);
-    const grown = (c) => waiting.replace('<circle cx="19.5" cy="4.5" r="6.5" fill="black"/>', '<circle cx="18.5" cy="5.5" r="6.5" fill="black"/>')
-      .replace('<circle cx="19.5" cy="4.5" r="4.5" fill="#3B82F6"/>', `<circle cx="18.5" cy="5.5" r="5.5" fill="${c}"/>`);
-    if (blue === grown('#3b82f6') && green === grown('#22c55e') && red === grown('#ef4444')
-        && tabdot.withDot(waiting.replace('</svg>', '<circle cx="1" cy="1" r="1" fill="#3B82F6"/></svg>'), tabdot.GREEN) === ''
-        && tabdot.withDot('<svg/>', tabdot.RED) === '') {
-      ok('withDot draws a larger dot in the given colour');
-    } else bad(`dots: ${JSON.stringify([blue, green, red])}`);
+    const green = tabdot.withDot(waiting, tabdot.STYLES.working), ring = tabdot.withDot(waiting, tabdot.STYLES.background);
+    const red = tabdot.withDot(waiting, tabdot.STYLES.waiting);
+    const grown = (dot) => waiting.replace('<circle cx="19.5" cy="4.5" r="6.5" fill="black"/>', '<circle cx="18.5" cy="5.5" r="6.5" fill="black"/>')
+      .replace('<circle cx="19.5" cy="4.5" r="4.5" fill="#3B82F6"/>', dot);
+    if (green === grown('<circle cx="18.5" cy="5.5" r="5.5" fill="#22c55e"/>') && red === grown('<circle cx="18.5" cy="5.5" r="5.5" fill="#ef4444"/>')
+        && ring === grown('<circle cx="18.5" cy="5.5" r="4.4" fill="none" stroke="#22c55e" stroke-width="2.2"/>')
+        && tabdot.withDot(waiting.replace('</svg>', '<circle cx="1" cy="1" r="1" fill="#3B82F6"/></svg>'), tabdot.STYLES.working) === ''
+        && tabdot.withDot('<svg/>', tabdot.STYLES.waiting) === '' && tabdot.withDot(waiting, undefined) === '') {
+      ok('withDot draws a larger dot, filled green or red, or a green ring of the same size');
+    } else bad(`dots: ${JSON.stringify([green, ring, red])}`);
 
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-tabicon-'));
     const res = path.join(root, 'resources'), out = path.join(root, 'icons');
@@ -6732,17 +6754,20 @@ console.log('\na panel whose bundle never arrives says so');
     const cache = new Map();
     const icons = tabdot.iconsFor(res, out, cache);
     const again = tabdot.iconsFor(res, out, cache);
-    if (icons && again === icons && icons.idle === path.join(res, tabdot.FILES.idle)
-        && [['waiting', blue], ['running', green], ['unread', red]].every(([st, svg]) => path.dirname(icons[st]) === out
+    if (icons && again === icons && icons.stopped === path.join(res, tabdot.FILES.idle)
+        && JSON.stringify(Object.keys(icons).sort()) === '["background","stopped","waiting","working"]'
+        && [['working', green], ['background', ring], ['waiting', red]].every(([st, svg]) => path.dirname(icons[st]) === out
           && fs.readFileSync(icons[st], 'utf8') === svg)
-        && tabdot.iconsFor(path.join(root, 'missing'), out, new Map()) === null) {
-      ok('iconsFor writes the three dotted icons once');
+        && tabdot.iconsFor(path.join(root, 'missing'), out, new Map()) === null
+        && !Object.values(icons).some((f) => /3b82f6/i.test(f === icons.stopped ? '' : fs.readFileSync(f, 'utf8')))) {
+      ok('iconsFor writes the three dotted icons once, none of them blue, and a stopped conversation gets the plain logo');
     } else bad(`tab icons: ${JSON.stringify(icons)}`);
     fs.rmSync(root, { recursive: true, force: true });
 
     const live = require('../src/webview').liveCss({}), off = require('../src/webview').liveCss({ enabled: false });
-    if (live.includes('[class*="sessionItem_"]{--app-status-busy:#22c55e;--app-status-unread:#ef4444;}') && !off.includes('sessionItem_')) {
-      ok('the session list\'s running and unread dots turn green and red');
+    if (live.includes('[class*="sessionItem_"]{--app-status-busy:#22c55e;--app-status-pending:#ef4444;}')
+        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;') && !off.includes('sessionItem_')) {
+      ok('the session list\'s dots turn green and red, and its envelope goes to the row\'s end');
     } else bad('the live stylesheet does not colour the list\'s dots as expected');
 
     const T = 'Fix the build';
@@ -6759,16 +6784,22 @@ console.log('\na panel whose bundle never arrives says so');
     if (r.error) bad('the tab dot edit did not apply to the icon method\'s shape: ' + r.error);
     else {
       const heard = [], ours = { f: '/ours/green.svg' };
-      const env = { pick: () => 'done', Pa1: { done: 'd.svg' }, N1: { Uri: { file: (f) => ({ f }) } }, z5: { join: (a, b, c) => [a, b, c].join('/') } };
+      // Claude Code's pick: pending first, then unread only while nothing runs.
+      const pick = (f, a, o) => (f && f.hasPendingPermissions ? 'pending'
+        : (a ? o.isSessionUnread(a.sessionId) : f && f.hasUnseenCompletion === true) && (!a || a.state !== 'running') ? 'done' : 'plain');
+      const env = { pick, Pa1: { done: 'd.svg', plain: 'p.svg', pending: 'w.svg' }, N1: { Uri: { file: (f) => ({ f }) } },
+        z5: { join: (a, b, c) => [a, b, c].join('/') } };
       env.globalThis = env;
-      env.__cceTabIcon = (panel, state, run, home, sid) => { heard.push([panel.title, state, run, home, sid]); return run === 'running' ? ours : undefined; };
+      env.__cceTabIcon = (panel, state, run, home, sid, unread) => { heard.push([state, run, sid, unread]); return run === 'running' ? ours : undefined; };
       vm.createContext(env);
-      vm.runInContext(r.out + ';var t=new T();t.panelTab={title:"Fix the build"};t.context={extensionPath:"/x"};t.applyTabIcon();'
-        + 'var first=t.panelTab.iconPath.f;t.badge1={state:"running",sessionId:"S1"};t.applyTabIcon();var second=t.panelTab.iconPath;'
+      vm.runInContext(r.out + ';var t=new T();t.panelTab={title:"Fix the build"};t.context={extensionPath:"/x"};'
+        + 't.isSessionUnread=(id)=>id==="S1";t.applyTabIcon();var first=t.panelTab.iconPath.f;'
+        + 't.badge1={state:"running",sessionId:"S1"};t.lastRenameTabFlags={hasPendingPermissions:true};t.applyTabIcon();var second=t.panelTab.iconPath;'
+        + 't.badge1={state:"idle",sessionId:"S2"};t.lastRenameTabFlags={};t.applyTabIcon();'
         + 'globalThis.__cceTabIcon=function(){throw new Error("x")};t.applyTabIcon();var third=t.panelTab.iconPath.f;', env);
-      if (JSON.stringify(heard) === '[["Fix the build","done",null,"/x",null],["Fix the build","done","running","/x","S1"]]'
-          && env.first === '/x/resources/d.svg' && env.second === ours && env.third === '/x/resources/d.svg') {
-        ok('applyTabIcon falls back to its own icon when the hook gives none');
+      if (JSON.stringify(heard) === '[["plain",null,null,false],["pending","running","S1",true],["plain","idle","S2",false]]'
+          && env.first === '/x/resources/p.svg' && env.second === ours && env.third === '/x/resources/p.svg') {
+        ok('applyTabIcon says whether a reply is unread even while the conversation runs or waits, and falls back to its own icon when the hook gives none');
       } else bad(`after the icon update: heard ${JSON.stringify(heard)}, icons ${env.first} ${JSON.stringify(env.second)} ${env.third}`);
     }
   }
@@ -6795,10 +6826,11 @@ console.log('\na panel whose bundle never arrives says so');
   if (/globalThis\.__cceTzHook = /.test(ext) && /timeZone: \(\) => clientZone\(\),/.test(ext)) {
     ok('the panel\'s time zone reaches both the hooks and timeZone()');
   } else bad('extension.js does not pass on the reported time zone');
-  if (/globalThis\.__cceTabIcon = \(panel, state, run, home, sessionId\) =>/.test(ext)
-      && /if \(run !== 'running' && bgWorking\.has\(sessionId\)\) run = 'running';/.test(ext)
+  if (/globalThis\.__cceTabIcon = \(panel, state, run, home, sessionId, unread\) =>/.test(ext)
+      && /: run === 'running' \|\| bgWorking\.has\(sessionId\) \? 'running' : 'idle';/.test(ext)
       && /if \(!enabled\(\) \|\| removed\(\) \|\| typeof home !== 'string'\) return undefined;/.test(ext)
-      && /icons\[tabdot\.stateOf\(state, run\)\]/.test(ext) && /panel\.title = title/.test(ext)
+      && /icons\[\(typeof sessionId === 'string' && sessionId \? dotFor\(sessionId, host\) : ''\) \|\| 'stopped'\]/.test(ext)
+      && /panel\.title = title/.test(ext)
       && /if \(!tabIconUris\.has\(file\)\) tabIconUris\.set\(file, vscode\.Uri\.file\(file\)\);/.test(ext)) {
     ok('the hook reuses one Uri per icon file');
   } else bad('extension.js does not handle the tab icon');
@@ -8855,6 +8887,9 @@ console.log('\nthe Steward panel');
         await v._pass();
         records = records.map((r) => r.sessionId === ${JSON.stringify(S(2))} ? Object.assign({}, r, { status: 'idle' }) : r);
         await v._pass();
+        const heldStop = posts.length;
+        await new Promise((r) => setTimeout(r, require(${JSON.stringify(path.join(__dirname, '..', 'src', 'activity.js'))}).STABLE_MS + 50));
+        await v._pass();
         const afterDone = posts.length;
         records = records.map((r) => r.sessionId === ${JSON.stringify(S(3))} ? Object.assign({}, r, { status: 'waiting' }) : r);
         await v._pass();
@@ -8919,7 +8954,7 @@ console.log('\nthe Steward panel');
         const freedPage = latest();
         const every = { on: everyOn, lockedPage, locked, grown, off: everyOff, freedPage, keptAway, goneLater };
         v.dispose();
-        process.stdout.write(JSON.stringify({ replacedTook, first, second, ticked, afterDone, held, posts, stillTicked, cleared, reloaded: shellAfter !== shellFirst, idle, ownWindow, groupOn, groupOff, allTicked, away, dropped, everyShown, jump, every }));
+        process.stdout.write(JSON.stringify({ replacedTook, first, second, ticked, heldStop, afterDone, held, posts, stillTicked, cleared, reloaded: shellAfter !== shellFirst, idle, ownWindow, groupOn, groupOff, allTicked, away, dropped, everyShown, jump, every }));
       })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`;
     if (process.env.CCE_DUMP_PANEL) fs.writeFileSync(process.env.CCE_DUMP_PANEL, PANEL_SCRIPT);
     const out = JSON.parse(cp.execFileSync(process.execPath, ['-e', PANEL_SCRIPT], { encoding: 'utf8', timeout: 30000 }));
@@ -8935,11 +8970,11 @@ console.log('\nthe Steward panel');
           && /Port the reader/.test(out.second) && /1 question for you/.test(out.second) && out.second.includes(': 2</span>') && !out.reloaded) {
         ok('ticking makes the conversation in front their steward, a managed row shows what it is doing and its questions, and the page is updated rather than reloaded');
       } else bad(`after ticking: ${JSON.stringify(out.ticked)} ${out.second.slice(0, 200)}`);
-      if (out.afterDone === 1 && out.posts[0][0] === 'uds:/x' && out.posts[0][1].includes('"Two"') && out.posts[0][1].includes('finished its turn')
+      if (out.heldStop === 0 && out.afterDone === 1 && out.posts[0][0] === 'uds:/x' && out.posts[0][1].includes('"Two"') && out.posts[0][1].includes('finished its turn')
           && out.held === 1 && out.posts.length === 2 && out.posts[1][1].includes('is waiting for the user')
           && out.posts[0][1].includes('  Now: idle; doing: Port the reader') && out.posts[0][1].includes('  Question for the user: Which one?')) {
-        ok('a turn that ends in a conversation the steward is waiting on is sent to its inbox, and the next change waits for the minute between notices');
-      } else bad(`the notices were ${JSON.stringify(out.posts)} (${out.afterDone}, ${out.held})`);
+        ok('a turn that ends in a conversation the steward is waiting on is sent to its inbox once it has stayed stopped for the settling time, and the next change waits for the minute between notices');
+      } else bad(`the notices were ${JSON.stringify(out.posts)} (${out.heldStop}, ${out.afterDone}, ${out.held})`);
       const order = (h) => [...h.matchAll(/class="gname">([^<]+)</g)].map((m) => m[1]);
       const box = (h, key) => (new RegExp('<input type="checkbox" data-group="' + key + '"[^>]*>').exec(h) || [''])[0];
       const own = 'w:' + out.ownWindow.pid;
@@ -9005,29 +9040,44 @@ console.log('\nthe Steward panel');
       const table = { [S(1)]: { manages: [S(2), S(3)], names: {}, at: 0 } };
       const marks = new Map();
       const entries = [{ id: S(1).toUpperCase(), summary: 'Claude Code hover box', customTitle: 'Claude Code hover box' }, { id: S(2), summary: 'Two' },
-        { sessionId: S(4), customTitle: 'Night watch ' + sm.BELL }];
+        { sessionId: S(4), customTitle: 'Night watch ' + sm.MARK }];
       const listed = sm.marked(entries, Object.assign({ [S(4)]: { manages: [S(2)], names: {}, at: 0 } }, table), marks, 1000,
         (id) => (id === S(4) ? 'Night watch' : ''));
       const auto = listed[0].customTitle, named = listed[2].customTitle;
       const after = sm.marked(entries, {}, marks, 2000);
       const later = sm.marked(entries, {}, marks, 2000 + 11 * 60000);
-      if (auto === 'Claude Code hover box ' + sm.BELL && listed[0].summary === 'Claude Code hover box' && listed[1] === entries[1]
-          && named === 'Night watch ' + sm.BELL && after[0].customTitle === 'Claude Code hover box' && later[0] === entries[0]
+      if (auto === 'Claude Code hover box ' + sm.MARK && listed[0].summary === 'Claude Code hover box' && listed[1] === entries[1]
+          && named === 'Night watch ' + sm.MARK && after[0].customTitle === 'Claude Code hover box' && later[0] === entries[0]
           && sm.marked(entries, {}, new Map()) === entries) {
-        ok('in the session list a steward keeps its own title, or the name you gave it, with one bell after it, '
-          + 'and loses the bell for a while once it manages nothing; others are left alone');
+        ok('in the session list a steward keeps its own title, or the name you gave it, with one crown after it, '
+          + 'and loses the crown for a while once it manages nothing; others are left alone');
       } else bad(`the list showed ${JSON.stringify([auto, named, after[0], later[0]])}`);
       const a = sm.tabTitle('Claude Code hover box', null, '', 2);
       const b = sm.tabTitle(a.title, a.kept, '', 3);
       const c = sm.tabTitle(b.title, b.kept, '', 0);
       const d = sm.tabTitle('Renamed by Claude Code', b.kept, 'Mine', 3);
-      const e = sm.tabTitle('Claude Code hover box ' + sm.BELL, null, '', 0, 'Claude Code hover box');
-      if (a.title === 'Claude Code hover box ' + sm.BELL && b.title === 'Claude Code hover box ' + sm.BELL
-          && c.title === 'Claude Code hover box' && c.kept === null && d.title === 'Mine ' + sm.BELL && d.kept.original === 'Renamed by Claude Code'
-          && e.title === 'Claude Code hover box') {
-        ok('a steward\'s tab keeps its title with a bell after it whatever the count, loses the bell when nothing is ticked, also when '
-          + 'the panel put the steward\'s title there, and a new title from Claude Code is the one it goes back to');
-      } else bad(`the tab titles were ${JSON.stringify([a, b, c, d, e])}`);
+      const e = sm.tabTitle('Claude Code hover box ' + sm.MARK, null, '', 0, 'Claude Code hover box');
+      const bells = ['x \u{1F6CE}\uFE0F', 'x \u{1F6CE}', 'x \u{1F451}', 'x \u{1F451} \u2709\uFE0F', 'x \u2709\uFE0F', 'x \u{1F6CE}\uFE0F \u2709\uFE0F']
+        .map(sm.withoutMarks);
+      const oldBell = sm.tabTitle('Claude Code hover box \u{1F6CE}\uFE0F', null, '', 2, 'Claude Code hover box');
+      if (a.title === 'Claude Code hover box ' + sm.MARK && b.title === 'Claude Code hover box ' + sm.MARK
+          && c.title === 'Claude Code hover box' && c.kept === null && d.title === 'Mine ' + sm.MARK && d.kept.original === 'Renamed by Claude Code'
+          && e.title === 'Claude Code hover box' && bells.every((t) => t === 'x') && oldBell.title === 'Claude Code hover box ' + sm.MARK
+          && sm.MARK === '\u{1F451}') {
+        ok('a steward\'s tab keeps its title with a crown after it whatever the count, loses the crown when nothing is ticked, also when '
+          + 'the panel put the steward\'s title there, a new title from Claude Code is the one it goes back to, and a bell an older build wrote is taken off');
+      } else bad(`the tab titles were ${JSON.stringify([a, b, c, d, e, bells, oldBell])}`);
+      const u1 = sm.tabTitle('Fix the build', null, '', 0, 'Fix the build', true);
+      const u2 = sm.tabTitle(u1.title, u1.kept, '', 2, 'Fix the build', true);
+      const u3 = sm.tabTitle(u2.title, u2.kept, '', 2, 'Fix the build', false);
+      const u4 = sm.tabTitle('Renamed by Claude Code', u3.kept, '', 0, 'Fix the build', true);
+      const u5 = sm.tabTitle(u4.title, u4.kept, '', 0, 'Fix the build', false);
+      const ENV = '\u2709\uFE0F';
+      if (u1.title === 'Fix the build ' + ENV && u2.title === 'Fix the build ' + sm.MARK + ' ' + ENV && u3.title === 'Fix the build ' + sm.MARK
+          && u4.title === 'Renamed by Claude Code ' + ENV && u5.title === 'Renamed by Claude Code' && u5.kept === null && sm.ENVELOPE === ENV) {
+        ok('a tab whose conversation has a reply not read yet ends in an envelope, after the crown on a steward\'s tab, and loses it once the reply is read; '
+          + 'a new title from Claude Code meanwhile is kept');
+      } else bad(`the envelope titles were ${JSON.stringify([u1, u2, u3, u4, u5])}`);
       const allDir = path.join(root, 'plans-all');
       st.setManaged(S(1), [], {}, { dir: allDir, every: true });
       const kept = st.read(allDir)[S(1)];
@@ -9036,9 +9086,9 @@ console.log('\nthe Steward panel');
       const whole = sm.marked([{ sessionId: S(1), summary: 'x' }], st.read(allDir), new Map(), 0)[0].customTitle;
       const allTab = sm.tabTitle('x', null, '', sm.size(st.read(allDir)[S(1)]));
       st.setManaged(S(1), [], {}, { dir: allDir, every: false });
-      if (kept && kept.all === true && kept.manages.length === 0 && still === true && whole === 'x ' + sm.BELL
+      if (kept && kept.all === true && kept.manages.length === 0 && still === true && whole === 'x ' + sm.MARK
           && allTab.title === whole && st.read(allDir)[S(1)] === undefined) {
-        ok('a steward with "all" set stays in the table with nothing open, keeps "all" when its list is rewritten, and keeps its own title with a bell');
+        ok('a steward with "all" set stays in the table with nothing open, keeps "all" when its list is rewritten, and keeps its own title with a crown');
       } else bad(`managing all: ${JSON.stringify([kept, still, whole, allTab, st.read(allDir)])}`);
     }
 
@@ -10551,6 +10601,306 @@ console.log('\nClaude Code\'s source for notices from every window');
   if (/shown: \(\) => shownList\(\),/.test(ext) && /openAnywhere = \(sessionId\) => steward\.open\(sessionId\);/.test(ext)) {
     ok('the source opens a conversation through the Steward panel\'s open, the one the open links use');
   } else bad('the source\'s shown() or open() is not wired to the window\'s list and the Steward panel');
+}
+
+console.log('\nwhat a conversation is doing: its dot, its envelope, and the fields Agent Plus reads');
+{
+  const act = require('../src/activity');
+  const { applyEdits } = require('../src/edits');
+
+  /* The user's last message, from the end of a transcript, and then from what is appended. */
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-last-user-'));
+    try {
+      const file = path.join(dir, 't.jsonl');
+      const at = (s) => `2026-11-20T10:00:${String(s).padStart(2, '0')}.000Z`;
+      const line = (o) => JSON.stringify(o) + '\n';
+      const lines = [
+        line({ type: 'user', timestamp: at(1), origin: { kind: 'human' }, message: { role: 'user', content: 'first question' } }),
+        line({ type: 'assistant', timestamp: at(2), message: { content: [{ type: 'text', text: 'ok' }] } }),
+        line({ type: 'user', timestamp: at(3), message: { content: [{ type: 'tool_result', content: 'x' }] }, toolUseResult: {} }),
+        line({ type: 'attachment', timestamp: at(4), attachment: { type: 'queued_command', commandMode: 'prompt', origin: { kind: 'human' }, prompt: 'also this' } }),
+        line({ type: 'user', timestamp: at(5), origin: { kind: 'task-notification' }, message: { content: '<task-notification>done</task-notification>' } }),
+        line({ type: 'user', timestamp: at(6), isMeta: true, origin: { kind: 'human' }, message: { content: 'skill text' } }),
+        line({ type: 'attachment', timestamp: at(7), attachment: { type: 'queued_command', commandMode: 'task-notification', prompt: '<task-notification/>' } }),
+        line({ type: 'user', timestamp: at(8), origin: { kind: 'peer', from: 'x' }, message: { content: 'from another session' } }),
+        line({ type: 'user', timestamp: at(9), message: { content: '<local-command-stdout>hi</local-command-stdout>' } }),
+        line({ type: 'user', timestamp: at(10), isCompactSummary: true, message: { content: 'This session is being continued' } }),
+      ];
+      fs.writeFileSync(file, lines.join(''));
+      const r = act.lastUserReader();
+      const first = r.at(file), again = r.at(file);
+      fs.appendFileSync(file, line({ type: 'user', timestamp: at(20), origin: { kind: 'task-notification' }, message: { content: 'n' } }));
+      const notTyped = r.at(file);
+      const typed = line({ type: 'user', timestamp: at(30), message: { content: [{ type: 'text', text: 'an older build, typed' }] } });
+      fs.appendFileSync(file, typed.slice(0, 20));
+      const half = r.at(file);
+      fs.appendFileSync(file, typed.slice(20));
+      const whole = r.at(file);
+      const fresh = act.lastUserReader().at(file);
+      if (first === Date.parse(at(4)) && again === first && notTyped === first && half === first && whole === Date.parse(at(30))
+          && fresh === whole && r.at(path.join(dir, 'none.jsonl')) === 0 && r.at('') === 0) {
+        ok('the user\'s last message is the last one typed, a message typed during a turn included; tool results, notices, '
+          + 'messages from other sessions, hook text and summaries are not, and a line written in two pieces is read whole');
+      } else bad(`last user message: ${JSON.stringify([first, again, notTyped, half, whole, fresh].map((t) => t && new Date(t).toISOString()))}`);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  /* A question the plan put to the user since the user last wrote makes the dot red; an old one does not. */
+  {
+    const q = (asked, state = 'waiting') => ({ title: 't', state, waitingOn: 'user', question: 'q', asked });
+    const nodes = [{ title: 'a', state: 'doing', children: [q(500)] }, q(100), q(900, 'done'), { title: 'b', state: 'waiting', waitingOn: 'build', asked: 999 }];
+    const got = [act.freshQuestion(nodes, 400), act.freshQuestion(nodes, 600), act.freshQuestion(nodes, 0), act.freshQuestion(null, 1),
+      act.freshQuestion([q(700, 'discussing')], 600)];
+    if (JSON.stringify(got) === '[true,false,false,false,true]') {
+      ok('freshQuestion counts an open question to the user asked after the user\'s last message, at any depth, and none when that time is unknown');
+    } else bad('freshQuestion: ' + JSON.stringify(got));
+  }
+
+  /* The panel's reports, and the reply Claude Code leaves unmarked when a turn ends with background work running. */
+  {
+    const t = act.turnTracker();
+    const seq = [t.report('A', true, false), t.report('A', true, false), t.report('A', false, true), t.report('A', false, true),
+      t.report('A', true, true), t.report('A', false, false), t.report('A', 'yes', false), t.report('A', undefined, undefined, true),
+      t.report('B', false, true)];
+    const shape = seq.map((r) => `${r.changed ? 'c' : '-'}${r.ended ? 'e' : '-'}${r.bg ? 'b' : '-'}`);
+    const marks = [act.marksUnread(true, true, false), act.marksUnread(true, true, true), act.marksUnread(true, false, false),
+      act.marksUnread(false, true, false), act.marksUnread(true, true, undefined)];
+    if (JSON.stringify(shape) === '["c--","---","ceb","--b","c-b","ce-","---","c--","c-b"]' && t.get('A') === null && t.get('B').bg === true
+        && JSON.stringify(marks) === '[true,false,false,false,false]') {
+      ok('a turn that ends with background work running, while nothing shows the conversation on screen, is marked unread here; '
+        + 'one on screen, or with nothing left running, is left to Claude Code');
+    } else bad(`turn reports ${JSON.stringify(shape)}, marks ${JSON.stringify(marks)}`);
+  }
+
+  /* The host passes a panel's report to this extension, marks a reply unread on request, says whether a conversation is
+     on screen, and sends each conversation's dot to the session list. */
+  {
+    const msg = host.EDITS.find((e) => e.name === 'panel messages');
+    const fn = 'function eT($,J){let Q=`Received message from webview: ${bl0(J)}`;$.info(Q)}';
+    const r = msg ? applyEdits(fn, [msg]) : { error: 'no such edit' };
+    if (r.error) bad('the panel messages edit did not apply: ' + r.error);
+    else {
+      const heard = [];
+      const env = { bl0: (m) => JSON.stringify(m), out: null };
+      env.globalThis = env;
+      env.__cceTurnHook = (...a) => heard.push(a);
+      vm.createContext(env);
+      vm.runInContext(r.out + ';eT({info:(q)=>out=q},{type:"request",requestId:"1",request:{type:"update_session_state",sessionId:"S",state:"running",cceBusy:false,cceBg:true}});'
+        + 'eT({info:(q)=>out=q},{type:"request",requestId:"2",request:{type:"update_session_state",sessionId:"S",state:"idle",isFarewell:true}});'
+        + 'eT({info:(q)=>out=q},{type:"request",requestId:"3",request:{type:"update_session_state",sessionId:7}});'
+        + 'eT({info:(q)=>out=q},{type:"request",requestId:"4",request:{type:"set_session_unread",sessionKey:"S"}});', env);
+      if (JSON.stringify(heard) === '[["S",false,true,false],["S",null,null,true]]' && /^Received message from webview: /.test(env.out)) {
+        ok('the patched host passes a panel\'s report of its conversation, with whether a turn runs, to this extension, and still logs it');
+      } else bad(`the turn hook heard ${JSON.stringify(heard)}`);
+    }
+    const rec = host.EDITS.find((e) => e.name === 'tab record at start');
+    const src = 'class V{constructor(X){this.sessionPanels=new Map([["p",{visible:true}],["h",{visible:false}]]);this.liveElsewhereSessions=[];'
+      + 'this.rememberedTabSessions=X.getPanelTabSessions?.()??[],this.reconcileRememberedTabSessions()}'
+      + 'reconcileRememberedTabSessions(){}reportableRememberedTabSessions(){return[]}sidebarChatSessionIds(){return[]}'
+      + 'setSessionUnread(e,t){this.marked.push([e,t]);return!0}}';
+    const rr = rec ? applyEdits(src, [rec]) : { error: 'no such edit' };
+    if (rr.error) bad('the tab record edit did not apply: ' + rr.error);
+    else {
+      const env = {};
+      env.globalThis = env;
+      vm.createContext(env);
+      vm.runInContext(rr.out + ';var v=new V({});v.marked=[];var side={};v.sidebarComms=side;v.sidebarChatShows=()=>"s";'
+        + 'v.webviews=new Set([{comms:side,isVisible:()=>shownSide}]);var shownSide=true;', env);
+      const seen = [env.__cceShownVisibly('p'), env.__cceShownVisibly('h'), env.__cceShownVisibly('s'), env.__cceShownVisibly('x')];
+      env.shownSide = false;
+      seen.push(env.__cceShownVisibly('s'));
+      const set = [env.__cceSetUnread('h', true), env.__cceSetUnread('h', 'yes')];
+      if (JSON.stringify(seen) === '[true,false,true,false,false]' && JSON.stringify(env.v.marked) === '[["h",true],["h",false]]' && set[0] === true) {
+        ok('the patched host says whether a tab or the sidebar shows a conversation on screen, and marks a reply unread through its own setter');
+      } else bad(`on screen ${JSON.stringify(seen)}, marked ${JSON.stringify(env.v.marked)}`);
+    }
+    const se = host.EDITS.find((e) => e.name === 'session states message carries whether the sidebar is shown');
+    const send = 'class C{constructor(){this.sent=[]}send(m){this.sent.push(m)}sendSessionStates($,J,Q,X,Y,W){let z={type:"request",channelId:"",requestId:l$(),request:{type:"session_states_update",sessions:$,activeSessionId:J,openSessionIds:Q,unreadSessionKeys:X,liveElsewhereSessions:Y,sidebarSessionIds:W}};this.send(z)}}';
+    const sr = se ? applyEdits(send, [se]) : { error: 'no such edit' };
+    if (sr.error) bad('the session states edit did not apply: ' + sr.error);
+    else {
+      const env = { l$: () => 'id' };
+      env.globalThis = env;
+      vm.createContext(env);
+      vm.runInContext(sr.out + ';var c=new C();c.sendSessionStates([],"",[],[],[],[]);'
+        + 'globalThis.__cceActivityMap=()=>({A:"working",B:"background"});c.sendSessionStates([],"",[],[],[],[]);'
+        + 'globalThis.__cceActivityMap=()=>{throw new Error("x")};c.sendSessionStates([],"",[],[],[],[]);', env);
+      const got = env.c.sent.map((m) => m.request.cceActivity);
+      if (JSON.stringify(got) === '[null,{"A":"working","B":"background"},null]' && got[0] === undefined) {
+        ok('each update of the open conversations carries the dot this extension draws for each conversation, and none when it cannot say');
+      } else bad('the session states carried ' + JSON.stringify(got));
+    }
+  }
+
+  /* The panel reports whether a turn runs beside its state, and a session list row draws its dot and envelope. */
+  {
+    const wedit = (name) => webview.EDITS.find((e) => e.name === name);
+    const report = 'Zt(()=>{let p=(c.permissionRequests.value.length??0)>0||c.userDialogRequests.value.length>0,f=c.busy.value,'
+      + 'g=c.backgroundTaskIds.value.size>0,_;if(p)_="waiting_input";else if(f||g)_="running";else _="idle";'
+      + 'u.updateSessionState(d,_,c.summary.value,{isPanelInitial:c.isPanelInitial||void 0,idConfirmed:c.sessionIdFromCli.value||void 0})})';
+    const rr = applyEdits(report, [wedit('panel state says whether a turn runs')]);
+    let sent = null;
+    if (!rr.error) {
+      const env = { Zt: (f) => f(), u: { updateSessionState: (...a) => { sent = a; } }, d: 'S',
+        c: { permissionRequests: { value: [] }, userDialogRequests: { value: [] }, busy: { value: false }, backgroundTaskIds: { value: new Set(['t']) },
+          summary: { value: 'T' }, sessionIdFromCli: { value: 'S' } } };
+      vm.createContext(env);
+      vm.runInContext(rr.out, env);
+    }
+    if (!rr.error && sent && sent[1] === 'running' && sent[3].cceBusy === false && sent[3].cceBg === true && sent[3].idConfirmed === 'S') {
+      ok('a panel reports whether a turn runs and whether background tasks run beside the one state Claude Code sends for both');
+    } else bad('the panel\'s report: ' + (rr.error || JSON.stringify(sent)));
+    const row = 'var Row=W(function({session:t,id:n,isActive:i,openState:E,liveElsewhere:I},L){vt();return k("button",{ref:L,id:n,className:`${Dn.sessionItem}`,'
+      + 'children:[E&&m(Ef,{state:E,ring:I!==void 0&&E!=="unread",title:THt(E,I)}),m("span",{className:Dn.sessionName,children:"x"})]})});';
+    const mr = applyEdits(row, [wedit('session row marks')]);
+    if (mr.error) bad('the session row marks edit did not apply: ' + mr.error);
+    else {
+      const calls = [];
+      const env = { W: (f) => f, vt: () => {}, Dn: { sessionItem: 'si', sessionName: 'sn' }, Ef: function Ef() {},
+        THt: (s, w) => (w === 'vscode' ? 'Open in another VS Code window' : 'Open in this window') + (s === 'idle' ? '' : ' - ' + s),
+        m: (type, props) => ({ type, props }), k: (type, props) => ({ type, props }), window: {} };
+      vm.createContext(env);
+      vm.runInContext(mr.out, env);
+      const draw = (state, where) => env.Row({ session: { s: 1 }, id: 'r', openState: state, liveElsewhere: where }, null).props.children[0];
+      const own = draw('running', void 0);
+      env.window.__cceRowMarks = (o) => { calls.push([o.state, o.where, !!o.session, o.Dot === env.Ef, typeof o.jsx]); return ['D', 'E']; };
+      const marked = [draw('running', 'vscode'), draw('unread', void 0), draw(void 0, void 0)];
+      env.window.__cceRowMarks = () => null;
+      const fallback = draw('waiting', void 0);
+      if (own && own.type === env.Ef && own.props.state === 'running' && JSON.stringify(marked) === '[["D","E"],["D","E"],["D","E"]]'
+          && JSON.stringify(calls) === '[["running","Open in another VS Code window",true,true,"function"],["unread","",true,true,"function"],[null,"",true,true,"function"]]'
+          && fallback.type === env.Ef && fallback.props.state === 'waiting') {
+        ok('a session list row asks the page for its dot and envelope, with where the conversation is open, and draws its own dot when the page gives none');
+      } else bad(`row marks ${JSON.stringify([own, marked, calls, fallback])}`);
+    }
+
+    /* The page side (src/page/84-row-marks.js), with the list's own dot component. */
+    const sig = (v) => ({ value: v });
+    const env = { window: {}, isOn: () => env.on, on: true, Date, Array, String, Math, isFinite, JSON, Object,
+      head: { appendChild() {} }, document: { createElement: () => ({ setAttribute() {}, textContent: '' }) }, localStorage: { getItem: () => null } };
+    env.window.__cceSignal = (v) => ({ value: v });
+    env.window.__cceSessionList = { comms: { unreadSessionKeys: sig(['U', 'T0']) } };
+    vm.createContext(env);
+    for (const f of ['84-open-sessions.js', '84-row-marks.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', f), 'utf8'), env);
+    const Dot = function Dot() {};
+    const h = (type, props) => ({ type, props: props || {} });
+    const s = (id, extra) => Object.assign({ sessionId: sig(id) }, extra || {});
+    env.window.__cceSetActivity({ W: 'working', B: 'background', Q: 'waiting', U: 'working' });
+    const marks = (session, state, where) => env.window.__cceRowMarks({ jsx: h, Dot, session, state, where });
+    const shape = (out) => (out === null ? null : out.map((n) => (n === null ? '-' : n.type === Dot
+      ? `${n.props.state}${n.props.ring ? '/ring' : ''}:${n.props.title}` : n.props['data-cce-envelope'] === '' ? 'envelope:' + n.props.children : '?')));
+    const got = {
+      working: shape(marks(s('W'), 'running', '')), background: shape(marks(s('B'), 'running', 'Open in this window')), waiting: shape(marks(s('Q'), 'idle', '')),
+      unseenWorking: shape(marks(s('U'), 'running', '')), stopped: shape(marks(s('X'), 'idle', '')), unseenStopped: shape(marks(s('T1', { teleportedFromSessionId: sig('T0') }), 'unread', '')),
+      fallback: shape(marks(s('Y'), 'waiting', '')), fallbackRun: shape(marks(s('Z'), 'running', '')),
+      remote: marks(s('R', { isRemote: sig(true) }), 'running', ''),
+    };
+    env.on = false;
+    got.off = marks(s('W'), 'running', '');
+    env.on = true;
+    env.window.__cceSetActivity({});
+    got.cleared = shape(marks(s('W'), 'idle', ''));
+    const ENV = '\u2709\uFE0F';
+    const want = {
+      working: ['running:Working', '-'], background: ['running/ring:Open in this window \u2014 Turn ended; background work still running', '-'],
+      waiting: ['waiting:Waiting for you', '-'], unseenWorking: ['running:Working', 'envelope:' + ENV], stopped: ['-', '-'],
+      unseenStopped: ['-', 'envelope:' + ENV], fallback: ['waiting:Waiting for you', '-'], fallbackRun: ['running:Working', '-'],
+      remote: null, off: null, cleared: ['-', '-'],
+    };
+    if (JSON.stringify(got) === JSON.stringify(want)) {
+      ok('a row\'s dot is green while a turn runs, a green ring for background work only, red while it waits and absent once stopped, '
+        + 'with an envelope beside it for a reply not read yet whatever the dot; a web session, or the extension off, keeps Claude Code\'s dot');
+    } else bad(`row marks: ${JSON.stringify(got)}`);
+  }
+
+  /* The Steward panel draws the same dots and the envelope at the row's end. */
+  {
+    const sv = require('../src/steward-view');
+    const S = (n) => `5e5e5e5e-0000-4000-8000-00000000000${n}`;
+    const records = [1, 2, 3, 4, 5].map((n) => ({ sessionId: S(n), kind: 'interactive', cwd: '/w', name: 'N' + n, status: 'idle' }));
+    const deps = { isBackground: () => false, home: '/', dir: path.join(os.tmpdir(), 'cce-no-plans'), readPlan: () => null,
+      titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set([S(2), S(5)]),
+      activity: (id) => ({ [S(1)]: 'working', [S(2)]: 'background', [S(3)]: 'waiting', [S(4)]: 'stopped', [S(5)]: 'stopped' })[id],
+      question: (id) => id === S(4) };
+    const all = sv.gather(records, deps);
+    const rows = [...all.values()].map((c) => `${c.state}/${c.dot}/${c.unseen ? 'u' : '-'}`);
+    const html = sv.body({ front: { id: 'f', title: 'F' }, rows: [], groups: [{ key: 'w:1', name: 'w', rows: [...all.values()].map((c) => Object.assign({ managed: true, processes: [] }, c)) }],
+      managed: 5, hidden: 0, every: false });
+    const dots = [...html.matchAll(/<span class="dot ([a-z]*)"/g)].map((m) => m[1]);
+    const envs = [...html.matchAll(/<span class="env"[^>]*>&#x2709;&#xFE0F;<\/span>\s*<\/li>/g)].length;
+    const shell = sv.shell('', 'n');
+    if (JSON.stringify(rows) === JSON.stringify(['working/working/-', 'background/background/u', 'prompt/waiting/-', 'idle/waiting/-', 'unread//u'])
+        && JSON.stringify(dots) === JSON.stringify(['working', 'background', 'waiting', 'waiting', '']) && envs === 2
+        && /\.dot\.background \{ border: 2px solid #22c55e; \}/.test(shell) && !/3b82f6/i.test(shell)) {
+      ok('the Steward panel draws each conversation\'s dot as the tab does, red for a fresh question to the user, and an envelope last on the row for a reply not read yet');
+    } else bad(`steward rows ${JSON.stringify(rows)}, dots ${JSON.stringify(dots)}, envelopes ${envs}`);
+  }
+
+  /* A steward hears that a conversation finished only once it has stayed stopped; background work ending counts. */
+  {
+    const st = require('../src/stewards');
+    const ch = (a, b) => st.changes(new Map([['x', a]]), new Map([['x', b]]), ['x']).map((c) => c.what).join(',');
+    const got = [ch('working', 'background'), ch('background', 'idle'), ch('background', 'unread'), ch('working', 'unread'), ch('background', 'prompt'), ch('idle', 'working')];
+    if (JSON.stringify(got) === '["","done","done","done","waiting",""]') {
+      ok('a turn that ends with background work running is not finished yet; the work ending is');
+    } else bad('steward changes ' + JSON.stringify(got));
+  }
+
+  /* The fields Agent Plus decides its notices from. */
+  {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-claude-fields-')));
+    try {
+      const stub = path.join(home, 'vscode-stub.js');
+      fs.writeFileSync(stub, `module.exports = { TabInputWebview: class { constructor(v) { this.viewType = v; } } };`);
+      const script = `
+        const Module = require('module'), realResolve = Module._resolveFilename;
+        Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+        const C = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+        const id = (n) => n + n + n + n + n + n + n + n + '-1111-4222-8333-444444444444';
+        const records = [{ sessionId: id('a'), cwd: '/w/one', status: 'busy' }, { sessionId: id('b'), cwd: '/w/two', status: 'idle' },
+          { sessionId: id('c'), cwd: '/other', status: 'idle' }];
+        const base = { planDir: () => '/plans', enabled: () => false, listAgents: async () => ({ records, error: '' }), folders: () => ['/w'],
+          readPlan: () => null, titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set([id('b'), id('c')]),
+          activeChat: () => '', logo: () => null, canDeliver: () => false, hand: () => false, reveal: async () => false, shown: () => [id('b')] };
+        const acts = { [id('a')]: 'working', [id('b')]: 'background' };
+        const withFields = C.createClaudeSource(Object.assign({}, base, { activity: (sid) => acts[sid], lastUserAt: (sid) => (sid === id('a') ? 1700000000000 : 0) }));
+        const bare = C.createClaudeSource(base);
+        const broken = C.createClaudeSource(Object.assign({}, base, { activity: () => { throw new Error('x'); }, lastUserAt: () => { throw new Error('x'); } }));
+        const pick = (list) => list.map((c) => [c.sessionId.slice(0, 1), c.state, c.activity, c.unseen, c.lastUserAt === undefined ? '-' : c.lastUserAt]).sort();
+        (async () => {
+          const before = withFields.agentsNow();
+          const out = { here: pick(await withFields.source.listConversations()), all: pick(await withFields.source.listAllConversations()),
+            bare: pick(await bare.source.listAllConversations()), broken: pick(await broken.source.listAllConversations()) };
+          const after = withFields.agentsNow();
+          out.agentsNow = [before.records === null, Array.isArray(after.records) && after.records.length === 3, after.at > 0];
+          process.stdout.write(JSON.stringify(out));
+        })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
+      const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
+      let o = {};
+      try { o = JSON.parse(r.stdout); } catch (_) { o = { threw: r.stdout + r.stderr }; }
+      const want = {
+        here: [['a', 'working', 'working', false, 1700000000000], ['b', 'unread', 'background', true, '-']],
+        all: [['a', 'working', 'working', false, 1700000000000], ['b', 'unread', 'background', true, '-'], ['c', 'idle', 'stopped', false, '-']],
+        bare: [['a', 'working', 'stopped', false, '-'], ['b', 'unread', 'stopped', true, '-'], ['c', 'idle', 'stopped', false, '-']],
+        broken: [['a', 'working', 'stopped', false, '-'], ['b', 'unread', 'stopped', true, '-'], ['c', 'idle', 'stopped', false, '-']],
+        agentsNow: [true, true, true],
+      };
+      if (JSON.stringify(o) === JSON.stringify(want)) {
+        ok('each conversation the source lists carries activity, unseen and, when known, lastUserAt, beside the state older cores read; '
+          + 'an unread reply counts across windows only where this window shows the conversation');
+      } else bad(`source fields ${JSON.stringify(o)}`);
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  }
+
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  if (/globalThis\.__cceTurnHook = \(sessionId, busy, bg, farewell\) =>/.test(ext) && /activity\.marksUnread\(true, r\.bg \|\| bgWorking\.has\(sessionId\), shown\)/.test(ext)
+      && /globalThis\.__cceSetUnread\(sessionId, true\)/.test(ext) && /globalThis\.__cceActivityMap = \(\) =>/.test(ext)
+      && /activity: \(id\) => activityFor\(id\), question: \(id\) => freshQuestionOf\(id\),/.test(ext)
+      && /activity: \(id\) => activityFor\(id\),\n\s+lastUserAt: \(id\) => lastUser\.at\(transcriptOf\(id\)\),/.test(ext)
+      && /s\.state === 'waiting_input' \? 'waiting' : s\.state/.test(ext)) {
+    ok('the extension marks the reply, sends the dots, and hands what each conversation is doing to the Steward panel and to Agent Plus');
+  } else bad('extension.js does not wire the turn reports and the dots as expected');
 }
 
 console.log('\nClaude Code\'s source and closed panels');

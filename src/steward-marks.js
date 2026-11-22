@@ -5,29 +5,35 @@
 'use strict';
 /*
  * Titles for a steward's tab and session list row (stewards are in src/stewards.js): its own title, the name the user
- * gave it or else the one Claude Code shows, with a bell appended. How many conversations it manages is in the Steward
- * panel.
+ * gave it or else the one Claude Code shows, with the steward mark appended. How many conversations it manages is in
+ * the Steward panel. A tab whose conversation has a reply not read yet ends in an envelope, after the steward mark on a
+ * steward's tab; the session list draws its envelope apart from the title (src/page/84-row-marks.js).
  *
- * Nothing is written to the transcript. When it stops managing any conversation, the bell goes.
+ * Nothing is written to the transcript. When it stops managing any conversation, the mark goes.
  */
 const fs = require('fs');
 const path = require('path');
 const stewards = require('./stewards');
 
-const BELL = '\u{1F6CE}\uFE0F';
-const ENDS = [' ' + BELL, ' \u{1F6CE}'];
+/* The steward mark: a crown. */
+const MARK = '\u{1F451}';
+const ENVELOPE = '\u2709\uFE0F';
+/* What a title can end in that this module put there: the mark, and the bell older builds used. */
+const ENDS = [' ' + MARK, ' \u{1F6CE}\uFE0F', ' \u{1F6CE}'];
+const ENVELOPE_ENDS = [' ' + ENVELOPE, ' \u2709'];
 
-/** `title` without a bell this module put at its end. */
-function withoutBell(title) {
+const strip = (text, ends) => { const end = ends.find((e) => text.endsWith(e)); return end ? text.slice(0, -end.length) : text; };
+
+/** `title` without the envelope and the steward mark this module put at its end. */
+function withoutMarks(title) {
   const text = String(title == null ? '' : title);
-  const end = ENDS.find((e) => text.endsWith(e));
-  return end ? text.slice(0, -end.length) : text;
+  return strip(strip(text, ENVELOPE_ENDS), ENDS);
 }
 
-/** `own` with a bell after it. */
+/** `own` with the steward mark after it. */
 function stewardTitle(own) {
-  const text = withoutBell(String(own || '').trim()).trim();
-  return text ? text + ' ' + BELL : BELL;
+  const text = withoutMarks(String(own || '').trim()).trim();
+  return text ? text + ' ' + MARK : MARK;
 }
 
 /* What a table entry manages: 'all', or how many; tabTitle() treats 0 as not a steward. */
@@ -77,15 +83,17 @@ function tableReader(dir) {
 /*
  * Computes a tab's title. current: the title shown now. kept: what this function last set ({ original, shown }), or
  * null. custom: the user's name for the conversation. n: what size() gives, 0 if it is not a steward. own: the
- * conversation's own title. Returns { title, kept }. A current title other than the one last set came from Claude Code
- * and becomes the one to restore, unless it is a steward title itself: the panel can copy the list's title to the tab.
+ * conversation's own title. unseen: whether it has a reply not read yet. Returns { title, kept }. A current title other
+ * than the one last set came from Claude Code and becomes the one to restore, unless it carries marks itself: the panel
+ * can copy the list's title to the tab.
  */
-function tabTitle(current, kept, custom, n, own) {
+function tabTitle(current, kept, custom, n, own, unseen = false) {
   let original = kept && kept.shown === current ? kept.original : current;
-  if (withoutBell(original) !== original) original = own || withoutBell(original);
-  if (!n) return { title: original, kept: null };
-  const shown = stewardTitle(custom || original || own);
+  if (withoutMarks(original) !== original) original = own || withoutMarks(original);
+  if (!n && !unseen) return { title: original, kept: null };
+  const base = n ? stewardTitle(custom || original || own) : original;
+  const shown = unseen ? (base ? base + ' ' + ENVELOPE : ENVELOPE) : base;
   return { title: shown, kept: { original, shown } };
 }
 
-module.exports = { BELL, size, withoutBell, stewardTitle, marked, tableReader, tabTitle };
+module.exports = { MARK, ENVELOPE, size, withoutMarks, stewardTitle, marked, tableReader, tabTitle };

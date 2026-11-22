@@ -61,7 +61,7 @@ const files = require('./files');
 const { patchTarget } = require('./patch-target');
 const tabdot = require('./tabdot');
 
-const VERSION = 32;
+const VERSION = 33;
 
 /* The marker written into the patched file has to answer one question: is the code in
  * the panel the code this tree produces? A hand-maintained number answers it only while
@@ -130,8 +130,10 @@ const EDGE_CSS = `${USER_SELECTOR}{`
   + 'var(--vscode-focusBorder, var(--vscode-textLink-foreground)) !important;'
   + 'padding-left:calc(6px + 2px * var(--cce-edge, 1) * var(--cce-on, 1)) !important;}';
 
-/* The session list's running and unread dots, in the tab icons' green and red (src/tabdot.js). */
-const LIST_DOTS_CSS = `[class*="sessionItem_"]{--app-status-busy:${tabdot.GREEN};--app-status-unread:${tabdot.RED};}`;
+/* The session list's dots in the tab icons' green and red (src/tabdot.js), and its envelope pinned at the row's end
+   (src/page/84-row-marks.js): the row lays its children out in a row, and its time already takes the space left. */
+const LIST_DOTS_CSS = `[class*="sessionItem_"]{--app-status-busy:${tabdot.GREEN};--app-status-pending:${tabdot.RED};}`
+  + '[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;line-height:1;}';
 
 /** A CSS colour the user typed, or '' when it is not a plain colour - nothing else may reach the stylesheet. */
 function safeColor(value) {
@@ -390,6 +392,25 @@ const EDITS = [
       + `onMouseLeave:(cceE)=>{typeof window.__cceRowHover==="function"&&window.__cceRowHover(${session},cceE.currentTarget,!1)},${cls}`,
   },
   {
+    /* The row's dot and envelope (84-row-marks.js), in place of the one dot the list draws, which shows an unread reply
+       only once nothing runs. The page returning null draws the list's own dot. The where text is the list's own words
+       for where the conversation is open, for the dot's title. */
+    name: 'session row marks',
+    re: /(\(function\(\{session:([\w$]+),id:[\w$]+,isActive:[^]{0,6000}?children:\[)([\w$]+)&&([\w$]+)\(([\w$]+),\{state:\3,ring:([\w$]+)!==void 0&&\3!=="unread",title:([\w$]+)\(\3,\6\)\}\),/g,
+    to: (m, head, session, state, jsx, dot, where, title) => `${head}(typeof window.__cceRowMarks==="function"&&window.__cceRowMarks({`
+      + `jsx:${jsx},Dot:${dot},session:${session},state:${state},`
+      + `where:${state}==="running"||${state}==="waiting"||${state}==="idle"?${title}("idle",${where}):""})`
+      + `||${state}&&${jsx}(${dot},{state:${state},ring:${where}!==void 0&&${state}!=="unread",title:${title}(${state},${where})})),`,
+  },
+  {
+    /* The panel's report of its conversation's state carries whether a turn runs and whether background tasks run,
+       which its state alone does not tell apart (src/activity.js). Claude Code reads only the fields it knows; the
+       patched host passes these two to this extension (src/host.js). */
+    name: 'panel state says whether a turn runs',
+    re: /(let [\w$]+=\(([\w$]+)\.permissionRequests\.value\.length\?\?0\)>0\|\|\2\.userDialogRequests\.value\.length>0,([\w$]+)=\2\.busy\.value,([\w$]+)=\2\.backgroundTaskIds\.value\.size>0,[\w$]+;[^;]*;else if\(\3\|\|\4\)[^;]*;else [^;]*;[\w$]+\.updateSessionState\([\w$]+,[\w$]+,\2\.summary\.value,\{)/g,
+    to: (m, head, session, busy, bg) => `${head}cceBusy:${busy},cceBg:${bg},`,
+  },
+  {
     // The session list's search: a conversation also matches when part of its session ID was typed. The page decides
     // whether the query reads as part of an ID (84-search-by-id.js).
     name: 'session search by id',
@@ -453,11 +474,13 @@ const EDITS = [
   },
   {
     // Whether the sidebar's conversation can be seen and the tabs closed recently, as the patched host sends them; OPEN
-    // SESSIONS and Recently closed read them as they draw.
+    // SESSIONS and Recently closed read them as they draw. With them, the dot of each conversation (84-row-marks.js).
     name: 'sidebar shown for open sessions',
     re: /case"session_states_update":if\(this\.sessionStates\.value=([\w$]+)\.request\.sessions,/g,
     to: (m, msg) => `case"session_states_update":if(window.__cceSidebarShown=${msg}.request.cceSidebarShown,`
-      + `window.__cceRecentClosed=${msg}.request.cceRecentClosed,this.sessionStates.value=${msg}.request.sessions,`,
+      + `window.__cceRecentClosed=${msg}.request.cceRecentClosed,`
+      + `(()=>{try{typeof window.__cceSetActivity==="function"&&window.__cceSetActivity(${msg}.request.cceActivity)}catch(cceE){}})(),`
+      + `this.sessionStates.value=${msg}.request.sessions,`,
   },
   {
     // New session becomes New in tab and New in sidebar (86-open-in-tab-or-sidebar.js); the page returning null keeps it.

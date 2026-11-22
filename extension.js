@@ -48,6 +48,7 @@ const pythonRuntime = require('./src/python-runtime');
 const pythonOffer = require('./src/python-offer');
 const latency = require('./src/openlatency');
 const tabdot = require('./src/tabdot');
+const activity = require('./src/activity');
 const sessionPins = require('./src/sessionpins');
 const sessionColors = require('./src/sessioncolors');
 const bgSessions = require('./src/bgsessions');
@@ -704,10 +705,11 @@ function start(context, log, renamed, handing = false) {
   context.subscriptions.push({ dispose: () => { closing = true; } });
   let liveStates = new Map(), unreadKeys = new Set(), statesTimer = 0;
   const readTitles = waiting.reader();
+  /* A panel reports 'waiting_input'; the rest of this extension calls it 'waiting'. */
   globalThis.__cceStatesHook = (states, active, open, unread) => {
     try {
       liveStates = new Map((Array.isArray(states) ? states : [])
-        .filter((s) => s && typeof s.sessionId === 'string').map((s) => [s.sessionId, s.state]));
+        .filter((s) => s && typeof s.sessionId === 'string').map((s) => [s.sessionId, s.state === 'waiting_input' ? 'waiting' : s.state]));
       unreadKeys = new Set((Array.isArray(unread) ? unread : []).filter((k) => typeof k === 'string'));
       if (!statesTimer) statesTimer = setTimeout(() => { statesTimer = 0; claude.changed(); }, 300);
     } catch (_) { /* the next update */ }
@@ -729,10 +731,35 @@ function start(context, log, renamed, handing = false) {
       if (typeof globalThis.__cceToPanel === 'function') globalThis.__cceToPanel(sessionId, reply);
     }).catch((e) => log.appendLine('process for the info box: ' + (e && e.message)));
   };
+  /*
+   * What each panel of this window last reported for its conversation besides its state: whether a turn runs and whether
+   * background tasks run (src/activity.js). A turn that ends while background work still runs leaves Claude Code's
+   * panel marking nothing unread until the work ends too, so a reply nobody saw is marked here, through the host, while
+   * no tab or sidebar shows the conversation on screen.
+   */
+  const turns = activity.turnTracker();
+  let marksTimer = 0;
+  globalThis.__cceTurnHook = (sessionId, busy, bg, farewell) => {
+    try {
+      const r = turns.report(sessionId, busy, bg, farewell);
+      if (!r.changed) return;
+      if (r.ended && enabled() && !removed()) {
+        const shown = typeof globalThis.__cceShownVisibly === 'function' ? globalThis.__cceShownVisibly(sessionId) === true : true;
+        if (activity.marksUnread(true, r.bg || bgWorking.has(sessionId), shown)
+            && typeof globalThis.__cceSetUnread === 'function' && globalThis.__cceSetUnread(sessionId, true)) {
+          log.appendLine(`marked ${sessionId} unread: its turn ended out of sight while background work runs`);
+        }
+      }
+      // After the host has taken the same report in, which can leave its own state as it was.
+      if (!marksTimer) marksTimer = setTimeout(() => { marksTimer = 0; try { refreshMarks(); } catch (_) { /* not set up yet */ } }, 0);
+    } catch (e) { log.appendLine('turn report: ' + ((e && e.message) || e)); }
+  };
   context.subscriptions.push({ dispose: () => {
     if (statesTimer) clearTimeout(statesTimer);
+    if (marksTimer) clearTimeout(marksTimer);
     if (globalThis.__cceStatesHook) delete globalThis.__cceStatesHook;
     if (globalThis.__cceProcessHook) delete globalThis.__cceProcessHook;
+    if (globalThis.__cceTurnHook) delete globalThis.__cceTurnHook;
   } });
 
   /* Conversations with a panel or tab in this window, except those the host sees running in another window. */
@@ -757,6 +784,8 @@ function start(context, log, renamed, handing = false) {
     since: readTitles.since,
     live: () => liveStates,
     unread: () => unreadKeys,
+    activity: (id) => activityFor(id),
+    lastUserAt: (id) => lastUser.at(transcriptOf(id)),
     activeChat: () => activeChat(),
     logo: () => {
       const ext = vscode.extensions.getExtension(webview.id);
@@ -883,6 +912,7 @@ function start(context, log, renamed, handing = false) {
   const steward = stewardView.create(vscode, {
     activeChat, freshAgents: () => claude.freshAgents(), readPlan, titles: readTitles.titles, since: readTitles.since,
     live: () => liveStates, unread: () => unreadKeys, reveal: (sessionId) => claude.source.reveal(sessionId), shownHere,
+    activity: (id) => activityFor(id), question: (id) => freshQuestionOf(id),
     canWrite: () => !removed() && !replaced() && !uninstalling(), canShare: () => !removed() && !uninstalling(),
     enabled: () => enabled() && !removed(),
     log: (m) => log.appendLine(m), home: os.homedir(), dir: planDir(), shownList,
@@ -1180,34 +1210,99 @@ function start(context, log, renamed, handing = false) {
   globalThis.__cceWithBackground = (infos) => (Array.isArray(infos) && bgWorking.size
     ? infos.map((i) => (i && i.state === 'idle' && bgWorking.has(i.sessionId) ? Object.assign({}, i, { state: 'running' }) : i))
     : infos);
+  /*
+   * Each conversation's dot (src/activity.js). A conversation this window does not show is judged by `claude agents`,
+   * as fresh as the last time something asked for it (src/claude-source.js), and not at all once that is older than
+   * AGENTS_TRUST_MS: the session list then falls back to Claude Code's own word for it.
+   */
+  const AGENTS_TRUST_MS = 60000;
+  let agentsMerged = { at: -1, map: new Map() };
+  const agentOf = (id) => {
+    const a = claude.agentsNow();
+    if (!a.records || Date.now() - a.at > AGENTS_TRUST_MS) return null;
+    if (agentsMerged.at !== a.at) agentsMerged = { at: a.at, map: waiting.merge(a.records) };
+    return agentsMerged.map.get(id) || null;
+  };
+  const activityFor = (id, host = liveStates.get(id) || '') =>
+    activity.activityOf({ host, turn: turns.get(id), bg: bgWorking.has(id), agent: agentOf(id) });
+  const lastUser = activity.lastUserReader();
+  /* Kept while the plan, and the time of the user's last message, stay the same. */
+  const questionSeen = new Map();
+  const freshQuestionOf = (id) => {
+    if (!runs(WORK_PLAN_SETTING) || typeof id !== 'string' || !id) return false;
+    let st;
+    try { st = fs.statSync(path.join(planDir(), id + '.json')); } catch (_) { questionSeen.delete(id); return false; }
+    const since = lastUser.at(transcriptOf(id));
+    const key = st.mtimeMs + ':' + st.size + ':' + since, hit = questionSeen.get(id);
+    if (hit && hit.key === key) return hit.on;
+    const plan = readPlan(id);
+    const on = activity.freshQuestion(plan && plan.nodes, since);
+    if (questionSeen.size > 1000) questionSeen.clear();
+    questionSeen.set(id, { key, on });
+    return on;
+  };
+  const dotFor = (id, host) => {
+    const act = activityFor(id, host);
+    return activity.dotOf(act, act !== 'working' && act !== 'waiting' && freshQuestionOf(id));
+  };
+  /* The dots of the conversations with one, by session id, as the session list's rows draw them. */
+  const marksNow = () => {
+    const ids = new Set([...liveStates.keys(), ...bgWorking]);
+    const a = claude.agentsNow();
+    if (a.records && Date.now() - a.at <= AGENTS_TRUST_MS) for (const r of a.records) if (r && typeof r.sessionId === 'string') ids.add(r.sessionId);
+    const out = {};
+    for (const id of [...ids].sort()) { const dot = dotFor(id); if (dot) out[id] = dot; }
+    return out;
+  };
+  let marksSent = '';
+  globalThis.__cceActivityMap = () => {
+    try {
+      if (!enabled() || removed()) return undefined;
+      const m = marksNow();
+      marksSent = JSON.stringify(m);
+      return m;
+    } catch (_) { return undefined; }
+  };
+  /* Sends the dots again when one has changed without the host sending its states: a plan question, `claude agents`. */
+  const refreshMarks = () => {
+    try {
+      if (!enabled() || removed()) return;
+      if (JSON.stringify(marksNow()) !== marksSent && typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates();
+      if (typeof globalThis.__cceRefreshTabIcons === 'function') globalThis.__cceRefreshTabIcons();
+    } catch (e) { log.appendLine('conversation dots: ' + ((e && e.message) || e)); }
+  };
   const bgTimer = setInterval(() => {
     watchStewards();
-    readBgWorking().catch((e) => log.appendLine('work running after a turn: ' + (e && e.message)));
+    readBgWorking().catch((e) => log.appendLine('work running after a turn: ' + (e && e.message))).finally(refreshMarks);
   }, 10000);
   context.subscriptions.push({ dispose: () => {
     clearInterval(bgTimer);
     if (globalThis.__cceWithBackground) delete globalThis.__cceWithBackground;
+    if (globalThis.__cceActivityMap) delete globalThis.__cceActivityMap;
   } });
   const tabIcons = new Map(), tabIconUris = new Map();
   const stewardTable = stewardMarks.tableReader(planDir()), stewardTabs = new WeakMap(), stewardListed = new Map();
-  globalThis.__cceTabIcon = (panel, state, run, home, sessionId) => {
+  /* `unread`: whether the conversation has a reply not read yet, which the host works out (src/host.js). */
+  globalThis.__cceTabIcon = (panel, state, run, home, sessionId, unread) => {
     try {
       claude.track(panel, sessionId);
       const title = tabdot.withoutMark(panel.title);
       if (panel.title !== title) panel.title = title;
       if (typeof sessionId === 'string' && sessionId) {
-        const t = enabled() && !removed() ? stewardTable()[sessionId.toLowerCase()] : null;
-        const named = t || stewardMarks.withoutBell(panel.title) !== panel.title ? readTitles.titles({ sessionId }) || {} : {};
+        const on = enabled() && !removed();
+        const t = on ? stewardTable()[sessionId.toLowerCase()] : null, unseen = on && unread === true;
+        const named = t || unseen || stewardMarks.withoutMarks(panel.title) !== panel.title ? readTitles.titles({ sessionId }) || {} : {};
         const next = stewardMarks.tabTitle(panel.title, stewardTabs.get(panel) || null, named.custom, t ? stewardMarks.size(t) : 0,
-          named.custom || named.ai);
+          named.custom || named.ai, unseen);
         if (next.kept) stewardTabs.set(panel, next.kept); else stewardTabs.delete(panel);
         if (panel.title !== next.title) panel.title = next.title;
       }
       if (!enabled() || removed() || typeof home !== 'string') return undefined;
-      if (run !== 'running' && bgWorking.has(sessionId)) run = 'running';
+      const host = state === 'pending' || run === 'waiting_input' ? 'waiting'
+        : run === 'running' || bgWorking.has(sessionId) ? 'running' : 'idle';
       const icons = tabdot.iconsFor(path.join(home, 'resources'), path.join(context.globalStorageUri.fsPath, 'tab-icons'),
         tabIcons);
-      const file = icons && icons[tabdot.stateOf(state, run)];
+      const file = icons && icons[(typeof sessionId === 'string' && sessionId ? dotFor(sessionId, host) : '') || 'stopped'];
       if (!file) return undefined;
       if (!tabIconUris.has(file)) tabIconUris.set(file, vscode.Uri.file(file));
       return tabIconUris.get(file);
@@ -1342,7 +1437,7 @@ function start(context, log, renamed, handing = false) {
   const DROPPED_WAIT_MS = 10 * 60000, DROPPED_RECHECK_MS = 15000;
   const isClaudeTab = (t) => t.input instanceof vscode.TabInputWebview && String(t.input.viewType).includes('claudeVSCodePanel');
   const claudeLabels = () => vscode.window.tabGroups.all.flatMap((g) => g.tabs.filter(isClaudeTab).map((t) => t.label));
-  const stripMark = (t) => tabdot.withoutMark(t);
+  const stripMark = (t) => tabdot.withoutMark(stewardMarks.withoutMarks(t));
   const reopenTabs = async (list, why) => {
     const group = vscode.window.tabGroups.activeTabGroup, front = group && group.activeTab;
     const at = front ? group.tabs.indexOf(front) : -1, column = group && group.viewColumn;

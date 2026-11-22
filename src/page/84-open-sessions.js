@@ -241,7 +241,9 @@
           'data-cce-open-row': row.id, title: row.title,
           onClick: function(){ open(row); },
           children: [
-            typeof Dot === 'function' ? F(Dot, { state: row.state, title: openDotTitle(row.state, row.where) }) : null,
+            (typeof window.__cceRowMarks === 'function' && typeof Dot === 'function'
+              && window.__cceRowMarks({ jsx: F, Dot: Dot, session: { sessionId: { value: row.id } }, state: row.state, where: OPEN_WHERE[row.where] }))
+              || (typeof Dot === 'function' ? F(Dot, { state: row.state, title: openDotTitle(row.state, row.where) }) : null),
             F('span', { className: l.sessionName || '', children: row.title }),
             F('span', { className: l.sessionMeta || '', children:
               F('span', { className: l.sessionTime || '', children: openAge(row.last) + (row.where === 'sidebar' ? ' · sidebar' : '') }),

@@ -8,7 +8,10 @@
  *
  *   conversations    `claude agents --json` for the running ones (src/waiting.js), recent plans with open rows for the
  *                    stopped ones (src/conversations.js), states from the patched host (src/host.js); for Agent Plus's
- *                    notices, every running one on the machine (listAllConversations)
+ *                    notices, every running one on the machine (listAllConversations). Each carries `activity`
+ *                    ('working', 'background', 'waiting' or 'stopped', src/activity.js), `unseen` (the host's mark of a
+ *                    reply not read yet) and `lastUserAt` (when the user last wrote to it, in milliseconds, when known),
+ *                    from which Agent Plus decides its notices; `state` stays for builds of it that predate them
  *   open             in this window, or in the window that shows the conversation (src/steward-view.js open)
  *   plans            <session id>.json in the companion plugin's data directory (src/workplan.js)
  *   focus            a change of the host's activeSessionId; a panel's onDidChangeViewState; sessionForTab(); and the
@@ -85,6 +88,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   readPlan(sessionId)             for titles taken from the plan, and for stopped conversations
  *   titles(s), since(s)             from waiting.reader()
  *   live(), unread()                the host's latest states by session id; ids with an unread reply
+ *   activity(sessionId)             optional: what it is doing (src/activity.js); 'stopped' when not given
+ *   lastUserAt(sessionId)           optional: when the user last wrote to it, in milliseconds, or 0 when unknown
  *   activeChat()                    the host's activeSessionId, or ''
  *   canDeliver(sessionId)           whether a panel in this window shows it
  *   hand(sessionId, text, key)      gives the answer to the panel; its result comes back through answered()
@@ -122,15 +127,24 @@ function createClaudeSource(deps) {
       .finally(() => { pidsAsk = null; });
     return pidsAsk;
   };
-  const listed = (s, on, live, unread) => ({
-    sessionId: s.sessionId,
-    title: conversations.claudeTitle(s, deps.titles(s), () => deps.readPlan(s.sessionId)),
-    cwd: s.cwd,
-    state: on ? conversations.stateOf(s, live, unread) : 'idle',
-    running: on,
-    lastActiveAt: deps.since(s) || 0,
-    hasPlan: false,
-  });
+  const activityOf = (id) => { try { return typeof deps.activity === 'function' ? deps.activity(id) || 'stopped' : 'stopped'; } catch (_) { return 'stopped'; } };
+  const lastUserOf = (id) => { try { return typeof deps.lastUserAt === 'function' ? Number(deps.lastUserAt(id)) || 0 : 0; } catch (_) { return 0; } };
+  const listed = (s, on, live, unread) => {
+    const out = {
+      sessionId: s.sessionId,
+      title: conversations.claudeTitle(s, deps.titles(s), () => deps.readPlan(s.sessionId)),
+      cwd: s.cwd,
+      state: on ? conversations.stateOf(s, live, unread) : 'idle',
+      activity: on ? activityOf(s.sessionId) : 'stopped',
+      unseen: !!(unread && unread.has(s.sessionId)),
+      running: on,
+      lastActiveAt: deps.since(s) || 0,
+      hasPlan: false,
+    };
+    const at = lastUserOf(s.sessionId);
+    if (at > 0) out.lastUserAt = at;
+    return out;
+  };
 
   const log = (line) => { try { if (deps.log) deps.log(line); } catch (_) { /* not logged */ } };
   /* Called when the panel kept the answer in its input or did not report, since it may have been sent anyway. */
@@ -329,6 +343,8 @@ function createClaudeSource(deps) {
       return null;
     },
     freshAgents,
+    /* The last `claude agents` list fetched, without fetching: { records (null if none yet), at }. */
+    agentsNow: () => ({ records: agentsLast.records, at: agentsAt }),
     dispose() {
       focused.dispose();
       changed.dispose();
