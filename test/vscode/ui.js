@@ -1277,7 +1277,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       if (d) check(await answerDialog('Cancel') && fs.existsSync(transcriptOf(t1)), 'Cancel closes it and deletes nothing', transcriptOf(t1));
     });
 
-    await step('the steward panel', async () => {
+    await step('the steward panel', async () => { try {
       const front = threads[0];
       /* The Steward panel lists only conversations open in a window, so the others are opened in tabs first. */
       for (const t of threads.slice(1)) { await exec('claude-vscode.editor.open', t.id); await sleep(800); }
@@ -1758,7 +1758,19 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await shot('steward-link-jump');
       }
       await exec('workbench.action.closePanel');
-    });
+    } finally {
+      /* Whatever happened above, the conversation in front is no steward afterwards: later steps find its tab by its own
+         title. */
+      try {
+        await exec('claude-vscode.editor.open', threads[0].id);
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        const p = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 15000);
+        if (p && await p.locator('input[data-every]').isChecked().catch(() => false)) await p.locator('input[data-every]').click();
+        if (p) await p.locator('button[data-act="none"]').click().catch(() => {});
+        await until(async () => (await claudeTabs()).some((x) => titled(x.label, threads[0].title)), 10000, 300);
+        await exec('workbench.action.closePanel');
+      } catch (_) { /* the steps after this one say what is left */ }
+    } });
 
     /* Two Claude Code processes under VS Code's extension host for one conversation, as after a window went away while
        its extension host stayed: the conversation's own tab, and then its CLI started from the extension host the way the
