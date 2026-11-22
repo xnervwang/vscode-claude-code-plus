@@ -235,11 +235,17 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
   const menus = () => list.evaluate(() => [...document.querySelectorAll('[role="menu"]')].filter((m) => m.getClientRects().length)
     .map((m) => [...m.querySelectorAll('[role="menuitem"]')].map((i) => i.innerText.replace(/\s*›\s*$/, '').trim())));
   const item = (label, level = 0) => list.locator('[role="menu"]').nth(level).locator('[role="menuitem"]').filter({ hasText: label }).first();
-  /* A press on the empty bottom of the list closes its menus and does nothing else. */
+  /* A press on an empty corner of the list closes its menus and does nothing else. In a short window a menu opened low
+     in the list reaches its bottom, so the corner is one that no menu covers. */
   const closeMenus = async () => {
     if (!(await menus()).length) return;
     const box = await (await list.frameElement()).boundingBox();
-    await page.mouse.click(box.x + 40, box.y + box.height - 12);
+    const at = await list.evaluate(({ w, h }) => {
+      const rects = [...document.querySelectorAll('[role="menu"]')].map((m) => m.getBoundingClientRect());
+      const free = ([x, y]) => !rects.some((r) => x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 4 && y <= r.bottom + 4);
+      return [[w - 12, h - 12], [40, h - 12], [w - 12, h / 2]].find(free) || [w - 12, h - 12];
+    }, { w: box.width, h: box.height });
+    await page.mouse.click(box.x + at[0], box.y + at[1]);
     await until(async () => !(await menus()).length, 3000, 100);
   };
   const openMenu = async (t) => {
