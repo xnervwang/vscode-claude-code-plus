@@ -2282,6 +2282,25 @@ console.log('\nbackground sessions');
     if (JSON.stringify(got) === JSON.stringify(want)) {
       ok('a running background command opens the button and is named on it, beside any agents');
     } else bad(`background commands: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+    /* A render subscribes only to the signals it reads, so every call reads the panel's own sets, the held counts or
+       not: a render served from the held counts alone would not be drawn again once that work ends. */
+    let tasks = new Map([['t0', { taskId: 't0', taskType: 'local_bash', description: 'sleep 40' }]]), helpers = new Set(['a0']);
+    const reads = [];
+    const env = Object.assign({}, sandbox, { window: {}, sigValue: (name) => {
+      if (name === 'backgroundTasks' || name === 'backgroundTaskIds') reads.push(name);
+      return name === 'sessionId' ? 'nobody' : name === 'backgroundTasks' ? tasks : name === 'backgroundTaskIds' ? helpers : undefined;
+    } });
+    new vm.Script(`(function(){${frag}})()`, { filename: '82-scheduled-tasks.js' }).runInNewContext(env);
+    const before = [env.window.__cceAgentsDot('idle'), env.window.__cceAgentsLabel('1 agent', 1)];
+    const first = reads.length;
+    tasks = new Map();
+    helpers = new Set();
+    const after = [env.window.__cceAgentsDot('idle'), env.window.__cceAgentsLabel('0 agents', 0)];
+    const again = reads.slice(first);
+    if (JSON.stringify([before, after]) === JSON.stringify([['running', '1 agent · 1 task'], ['idle', '0 agents']])
+        && ['backgroundTasks', 'backgroundTaskIds'].every((n) => again.filter((x) => x === n).length >= 2)) {
+      ok('each call reads the panel\'s own sets of background work, so the button\'s dot and label follow that work\'s end at once');
+    } else bad(`the button after its work ended: ${JSON.stringify({ before, after, readsAgain: again })}`);
   }
 
   sandbox.sigValue = (name) => (name === 'sessionId' ? 'someone-else' : undefined);
