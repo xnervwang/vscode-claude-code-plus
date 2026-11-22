@@ -28,6 +28,11 @@
  * Those outside the claude processes are also listed as jobs, for the agent map and for the notice a
  * conversation gets when one of them is gone (src/detachedends.js): only the top of each tree, since the processes a
  * detached script starts belong to that script.
+ *
+ * A job whose tree holds a `claude -p` worker names it: the shell a launch like `( setsid nohup env -u
+ * CLAUDE_CODE_SESSION_ID claude -p ... & )` leaves behind is that worker's wrapper, not work of its own. The worker is
+ * the first process down the tree with a session record; the wrappers above it (a launcher script, the CLI's own
+ * stub) have none, and what lies below it is the worker's own.
  */
 const fs = require('fs');
 const path = require('path');
@@ -132,12 +137,32 @@ function claudeTest(procs, claudePids) {
 /*
  * What is running now, given the live session records (src/background.js):
  * - shells: session ids of the conversations with a shell, `timeout` or session leader of their own still running;
- * - launchers: worker session id -> launching session id, for the live `claude -p` workers whose launcher still runs;
- * - jobs: { session, pid, start, startedAt, kind, command } for the jobs outside the claude processes, by session id
- *   and pid. startedAt is in ms, or null when the boot time cannot be read; kind is shell or leader.
- *   A worker's CLAUDE_PID names the claude process whose Bash tool started it. A pid can be reused, so the process now
- *   holding it counts only if it started before the worker.
+ * - launchers: worker session id -> launching session id, for the live `claude -p` workers whose launcher is known;
+ * - jobs: { session, pid, start, startedAt, kind, command, workers? } for the jobs outside the claude processes, by
+ *   session id and pid. startedAt is in ms, or null when the boot time cannot be read; kind is shell or leader; workers
+ *   lists the session ids of the workers in the job's tree.
+ * - workers: { id, pid, launcher, inside? } for every live worker; launcher is '' when none is known, and inside is
+ *   set when the worker runs below its launcher's own claude process, in a Bash call that is still going.
+ *
+ * A worker's launcher is, in this order: the conversation of the job whose tree holds it; the claude process its
+ * CLAUDE_PID names, whose Bash tool started it - a pid can be reused, so the process now holding it counts only if it
+ * started before the worker; or the CLAUDE_CODE_SESSION_ID it was started with, which a launch can leave in place.
  */
+const isWorkerRecord = (r) => /^sdk-/.test(r.entrypoint || '') && r.kind !== 'bg' && SESSION.test(r.sessionId || '');
+/* How many processes of one job's tree are looked at for a worker. */
+const MAX_TREE = 2000;
+function workersBelow(top, kids, byPid) {
+  const found = [], stack = [top];
+  for (let seen = 0; stack.length && seen < MAX_TREE; seen++) {
+    const pid = stack.pop();
+    for (const k of kids.get(pid) || []) {
+      const r = byPid.get(k);
+      if (r) { if (isWorkerRecord(r)) found.push(r.sessionId.toLowerCase()); continue; }
+      stack.push(k);
+    }
+  }
+  return found;
+}
 /* Each process's kind and conversation, or NONE. Keyed by pid, start time, name and session, which together
    change when the pid is reused, the process runs another program or starts a session, so a process is read again only
    when one of them changes. */
@@ -183,9 +208,9 @@ async function bootMs(proc) {
 /* Per /proc root, the pids that were counted as running shells in the last snapshot: their state is read every time. */
 const shellPids = new Map();
 async function snapshot({ proc = '/proc', records = [] } = {}) {
-  const shells = new Set(), launchers = new Map(), counted = new Set(), jobs = [];
+  const shells = new Set(), launchers = new Map(), counted = new Set(), jobs = [], workers = [];
   const procs = await processes(proc, { fresh: shellPids.get(proc) });
-  if (!procs.size) return { shells, launchers, jobs };
+  if (!procs.size) return { shells, launchers, jobs, workers };
   const { isClaude, under } = claudeTest(procs, new Set(records.map((r) => r.pid)));
   const candidates = [...procs].filter(([pid, p]) => p.state !== 'Z' && p.state !== 'X' && !isClaude(pid));
   const keep = new Map(), outside = new Map();
@@ -230,15 +255,47 @@ async function snapshot({ proc = '/proc', records = [] } = {}) {
   }
   jobs.sort((a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : a.pid - b.pid));
   const byPid = new Map(records.map((r) => [r.pid, r]));
-  await inBatches(records, async (r) => {
-    if (!/^sdk-/.test(r.entrypoint || '') || r.kind === 'bg' || !SESSION.test(r.sessionId || '')) return;
-    const launcher = byPid.get(Number(envValue(await read(path.join(proc, String(r.pid), 'environ')), PID_KEY)));
-    if (!launcher || launcher === r || !SESSION.test(launcher.sessionId || '')) return;
-    const a = procs.get(launcher.pid), b = procs.get(r.pid);
-    if (!a || !b || !(Number(a.start) <= Number(b.start))) return;
-    launchers.set(r.sessionId.toLowerCase(), launcher.sessionId.toLowerCase());
+  const workerRecords = records.filter(isWorkerRecord);
+  const inJob = new Map();
+  if (jobs.length && workerRecords.length) {
+    const kids = new Map();
+    for (const [pid, p] of procs) {
+      if (!kids.has(p.ppid)) kids.set(p.ppid, []);
+      kids.get(p.ppid).push(pid);
+    }
+    for (const j of jobs) {
+      const found = workersBelow(j.pid, kids, byPid);
+      if (!found.length) continue;
+      j.workers = found;
+      for (const w of found) if (!inJob.has(w)) inJob.set(w, j.session);
+    }
+  }
+  await inBatches(workerRecords, async (r) => {
+    const id = r.sessionId.toLowerCase();
+    const env = await read(path.join(proc, String(r.pid), 'environ'));
+    let launcher = inJob.get(id) || '';
+    if (!launcher) {
+      const l = byPid.get(Number(envValue(env, PID_KEY)));
+      const a = l && procs.get(l.pid), b = procs.get(r.pid);
+      if (l && l !== r && SESSION.test(l.sessionId || '') && a && b && Number(a.start) <= Number(b.start)) launcher = l.sessionId.toLowerCase();
+    }
+    if (!launcher) {
+      const sid = envValue(env, SESSION_KEY).toLowerCase();
+      if (SESSION.test(sid) && sid !== id) launcher = sid;
+    }
+    if (launcher) launchers.set(id, launcher);
+    let inside = false;
+    for (let q = (procs.get(r.pid) || {}).ppid, hops = 0; q > 1 && hops < MAX_DEPTH; hops++) {
+      const holder = byPid.get(q);
+      if (holder) { inside = !!launcher && String(holder.sessionId || '').toLowerCase() === launcher; break; }
+      const info = procs.get(q);
+      if (!info) break;
+      q = info.ppid;
+    }
+    workers.push({ id, pid: r.pid, launcher, ...(inside ? { inside: true } : {}) });
   });
-  return { shells, launchers, jobs };
+  workers.sort((a, b) => a.pid - b.pid);
+  return { shells, launchers, jobs, workers };
 }
 
-module.exports = { snapshot, processes, labelOf, STARTERS, SNAPSHOT };
+module.exports = { snapshot, processes, labelOf, isWorkerRecord, STARTERS, SNAPSHOT };

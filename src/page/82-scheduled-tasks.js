@@ -2,8 +2,9 @@
 // Copyright (c) 2026, Xnerv Wang
 // All rights reserved.
 
-// Sections added to the official agent map: the commands this session left running detached, its scheduled prompts, and
-// the `claude --bg` sessions it started.
+// Sections added to the official agent map: the `claude -p` workers this session started, the commands it left running
+// detached, its scheduled prompts, and the `claude --bg` sessions it started; and the dots of the map's own row and of
+// the footer button that opens the map.
 // Fragment of the in-page script - see README.md in this folder.
 
   // Everything here runs inside the panel's own render, so a throw would take the dialog - and on past evidence the
@@ -275,18 +276,42 @@
   };
 
   /*
+   * The `claude -p` workers this conversation started and that still run, from their session records
+   * (workerRows in src/background.js). Their output goes wherever the command that started them sent it, often a file,
+   * so the panel never learns of them. Not offered for opening, for the reason the detached sessions are not.
+   */
+  var myWorkers = function(){
+    if (isOff('backgroundSessions')) return [];
+    var sid = sigValue('sessionId');
+    if (!sid) return [];
+    var all = readProp('--cce-workers'), out = [];
+    for (var i = 0; i < all.length; i++) {
+      var w = all[i];
+      if (w && w.session === sid && typeof w.id === 'string' && typeof w.pid === 'number') out.push(w);
+    }
+    out.sort(function(a, b){ return (b.startedAt || 0) - (a.startedAt || 0); });
+    return out;
+  };
+
+  /*
    * The commands this conversation left running detached, which the extension host finds among the machine's processes
    * (src/detached.js). Claude Code keeps no account of them, and they are what keeps the conversation's dot green once
    * its turn is over; the command line shows whether one is the work itself or, say, a server a build left behind.
+   * One that holds a worker listed above is that worker's wrapper, and is left out.
    */
   var myDetached = function(){
     if (isOff('detachedCommands')) return [];
     var sid = sigValue('sessionId');
     if (!sid) return [];
+    var listed = {}, ws = myWorkers();
+    for (var k = 0; k < ws.length; k++) listed[ws[k].id] = true;
     var all = readProp('--cce-detached'), out = [];
     for (var i = 0; i < all.length; i++) {
       var j = all[i];
-      if (j && j.session === sid && typeof j.pid === 'number') out.push(j);
+      if (!j || j.session !== sid || typeof j.pid !== 'number') continue;
+      var holds = false;
+      if (j.workers && j.workers.length) for (var n = 0; n < j.workers.length; n++) if (listed[j.workers[n]]) holds = true;
+      if (!holds) out.push(j);
     }
     out.sort(function(a, b){ return (b.startedAt || 0) - (a.startedAt || 0); });
     return out;
@@ -301,7 +326,7 @@
   };
   window.__cceStyleArrived = function(){
     try {
-      var now = JSON.stringify([myDetached(), mySchedules(), myBackground()]);
+      var now = JSON.stringify([myDetached(), mySchedules(), myBackground(), myWorkers()]);
       if (now === mapSeen) return;
       mapSeen = now;
       bgCountsAt = 0;
@@ -337,6 +362,33 @@
     return h('div', { style: { marginBottom: '16px' }, children: kids });
   };
 
+  /* The record's status: busy while a turn runs, shell while a command of its own runs, idle while it waits for input. */
+  var WORKER_STATE = { busy: 'running', shell: 'running a command', idle: 'idle' };
+  var workerRow = function(h, w){
+    var live = w.status === 'busy' || w.status === 'shell';
+    var when = w.startedAt > 0 ? ' · for ' + bgSpan(Date.now() - w.startedAt) : '';
+    return h('div', { style: { margin: '6px 0' }, title: w.id, children: [
+      h('div', { children: [
+        h('span', { children: [w.name || w.id.slice(0, 8)] }),
+        h('span', { style: { color: DIM }, children: [' · '] }),
+        bgStateSpan(h, live ? 'working' : 'stopped', WORKER_STATE[w.status] || w.status || 'state unknown'),
+        h('span', { style: { color: DIM }, children: [when] }),
+      ] }),
+      h('div', { style: { color: DIM }, children: ['session ' + w.id + ' · pid ' + w.pid] }),
+    ] });
+  };
+  var WORKER_NOTE = 'claude -p sessions this conversation started that are still running, found from their session '
+                  + 'records. Each runs in its own process and writes its output wherever the command that started it sent it.';
+  var workerSection = function(h, list){
+    var kids = [h('div', {
+      style: { color: DIM, fontSize: '1em', marginBottom: '4px' },
+      title: WORKER_NOTE,
+      children: [list.length + (list.length === 1 ? ' worker' : ' workers') + ' · claude -p, started from this conversation'],
+    })];
+    for (var i = 0; i < list.length; i++) kids.push(workerRow(h, list[i]));
+    return h('div', { style: { marginBottom: '16px' }, children: kids });
+  };
+
   // Called by the panel with its own element factory, so this returns a real element tree rather than text. null is how
   // a child says it has nothing to add, which is the ordinary case.
   window.__cceSchedule = function(h){
@@ -344,6 +396,8 @@
       if (typeof h !== 'function') return null;
       mapRenders();
       var parts = [];
+      var ws = myWorkers();
+      if (ws.length) parts.push(workerSection(h, ws));
       var det = myDetached();
       if (det.length) parts.push(detachedSection(h, det));
       var sched = mySchedules();
@@ -356,7 +410,7 @@
   };
 
   // The footer asks for these on every one of its renders, so the answer is held briefly rather than recomputed each time.
-  var bgCountsAt = 0, bgCounts = { detached: 0, timers: 0, bg: 0, live: 0, waiting: 0, tasks: 0 };
+  var bgCountsAt = 0, bgCounts = { detached: 0, timers: 0, bg: 0, live: 0, waiting: 0, tasks: 0, workers: 0, counted: 0, helpers: 0 };
   /* The commands running in the background - a build, a test run, a `sleep` used as a timer. The official agent map
      already lists them under its own heading, but its button appears only once the conversation has started an agent,
      so a conversation whose only background work is a command had no way to the list short of typing /tasks. The
@@ -364,6 +418,11 @@
   var runningTasks = function(){
     var m = sigValue('backgroundTasks');
     return m && typeof m.size === 'number' ? m.size : 0;
+  };
+  // The panel's own set of subagents and workflows running in the background.
+  var runningHelpers = function(){
+    var s = sigValue('backgroundTaskIds');
+    return s && typeof s.size === 'number' ? s.size : 0;
   };
   var ourCounts = function(){
     mapRenders();
@@ -375,14 +434,24 @@
       if (bgLive(bgs[i])) live++;
       if (bgs[i].state === 'blocked') waiting++;
     }
+    /* A worker still inside a Bash call of this conversation is that call's work, which the panel already shows as
+       a task or as the turn itself; the label names it only once that call is over. */
+    var ws = myWorkers(), counted = 0;
+    for (var k = 0; k < ws.length; k++) if (!ws[k].inside) counted++;
     bgCounts = { detached: myDetached().length, timers: mySchedules().length, bg: bgs.length, live: live, waiting: waiting,
-      tasks: runningTasks() };
+      tasks: runningTasks(), workers: ws.length, counted: counted, helpers: runningHelpers() };
     return bgCounts;
+  };
+  /* Background work of this conversation running now. A scheduled prompt runs nothing until it comes due, and a
+     finished session nothing at all. */
+  var workRuns = function(){
+    var c = ourCounts();
+    return c.tasks + c.detached + c.live + c.workers + c.helpers > 0;
   };
   // Opens the footer button: anything of ours to show is reason enough, finished sessions included, since their results
   // are what someone comes to read.
   window.__cceScheduleCount = function(){
-    try { var c = ourCounts(); return c.detached + c.timers + c.bg + c.tasks; } catch (e) { return 0; }
+    try { var c = ourCounts(); return c.detached + c.timers + c.bg + c.tasks + c.workers; } catch (e) { return 0; }
   };
 
   // The button's own label counts agents, so on a session with only our kinds it would read "0 agents". Detached
@@ -395,9 +464,41 @@
       if (c.detached) extra.push(c.detached + ' detached');
       if (c.timers) extra.push(c.timers + (c.timers === 1 ? ' timer' : ' timers'));
       if (c.tasks) extra.push(c.tasks + (c.tasks === 1 ? ' task' : ' tasks'));
+      if (c.counted) extra.push(c.counted + (c.counted === 1 ? ' worker' : ' workers'));
       if (c.live) extra.push(c.live + ' bg' + (c.waiting ? ' (' + c.waiting + ' waiting)' : ''));
-      else if (c.bg && !(count > 0) && !c.timers && !c.tasks && !c.detached) extra.push(c.bg + ' bg done');
+      else if (c.bg && !(count > 0) && !c.timers && !c.tasks && !c.detached && !c.workers) extra.push(c.bg + ' bg done');
       if (!extra.length) return official;
       return count > 0 ? official + ' · ' + extra.join(' · ') : extra.join(' · ');
     } catch (e) { return official; }
+  };
+
+  /* The button's dot: Claude Code's, which follows its agents alone, turned green while any other background work of
+     this conversation runs, so the dot agrees with what the label counts. Waiting for an answer keeps its own colour. */
+  window.__cceAgentsDot = function(official){
+    try {
+      if (official === 'waiting' || official === 'running') return official;
+      return workRuns() ? 'running' : official;
+    } catch (e) { return official; }
+  };
+  var WORK_RUNS_TITLE = 'Background work is running · Click to open the agent map';
+  window.__cceAgentsTitle = function(text, dot, was){
+    try { return dot === 'running' && was !== 'running' ? WORK_RUNS_TITLE : text; } catch (e) { return text; }
+  };
+
+  /*
+   * The conversation's own row in the map, drawn as its tab and its session list row are (src/activity.js): green while
+   * a turn runs, a green ring once the turn has ended and background work still runs, red while it waits for you.
+   * Background work is what this page counts, or what the extension host found (84-row-marks.js), which also covers
+   * work the panel does not show, such as a detached command while the map's list of them is switched off.
+   * busy is the panel's own reading of a turn running; session is the map's.
+   */
+  window.__cceMainDot = function(busy, session){
+    try {
+      var sid = (session && session.sessionId && session.sessionId.value) || sigValue('sessionId');
+      var host = sid && typeof marksNow === 'function' ? marksNow().dots[sid] : void 0;
+      if (host === 'waiting') return { state: 'waiting' };
+      if (busy) return { state: 'running' };
+      if (host === 'working' || host === 'background' || workRuns()) return { state: 'running', ring: true };
+      return { state: 'idle' };
+    } catch (e) { return { state: busy ? 'running' : 'idle' }; }
   };

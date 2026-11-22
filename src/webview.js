@@ -23,8 +23,10 @@
  *   context meter      Two: move the thresholds of the three artwork states to the limit each arc can show, and drop
  *                      the guard that hides the meter while more than half the window is free. Both apply only
  *                      while the meter switch is on (70-meter.js).
- *   agent map          Three: a section for this session's scheduled prompts, the footer button opening for a
- *                      schedule even with no agent, and a label that then does not read "0 agents".
+ *   agent map          Four: a section for this session's scheduled prompts, the footer button opening for a
+ *                      schedule even with no agent, a label that then does not read "0 agents" and a dot that is
+ *                      green while any of its background work runs, and the conversation's own row in the map
+ *                      drawn with the dot its tab has.
  *
  * Then this file appends a script that reads those times back out of React props and marks rows through an attribute,
  * plus the table of contents, the view filter, the context breakdown and the chime. A row whose real time it cannot
@@ -143,6 +145,9 @@ const LIST_DOTS_CSS = `[class*="sessionItem_"]{--app-status-busy:${tabdot.GREEN}
   + `[data-cce-envelope]::after{content:"${cssChars(envelope.COLOUR)}";}`
   + `${LIGHT_BODY.map((b) => `${b} [data-cce-envelope]::after`).join(',')}{content:"${cssChars(envelope.TEXT)}";}`
   + '[class*="sessionItem_"]>[data-cce-crown]{flex:none;line-height:1;}';
+/* The same green and red for the dot on the footer's agents button and for every dot in the agent map it opens, whose
+   tree of rows (rowMain_ is the conversation's own row) is drawn in every view of it. */
+const MAP_DOTS_CSS = `[class*="agentsPill_"],[role="dialog"]:has([class*="rowMain_"]){--app-status-busy:${tabdot.GREEN};--app-status-pending:${tabdot.RED};}`;
 
 /** A CSS colour the user typed, or '' when it is not a plain colour - nothing else may reach the stylesheet. */
 function safeColor(value) {
@@ -172,8 +177,15 @@ function backgroundProperty(list) {
 function detachedProperty(list) {
   if (!Array.isArray(list) || !list.length) return '';
   const rows = list.map((j) => ({ session: j.session, pid: j.pid, startedAt: j.startedAt, command: j.command,
-    ...(typeof j.label === 'string' && j.label ? { label: j.label } : {}) }));
+    ...(typeof j.label === 'string' && j.label ? { label: j.label } : {}),
+    ...(Array.isArray(j.workers) && j.workers.length ? { workers: j.workers } : {}) }));
   return `:root{--cce-detached:"${Buffer.from(JSON.stringify(rows), 'utf8').toString('base64')}";}\n`;
+}
+
+/* The `claude -p` workers each conversation started (workerRows in src/background.js) - same encoding. */
+function workersProperty(list) {
+  if (!Array.isArray(list) || !list.length) return '';
+  return `:root{--cce-workers:"${Buffer.from(JSON.stringify(list), 'utf8').toString('base64')}";}\n`;
 }
 
 /*
@@ -283,7 +295,7 @@ function liveCss(opts = {}) {
   /* Kept whenever anything is on: this one rule renders the attribute that carries the time, the sub-agent tag, the
      duration and the figures, so dropping it would switch off four things instead of one. */
   if (on) css += STAMP_CSS + '\n';
-  if (on) css += LIST_DOTS_CSS + '\n';
+  if (on) css += LIST_DOTS_CSS + '\n' + MAP_DOTS_CSS + '\n';
   /* Claude Code (2.1.284 and later) draws its own time on your messages and on replies with text: at the top right, in
      its own format, and on those two kinds only. Shown beside this script's, the same message carried two times in two
      places, and a reply's tool calls a third format - so while this script's times are on, Claude Code's are hidden and
@@ -301,7 +313,7 @@ function liveCss(opts = {}) {
      sessions, the pins and the text colors below are written either way. */
   if (off.length) css += ':root{' + off.map((k) => `--cce-off-${k}:1;`).join('') + '}\n';
   css += scheduleProperty(opts.tasks);
-  if (!off.includes('backgroundSessions')) css += backgroundProperty(opts.background);
+  if (!off.includes('backgroundSessions')) css += backgroundProperty(opts.background) + workersProperty(opts.workers);
   if (!off.includes('detachedCommands')) css += detachedProperty(opts.detached);
   css += pinsProperty(opts.pins);
   if (!off.includes('sessionColors')) css += colorsProperty(opts.colors);
@@ -634,12 +646,26 @@ const EDITS = [
       `(${gate}||(typeof window.__cceScheduleCount==="function"&&window.__cceScheduleCount()>0))&&${h}(${button},{session:${session},onOpen:${onOpen}})`,
   },
   {
-    // With the button open for schedules alone, its label would read "0 agents". The label is built from the count in
-    // one place, so the page gets to amend the finished text - the only field that needs to know about both kinds.
-    name: 'agent button label',
-    re: /function ([\w$]+)\(\{count:([\w$]+),dot:([\w$]+),onOpen:([\w$]+)\}\)\{let ([\w$]+)=([\w$]+)\(\2\),/g,
-    to: (m, fn, count, dot, onOpen, label, make) =>
-      `function ${fn}({count:${count},dot:${dot},onOpen:${onOpen}}){let ${label}=(typeof window.__cceAgentsLabel==="function"?window.__cceAgentsLabel(${make}(${count}),${count}):${make}(${count})),`,
+    /* With the button open for schedules alone, its label would read "0 agents". The label is built from the count in
+       one place, so the page gets to amend the finished text - the only field that needs to know about both kinds.
+       Its dot follows the agents alone, so a conversation whose only work running is a command, a worker or a
+       session it started had a grey dot beside a label counting that work; the page gets to amend the dot too, and
+       the hover text that names the dot's state. */
+    name: 'agent button label and dot',
+    re: /function ([\w$]+)\(\{count:([\w$]+),dot:([\w$]+),onOpen:([\w$]+)\}\)\{let ([\w$]+)=([\w$]+)\(\2\),([\w$]+)=([\w$]+)\(\3\);/g,
+    to: (m, fn, count, dot, onOpen, label, make, title, says) =>
+      `function ${fn}({count:${count},dot:${dot},onOpen:${onOpen}}){let cceDotWas=${dot};`
+      + `${dot}=(typeof window.__cceAgentsDot==="function"?window.__cceAgentsDot(${dot}):${dot});`
+      + `let ${label}=(typeof window.__cceAgentsLabel==="function"?window.__cceAgentsLabel(${make}(${count}),${count}):${make}(${count})),`
+      + `${title}=(typeof window.__cceAgentsTitle==="function"?window.__cceAgentsTitle(${says}(${dot}),${dot},cceDotWas):${says}(${dot}));`,
+  },
+  {
+    /* The conversation's own row in the agent map has a green dot only while a turn runs. The page draws it as the
+       conversation's tab does, from the same account of its work (84-row-marks.js), and returns the dot's props. */
+    name: 'agent map own row dot',
+    re: /(let ([\w$]+)=([\w$]+)\.summary\.value\|\|"This session",([\w$]+)=\3\.visiblyBusy\.value;return [^;]{0,400}?)([\w$]+)\(([\w$]+),\{state:\4\?"running":"idle"\}\)/g,
+    to: (m, head, summary, session, busy, jsx, dot) =>
+      `${head}${jsx}(${dot},(typeof window.__cceMainDot==="function"?window.__cceMainDot(${busy},${session}):{state:${busy}?"running":"idle"}))`,
   },
   {
     /* The model pill relabels itself after the first reply whenever the model that answered differs from the one picked,

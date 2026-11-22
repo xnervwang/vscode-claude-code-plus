@@ -256,7 +256,7 @@
         "claudeCodePlus.show.backgroundSessions": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "The `claude --bg` sessions a conversation started, listed in its agents button with how each is doing and how it ended. Turning it off stops the work, not only the drawing, and takes effect without a reload."
+          "markdownDescription": "The `claude --bg` sessions a conversation started, listed in its agents button with how each is doing and how it ended, and the `claude -p` workers it started that are still running, with each one's name, session ID, state and running time. Turning it off stops the work, not only the drawing, and takes effect without a reload."
         },
         "claudeCodePlus.show.detachedCommands": {
           "type": "boolean",

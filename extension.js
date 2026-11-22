@@ -389,6 +389,7 @@ function start(context, log, renamed, handing = false) {
       off,
       tasks: readTasks(knownDirs()),
       background: off.includes('backgroundSessions') ? [] : background.collect(),
+      workers: off.includes('backgroundSessions') ? [] : background.workersNow() || [],
       detached: off.includes('detachedCommands') ? [] : background.jobsNow() || [],
       pins: pinsOn() ? sessionPins.pageData(sessionPins.read(pinsFile()), sessionPins.retentionDays(), pinMargin()) : null,
       colors: off.includes('sessionColors') || removed() ? null : sessionColors.read(colorsFile()),
@@ -1197,7 +1198,8 @@ function start(context, log, renamed, handing = false) {
     const jobs = background.jobsNow();
     const on = endNoticesOn();
     if (Array.isArray(jobs)) {
-      const listed = switchedOff().includes('detachedCommands') ? '' : JSON.stringify(jobs);
+      const off = switchedOff();
+      const listed = JSON.stringify([off.includes('detachedCommands') ? null : jobs, off.includes('backgroundSessions') ? null : background.workersNow()]);
       if (listed !== detachedListed) { detachedListed = listed; writeLiveNow(); }
       try { detachedEnds.update({ dir: planDir(), jobs, claim: on, ran: (id, command, at) => detachedEnds.ranBy(transcriptNow(id), command, at) }); } catch (e) { log.appendLine('detached commands: ' + ((e && e.message) || e)); }
     }

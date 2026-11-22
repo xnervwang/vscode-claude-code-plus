@@ -1607,7 +1607,7 @@ console.log('\nscheduled prompts');
     for (let i = 0; i < 5; i++) sb.window.__cceSchedule(h);
     const setup = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '05-page-setup.js'), 'utf8');
     const cleared = (setup.match(/pinsCache = null; propCache = \{\};/g) || []).length;
-    if (reads === 3 && cleared === 2) ok('five renders of the agent map read each of its three properties once, and a stylesheet arriving clears them');
+    if (reads === 4 && cleared === 2) ok('five renders of the agent map read each of its four properties once, and a stylesheet arriving clears them');
     else bad(`five renders read the computed style ${reads} times; the two ways a stylesheet arrives clear the reads ${cleared} time(s)`);
   }
 
@@ -2325,6 +2325,123 @@ console.log('\ndetached commands in the agent map');
   const offApi = make(SID);
   same([other.__cceSchedule(h), offApi.__cceSchedule(h), offApi.__cceAgentsLabel('3 agents', 3)], [null, null, '3 agents'],
     'a conversation with none, or the switch off, shows and counts nothing');
+}
+
+/* The `claude -p` workers a conversation started, in its agent map and on the footer's agents button; and the dots of
+   that button and of the map's own row, which are green while any background work of the conversation runs. */
+console.log('\nworkers in the agent map, and the dots that follow background work');
+{
+  const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+  const SID = 'abcdef01-0000-4000-8000-000000000011', OTHER = 'abcdef01-0000-4000-8000-000000000012';
+  const W = 'abcdef01-0000-4000-8000-000000000021', INNER = 'abcdef01-0000-4000-8000-000000000022', THEIRS = 'abcdef01-0000-4000-8000-000000000023';
+  const workers = [
+    { session: SID, id: W, pid: 7001, name: 'joinwin-1b', status: 'busy', startedAt: Date.now() - 123 * 60000 },
+    { session: SID, id: INNER, pid: 7002, name: 'inner-check', status: 'idle', startedAt: Date.now() - 60000, inside: true },
+    { session: OTHER, id: THEIRS, pid: 7003, name: 'theirs', status: 'busy', startedAt: Date.now() },
+  ];
+  const wrapper = '/bin/bash -c source /h/.claude/shell-snapshots/snapshot-bash-1-a.sh && ( setsid nohup claude -p go & )';
+  const jobs = [
+    { session: SID, pid: 74499, start: '9', startedAt: Date.now() - 123 * 60000, kind: 'shell', command: wrapper, workers: [W] },
+    { session: SID, pid: 5000, start: '9', startedAt: Date.now() - 5 * 60000, kind: 'leader', command: 'sleep 999' },
+  ];
+  const prop = (css, name) => (css.match(new RegExp(`${name}:"([A-Za-z0-9+/=]+)"`)) || [])[1] || '';
+  const unpack = (p) => (p ? JSON.parse(Buffer.from(p, 'base64').toString('utf8')) : null);
+  const css = webview.liveCss({ enabled: true, workers, detached: jobs });
+  const offCss = webview.liveCss({ enabled: true, workers, detached: jobs, off: ['backgroundSessions'] });
+  const marksOff = webview.liveCss({ enabled: false, workers });
+  same([unpack(prop(css, '--cce-workers')).length, prop(offCss, '--cce-workers'), unpack(prop(css, '--cce-detached'))[0].workers,
+    /\[class\*="agentsPill_"\],\[role="dialog"\]:has\(\[class\*="rowMain_"\]\)\{--app-status-busy:#22c55e;--app-status-pending:#ef4444;\}/.test(css),
+    marksOff.includes('agentsPill_')],
+  [3, '', [W], true, false],
+  'the workers ride in the stylesheet unless background sessions are switched off, a detached command names the worker it holds, and the button and the map get the tabs\' green and red while the marks are on');
+
+  const calls = [];
+  const h = (type, props) => { calls.push({ type, props }); return { type, props }; };
+  /* One page per case: the counts are held for half a second. */
+  const make = ({ sid = SID, sheet = css, off = [], tasks = 0, helpers = 0, dots = {} } = {}) => {
+    const props = { '--cce-workers': `"${prop(sheet, '--cce-workers')}"`, '--cce-detached': `"${prop(sheet, '--cce-detached')}"`,
+      '--cce-schedule': `"${prop(sheet, '--cce-schedule')}"`, '--cce-background': `"${prop(sheet, '--cce-background')}"` };
+    const taskMap = new Map(), helperSet = new Set();
+    for (let i = 0; i < tasks; i++) taskMap.set('t' + i, { taskId: 't' + i, taskType: 'local_bash', description: 'sleep 1230' });
+    for (let i = 0; i < helpers; i++) helperSet.add('a' + i);
+    const env = {
+      window: {}, document: { documentElement: {} }, navigator: {},
+      getComputedStyle: () => ({ getPropertyValue: (name) => props[name] || '' }),
+      atob: (x) => Buffer.from(x, 'base64').toString('binary'), TextDecoder, console,
+      sigValue: (name) => (name === 'sessionId' ? sid : name === 'backgroundTasks' ? taskMap : name === 'backgroundTaskIds' ? helperSet : undefined),
+      isOff: (k) => off.includes(k),
+      marksNow: () => ({ dots, stewards: [] }),
+    };
+    new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '82-scheduled-tasks.js'), 'utf8')}})()`,
+      { filename: '82-scheduled-tasks.js' }).runInNewContext(env);
+    return env.window;
+  };
+  const texts = () => calls.filter((c) => Array.isArray(c.props && c.props.children)).map((c) => c.props.children.filter((x) => typeof x === 'string').join('')).filter(Boolean);
+
+  const api = make();
+  calls.length = 0;
+  api.__cceSchedule(h);
+  const shown = texts();
+  same([shown.includes('2 workers · claude -p, started from this conversation'), shown.includes('joinwin-1b'), shown.includes('running'),
+    shown.includes(' · for 2h'), shown.includes(`session ${W} · pid 7001`), shown.includes('inner-check'), shown.includes('idle'),
+    shown.includes('1 detached command · running, started from this conversation'), shown.includes('sleep 999'),
+    JSON.stringify(calls).includes('setsid nohup claude -p go'), JSON.stringify(calls).includes('theirs')],
+  [true, true, true, true, true, true, true, true, true, false, false],
+  'the map lists the workers with name, state, running time, session id and pid, and leaves out the shell that holds one; another conversation\'s worker is not shown');
+  same([api.__cceAgentsLabel('0 agents', 0), api.__cceAgentsLabel('2 agents', 2), api.__cceScheduleCount()],
+    ['1 detached · 1 worker', '2 agents · 1 detached · 1 worker', 3],
+    'the button counts the worker once, not its shell, and not one still inside a Bash call of this conversation, and opens for them');
+  same([api.__cceAgentsDot('idle'), api.__cceAgentsDot('failed'), api.__cceAgentsDot('waiting'), api.__cceAgentsDot('running'),
+    api.__cceAgentsTitle('Click to open the agent map', 'running', 'idle'), api.__cceAgentsTitle('Agents are working · Click to open the agent map', 'running', 'running'),
+    api.__cceAgentsTitle('Click to open the agent map', 'idle', 'idle')],
+  ['running', 'running', 'waiting', 'running', 'Background work is running · Click to open the agent map',
+    'Agents are working · Click to open the agent map', 'Click to open the agent map'],
+  'with work running the button\'s dot is green and says why; an agent waiting for permission keeps its own colour');
+
+  const noWorkers = make({ off: ['backgroundSessions'] });
+  calls.length = 0;
+  noWorkers.__cceSchedule(h);
+  same([noWorkers.__cceAgentsLabel('0 agents', 0), texts().some((t) => /workers?\b/.test(t)), JSON.stringify(calls).includes('setsid nohup claude -p go')],
+    ['2 detached', false, true], 'with background sessions switched off, no worker is listed and the shell holding one is a detached command again');
+
+  /* What the footer of the conversation in the screenshot had: one command put in the background and nothing else. */
+  const empty = webview.liveCss({ enabled: true });
+  const timer = webview.liveCss({ enabled: true, tasks: [{ id: 'cafe1234', cron: '*/5 * * * *', recurring: true, session: SID, project: '/p', prompt: 'check' }] });
+  const one = make({ sheet: empty, tasks: 1 }), helping = make({ sheet: empty, helpers: 1 }), timed = make({ sheet: timer }), nothing = make({ sheet: empty });
+  same([one.__cceAgentsLabel('0 agents', 0), one.__cceAgentsDot('idle'), helping.__cceAgentsDot('idle'),
+    timed.__cceAgentsLabel('0 agents', 0), timed.__cceAgentsDot('idle'), nothing.__cceAgentsDot('idle'), nothing.__cceAgentsDot('failed')],
+  ['1 task', 'running', 'running', '1 timer', 'idle', 'idle', 'failed'],
+  'a command or a helper in the background turns the dot green; a scheduled prompt, which runs nothing until it is due, does not');
+
+  const session = { sessionId: { value: SID } };
+  same([nothing.__cceMainDot(true, session), nothing.__cceMainDot(false, session), one.__cceMainDot(false, session), api.__cceMainDot(false, session),
+    make({ sheet: empty, dots: { [SID]: 'background' } }).__cceMainDot(false, session),
+    make({ sheet: empty, dots: { [SID]: 'waiting' } }).__cceMainDot(false, session),
+    make({ sheet: empty, dots: { [OTHER]: 'background' } }).__cceMainDot(false, session)],
+  [{ state: 'running' }, { state: 'idle' }, { state: 'running', ring: true }, { state: 'running', ring: true },
+    { state: 'running', ring: true }, { state: 'waiting' }, { state: 'idle' }],
+  'the map\'s own row: green while a turn runs, a green ring once only background work runs - counted here or found by the host - red while it waits for you, and grey otherwise');
+
+  /* The two edits that hand the dots to the page, on stand-ins shaped like Claude Code's components. */
+  const { applyEdits } = require('../src/edits');
+  const pick = (name) => webview.EDITS.filter((e) => e.name === name);
+  const button = applyEdits('function szn({count:e,dot:t,onOpen:n}){let i=OAe(e),o=azn(t);return{dot:t,title:o,label:i}}', pick('agent button label and dot'));
+  const row = applyEdits('function dDn({session:e,onClick:t}){vt();let n=e.summary.value||"This session",i=e.visiblyBusy.value;return k("button",{children:[k("span",{children:[m(Ef,{state:i?"running":"idle"}),m("span",{children:n})]})]})}',
+    pick('agent map own row dot'));
+  const run = (code, call, win) => vm.runInNewContext(`${code};${call}`, {
+    window: win, OAe: (n) => `${n} agents`, azn: (d) => `says ${d}`, vt: () => {}, Ef: 'Ef',
+    k: (type, p) => ({ type, p }), m: (type, p) => ({ type, p }) });
+  const dotOf = (tree) => tree.p.children[0].p.children[0].p;
+  const stub = { __cceAgentsDot: (d) => (d === 'idle' ? 'running' : d), __cceAgentsLabel: (t) => t + ' · 1 task',
+    __cceAgentsTitle: (t, d, was) => `${t} (${was} -> ${d})`, __cceMainDot: (busy, s) => ({ state: busy ? 'running' : 'idle', ring: s.ring }) };
+  same([button.error || null, row.error || null,
+    button.out && run(button.out, 'szn({count:0,dot:"idle",onOpen:null})', stub),
+    button.out && run(button.out, 'szn({count:2,dot:"waiting",onOpen:null})', {}),
+    row.out && dotOf(run(row.out, 'dDn({session:{summary:{value:"x"},visiblyBusy:{value:false},ring:true}})', stub)),
+    row.out && dotOf(run(row.out, 'dDn({session:{summary:{value:"x"},visiblyBusy:{value:true}}})', {}))],
+  [null, null, { dot: 'running', title: 'says running (idle -> running)', label: '0 agents · 1 task' },
+    { dot: 'waiting', title: 'says waiting', label: '2 agents' }, { state: 'idle', ring: true }, { state: 'running' }],
+  'the button takes its dot, label and hover text from the page and the map\'s own row its dot; without the page both are Claude Code\'s');
 }
 
 /* Images in replies, the page side: a data: image drawn at once, a local file asked of the host and drawn from its
@@ -8676,9 +8793,13 @@ console.log('\nconversations whose background sessions are busy');
         const plans = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cce-share-'));
         const sessions = path.join(plans, 'sessions');
         fs.writeFileSync(path.join(plans, bg.SNAPSHOT_FILE), JSON.stringify({ at: Date.now(), shells: ['ffffffff-0000-4000-8000-000000000009'], launchers: [],
-          jobs: [{ session: 'ffffffff-0000-4000-8000-000000000009', pid: 42, start: '7', startedAt: null, kind: 'leader', command: 'python3 job.py' }] }));
+          jobs: [{ session: 'ffffffff-0000-4000-8000-000000000009', pid: 42, start: '7', startedAt: null, kind: 'leader', command: 'python3 job.py' }], workers: [] }));
         const shared = await bg.workingNow({ dir: plans, sessions });
         const sharedJobs = bg.jobsNow();
+        // A file from the build before workers were looked for, which cannot say whether a job holds one.
+        fs.writeFileSync(path.join(plans, bg.SNAPSHOT_FILE), JSON.stringify({ at: Date.now(), shells: ['ffffffff-0000-4000-8000-000000000007'], launchers: [],
+          jobs: [] }));
+        const noWorkers = await bg.workingNow({ dir: plans, sessions });
         // A file from a build that listed no jobs, under the key this build writes and under the one before it.
         fs.writeFileSync(path.join(plans, bg.SNAPSHOT_FILE), JSON.stringify({ at: Date.now(), shells: ['ffffffff-0000-4000-8000-000000000008'], launchers: [] }));
         const noJobs = await bg.workingNow({ dir: plans, sessions });
@@ -8691,16 +8812,17 @@ console.log('\nconversations whose background sessions are busy');
         process.stdout.write(JSON.stringify({ reread, second: [...second.shells].sort(), third: [...third.shells].sort(),
           shared: [...shared], sharedJobs: sharedJobs.map((j) => j.pid), noJobs: noJobs.has('ffffffff-0000-4000-8000-000000000008'),
           older: older.has('ffffffff-0000-4000-8000-000000000008'), fresh: fresh.has('ffffffff-0000-4000-8000-000000000009'),
-          rewrittenAge: Date.now() - rewritten.at, rewrittenJobs: Array.isArray(rewritten.jobs) }));
+          noWorkers: noWorkers.has('ffffffff-0000-4000-8000-000000000007'),
+          rewrittenAge: Date.now() - rewritten.at, rewrittenJobs: Array.isArray(rewritten.jobs), rewrittenWorkers: Array.isArray(rewritten.workers) }));
       })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 60000 }));
     if (cachedRun.reread === 0 && JSON.stringify(cachedRun.second) === JSON.stringify([S(1), S(2), S(4), S(5)])
         && JSON.stringify(cachedRun.third) === JSON.stringify([S(1), S(4), S(5)])) {
       ok('a process\'s environment is read on the first snapshot only, and again when its pid is reused');
     } else bad(`reading environments again: ${JSON.stringify(cachedRun)}`);
     if (JSON.stringify(cachedRun.shared) === JSON.stringify(['ffffffff-0000-4000-8000-000000000009']) && JSON.stringify(cachedRun.sharedJobs) === '[42]'
-        && cachedRun.fresh === false && cachedRun.noJobs === false && cachedRun.older === false
-        && cachedRun.rewrittenAge >= 0 && cachedRun.rewrittenAge < 30000 && cachedRun.rewrittenJobs) {
-      ok('a /proc snapshot under 9 s old from another window is reused with its jobs; one without jobs, from an earlier build, or an older one, is replaced with a new reading');
+        && cachedRun.fresh === false && cachedRun.noJobs === false && cachedRun.older === false && cachedRun.noWorkers === false
+        && cachedRun.rewrittenAge >= 0 && cachedRun.rewrittenAge < 30000 && cachedRun.rewrittenJobs && cachedRun.rewrittenWorkers) {
+      ok('a /proc snapshot under 9 s old from another window is reused with its jobs; one without jobs or workers, from an earlier build, or an older one, is replaced with a new reading');
     } else bad(`the shared /proc snapshot: ${JSON.stringify(cachedRun)}`);
     /* Which stat files each snapshot reads. The first snapshot and every sixth after it read all of them; the others
        read only new processes, those whose parent is gone, and those counted as running shells. */
@@ -8771,6 +8893,75 @@ console.log('\nconversations whose background sessions are busy');
       ok('the jobs list the top process of each tree with its command and start, the dynamic loader left out of the command; not a process below a claude process, one that leads no session, or one with no conversation');
     } else bad(`the jobs were ${JSON.stringify(jobs)}`);
   } finally { fs.rmSync(root4, { recursive: true, force: true }); }
+  /* `claude -p` workers on a made-up /proc: the one a detached command holds, as a launch through `setsid nohup env -u
+     CLAUDE_CODE_SESSION_ID claude -p` leaves it (the launching shell, two of the CLI's own stubs, then the process with
+     the session record), a worker that worker started, one whose launcher has exited, and one still inside a Bash call
+     of its launcher. */
+  const root5 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-proc-workers-'));
+  try {
+    const S = (n) => `dddddddd-0000-4000-8000-0000000000${n}`;
+    const L1 = S('01'), L2 = S('02'), L3 = S('03'), L4 = S('04'), L5 = S('05');
+    const W1 = S('11'), W2 = S('12'), W3 = S('13'), W4 = S('14'), W5 = S('15'), W6 = S('16'), W7 = S('17'), N1 = S('21');
+    const put = (pid, { comm, ppid = 1, sid = 0, start = 100, argv, env = {} }) => {
+      const d = path.join(root5, String(pid));
+      fs.mkdirSync(d);
+      fs.writeFileSync(path.join(d, 'stat'), `${pid} (${comm}) S ${ppid} 0 ${sid} ${Array(15).fill(0).join(' ')} ${start} 0 0\n`);
+      fs.writeFileSync(path.join(d, 'cmdline'), (argv || [comm]).join('\0') + '\0');
+      fs.writeFileSync(path.join(d, 'environ'), Object.entries(Object.assign({ HOME: '/h' }, env)).map(([k, v]) => `${k}=${v}`).join('\0') + '\0');
+    };
+    fs.writeFileSync(path.join(root5, 'stat'), 'cpu 0 0 0 0\nbtime 1700000000\n');
+    const snapCmd = (rest) => ['/bin/bash', '-c', `source /h/.claude/shell-snapshots/snapshot-bash-1-a.sh && eval '${rest}'`];
+    put(100, { comm: 'claude' });
+    put(200, { comm: 'bash', sid: 196, argv: snapCmd('( setsid nohup env -u CLAUDE_CODE_SESSION_ID claude -p go & )'),
+      env: { CLAUDE_CODE_SESSION_ID: L1, CLAUDE_PID: '100' } });
+    put(201, { comm: 'claude', ppid: 200, sid: 201, argv: ['claude', '-p', 'go'], env: { CLAUDE_PID: '100' } });
+    put(202, { comm: 'claude', ppid: 201, sid: 201, argv: ['/tools/claude', '-p', 'go'], env: { CLAUDE_PID: '100' } });
+    put(203, { comm: 'claude', ppid: 202, sid: 201, argv: ['/tools/claude', '--settings', '{}', '-p', 'go'], env: { CLAUDE_PID: '100' } });
+    put(204, { comm: 'bash', ppid: 203, sid: 201, argv: snapCmd('claude -p deeper'), env: { CLAUDE_CODE_SESSION_ID: W1, CLAUDE_PID: '203' } });
+    put(205, { comm: 'claude', ppid: 204, sid: 201, argv: ['claude', '-p', 'deeper'], env: { CLAUDE_CODE_SESSION_ID: W1, CLAUDE_PID: '203' } });
+    put(300, { comm: 'bash', sid: 300, argv: ['bash', '-c', 'claude -p x; echo done'], env: { CLAUDE_CODE_SESSION_ID: L2, CLAUDE_PID: '999' } });
+    put(301, { comm: 'claude', ppid: 300, sid: 300, argv: ['claude', '-p', 'x'], env: { CLAUDE_CODE_SESSION_ID: L2, CLAUDE_PID: '999' } });
+    put(400, { comm: 'claude', sid: 400, argv: ['claude', '-p', 'y'], env: { CLAUDE_CODE_SESSION_ID: L3, CLAUDE_PID: '998' } });
+    put(500, { comm: 'bash', ppid: 100, sid: 99, argv: snapCmd('claude -p z'), env: { CLAUDE_CODE_SESSION_ID: L1, CLAUDE_PID: '100' } });
+    put(501, { comm: 'claude', ppid: 500, sid: 99, argv: ['claude', '-p', 'z'], env: { CLAUDE_CODE_SESSION_ID: L1, CLAUDE_PID: '100' } });
+    put(600, { comm: 'bash', sid: 600, argv: ['bash', '-c', 'claude; true'], env: { CLAUDE_CODE_SESSION_ID: L4 } });
+    put(601, { comm: 'claude', ppid: 600, sid: 600, argv: ['claude'], env: { CLAUDE_CODE_SESSION_ID: L4 } });
+    const rec = (pid, sessionId, extra = {}) => Object.assign({ pid, sessionId, kind: 'interactive', entrypoint: 'sdk-cli',
+      status: 'busy', name: `worker-${pid}`, startedAt: 1700000100000 + pid }, extra);
+    const records = [rec(100, L1, { entrypoint: 'claude-vscode', name: 'launcher' }), rec(203, W1, { name: 'joinwin-1b' }), rec(205, W2),
+      rec(301, W3, { status: 'idle' }), rec(400, W4), rec(501, W5), rec(601, N1, { entrypoint: 'cli' })];
+    const plans = path.join(root5, 'plans');
+    fs.mkdirSync(plans);
+    // A worker the process scan cannot see (no /proc, or not found there), which the transcript of L5 named.
+    fs.writeFileSync(path.join(plans, L5 + '.background'), JSON.stringify({ ids: [], workers: [W6], scannedTo: 0, reader: 4 }) + '\n');
+    const got = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+      const d = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'detached.js'))});
+      const bg = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'background.js'))});
+      const fs = require('fs');
+      const records = ${JSON.stringify(records)}, dir = ${JSON.stringify(plans)};
+      d.snapshot({ proc: ${JSON.stringify(root5)}, records }).then((r) => {
+        const more = records.concat([${JSON.stringify(rec(700, W6))}, ${JSON.stringify(rec(701, W7))}]);
+        const rows = bg.workerRows({ records: more, found: r.workers, dir });
+        const set = bg.working({ dir, records: more, shells: r.shells, launchers: r.launchers });
+        const l3 = JSON.parse(fs.readFileSync(dir + '/' + ${JSON.stringify(L3)} + '.background', 'utf8'));
+        process.stdout.write(JSON.stringify({ jobs: r.jobs.map((j) => [j.pid, j.session, j.workers || null]), workers: r.workers,
+          launchers: [...r.launchers].sort(), shells: [...r.shells].sort(), rows, working: [...set].sort(), l3: l3.workers }));
+      }).catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8' }));
+    const same = (a, b, msg) => { if (JSON.stringify(a) === JSON.stringify(b)) ok(msg); else bad(`${msg}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`); };
+    same(got.jobs, [[200, L1, [W1]], [300, L2, [W3]], [600, L4, null]],
+      'a detached command whose tree holds a worker names it, the worker\'s own worker and a session that is not a worker left out');
+    same(got.workers, [{ id: W1, pid: 203, launcher: L1 }, { id: W2, pid: 205, launcher: W1, inside: true }, { id: W3, pid: 301, launcher: L2 },
+      { id: W4, pid: 400, launcher: L3 }, { id: W5, pid: 501, launcher: L1, inside: true }],
+    'each worker is tied to the conversation of the command holding it, else to the claude process its CLAUDE_PID names, else to the session id it was started with; one still in a Bash call of its launcher is marked so');
+    same(got.launchers, [[W1, L1], [W2, W1], [W3, L2], [W4, L3], [W5, L1]], 'the same ties are what the dots go by');
+    same(got.rows.map((r) => [r.session, r.id, r.pid, r.name, r.status, r.startedAt, !!r.inside]),
+      [[L1, W1, 203, 'joinwin-1b', 'busy', 1700000100203, false], [L1, W5, 501, 'worker-501', 'busy', 1700000100501, true],
+        [L2, W3, 301, 'worker-301', 'idle', 1700000100301, false], [L3, W4, 400, 'worker-400', 'busy', 1700000100400, false],
+        [L5, W6, 700, 'worker-700', 'busy', 1700000100700, false], [W1, W2, 205, 'worker-205', 'busy', 1700000100205, true]],
+    'the agent map gets each live worker with its launcher, name, status and start; the link file names the launcher the scan could not, and a worker nobody can be tied to is left out');
+    same([got.working.includes(L3), got.l3], [true, [W4]],
+      'a conversation whose process has exited still shows a worker it left running, which is written down for it');
+  } finally { fs.rmSync(root5, { recursive: true, force: true }); }
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   if (/i && i\.state === 'idle' && bgWorking\.has\(i\.sessionId\) \? Object\.assign\(\{\}, i, \{ state: 'running' \}\)/.test(ext)
       && /globalThis\.__cceRefreshTabIcons\(\)/.test(ext) && /globalThis\.__cceSendSessionStates\(\)/.test(ext)

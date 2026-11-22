@@ -492,9 +492,9 @@ function hookWork(dir, records) {
 
 /*
  * Session ids of the conversations with work running: a busy `claude --bg` session it started, a `claude -p` worker it
- * started, a command it left running, or work its hooks reported (hookWork). While the conversation's process runs, a
- * worker is tied to it by CLAUDE_PID in the worker's environment; after that, by the link file and the workers its
- * transcript names.
+ * started, a command it left running, or work its hooks reported (hookWork). A worker is tied to it by the process scan
+ * (src/detached.js: the detached command holding the worker, CLAUDE_PID while the conversation's process runs, or the
+ * session id the worker was started with); after that, by the link file and the workers its transcript names.
  *
  * `shells` and `launchers` are what src/detached.js found. `write` false leaves the link files alone, for a window
  * that must not write shared files.
@@ -529,38 +529,77 @@ function working(opts = {}) {
  */
 const SNAPSHOT_FILE = 'detached.json';
 const SHARE_MS = 9000;
-/* A window running an earlier build writes no jobs; such a file is read again from /proc rather than taken to mean that
-   every job has stopped. */
+/* A window running an earlier build writes no jobs, or no workers; such a file is read again from /proc rather than
+   taken to mean that every job has stopped, or that no job holds a worker. */
 async function sharedSnapshot(records, opts) {
   if (opts.proc) return detached.snapshot({ proc: opts.proc, records });
   const file = path.join(opts.dir || planDir(), SNAPSHOT_FILE), now = Date.now();
   try {
     const d = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (d.at <= now && now - d.at < SHARE_MS && Array.isArray(d.shells) && Array.isArray(d.launchers) && Array.isArray(d.jobs)) {
-      return { shells: new Set(d.shells), launchers: new Map(d.launchers), jobs: d.jobs };
+    if (d.at <= now && now - d.at < SHARE_MS && Array.isArray(d.shells) && Array.isArray(d.launchers) && Array.isArray(d.jobs)
+        && Array.isArray(d.workers)) {
+      return { shells: new Set(d.shells), launchers: new Map(d.launchers), jobs: d.jobs, workers: d.workers };
     }
   } catch (_) { /* none yet, or caught mid-write */ }
   const snap = await detached.snapshot({ records });
   if (opts.write !== false) {
     try {
-      writeAtomic(file, JSON.stringify({ at: Date.now(), shells: [...snap.shells], launchers: [...snap.launchers], jobs: snap.jobs }) + '\n');
+      writeAtomic(file, JSON.stringify({ at: Date.now(), shells: [...snap.shells], launchers: [...snap.launchers], jobs: snap.jobs,
+        workers: snap.workers || [] }) + '\n');
     } catch (_) { /* the next window reads /proc itself */ }
   }
   return snap;
 }
 
-let lastJobs = null;
+/*
+ * The live `claude -p` workers, each with the conversation that started it, for that conversation's agent map:
+ * { session, id, pid, name, status, startedAt, inside? }, by session id and start. The launcher is the one the process
+ * scan found (src/detached.js) or, where it found none or there is no /proc, the conversation whose link file names
+ * the worker. A worker no conversation can be tied to is left out.
+ */
+const MAX_WORKER_ROWS = 20;
+function workerRows({ records = [], found = [], dir = planDir() } = {}) {
+  const scan = new Map();
+  for (const w of found) if (w && typeof w.id === 'string') scan.set(w.id.toLowerCase(), w);
+  let owners = null;
+  const ownerOf = (id) => {
+    if (!owners) {
+      owners = new Map();
+      let names = [];
+      try { names = planNames.names(dir).filter((n) => LINK_FILE.test(n)); } catch (_) { /* no plan folder */ }
+      for (const n of names) for (const w of readLink(path.join(dir, n)).workers) owners.set(w.toLowerCase(), n.slice(0, -SUFFIX.length).toLowerCase());
+    }
+    return owners.get(id) || '';
+  };
+  const out = [];
+  for (const r of records) {
+    if (!isWorker(r)) continue;
+    const id = r.sessionId.toLowerCase(), s = scan.get(id);
+    const session = (s && s.launcher) || ownerOf(id);
+    if (!SESSION.test(session) || session === id) continue;
+    out.push(Object.assign({ session, id, pid: r.pid, name: clip(r.name, 80), status: clip(r.status, 20),
+      startedAt: typeof r.startedAt === 'number' && isFinite(r.startedAt) ? r.startedAt : null }, s && s.inside ? { inside: true } : {}));
+  }
+  out.sort((a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : (a.startedAt || 0) - (b.startedAt || 0) || a.pid - b.pid));
+  return out.slice(0, MAX_WORKER_ROWS);
+}
+
+let lastJobs = null, lastWorkers = null;
 const jobsNow = () => lastJobs;
+const workersNow = () => lastWorkers;
 
 /* Reads /proc, or what another window read from it a moment ago, then calls working(). */
 async function workingNow(opts = {}) {
   const records = liveRecords(opts.sessions);
-  const { shells, launchers, jobs } = await sharedSnapshot(records, opts);
+  const { shells, launchers, jobs, workers } = await sharedSnapshot(records, opts);
   lastJobs = Array.isArray(jobs) ? jobs : [];
-  return working(Object.assign({}, opts, { records, shells, launchers }));
+  const set = working(Object.assign({}, opts, { records, shells, launchers }));
+  lastWorkers = workerRows({ records, found: Array.isArray(workers) ? workers : [], dir: opts.dir });
+  return set;
 }
 
 module.exports = {
-  scan, collect, readState, readLink, busyJobs, liveRecords, working, workingNow, jobsNow, hookWork,
+  scan, collect, readState, readLink, busyJobs, liveRecords, working, workingNow, jobsNow, workersNow, workerRows, hookWork,
   SUFFIX, TASKS_SUFFIX, LINK_FILE, MAX_SESSIONS, MAX_PER_SESSION, MAX_ENTRIES, PERSIST_EVERY, SNAPSHOT_FILE, SHARE_MS,
+  MAX_WORKER_ROWS,
 };
