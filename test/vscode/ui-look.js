@@ -43,8 +43,12 @@ const PLAIN = 'Done. The retry delay is set in config/sync.yml.';
 
 /* The helpers the steps share. */
 
-const setting = (d, key, value) => d.call('await vscode.workspace.getConfiguration().update(arg[0], arg[1], vscode.ConfigurationTarget.Global); return true;', [key, value]);
+/* The request goes as JSON, where an undefined in an array arrives as null; undefined is what puts a setting back to its
+   default. */
+const setting = (d, key, value) => d.call('await vscode.workspace.getConfiguration().update(arg[0], arg[1] === null ? undefined : arg[1], vscode.ConfigurationTarget.Global); return true;', [key, value]);
 const theme = (d, name) => setting(d, 'workbench.colorTheme', name);
+/* Agent Plus's token mode, and a pause for the extensions to follow it. */
+const modeTo = async (d, mode) => { await setting(d, 'agentPlus.tokenMode', mode); await d.sleep(3000); };
 
 /* Turns a setting off for one step; the undo puts it back to its default. */
 const off = (key) => ({
@@ -1377,6 +1381,128 @@ const STEPS = [
       return d.body();
     },
     undo: (d) => answerDialog(d, 'Cancel'),
+  },
+
+  /* Agent Plus's token mode, set to each mode other than All and back, without a reload. */
+  {
+    name: 'token-mode-essential-status', features: ['token-mode', 'show-status'],
+    expect: 'The token mode is now Essential features. A notification at the bottom right, from Claude Code Plus: Show Status, '
+      + 'ends with "Token mode: Essential features (agentPlus.tokenMode); in Claude Code: work plan on, time-zone note on, '
+      + 'conversation brief off, notices when a detached command stops off". It is readable and not cut off. In the whole-window '
+      + 'picture, Agent Plus\'s token mode entry at the right of the status bar says Essential.',
+    unchanged: 'The editor and side bar are as before.',
+    act: async (d) => { await modeTo(d, 'essential'); await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
+    undo: async (d) => { await d.exec('notifications.clearAll'); await d.sleep(500); },
+  },
+  {
+    name: 'token-mode-no-effect', features: ['token-mode'],
+    expect: 'After claudeCodePlus.workPlan was changed while the token mode is Essential features, one notification at the '
+      + 'bottom right says "Claude Code Plus: the token mode is Essential features, so claudeCodePlus.workPlan has no effect '
+      + 'until the mode is Custom." with a Switch to Custom button. Only one such notification; it is readable and not cut off.',
+    unchanged: 'The editor and side bar are as before; the Show Status notification is gone.',
+    act: async (d) => { await setting(d, 'claudeCodePlus.workPlan', false); await d.sleep(2000); return d.body(); },
+    undo: async (d) => { await setting(d, 'claudeCodePlus.workPlan', undefined); await d.sleep(1500); await d.exec('notifications.clearAll'); await d.sleep(500); },
+  },
+  {
+    name: 'token-mode-interface-info', features: ['token-mode', 'session-info'],
+    expect: 'The token mode is now Interface features. The information box opened from the footer\'s info button has a Token '
+      + 'mode row that says Interface features, and in the whole-window picture Agent Plus\'s token mode entry at the right of '
+      + 'the status bar says Interface: the two name the same mode. The rows are aligned, readable and inside the panel.',
+    unchanged: 'The conversation behind the box is as before.',
+    act: async (d) => {
+      await modeTo(d, 'interface');
+      await demoAt(d, BUDGET);
+      if (!await infoOpen(d.conv)) await d.conv.locator('[data-cce-info]').first().click();
+      if (!await d.until(() => d.conv.evaluate(() => /Interface features/.test((document.getElementById('cce-info') || {}).innerText || '')), 8000, 200)) {
+        throw new Error('the information box did not name Interface features within 8 s');
+      }
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => { if (await infoOpen(d.conv)) { await d.conv.locator('[data-cce-info]').first().click(); await d.sleep(400); } },
+  },
+  {
+    name: 'token-mode-interface-meter', features: ['token-mode', 'context-meter'],
+    expect: 'In Interface features, the mouse rests on the usage meter in the footer, and its box shows how much of the context '
+      + 'is used with a breakdown by category, but no part about the work plan, which does not run in this mode. The box lies '
+      + 'wholly inside the panel, readable.',
+    unchanged: 'The information box is closed; the conversation is as before.',
+    act: async (d) => {
+      const meter = d.conv.locator('button[class*="usageButtonV2"]').first();
+      if (!await meter.count()) throw new Error('there is no usage meter in the footer');
+      await d.sleep(21000);
+      await meter.hover();
+      await d.sleep(3000);
+      return d.editor();
+    },
+    undo: (d) => d.away(),
+  },
+  {
+    name: 'token-mode-interface-status', features: ['token-mode', 'show-status'],
+    expect: 'A notification from Claude Code Plus: Show Status ends with "Token mode: Interface features (agentPlus.tokenMode); in '
+      + 'Claude Code: work plan off, time-zone note off, conversation brief off, notices when a detached command stops off". '
+      + 'Readable, not cut off. Agent Plus\'s status bar entry (whole-window picture) says Interface.',
+    unchanged: 'The editor and side bar are as before.',
+    act: async (d) => { await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
+    undo: async (d) => { await d.exec('notifications.clearAll'); await d.sleep(500); },
+  },
+  {
+    name: 'token-mode-custom-status', features: ['token-mode', 'show-status'],
+    expect: 'The token mode is now Custom, and claudeCodePlus.conversationBrief was then turned off. Show Status\'s notification '
+      + 'ends with "Token mode: Custom (agentPlus.tokenMode); in Claude Code: work plan on, time-zone note on, conversation brief '
+      + 'off, notices when a detached command stops on". No notification says a setting has no effect. Agent Plus\'s status '
+      + 'bar entry (whole-window picture) says Custom.',
+    unchanged: 'The editor and side bar are as before.',
+    act: async (d) => {
+      await modeTo(d, 'custom');
+      await setting(d, 'claudeCodePlus.conversationBrief', false);
+      await d.sleep(2000);
+      await d.exec('claudeCodePlus.status');
+      await d.sleep(1500);
+      return d.body();
+    },
+    undo: async (d) => { await d.exec('notifications.clearAll'); await d.sleep(500); },
+  },
+  {
+    name: 'token-mode-settings', features: ['token-mode', 'settings-command'],
+    expect: 'VS Code\'s settings editor shows exactly four Claude Code Plus settings: Work Plan, Tell Claude Your Time Zone, '
+      + 'Conversation Brief (its box unticked) and Detached End Notices. Each description is readable and ends saying it is used '
+      + 'only while the token mode, shown as a link to Agent Plus\'s setting rather than as raw text with # signs, is Custom.',
+    unchanged: 'The side bar is as before.',
+    act: async (d) => {
+      const keys = ['workPlan', 'tellClaudeYourTimeZone', 'conversationBrief', 'detachedEndNotices'].map((k) => `claudeCodePlus.${k}`);
+      await d.exec('workbench.action.openSettings', `@id:${keys.join(',')}`);
+      await d.until(() => d.page.evaluate(() => document.querySelectorAll('.settings-editor .setting-item-contents').length >= 4), 15000, 500);
+      await d.sleep(1500);
+      return d.body();
+    },
+    undo: async (d) => {
+      await d.exec('workbench.action.closeActiveEditor');
+      await setting(d, 'claudeCodePlus.conversationBrief', undefined);
+      await modeTo(d, 'all');
+    },
+  },
+  {
+    name: 'token-mode-all-again', features: ['token-mode', 'session-info', 'show-status'],
+    expect: 'Back in All features: Show Status\'s notification ends with "Token mode: All features (agentPlus.tokenMode); in Claude '
+      + 'Code: work plan on, time-zone note on, conversation brief on, notices when a detached command stops on". The information '
+      + 'box in the conversation has a Token mode row saying All features, and Agent Plus\'s status bar entry (whole-window '
+      + 'picture) says All. No notification says a setting has no effect.',
+    unchanged: 'The settings editor is closed; the side bar is as before.',
+    act: async (d) => {
+      await demoAt(d, BUDGET);
+      if (!await infoOpen(d.conv)) await d.conv.locator('[data-cce-info]').first().click();
+      await d.until(() => d.conv.evaluate(() => /All features/.test((document.getElementById('cce-info') || {}).innerText || '')), 8000, 200);
+      await d.exec('claudeCodePlus.status');
+      await d.sleep(1500);
+      await d.away();
+      return d.body();
+    },
+    undo: async (d) => {
+      if (await infoOpen(d.conv)) { await d.conv.locator('[data-cce-info]').first().click(); await d.sleep(400); }
+      await d.exec('notifications.clearAll');
+      await d.sleep(500);
+    },
   },
 
   {
