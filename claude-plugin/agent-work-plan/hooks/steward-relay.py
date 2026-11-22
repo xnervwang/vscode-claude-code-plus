@@ -30,12 +30,13 @@ the message in a here-document as above.
 
 --rename gives the conversation a new title. --close closes its editor tab; the conversation is not deleted and can
 be opened again from the session list. A conversation that is working, waiting for an answer or running background
-work is closed only with --confirmed. --open starts a new conversation in the VS Code window that has <folder> open
-and sends it the message, then prints the new conversation's session id; if no window has the folder open, it says so.
+work is closed only with --confirmed. --open starts a new conversation in the VS Code window whose first folder is
+<folder> (Claude Code starts a new conversation in a window's first folder) and sends it the message, then prints the new conversation's session id; if no window has the folder open, it says so.
 --windows prints the open windows and their folders.
 
---resume opens a conversation that no window shows, in an editor tab of a VS Code window one of whose folders holds the
-folder the conversation was started in, and then sends it the message, if one is given. It is not done while a window
+--resume opens a conversation that no window shows, in an editor tab of the VS Code window whose first folder is the one
+Claude Code keeps the conversation under (Claude Code finds a window's stored conversations only there), and then sends it
+the message, if one is given. It is not done while a window
 shows the conversation or another process runs it; it says which. A conversation opened with --open or --resume is
 then ticked for this steward in the Steward panel, unless it manages all conversations.
 
@@ -58,6 +59,7 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from plan_path import SESSION_NAME, listed, write_atomic  # noqa: E402
+from plan_common import open_tail  # noqa: E402
 import plan_agent as A  # noqa: E402
 from proc_alive import alive  # noqa: E402
 
@@ -65,8 +67,10 @@ RELAY_DIR = "relay"
 # Claude Code Plus stops taking a request after 60 seconds; the answer panel waits up to 15 seconds for a send.
 WAIT_SECONDS = 40
 OPEN_WAIT_SECONDS = 50
-# A resume waits for the panel to show the conversation (30 seconds) and then to take the message (20 seconds more).
+# A resume waits for a tab to show the conversation (30 seconds), for a long one to load (up to 3 minutes) and then for
+# it to take the message (20 seconds more). The script waits less, to stay inside a tool call's time; the window goes on.
 RESUME_WAIT_SECONDS = 110
+TAIL_BYTES = 256 * 1024
 SAID = {
     "submitted": "Sent: it was typed into the conversation's message input and sent as the user's message.",
     "notReceived": "Not sent",
@@ -131,34 +135,50 @@ def transcript(sid):
     return max(hits, key=os.path.getmtime) if hits else ""
 
 
+def filed_under(name, folder):
+    """Whether `name`, a folder under projects/, is the one Claude Code keeps the conversations of `folder` under: every
+    character but a letter or digit becomes a hyphen, and past 200 characters Claude Code adds a hash of its own."""
+    fold = (lambda t: t.lower()) if sys.platform in ("win32", "darwin") else (lambda t: t)
+    want, name = fold(re.sub(r"[^a-zA-Z0-9]", "-", folder or "")), fold(name or "")
+    if not want or not name:
+        return False
+    return name == want if len(want) <= 200 else name.startswith(want[:200] + "-")
+
+
+def cwds(text):
+    out = []
+    for m in CWD.finditer(text):
+        try:
+            out.append(json.loads('"%s"' % m.group(1)))
+        except ValueError:
+            pass
+    return out
+
+
 def started_in(path):
-    """The folder a transcript was started in, from the cwd its first records carry, or ''."""
+    """The folder a conversation belongs to: of the cwd its records carry, the first one whose folder name is the one the
+    transcript is kept under (a conversation resumed in another folder is copied there with its old records), from the
+    head of the file and then its tail; else the first one; or ''."""
+    name = os.path.basename(os.path.dirname(path))
     try:
         with open(path, "rb") as fh:
-            head = fh.read(HEAD_BYTES).decode("utf-8", "replace")
+            head = cwds(fh.read(HEAD_BYTES).decode("utf-8", "replace"))
     except OSError:
         return ""
-    m = CWD.search(head)
-    if not m:
-        return ""
-    try:
-        return json.loads('"%s"' % m.group(1))
-    except ValueError:
-        return ""
+    hit = next((c for c in head if filed_under(name, c)), "")
+    tail = None if hit else open_tail(path)
+    if tail is not None and tail.size > HEAD_BYTES:
+        hit = next((c for line in tail.lines(TAIL_BYTES) for c in reversed(cwds(line)) if filed_under(name, c)), "")
+    return hit or (head[0] if head else "")
 
 
-def real(path):
-    p = os.path.realpath(path)
-    return os.path.normcase(p) if sys.platform == "win32" else (p.lower() if sys.platform == "darwin" else p)
-
-
-def holds(root, path):
-    """Whether folder `root` is `path` or one of its parents, symbolic links resolved."""
-    try:
-        rel = os.path.relpath(real(path), real(root)) if root and path else ".."
-    except ValueError:  # on Windows, paths on two drives
-        return False
-    return rel == "." or not (rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel))
+def opens_here(path, w):
+    """Whether Claude Code in window `w` finds the transcript at `path`: only under its first folder, or the home folder
+    for a window with none, by that path or the one its symbolic links lead to."""
+    folders = listed(w.get("folders"))
+    first = folders[0] if folders else os.path.expanduser("~")
+    name = os.path.basename(os.path.dirname(path))
+    return filed_under(name, first) or filed_under(name, os.path.realpath(first))
 
 
 def shows(w, sid):
@@ -199,9 +219,11 @@ def resume_check(data, sid):
     cwd = started_in(path)
     if not cwd:
         return ["Not done: its transcript does not say which folder it was started in."], ""
-    if not any(holds(f, cwd) for w in found for f in listed(w.get("folders"))):
-        return (["Not done: no open VS Code window has its folder, %s, or a folder above it, open; it was not opened in "
-                 "a window for another folder. The open windows:" % cwd] + ["  " + line for line in window_lines(found)]), cwd
+    if not any(opens_here(path, w) for w in found):
+        return (["Not done: no open VS Code window has its folder, %s, as its first folder, and Claude Code opens a stored "
+                 "conversation only in such a window; in any other it would start a new, empty one. Ask the user to open "
+                 "that folder in a window (as its first folder). The open windows:" % cwd]
+                + ["  " + line for line in window_lines(found)]), cwd
     return [], cwd
 
 
@@ -339,9 +361,10 @@ def main(argv):
     try:
         os.remove(request_file)
         if opening:
-            print("Not done: no VS Code window that has that folder open took the request. Run --windows to see the open ones.")
+            print("Not done: no VS Code window whose first folder is that folder took the request. Run --windows to see the "
+                  "open ones.")
         elif resuming:
-            print("Not done: no VS Code window that has its folder, %s, open took the request. The open windows:" % cwd)
+            print("Not done: no VS Code window whose first folder is its folder, %s, took the request. The open windows:" % cwd)
             for line in window_lines(windows(data)):
                 print("  " + line)
         elif handing:
@@ -350,7 +373,15 @@ def main(argv):
             print("Not done: no VS Code window that shows that conversation took the request. If no window has it open, "
                   "--resume opens it.")
     except OSError:
-        print("Unclear whether it was done: a window took the request but gave no answer in time.")
+        if resuming:
+            taker = next((n.rsplit("-", 1)[1] for n in os.listdir(directory) if n.startswith(rid + ".taken-")), "")
+            name = next((w.get("name") or "(untitled)" for w in windows(data) if str(w.get("pid")) == taker), "")
+            print('Still opening: %s took the request and is opening the conversation; a long one can take a few minutes '
+                  "to load, and %s. Check later with --windows that a window shows it."
+                  % ('the VS Code window "%s"' % name if name else "a VS Code window",
+                     "the message is typed into it once it has" if text else "nothing more is needed"))
+        else:
+            print("Unclear whether it was done: a window took the request but gave no answer in time.")
     return 1
 
 

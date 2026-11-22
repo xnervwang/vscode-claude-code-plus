@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const waiting = require('./waiting');
 const planNames = require('./plan-names');
-const { planDir, transcriptOf } = require('./claude-files');
+const { planDir, transcriptOf, filedUnder } = require('./claude-files');
 const { OPEN_STATES } = require('./workplan');
 
 /* Stopped conversations are listed only while their plan was written within this many days. */
@@ -27,21 +27,44 @@ function openCount(nodes) {
   return (nodes || []).reduce((n, x) => n + (OPEN_STATES.includes(x.state) ? 1 : 0) + openCount(x.children), 0);
 }
 
-/* The folder a transcript was started in, from the `cwd` its first records carry. Kept per file: it does not change. */
+/*
+ * The folder a conversation belongs to: of the `cwd` values its records carry, the first one whose folder name is the
+ * one the transcript is filed under in projects/ (a conversation resumed in another folder is copied there with its old
+ * records, whose `cwd` is the folder it was started in), read from the head and then from the tail of the file; else
+ * the first one. Kept per file and size.
+ */
 const cwdSeen = new Map();
+const TAIL_BYTES = 256 * 1024;
+const CWD_ALL = /"cwd":"((?:[^"\\]|\\.)*)"/g;
+
+function cwdsIn(text) {
+  const out = [];
+  CWD_ALL.lastIndex = 0;
+  for (let m; (m = CWD_ALL.exec(text));) { try { out.push(JSON.parse('"' + m[1] + '"')); } catch (_) { /* cut off */ } }
+  return out;
+}
+
 function transcriptCwd(file) {
-  if (cwdSeen.has(file)) return cwdSeen.get(file);
+  let size = -1;
+  try { size = fs.statSync(file).size; } catch (_) { return ''; }
+  const seen = cwdSeen.get(file);
+  if (seen && seen.size === size) return seen.cwd;
+  const dir = path.basename(path.dirname(file));
   let cwd = '';
   let fd;
   try {
     fd = fs.openSync(file, 'r');
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
-    const m = /"cwd":"((?:[^"\\]|\\.)*)"/.exec(buf.toString('utf8', 0, n));
-    if (m) cwd = JSON.parse('"' + m[1] + '"');
+    const read = (at, n) => { const buf = Buffer.alloc(n); const got = fs.readSync(fd, buf, 0, n, at); return buf.toString('utf8', 0, got); };
+    const head = cwdsIn(read(0, Math.min(HEAD_BYTES, size)));
+    cwd = head.find((c) => filedUnder(dir, c)) || '';
+    if (!cwd && size > HEAD_BYTES) {
+      const tail = cwdsIn(read(Math.max(0, size - TAIL_BYTES), Math.min(TAIL_BYTES, size)));
+      cwd = tail.reverse().find((c) => filedUnder(dir, c)) || '';
+    }
+    if (!cwd) cwd = head[0] || '';
   } catch (_) { /* not readable: not listed */ }
   finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (_) { /* closed */ } }
-  if (cwd) cwdSeen.set(file, cwd);
+  if (cwd) cwdSeen.set(file, { size, cwd });
   return cwd;
 }
 
