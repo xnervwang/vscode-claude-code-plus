@@ -1,5 +1,5 @@
 {
-  "core": "6a548254497ab98f00498fc568bf42d685189aef",
+  "core": "11db2e25ca1ff553ba74cfb3a8b4dc65bf9ff6a4",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -166,6 +166,11 @@
       "path": "src/window-entries.js",
       "from": "shared/host/window-entries.js",
       "sha256": "cd0e1f9c56bcacd26b80cb10c593b699aa1f875425fc4ee8070f8afd8a179aad"
+    },
+    {
+      "path": "src/load-tabs.js",
+      "from": "shared/host/load-tabs.js",
+      "sha256": "99475c0ba31eeaf4ad0f2c3d91a639967d96a82e760a5a9735e55dd5122861a1"
     }
   ]
 }

@@ -9253,7 +9253,7 @@ console.log('\nloading restored tabs');
   void ok1;
   const exec = async (...a) => { ran.push(a.join(' ')); };
   const done = { n: null };
-  lt.loadAll({ groups, front: groups[1], isClaudeTab: (t) => t.claude, exec, sleep: async () => {}, stepMs: 0 }).then((n) => { done.n = n; });
+  lt.loadAll({ groups, front: groups[1], isTab: (t) => t.claude, exec, sleep: async () => {}, stepMs: 0 }).then((n) => { done.n = n; });
   setImmediate(() => {
     const want = ['workbench.action.focusFirstEditorGroup', 'workbench.action.openEditorAtIndex 0', 'workbench.action.openEditorAtIndex 2',
       'workbench.action.openEditorAtIndex 1', 'workbench.action.focusThirdEditorGroup', 'workbench.action.openEditorAtIndex 0',

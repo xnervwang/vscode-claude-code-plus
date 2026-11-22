@@ -1,12 +1,14 @@
 // BSD 3-Clause License
 // Copyright (c) 2026, Xnerv Wang
 // All rights reserved.
+// Source: vscode-agent-plus shared/host/load-tabs.js; sync-shared.js copies it, so edit it there.
 
 'use strict';
 /*
- * The loadRestoredTabs setting. After a reload VS Code puts a window's webview tabs back, but it builds a tab's page
- * only when that tab is shown, so a conversation in a background tab stays blank until it is clicked. Bringing each
- * background Claude Code tab to the front once builds its page, and Claude Code keeps the page when the tab goes back.
+ * Loading the conversations in background tabs when a window starts (each extension's loadRestoredTabs setting). After
+ * a reload VS Code puts a window's webview tabs back, but it builds a tab's page only when that tab is shown, so a
+ * conversation in a background tab stays blank, and unknown to its agent, until it is clicked. Bringing each background
+ * tab of the agent to the front once builds its page, and the agent keeps the page when the tab goes back.
  *
  * VS Code has no call that brings a tab to the front, so each editor group is focused with its focus command and its
  * tabs are shown by position with workbench.action.openEditorAtIndex. Afterwards each group shows the tab it showed
@@ -19,15 +21,15 @@ const FOCUS_GROUP = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Se
   .map((n) => `workbench.action.focus${n}EditorGroup`);
 
 /*
- * groups: vscode.window.tabGroups.all; front: the active group; isClaudeTab(tab); exec(command, ...args) -> Promise;
- * sleep(ms) -> Promise. Returns how many tabs were shown.
+ * groups: vscode.window.tabGroups.all; front: the active group; isTab(tab): whether a tab is one of the agent's
+ * conversation tabs; exec(command, ...args) -> Promise; sleep(ms) -> Promise. Returns how many tabs were shown.
  */
-async function loadAll({ groups, front, isClaudeTab, exec, sleep, stepMs = STEP_MS }) {
+async function loadAll({ groups, front, isTab, exec, sleep, stepMs = STEP_MS }) {
   let shown = 0;
   for (const g of groups || []) {
     const focus = FOCUS_GROUP[(g.viewColumn || 0) - 1];
     if (!focus) continue;
-    const behind = g.tabs.map((t, i) => (isClaudeTab(t) && !t.isActive ? i : -1)).filter((i) => i >= 0);
+    const behind = g.tabs.map((t, i) => (isTab(t) && !t.isActive ? i : -1)).filter((i) => i >= 0);
     if (!behind.length) continue;
     const back = g.tabs.findIndex((t) => t.isActive);
     await exec(focus);

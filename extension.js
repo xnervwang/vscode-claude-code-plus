@@ -1560,7 +1560,7 @@ function start(context, log, renamed, handing = false) {
       return;
     }
     if (!enabled() || removed() || cfg().get(LOAD_TABS_SETTING, false) !== true) return;
-    loadTabs.loadAll({ groups: vscode.window.tabGroups.all, front: vscode.window.tabGroups.activeTabGroup, isClaudeTab,
+    loadTabs.loadAll({ groups: vscode.window.tabGroups.all, front: vscode.window.tabGroups.activeTabGroup, isTab: isClaudeTab,
       exec: (...a) => vscode.commands.executeCommand(...a), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) })
       .then((n) => { if (n) log.appendLine(`Loaded ${n} Claude Code tab(s) VS Code restored without loading them`); },
         (e) => log.appendLine('loading restored Claude Code tabs: ' + (e && e.message)));
