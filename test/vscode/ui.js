@@ -2248,37 +2248,31 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           win.frontWindow(exe, profile.user, profile.folder, process.env);
           await until(async () => (await focused()) === true && (await focused(folderC)) !== true, 15000, 300);
         }
-        /* Which window VS Code counts as focused. Under xvfb-run, with no window manager, bringing the first one forward
-           need not move that from the second, which took it on opening. */
-        const fa = await focused(), fc = await focused(folderC);
-        const front = fa === true && fc !== true ? 'first' : fc === true && fa !== true ? 'second' : fa === true ? 'both' : 'neither';
-        if (process.platform !== 'linux') check(front === 'first', 'the first window is brought to the front, and VS Code counts only it as focused', { first: fa, second: fc });
-        else if (front !== 'first') note(`with no window manager, bringing the first window forward left ${front} counted as focused, so the notice is looked for there`);
+        /* Which windows VS Code counts as focused. Under xvfb-run, and on the CI's macOS and Windows runners, a window it has
+           counted as focused once can stay so, and the one opened last took the focus on opening. */
+        const wins = [{ name: 'first', p: page, folder: undefined, focused: await focused() }, { name: 'second', p: pageC, folder: folderC, focused: await focused(folderC) }];
+        if (!(wins[0].focused === true && wins[1].focused !== true)) {
+          note(`bringing the first window forward left VS Code counting ${JSON.stringify(wins.map((x) => [x.name, x.focused]))} as focused, so each window is held to that`);
+        }
         await exec('notifications.clearAll');
         await inC('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
         const now = new Date().toISOString();
         fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick the retention period', state: 'waiting', waitingOn: 'user',
           question: 'Keep 7 or 30 days?', asked: now, opened: now, since: now }] }, null, 2));
-        const wins = { first: { p: page, folder: undefined }, second: { p: pageC, folder: folderC } };
         /* `claude agents --json`, where Agent Plus hears of a running conversation, is read at most every 30 s; both
            counts showing say Agent Plus has it waiting. */
-        const counts = await until(async () => { const a = await needCount(), c = await needCount(pageC); return a && c && a.n === 1 && c.n === 1 && [a, c]; }, 60000, 300);
+        const counts = await until(async () => { const a = await needCount(), c = await needCount(pageC); return a && c && a.n === 1 && c.n === 1 && [a, c]; }, SEEN_MS, 300);
         check(!!counts, 'both windows count the waiting conversation in the status bar', [await needCount(), await needCount(pageC)]);
-        if (front === 'first' || front === 'second') {
-          const shows = wins[front], quiet = wins[front === 'first' ? 'second' : 'first'];
-          const told = await until(() => noticeOf(Z, shows.p), 20000, 250) || (await listedNotices(shows.p, shows.folder)).find(about(Z));
-          check(!!told && told.text === `"${Z.title}" is waiting for you.`, `the window with the focus (the ${front}) shows Agent Plus's notice of it`,
-            told || { toasts: await needNotices(shows.p), agentPlus: attentionOf(Z.id) });
-          await shot('notice-in-focused-window');
-          const there = told ? await noticesWithin(Z, 'waiting', quiet.p, quiet.folder) : null;
-          check(!!told && !there.length, 'and the window without the focus shows none', { there });
-        } else if (front === 'both') {
-          note('both windows count as focused, so which of them shows the notice cannot be told here');
-          const any = await until(async () => (await noticeOf(Z)) || (await noticeOf(Z, pageC)), 20000, 250);
-          check(!!any, 'a window that counts as focused shows the notice', { first: await needNotices(), second: await needNotices(pageC) });
-        } else {
-          const none = counts ? [...await noticesWithin(Z, 'waiting'), ...await noticesWithin(Z, 'waiting', pageC, folderC)] : null;
-          check(!!counts && !none.length, 'with no window counted as focused, neither window shows a notice', { none });
+        const shows = wins.filter((x) => x.focused === true), quiet = wins.filter((x) => x.focused !== true);
+        for (const x of shows) {
+          const told = await until(() => noticeOf(Z, x.p), 20000, 250) || (await listedNotices(x.p, x.folder)).find(about(Z));
+          check(!!told && told.text === `"${Z.title}" is waiting for you.`, `the ${x.name} window, which VS Code counts as focused, shows Agent Plus's notice of it`,
+            told || { toasts: await needNotices(x.p), agentPlus: attentionOf(Z.id) });
+        }
+        await shot('notice-in-focused-window');
+        for (const x of quiet) {
+          const there = counts ? await noticesWithin(Z, 'waiting', x.p, x.folder) : null;
+          check(!!counts && !there.length, `the ${x.name} window, which VS Code does not count as focused, shows none`, { there });
         }
       } finally {
         fs.rmSync(plan, { force: true });
