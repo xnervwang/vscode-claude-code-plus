@@ -1327,6 +1327,9 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       if (!conv) throw new Error('the conversation did not open');
       const focus = conv.locator('[data-cce-focus-btn]').first();
       const wasOn = await focus.getAttribute('data-cce-fold') === 'folded';
+      // Agent Plus's notice that the earlier turn finished sits over the panel's footer, and the pointer resting on it
+      // keeps VS Code from hiding it.
+      await exec('notifications.clearAll');
       if (!wasOn) await focus.click();
       const folds = () => conv.evaluate(() => [...document.querySelectorAll('[data-testid="focus-fold-row"]')]
         .map((r) => ({ label: r.textContent.trim(), shown: getComputedStyle(r).display !== 'none' })));
