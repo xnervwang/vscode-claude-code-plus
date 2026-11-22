@@ -216,10 +216,16 @@ const lastReplyHas = (frame, text) => frame.evaluate((t) => {
   const r = [...document.querySelectorAll('[data-testid="assistant-message"]')].pop();
   return !!r && r.innerText.includes(t);
 }, text);
+/* The conversation scrolled to its end. The message box floats over the bottom of the list, which keeps room under its
+   last message for it, so the list is scrolled to its own bottom rather than to the last message's. */
 async function toBottom(frame) {
   await frame.evaluate(() => {
     const last = [...document.querySelectorAll('[data-testid="assistant-message"], [class*="userMessage_"]')].pop();
-    if (last) last.scrollIntoView({ block: 'end' });
+    if (!last) return;
+    last.scrollIntoView({ block: 'end' });
+    for (let s = last.parentElement; s; s = s.parentElement) {
+      if (s.scrollHeight > s.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(s).overflowY)) { s.scrollTop = s.scrollHeight; break; }
+    }
   });
 }
 /* A text file opened in the active editor group, which puts the tab in front there into the background. */
@@ -921,8 +927,9 @@ const STEPS = [
   {
     name: 'delete-open-refused', features: ['delete-open-refused'],
     expect: 'The archived conversation "Why does the nightly export skip archived rows?" is open in a tab, and "Delete session..." '
-      + 'was picked from its menu. Nothing was deleted and no dialog asks: a notification says it was not deleted, naming the '
-      + 'conversation and saying it is open in this VS Code window. The conversation is still listed under Archived sessions.',
+      + 'was picked from its menu. Nothing was deleted and no dialog asks: a notification at the bottom right starts "Not deleted:" '
+      + 'and names the conversation (VS Code may cut a long notification short; its whole text, ending "is open or running.", is '
+      + 'in the log). The conversation is still listed under Archived sessions.',
     unchanged: 'The side bar shows the same rows; the menu is closed.',
     act: async (d) => {
       await thread(d, d.threads[1]);
@@ -1296,17 +1303,16 @@ const STEPS = [
   },
   {
     name: 'session-twice-stopped', features: ['session-twice'],
-    expect: 'Stop the old process was clicked: a notification says "Stopped process <a number> of that conversation." The "2 '
-      + 'processes" marks are gone from the session list and the Steward panel, and the conversation is still listed there.',
-    unchanged: 'The side bar and the Steward panel are as before, less the marks.',
+    expect: 'Stop the old process was clicked: a notification at the bottom right says "Stopped process <a number> of that '
+      + 'conversation."',
+    unchanged: 'The tab bar is as before.',
     act: async (d) => {
       const t = d.threads[2];
       if (!d.twiceFrame) throw new Error('the conversation was not run twice');
       await d.twiceFrame.locator(`[data-stop-old="${t.id}"]`).first().click({ timeout: 5000 });
       const said = () => d.page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].some((e) => /^Stopped process \d+/.test(e.innerText)));
       if (!await d.until(said, 15000, 300)) throw new Error('no notice that the old process was stopped appeared within 15 s');
-      await d.until(() => d.twiceFrame.evaluate(() => !document.querySelector('[data-stop-old]')), 45000, 1000);
-      await d.sleep(1500);
+      await d.sleep(500);
       await d.away();
       return d.body();
     },
@@ -1824,17 +1830,18 @@ const STEPS = [
   },
   {
     name: 'off-background-sessions', features: ['background-sessions'],
-    expect: 'With the setting that lists claude --bg sessions turned off, the agent map is opened again: it has no background '
-      + 'session section and nightly-report is not listed, and the agents button no longer says "1 bg done".',
-    unchanged: 'The conversation behind the map is as before.',
+    expect: 'A close-up of the footer with the setting that lists claude --bg sessions turned off: the agents button no longer '
+      + 'counts the session, so "1 bg done" is gone; with nothing else to count the button itself is gone. The footer\'s other '
+      + 'buttons are in place and nothing overlaps.',
+    unchanged: 'The conversation is as before.',
     act: async (d) => {
       await setting(d, 'claudeCodePlus.show.backgroundSessions', false);
-      await d.sleep(2000);
       const frame = await live(d);
-      await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 }).catch(() => {});
-      await d.sleep(1500);
+      await d.until(async () => { const b = await agentsButton(frame); return !b || !/\bbg\b/.test(b.label); }, 15000, 500);
+      await toBottom(frame);
       await d.away();
-      return d.editor();
+      await d.sleep(800);
+      return around(d, frame, '[data-cce-info]');
     },
     undo: async (d) => { await d.page.keyboard.press('Escape'); await setting(d, 'claudeCodePlus.show.backgroundSessions', undefined); await d.sleep(1500); },
   },

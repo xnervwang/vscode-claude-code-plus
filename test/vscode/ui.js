@@ -1797,10 +1797,13 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         const older = own ? own.pid : 0;
         await exec('claude-vscode.editor.open', front.id);
         await openList();
-        const mark = () => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"] span[class*="sessionName_"]`)]
-          .map((n) => getComputedStyle(n, '::after').content), t.id);
-        const marked = await until(async () => { const m = await mark(); return m.length && m.every((c) => /· 2 processes/.test(c)) && m; }, 45000, 1000);
-        check(!!marked, 'each of its rows in the session list says 2 processes after the title', await mark());
+        /* The mark is the row's own ::after, after the title and never shrunk, so a title cut short does not cut it. */
+        const mark = () => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"]`)].map((r) => {
+          const after = getComputedStyle(r, '::after'), name = r.querySelector('span[class*="sessionName_"]');
+          return { mark: after.content, shrink: after.flexShrink, inName: name ? getComputedStyle(name, '::after').content : '' };
+        }), t.id);
+        const marked = await until(async () => { const m = await mark(); return m.length && m.every((x) => /· 2 processes/.test(x.mark) && x.shrink === '0' && !/processes/.test(x.inName)) && m; }, 45000, 1000);
+        check(!!marked, 'each of its rows in the session list says 2 processes after the title, outside it and never shrunk', await mark());
         await exec('workbench.view.extension.claudeCodePlusSteward');
         const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         const rowNow = () => panel.evaluate((id) => {
@@ -1817,7 +1820,9 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           const said = await until(async () => (await toasts()).find((x) => /^Stopped process \d+ of that conversation\./.test(x)) || '', 15000, 300);
           const gone = await until(() => !of(t.id).some((r) => r.pid === older) && of(t.id).length === 1, 20000, 300);
           check(said === `Stopped process ${older} of that conversation.` && !!gone, 'clicked, it stops the older process and says which, and the other runs on', { said, left: of(t.id) });
-          const cleared = await until(async () => { const r = await rowNow(), m = await mark(); return r && !r.twice && !r.stop && m.every((c) => !/processes/.test(c)); }, 45000, 1000);
+          /* The process left is the one started here as the panel starts one, which no window's panel shows, so the
+             conversation can leave the Steward panel altogether. */
+          const cleared = await until(async () => { const r = await rowNow(), m = await mark(); return (!r || (!r.twice && !r.stop)) && m.every((x) => !/processes/.test(x.mark)); }, 45000, 1000);
           check(!!cleared, 'and the marks go from the panel and the session list', { row: await rowNow(), list: await mark() });
         }
       } finally { await call('if (globalThis.__cceTestSecond) globalThis.__cceTestSecond.kill(); return true;').catch(() => {}); }
