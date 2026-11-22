@@ -1111,6 +1111,31 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
               if (!/^Closed: /.test(closed)) await new Promise((r) => setTimeout(r, 2000));
             }
             check(!!managed && /^Closed: /.test(closed), 'the new conversation is the steward\'s, and the steward closes its tab once it is idle', { managed, closed });
+            /* With its tab closed no window shows that conversation, so the steward opens it again and passes it a
+               message. Its process and this window's list of what it shows can take a moment to let it go. */
+            if (/^Closed: /.test(closed)) {
+              const later = 'Carry on where you left off, please.';
+              let resumed = '';
+              for (let i = 0; i < 15 && !/^Opened: /.test(resumed); i++) {
+                resumed = await act(['--resume', newId], later);
+                if (!/^Opened: /.test(resumed)) await new Promise((r) => setTimeout(r, 2000));
+              }
+              const arrived2 = /^Opened: /.test(resumed) ? await until(() => {
+                try { return fs.readFileSync(transcriptOf({ id: newId }), 'utf8').includes(JSON.stringify(later).slice(1, -1)); } catch (_) { return false; }
+              }, 30000, 500) : false;
+              const tab = await until(async () => (await claudeTabs()).find((x) => x.active), 10000, 300);
+              check(/^Opened: /.test(resumed) && !!arrived2, 'the steward opens a conversation no window shows in an editor tab of this window, and passes it a message',
+                { resumed, arrived: !!arrived2, tab });
+              await shot('steward-resume');
+              if (/^Opened: /.test(resumed)) {
+                const twice = await act(['--resume', newId], later);
+                check(/already open in the VS Code window|already shows it/.test(twice), 'and it does not open one that a window already shows', { twice });
+                for (let i = 0; i < 15; i++) {
+                  if (/^Closed: /.test(await act(['--close', newId]))) break;
+                  await new Promise((r) => setTimeout(r, 2000));
+                }
+              }
+            }
           }
           await shot('steward-actions');
         } else note('the conversation ticked first is not one of the test conversations, so passing words on was not looked at');

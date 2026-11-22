@@ -22,12 +22,13 @@ in its context, and a steward wakes many times with nothing new. After each comp
 import hashlib
 import json
 import os
+import shlex
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from plan_common import (  # noqa: E402
-    COMPACTED_SUFFIX, SESSION_NAME, children, data_dir, listed, read_payload, side_file, write_quietly,
+    COMPACTED_SUFFIX, SESSION_NAME, children, data_dir, launcher, listed, read_payload, side_file, write_quietly,
 )
 from proc_alive import alive  # noqa: E402
 
@@ -38,6 +39,7 @@ MAX_DOING = 2
 TITLE_CHARS = 80
 STATE_WORDS = {"busy": "working", "shell": "running a command", "waiting": "waiting for the user", "idle": "idle"}
 STOPPED = "not running"
+RELAY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "steward-relay.py")
 WORKING_FILE = "working.json"
 
 
@@ -134,12 +136,17 @@ def stewards_of(directory, sid):
 
 
 def watched(stewards):
-    """The line a managed conversation gets each turn."""
+    """The line a managed conversation gets each turn, with the command that hands the first steward a message that
+    belongs elsewhere."""
+    handoff = " ".join([shlex.quote(w) for w in launcher()] + [shlex.quote(RELAY), "--handoff", stewards[0]])
     return ("A steward conversation (%s) watches this one for the user through Claude Code Plus: it reads your work "
             "plan and latest reply, and speaks for the user by typing messages here, which come as the user's own. Do "
             "not send it status messages; put questions for the user in your plan as rows waiting on the user, where "
-            "it sees them."
-            % ", ".join(stewards))
+            "it sees them. If a message plainly belongs elsewhere (meant for another conversation, unrelated to the "
+            "work here, or better done by another one), do not start background work for it here: run %s with a "
+            "here-document holding the user's words, where it should go (a session id, or a folder for a new "
+            "conversation) and why, and say in one sentence that you passed it to the steward."
+            % (", ".join(stewards), handoff))
 
 
 def lines_of(ids, names, now, directory):

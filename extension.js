@@ -27,6 +27,7 @@ const { readTasks, taskDirs } = require('./src/tasks');
 const background = require('./src/background');
 const planNames = require('./src/plan-names');
 const stewardView = require('./src/steward-view');
+const relay = require('./src/relay');
 const stewardMarks = require('./src/steward-marks');
 const titleMarks = require('./src/title-marks');
 const envelope = require('./src/envelope');
@@ -911,8 +912,16 @@ function start(context, log, renamed, handing = false) {
       ask();
     });
   };
+  /* A stored conversation a steward asked for, in an editor tab here (src/relay.js). Without `programmatic`, Claude Code
+     would also make the editor the user's preferred place to open conversations. */
+  const resumeConversation = (sessionId, text) => relay.resume(sessionId, text, {
+    open: (id) => vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, undefined, { programmatic: 'pin-to-panel' }),
+    shows: (id) => claude.source.canDeliver(id),
+    deliver: (id, words) => claude.source.deliverAnswer(id, words, {}),
+  });
   const steward = stewardView.create(vscode, {
     activeChat, freshAgents: () => claude.freshAgents(), readPlan, titles: readTitles.titles, since: readTitles.since,
+    agentsNow: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders())), resume: resumeConversation,
     live: () => liveStates, unread: () => unreadKeys, reveal: (sessionId) => claude.source.reveal(sessionId), shownHere,
     activity: (id) => activityFor(id), question: (id) => freshQuestionOf(id),
     canWrite: () => !removed() && !replaced() && !uninstalling(), canShare: () => !removed() && !uninstalling(),

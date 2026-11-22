@@ -302,7 +302,8 @@ function shell(list, nonce) {
  * the live session records, alive(pid), post(address, text) in place of stewards.post, changed(), called once the
  * table of stewards has been rewritten here, focusWindow(), which brings this window to the front, transcriptOf(id), and
  * deliver(id, text), which types text into the conversation's message input here (src/relay.js), rename(id, title),
- * close(id, confirmed) and open(folder, text) for a steward's other requests (src/relay.js), readState(id) for
+ * close(id, confirmed), open(folder, text) and resume(id, text) for a steward's other requests (src/relay.js), with
+ * agentsNow() -> Promise<{ records, error }> from a fresh `claude agents --json` before a resume, readState(id) for
  * a `claude --bg` session's state (src/background.js), duplicates() for the conversations run by several processes
  * and stopDuplicate(id) to stop the old one (src/duplicates.js), pageAt() for the time of a page's last heartbeat, and
  * otherFront() -> { agent, title } while another agent's conversation tab is in front (src/other-agents.js), or null.
@@ -589,7 +590,8 @@ function create(vscode, deps) {
     } catch (_) { requestWatch = null; }
   };
 
-  /* A steward's requests for a conversation this window shows, or for a new one in a folder it has open (src/relay.js).
+  /* A steward's requests for a conversation this window shows, for a new one in a folder it has open, or to open one
+     started in such a folder, and handoffs to a steward this window shows (src/relay.js).
      The folder is watched, and each pass also looks, in case the watch missed one or the folder did not exist yet when
      the watch was set. */
   let relayWatch = null, relaying = false;
@@ -606,6 +608,8 @@ function create(vscode, deps) {
       for (const r of await relay.take(deps.dir, { shownHere: deps.shownHere, stewards: () => stewards.read(deps.dir),
         hasFolder: (folder) => deps.windowFolders().map(real).includes(real(folder)),
         transcriptOf: deps.transcriptOf, deliver: deps.deliver, rename: deps.rename, close: deps.close, open: deps.open,
+        resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsNow || deps.freshAgents,
+        records: deps.records, post: deps.post, titleOf: (id) => (last.get(id) || {}).title || '',
         manage: (steward, id) => {
           const t = stewards.read(deps.dir)[steward];
           if (t && !t.manages.includes(id)) stewards.setManaged(steward, t.manages.concat(id), titlesOf(t.manages), { dir: deps.dir });

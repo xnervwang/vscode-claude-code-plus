@@ -6,10 +6,14 @@
 """Print one conversation's state, open plan rows and latest reply text, for a steward.
 
     python3 steward-peek.py <session id> [<plugin data directory>]
+    python3 steward-peek.py --said <session id>
 
 Prints the conversation's state from Claude Code's session records, its plan's open rows with the questions it has
 for the user, and the text it wrote after the user's last message, without tool calls, tool output or thinking.
-Read-only.
+
+--said prints the user's latest messages in that conversation instead, oldest first, each with its time: what was
+typed into it, also while a turn ran, and not messages from other sessions or notices. A steward checks a handoff
+against them. Read-only.
 """
 
 import glob
@@ -25,6 +29,10 @@ from proc_alive import alive  # noqa: E402
 
 TAIL_BYTES = 4 * 1024 * 1024
 MAX_REPLY_CHARS = 6000
+MAX_SAID = 5
+MAX_SAID_CHARS = 2000
+# Text that reaches a conversation as a user message without the user typing it.
+NOT_TYPED = ("<cross-session-message", "<task-notification", "Steward notice from Claude Code Plus", "Handoff from ")
 STATE_WORDS = {"busy": "working", "shell": "running a command", "waiting": "waiting for the user", "idle": "idle"}
 
 
@@ -113,9 +121,53 @@ def latest_reply(path):
     return reply if len(reply) <= MAX_REPLY_CHARS else "..." + reply[-MAX_REPLY_CHARS:]
 
 
+def prompt_text(row):
+    """What the user typed, on a row that is_prompt() accepts or that records a message typed while a turn ran."""
+    att = row.get("attachment")
+    if isinstance(att, dict) and att.get("type") == "queued_command" and isinstance(att.get("prompt"), str):
+        return att["prompt"].strip()
+    if not is_prompt(row):
+        return ""
+    content = (row.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return content.strip()
+    return "\n".join(str(b.get("text") or "") for b in listed(content) if isinstance(b, dict) and b.get("type") == "text").strip()
+
+
+def said(path):
+    """The user's latest messages in a transcript, oldest first, as (time, text)."""
+    tail = open_tail(path)
+    if tail is None:
+        return []
+    out = []
+    for line in tail.lines(TAIL_BYTES):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("isSidechain"):
+            continue
+        text = prompt_text(row)
+        if not text or text.startswith(NOT_TYPED) or (out and out[-1][1] == text):
+            continue
+        out.append((str(row.get("timestamp") or "")[:19].replace("T", " "), text))
+        if len(out) >= MAX_SAID:
+            break
+    return list(reversed(out))
+
+
 def main(argv):
+    if len(argv) == 3 and argv[1] == "--said" and SESSION_NAME.match(argv[2]):
+        path = transcript(argv[2].lower())
+        found = said(path) if path else []
+        for at, text in found:
+            print("%s UTC:" % at if at else "(no time):")
+            print("  " + (text if len(text) <= MAX_SAID_CHARS else text[:MAX_SAID_CHARS] + "...").replace("\n", "\n  "))
+        if not found:
+            print("No message from the user was found in that conversation.")
+        return 0
     if len(argv) < 2 or not SESSION_NAME.match(argv[1]):
-        sys.stderr.write("usage: steward-peek.py <session id> [<plugin data directory>]\n")
+        sys.stderr.write("usage: steward-peek.py <session id> [<plugin data directory>] | --said <session id>\n")
         return 2
     sid = argv[1].lower()
     directory = argv[2] if len(argv) > 2 else A.FALLBACK

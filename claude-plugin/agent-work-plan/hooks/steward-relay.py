@@ -15,7 +15,13 @@
     python3 steward-relay.py --open <folder> [<plugin data directory>] <<'EOF'
     <the new conversation's first message>
     EOF
+    python3 steward-relay.py --resume <session id> [<plugin data directory>] [<<'EOF'
+    <a message for it, sent once it is open>
+    EOF]
     python3 steward-relay.py --windows [<plugin data directory>]
+    python3 steward-relay.py --handoff <steward session id> [<plugin data directory>] <<'EOF'
+    <the user's words, where they should go, and why>
+    EOF
 
 Run from the steward conversation: its session id comes from CLAUDE_CODE_SESSION_ID. Claude Code Plus types the
 message into that conversation's input in the VS Code window that has it open and sends it, so it arrives as the
@@ -28,18 +34,28 @@ work is closed only with --confirmed. --open starts a new conversation in the VS
 and sends it the message, then prints the new conversation's session id; if no window has the folder open, it says so.
 --windows prints the open windows and their folders.
 
+--resume opens a conversation that no window shows, in an editor tab of a VS Code window one of whose folders holds the
+folder the conversation was started in, and then sends it the message, if one is given. It is not done while a window
+shows the conversation or another process runs it; it says which.
+
+--handoff is run from a conversation a steward manages, not from the steward: it gives that steward something the
+conversation thinks belongs elsewhere. The window showing the steward posts it to the steward as a notice, which is
+not the user's message.
+
 Prints what happened and exits 0 when it was done, 1 otherwise.
 """
 
+import glob
 import json
 import os
+import re
 import sys
 import time
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from plan_path import SESSION_NAME, write_atomic  # noqa: E402
+from plan_path import SESSION_NAME, listed, write_atomic  # noqa: E402
 import plan_agent as A  # noqa: E402
 from proc_alive import alive  # noqa: E402
 
@@ -47,6 +63,8 @@ RELAY_DIR = "relay"
 # Claude Code Plus stops taking a request after 60 seconds; the answer panel waits up to 15 seconds for a send.
 WAIT_SECONDS = 40
 OPEN_WAIT_SECONDS = 50
+# A resume waits for the panel to show the conversation (30 seconds) and then to take the message (20 seconds more).
+RESUME_WAIT_SECONDS = 110
 SAID = {
     "submitted": "Sent: it was typed into the conversation's message input and sent as the user's message.",
     "notReceived": "Not sent",
@@ -58,12 +76,17 @@ SAID = {
 WINDOWS_DIR = "windows"
 # Claude Code Plus rewrites a window's entry once a minute while the window is open.
 WINDOW_STALE_SECONDS = 120
-FLAGS = ("--rename", "--close", "--open")
+FLAGS = ("--rename", "--close", "--open", "--resume", "--handoff")
 DONE = {
     "--rename": "Renamed.",
     "--close": "Closed: the conversation's tab was closed; it is not deleted and can be opened again from the session list.",
     "--open": "Opened: a new conversation was started and its first message sent.",
+    "--handoff": "Handed off: the steward was told, in a notice that is not the user's message. Say so in one sentence "
+                 "in your reply and leave it to the steward.",
 }
+STEWARDS_FILE = "stewards.json"
+HEAD_BYTES = 64 * 1024
+CWD = re.compile(r'"cwd":"((?:[^"\\]|\\.)*)"')
 
 
 def windows(directory):
@@ -89,6 +112,120 @@ def windows(directory):
     return out
 
 
+def window_lines(found):
+    """The open windows and their folders, one line each, as --windows prints them."""
+    return ["%s: %s" % (w.get("name") or "(untitled)", ", ".join(w.get("folders") or []) or "(no folder)") for w in found] \
+        or ["No open VS Code window with Claude Code Plus was found."]
+
+
+def claude_dir():
+    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+
+
+def transcript(sid):
+    hits = glob.glob(os.path.join(claude_dir(), "projects", "*", sid + ".jsonl"))
+    return max(hits, key=os.path.getmtime) if hits else ""
+
+
+def started_in(path):
+    """The folder a transcript was started in, from the cwd its first records carry, or ''."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(HEAD_BYTES).decode("utf-8", "replace")
+    except OSError:
+        return ""
+    m = CWD.search(head)
+    if not m:
+        return ""
+    try:
+        return json.loads('"%s"' % m.group(1))
+    except ValueError:
+        return ""
+
+
+def real(path):
+    p = os.path.realpath(path)
+    return os.path.normcase(p) if sys.platform == "win32" else (p.lower() if sys.platform == "darwin" else p)
+
+
+def holds(root, path):
+    """Whether folder `root` is `path` or one of its parents, symbolic links resolved."""
+    try:
+        rel = os.path.relpath(real(path), real(root)) if root and path else ".."
+    except ValueError:  # on Windows, paths on two drives
+        return False
+    return rel == "." or not (rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel))
+
+
+def shows(w, sid):
+    return sid in [str(s).lower() for s in listed(w.get("sessions"))]
+
+
+def stewards_table(directory):
+    try:
+        with open(os.path.join(directory, STEWARDS_FILE), encoding="utf-8") as fh:
+            table = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    found = table.get("stewards") if isinstance(table, dict) else None
+    return {k.lower(): v for k, v in found.items() if isinstance(v, dict)} if isinstance(found, dict) else {}
+
+
+def manages(table, steward, sid):
+    """Whether `steward` manages `sid`, as the windows decide it (src/relay.js)."""
+    t = table.get(steward)
+    if not t:
+        return False
+    ids = [str(m).lower() for m in listed(t.get("manages"))]
+    return sid in ids or (t.get("all") is True and sid != steward and sid not in table)
+
+
+def resume_check(data, sid):
+    """Why the conversation cannot be opened, as lines to print, or [] and the folder it was started in."""
+    found = windows(data)
+    showing = [w for w in found if shows(w, sid)]
+    if showing:
+        managed = manages(stewards_table(data), os.environ.get("CLAUDE_CODE_SESSION_ID", "").lower(), sid)
+        return ['Not done: it is already open in the VS Code window "%s"; a plain send reaches it there%s.'
+                % (showing[0].get("name") or "(untitled)",
+                   "" if managed else " once the user ticks it for this steward in the Steward panel")], ""
+    path = transcript(sid)
+    if not path:
+        return ["Not done: no conversation with that session id was found under %s." % os.path.join(claude_dir(), "projects")], ""
+    cwd = started_in(path)
+    if not cwd:
+        return ["Not done: its transcript does not say which folder it was started in."], ""
+    if not any(holds(f, cwd) for w in found for f in listed(w.get("folders"))):
+        return (["Not done: no open VS Code window has its folder, %s, or a folder above it, open; it was not opened in "
+                 "a window for another folder. The open windows:" % cwd] + ["  " + line for line in window_lines(found)]), cwd
+    return [], cwd
+
+
+def handoff_check(data, me, steward):
+    """Why the steward cannot be given a handoff, as a line to print, or ''."""
+    if not manages(stewards_table(data), steward, me):
+        return "Not done: %s is not a steward that manages this conversation." % steward
+    if not any(shows(w, steward) for w in windows(data)):
+        return "Not done: the steward conversation is not open in any VS Code window, so it cannot be told. Tell the user instead."
+    return ""
+
+
+def resume_said(r, name, text):
+    """What a resume's answer says, and whether it was all done."""
+    outcome, reason = r.get("outcome", ""), r.get("reason") or r.get("outcome", "")
+    where = 'the VS Code window "%s"' % name if name else "a VS Code window"
+    if outcome == "submitted":
+        return ("Opened: the conversation was opened in an editor tab in %s%s" % (where, (
+            ", and the message was typed into its input and sent as the user's message." if text else "."))), True
+    if r.get("opened") is True:
+        if outcome == "uncertain":
+            return "Opened in an editor tab in %s, but it is unclear whether the message was sent: %s" % (where, reason), False
+        return "Opened in an editor tab in %s, but the message was not sent: %s" % (where, reason), False
+    if outcome == "uncertain":
+        return "Unclear whether it was opened: %s" % reason, False
+    return "Not done: %s" % reason, False
+
+
 def main(argv):
     args = argv[1:]
     action = next((a for a in args if a in FLAGS), "")
@@ -96,47 +233,61 @@ def main(argv):
     listing = "--windows" in args
     rest = [a for a in args if a not in FLAGS + ("--confirmed", "--windows")]
     if listing:
-        directory = rest[0] if rest else A.FALLBACK
-        found = windows(directory)
-        for w in found:
-            print("%s: %s" % (w.get("name") or "(untitled)", ", ".join(w.get("folders") or []) or "(no folder)"))
-        if not found:
-            print("No open VS Code window with Claude Code Plus was found.")
+        for line in window_lines(windows(rest[0] if rest else A.FALLBACK)):
+            print(line)
         return 0
     target = rest[0] if rest else ""
     opening = action == "--open"
     if (opening and not os.path.isabs(target)) or (not opening and not SESSION_NAME.match(target)) \
-            or (confirmed and action != "--close"):
-        print("usage: steward-relay.py [--rename | --close [--confirmed] | --open] <session id or folder>"
-              " [<plugin data directory>] < text")
+            or (confirmed and action != "--close") or len([a for a in args if a in FLAGS]) > 1:
+        print("usage: steward-relay.py [--rename | --close [--confirmed] | --open | --resume | --handoff]"
+              " <session id or folder> [<plugin data directory>] < text")
         return 2
     steward = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     if not SESSION_NAME.match(steward):
-        print("Not done: CLAUDE_CODE_SESSION_ID is not set, so this was not run from the steward conversation.")
+        print("Not done: CLAUDE_CODE_SESSION_ID is not set, so this was not run from a Claude Code conversation."
+              if action == "--handoff" else
+              "Not done: CLAUDE_CODE_SESSION_ID is not set, so this was not run from the steward conversation.")
         return 1
+    resuming = action == "--resume"
     text = ""
-    if action != "--close":
+    # A resume's message is optional, and a terminal would wait for one.
+    if action != "--close" and not (resuming and sys.stdin.isatty()):
         # Read as bytes: on Windows the console code page would otherwise decode the message, and fail on Chinese.
         raw = sys.stdin.buffer.read()
         try:
             text = raw.decode("utf-8").strip()
         except UnicodeDecodeError:
             text = raw.decode("utf-8", "replace").strip()
-        if not text:
-            print("Not done: nothing on standard input.")
+    if not text and action not in ("--close", "--resume"):
+        print("Not done: nothing on standard input.")
+        return 1
+    data = rest[1] if len(rest) > 1 else A.FALLBACK
+    target = target if opening else target.lower()
+    cwd = ""
+    if resuming:
+        said, cwd = resume_check(data, target)
+        if said:
+            print("\n".join(said))
             return 1
-    directory = os.path.join(rest[1] if len(rest) > 1 else A.FALLBACK, RELAY_DIR)
+    elif action == "--handoff":
+        said = handoff_check(data, steward.lower(), target)
+        if said:
+            print(said)
+            return 1
+    directory = os.path.join(data, RELAY_DIR)
     os.makedirs(directory, exist_ok=True)
     rid = str(uuid.uuid4())
-    request = {"id": rid, "steward": steward.lower(), "action": action[2:] if action else "send",
-               "to": target if opening else target.lower(), "text": text, "at": int(time.time() * 1000)}
+    request = {"id": rid, "action": action[2:] if action else "send", "to": target, "text": text,
+               "at": int(time.time() * 1000)}
+    request["from" if action == "--handoff" else "steward"] = steward.lower()
     if confirmed:
         request["confirmed"] = True
     request_file = os.path.join(directory, rid + ".json")
     result = os.path.join(directory, rid + ".result.json")
     write_atomic(request_file, json.dumps(request, ensure_ascii=False))
-    # An open also waits for the new tab to send its first message.
-    deadline = time.time() + (OPEN_WAIT_SECONDS if opening else WAIT_SECONDS)
+    # An open also waits for the new tab to send its first message, and a resume for the panel to show the conversation.
+    deadline = time.time() + (RESUME_WAIT_SECONDS if resuming else OPEN_WAIT_SECONDS if opening else WAIT_SECONDS)
     while time.time() < deadline:
         if os.path.exists(result):
             try:
@@ -151,6 +302,11 @@ def main(argv):
                 pass
             outcome = r.get("outcome", "")
             reason = r.get("reason") or ""
+            if resuming:
+                name = next((w.get("name") or "(untitled)" for w in windows(data) if w.get("pid") == r.get("window")), "")
+                line, done = resume_said(r, name, text)
+                print(line)
+                return 0 if done else 1
             if outcome == "submitted":
                 print(DONE.get(action, SAID["submitted"]))
                 if opening:
@@ -165,8 +321,15 @@ def main(argv):
         os.remove(request_file)
         if opening:
             print("Not done: no VS Code window that has that folder open took the request. Run --windows to see the open ones.")
+        elif resuming:
+            print("Not done: no VS Code window that has its folder, %s, open took the request. The open windows:" % cwd)
+            for line in window_lines(windows(data)):
+                print("  " + line)
+        elif action == "--handoff":
+            print("Not done: no VS Code window that shows the steward conversation took the request. Tell the user instead.")
         else:
-            print("Not done: no VS Code window that shows that conversation took the request. Is it open in a window?")
+            print("Not done: no VS Code window that shows that conversation took the request. If no window has it open, "
+                  "--resume opens it.")
     except OSError:
         print("Unclear whether it was done: a window took the request but gave no answer in time.")
     return 1
