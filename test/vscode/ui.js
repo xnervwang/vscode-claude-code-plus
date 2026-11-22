@@ -319,10 +319,11 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
   let conv = null;
   const conversation = (t, ms = 90000) => frameWhere((q) => document.querySelectorAll('[class*="userMessage_"]').length >= q.n
     && document.body.innerText.includes(q.ask), ms, { n: t.turns.length, ask: t.turns[0][0] });
+  /* The stamps as they read: the word joiners the page puts after each hyphen show nothing. */
   const stampsIn = (frame) => frame.evaluate(() => {
     const of = (sel) => [...document.querySelectorAll(sel)].map((m) => {
       const s = m.hasAttribute('data-cce-ts') ? m : m.querySelector('[data-cce-ts]');
-      return s ? s.getAttribute('data-cce-ts') : null;
+      return s ? s.getAttribute('data-cce-ts').replace(/\u2060/g, '') : null;
     });
     return { user: of('[class*="userMessage_"]'), reply: of('[data-testid="assistant-message"]'), all: document.querySelectorAll('[data-cce-ts]').length };
   });

@@ -1038,12 +1038,12 @@ console.log('\nwhere a stamp may wrap, and where a tool call\'s goes');
     childNodes: text ? [{ nodeType: 3, nodeValue: text }] : [], contains: () => true,
     getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }, setAttribute(k, v) { this.attrs[k] = v; } });
   const stampOf = (v) => { const line = el([], 'Done.'); box.out.set(el([line]), v); return line.attrs['data-cce-ts']; };
-  const NB = '\u00a0', SEP = `${NB}\u00b7 `;
+  const NB = '\u00a0', SEP = `${NB}\u00b7 `, J = '\u2060';
   const cases = [
     ['a reply with all its figures', '11/09 04:05:06  40s · ctx 10% · cost $0.003 · sonnet-5-5 high',
-      `11/09${NB}04:05:06  40s${SEP}ctx${NB}10%${SEP}cost${NB}$0.003${SEP}sonnet-5-5${NB}high`],
+      `11/09${NB}04:05:06  40s${SEP}ctx${NB}10%${SEP}cost${NB}$0.003${SEP}sonnet-${J}5-${J}5${NB}high`],
     ['a tool call with the time its result came', '04:41:12→04:41:13', '04:41:12→04:41:13'],
-    ['a sub-agent\'s reply with its tag', '04:41:12 #Survey the hooks  3s · opus-5-5', `04:41:12 #Survey${NB}the${NB}hooks  3s${SEP}opus-5-5`],
+    ['a sub-agent\'s reply with its tag', '04:41:12 #Survey the hooks  3s · opus-5-5', `04:41:12 #Survey${NB}the${NB}hooks  3s${SEP}opus-${J}5-${J}5`],
     ['your message from another day', '11/09 04:05:06', `11/09${NB}04:05:06`],
   ];
   for (const [what, v, want] of cases) {
@@ -1055,6 +1055,53 @@ console.log('\nwhere a stamp may wrap, and where a tool call\'s goes');
   box.out.set(tool, '04:41:12', true);
   if (tool.attrs['data-cce-ts'] === '04:41:12' && !('data-cce-ts' in name.attrs)) ok('a tool call\'s stamp goes on its block, not on the tool\'s name');
   else bad(`a tool call's stamp went on ${'data-cce-ts' in name.attrs ? 'the tool\'s name' : 'nothing'}`);
+}
+
+/* In a browser, with the stamp's own rule from the live stylesheet: its size on a heading is its size on a paragraph, and at no width does it break
+   inside the model's name while that part would fit on a line of its own. */
+console.log('\na stamp\'s size, and where it breaks, in a browser');
+{
+  const harness = require('./page-harness');
+  const browser = harness.findBrowser();
+  if (!browser) {
+    if (process.env.CCE_REQUIRE_BROWSER) bad('no Chrome or Chromium found, and this run requires one (CCE_REQUIRE_BROWSER)');
+    else note('skipped: no Chrome or Chromium here for the stamp\'s size and breaks');
+  } else {
+    const fragment = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '35-marks.js'), 'utf8');
+    const box = { out: {}, ATTR: 'data-cce-ts', WALK: { text: 0 }, WeakMap, Set };
+    new vm.Script(`(function(){${fragment}\n;out.breakable = breakable;})()`, { filename: '35-marks.js' }).runInNewContext(box);
+    const v = box.out.breakable('11/10 01:37:27  2m · opus-5-5 xhigh');
+    const at = v.indexOf('opus'), end = v.length;
+    const mark = ['CCE', 'STAMP:'].join('-');
+    const html = '<!doctype html><html><head><style>:root{--vscode-chat-font-size:13px}'
+      + 'body{font-size:var(--vscode-chat-font-size,13px);font-family:sans-serif}' + webview.liveCss({ enabled: true }) + '</style></head><body>'
+      + '<pre id="out"></pre><h2 id="h">The CSV export works</h2><p id="p">Running the tests</p>'
+      + '<div id="w" style="font-family:monospace;font-size:10.4px;white-space:normal;overflow-wrap:anywhere"></div>'
+      + '<span id="part" style="font-family:monospace;font-size:10.4px;white-space:nowrap"></span><script>'
+      + 'var v = ' + JSON.stringify(v) + ', at = ' + at + ', end = ' + end + ';'
+      + 'var h = document.getElementById("h"), p = document.getElementById("p"); h.setAttribute("data-cce-ts", v); p.setAttribute("data-cce-ts", v);'
+      + 'var w = document.getElementById("w"), part = document.getElementById("part"); w.textContent = v; part.textContent = v.slice(at);'
+      + 'var t = w.firstChild, splits = [];'
+      + 'var lineOf = function(i){ var r = document.createRange(); r.setStart(t, i); r.setEnd(t, i + 1); return Math.round(r.getBoundingClientRect().top); };'
+      + 'for (var px = 60; px <= 400; px += 2) { w.style.width = px + "px"; var lines = {};'
+      + '  for (var i = at; i < end; i++) lines[lineOf(i)] = 1;'
+      + '  if (Object.keys(lines).length > 1 && part.getBoundingClientRect().width <= px) splits.push(px); }'
+      + 'document.getElementById("out").textContent = "' + mark + '" + JSON.stringify({ h: getComputedStyle(h, "::before").fontSize,'
+      + '  p: getComputedStyle(p, "::before").fontSize, splits: splits });'
+      + '</script></body></html>';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-stamp-page-'));
+    fs.writeFileSync(path.join(dir, 'p.html'), html);
+    const r = cp.spawnSync(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=3000', '--dump-dom',
+      'file://' + path.join(dir, 'p.html')], { encoding: 'utf8', timeout: 120000 });
+    fs.rmSync(dir, { recursive: true, force: true });
+    const i = (r.stdout || '').indexOf(mark);
+    let got = null;
+    try { got = JSON.parse(r.stdout.slice(i + mark.length, r.stdout.indexOf('<', i)).replace(/&quot;/g, '"').replace(/&amp;/g, '&')); } catch (_) { got = null; }
+    if (got && got.h === got.p && got.p === '10.4px') ok('a stamp on a heading is the size of one on a paragraph: 0.8 of the panel\'s text');
+    else bad(`a stamp's size on a heading and on a paragraph: ${i === -1 ? 'no result (exit ' + r.status + ')' : JSON.stringify(got && { h: got.h, p: got.p })}`);
+    if (got && Array.isArray(got.splits) && !got.splits.length) ok('at no width from 60 to 400 px does a stamp break inside "opus-5-5 xhigh" while that part fits on a line');
+    else bad(`a stamp broke inside the model's name at ${JSON.stringify(got && got.splits)} px`);
+  }
 }
 
 /* With the usage meter switch off the meter is Claude Code's own again (hidden while more than half the window is free,
@@ -1447,8 +1494,8 @@ console.log('\nreply efforts');
     // virtual, so the wait costs nothing unless they never come.
     const r = harness.run(browser, { turns: 30, focus: false, subagent: false, settleCapMs: 15000,
       efforts: { sid, css: `#cce-effort{--cce-effort:"${H(1)}=max,${H(40)}=high!${H(80)}"}\n` } });
-    // The page keeps each part of a stamp together with no-break spaces; only the effort matters here.
-    const plain = (l) => String(l || '').replace(/\u00a0/g, ' ');
+    // The page keeps each part of a stamp together with no-break spaces and word joiners; only the effort matters here.
+    const plain = (l) => String(l || '').replace(/\u00a0/g, ' ').replace(/\u2060/g, '');
     const shown = (r.labels || []).map((l) => plain(l).split('  ').pop().replace(/^\d+s · /, ''));
     const want = shown.map((_, i) => (i + 1 < 40 ? 'opus-5-5 max' : i + 1 <= 80 ? 'opus-5-5 high' : 'opus-5-5'));
     if (r.error) bad('the page with efforts did not run: ' + r.error);

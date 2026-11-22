@@ -43,11 +43,13 @@
     return out;
   };
   /* Where a stamp may wrap: after a "·", at the gap after the time and before an agent's tag. Every other space becomes a
-     no-break space, so a part such as "ctx 21%" stays on one line. */
-  var NBSP = String.fromCharCode(160), DOT = String.fromCharCode(183);
+     no-break space, so a part such as "ctx 21%" stays on one line. A hyphen is a place to wrap as well, so each one is
+     followed by a word joiner, which shows nothing and keeps "opus-5-5" whole. */
+  var NBSP = String.fromCharCode(160), DOT = String.fromCharCode(183), JOIN = String.fromCharCode(8288);
   var breakable = function(v){
     return v.split('  ').map(function(gap){
-      return gap.split(' ' + DOT + ' ').map(function(part){ return part.split(' ').join(NBSP); }).join(NBSP + DOT + ' ');
+      return gap.split(' ' + DOT + ' ').map(function(part){ return part.split(' ').join(NBSP).split('-').join('-' + JOIN); })
+        .join(NBSP + DOT + ' ');
     }).join('  ').split(NBSP + '#').join(' #');
   };
   var marked = new Set(), nextMarked = new Set();
