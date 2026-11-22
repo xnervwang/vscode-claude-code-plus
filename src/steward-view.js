@@ -34,6 +34,7 @@ const activity = require('./activity');
 const titleMarks = require('./title-marks');
 const { GREEN, RED } = require('./tabdot');
 const envelope = require('./envelope');
+const windowEntries = require('./window-entries');
 
 const VIEW = 'claudeCodePlus.steward';
 /* How often the list and the notices are refreshed. `claude agents --json` is asked at most every half minute
@@ -50,9 +51,8 @@ const replaces = (x, c) => x.id === c.id && (STATE_KINDS.has(c.what) ? STATE_KIN
   : x.what === c.what && (c.what === 'twice' || (c.what === 'ended' ? x.why === c.why : x.stop.pid === c.stop.pid)));
 /* How often the background work of the conversations a steward manages is looked at. */
 const WORK_CHECK_MS = 15000;
-/* <plan dir>/windows/<pid>.json: what each window shows, ignored once older than this or once its process is gone. */
-const WINDOWS_DIR = 'windows';
-const WINDOW_STALE_MS = 120000;
+/* <plan dir>/windows/<pid>.json: what each window shows (src/window-entries.js). */
+const WINDOWS_DIR = windowEntries.WINDOWS_DIR;
 /* <plan dir>/windows/<pid>.open.json asks window <pid> to show a conversation. Requests older than OPEN_FRESH_MS are
    ignored, so a window that was busy or closing does not act on one much later. */
 const OPEN_SUFFIX = '.open.json';
@@ -201,7 +201,7 @@ function body(model) {
     <li class="row ${c.managed ? 'managed' : ''}">
       <input type="checkbox" data-id="${esc(c.sessionId)}" ${c.managed ? 'checked' : ''} ${model.every ? 'disabled' : ''} title="Managed by this conversation">
       <span class="dot ${esc(c.dot || '')}" ${c.dot ? `title="${esc(DOT_TEXT[c.dot] || c.dot)}"` : ''}></span>
-      <a href="#" class="name" data-open="${esc(c.sessionId)}" title="${esc(c.cwd)}">${esc(c.title)}</a>
+      <a href="#" class="name" data-open="${esc(c.sessionId)}" title="${esc(c.cwd)}">${esc(titleMarks.withMarks(c.title, { steward: !!c.steward }))}</a>
       ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${htmlChars(model.envelope || envelope.COLOUR)}</span>` : ''}
       ${c.processes.length > 1 ? `<span class="twice" title="${esc(twiceText(c.processes))}">${c.processes.length} processes</span>
       <button class="stop-old" data-stop-old="${esc(c.sessionId)}" title="${esc(stopText(c.processes))}">Stop the old process</button>` : ''}
@@ -228,7 +228,7 @@ function body(model) {
   }
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
-    : `<div class="head"><span>Managed by <b>${esc(model.front.title)}</b>: ${model.managed}</span>
+    : `<div class="head"><span>Managed by <b>${esc(titleMarks.withMarks(model.front.title, { steward: !!(model.managed || model.every) }))}</b>: ${model.managed}</span>
          <label class="every" title="Also ticks conversations opened later. Other stewards are never ticked.">
            <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''}> All, including new ones</label>
          <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${away}
@@ -339,8 +339,9 @@ function create(vscode, deps) {
     const every = !!(front && table[front] && table[front].all);
     const wins = windows();
     const open = (id) => wins.some((w) => w.sessions.includes(id));
+    const steward = (id) => { const t = table[id] || table[String(id).toLowerCase()]; return !!(t && (t.all || (t.manages || []).length)); };
     const rows = [...all.values()].filter((c) => c.sessionId !== front && open(c.sessionId))
-      .map((c) => Object.assign({ managed: mine.has(c.sessionId) }, c));
+      .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c));
     rows.sort((a, b) => (b.managed - a.managed) || (b.lastActiveAt - a.lastActiveAt));
     const groups = grouped(rows, wins, front);
     const hidden = [...mine].filter((id) => !open(id));
@@ -353,38 +354,20 @@ function create(vscode, deps) {
   };
 
   /* This window's entry in the windows folder, written when what it shows changes and once a minute besides. */
-  const own = path.join(deps.dir, WINDOWS_DIR, process.pid + '.json');
-  let published = '', publishedAt = 0;
-  const publish = (now = Date.now()) => {
-    if (!deps.canShare()) return;
-    const entry = { pid: process.pid, name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() };
+  let published = false;
+  const writeEntry = windowEntries.publisher(deps.dir, () => {
+    const entry = { name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() };
     // Omitted until the first heartbeat, so a host with no heartbeat counts as having its window (src/duplicates.js).
     const heard = deps.pageAt ? deps.pageAt() : 0;
     if (heard) entry.pageAt = heard;
-    const text = JSON.stringify(entry);
-    if (text === published && now - publishedAt < WINDOW_STALE_MS / 2) return;
-    try {
-      fs.mkdirSync(path.dirname(own), { recursive: true });
-      writeAtomic(own, JSON.stringify(Object.assign({ at: now }, entry)) + '\n');
-      published = text; publishedAt = now;
-    } catch (e) { deps.log('steward panel: ' + ((e && e.message) || e)); }
+    return entry;
+  }, { log: (m) => deps.log('steward panel: ' + m) });
+  const publish = (now = Date.now()) => {
+    if (deps.canShare() && writeEntry(now)) published = true;
   };
   /* The windows on this machine, this one included, from their entries. */
-  const windows = (now = Date.now()) => {
-    const out = [{ pid: process.pid, name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() }];
-    let names = [];
-    try { names = fs.readdirSync(path.join(deps.dir, WINDOWS_DIR)).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return out; }
-    for (const n of names) {
-      const pid = Number(n.slice(0, -5));
-      if (pid === process.pid) continue;
-      let d;
-      try { d = JSON.parse(fs.readFileSync(path.join(deps.dir, WINDOWS_DIR, n), 'utf8')); } catch (_) { continue; }
-      if (!d || !(now - d.at < WINDOW_STALE_MS) || !deps.alive(pid)) continue;
-      out.push({ pid, name: typeof d.name === 'string' ? d.name : '', folders: Array.isArray(d.folders) ? d.folders : [],
-        sessions: Array.isArray(d.sessions) ? d.sessions : [] });
-    }
-    return out;
-  };
+  const windows = (now = Date.now()) => [{ pid: process.pid, name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() }]
+    .concat(windowEntries.others(deps.dir, { now, alive: deps.alive }).map((w) => ({ pid: w.pid, name: w.name, folders: w.folders, sessions: w.sessions })));
 
   /* The list for a steward with "all" set: every conversation open in a window, except itself and other stewards. */
   const everyIds = (steward, table) => {
@@ -731,7 +714,7 @@ function create(vscode, deps) {
       themeWatch.dispose();
       if (requestWatch) { try { requestWatch.close(); } catch (_) { /* closed */ } }
       if (relayWatch) { try { relayWatch.close(); } catch (_) { /* closed */ } }
-      if (published) { try { fs.unlinkSync(own); } catch (_) { /* gone already */ } }
+      if (published) windowEntries.withdraw(deps.dir);
     },
     refresh() { render(); },
     open,

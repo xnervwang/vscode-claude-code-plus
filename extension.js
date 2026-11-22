@@ -783,6 +783,7 @@ function start(context, log, renamed, handing = false) {
     enabled: () => runs(WORK_PLAN_SETTING),
     brief: () => runs(BRIEF_SETTING),
     timeZone: () => clientZone(),
+    isSteward: (id) => enabled() && !removed() && stewardMarks.stewardIds(stewardTable()).includes(String(id).toLowerCase()),
     listAgents: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders()), undefined,
       { file: path.join(planDir(), AGENTS_FILE), ms: AGENTS_SHARE_MS, write: !replaced() && !uninstalling() }),
     folders: () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath),
