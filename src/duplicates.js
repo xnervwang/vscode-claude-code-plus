@@ -25,7 +25,10 @@ const ALIVE_MS = 60000;
 const NO_PAGE_MS = 5 * 60000;
 /* A process counts as idle once neither its transcript nor its status has changed for this long. */
 const IDLE_MS = 2 * 60000;
+/* A VS Code server starts its extension host with this argument. The desktop app starts it as a utility process, whose
+   command line says --type=utility like its other helpers', and tells it its kind in its environment. */
 const HOST_ARG = '--type=extensionHost';
+const HOST_ENV = 'VSCODE_CRASH_REPORTER_PROCESS_TYPE=extensionHost';
 const MAX_HOPS = 6;
 const STOPPED_DIR = 'stopped';
 const STOPPED_KEEP_MS = 24 * 3600000;
@@ -40,6 +43,10 @@ function stat(proc, pid) {
 function args(proc, pid) {
   try { return fs.readFileSync(path.join(proc, String(pid), 'cmdline'), 'latin1').split('\0').join(' '); } catch (_) { return ''; }
 }
+function isHost(proc, pid) {
+  if (args(proc, pid).includes(HOST_ARG)) return true;
+  try { return fs.readFileSync(path.join(proc, String(pid), 'environ'), 'latin1').split('\0').includes(HOST_ENV); } catch (_) { return false; }
+}
 
 /* The pid of the extension host above `pid`, or 0. */
 function hostOf(pid, proc) {
@@ -48,7 +55,7 @@ function hostOf(pid, proc) {
     const st = stat(proc, p);
     if (!st || st.ppid <= 1) return 0;
     p = st.ppid;
-    if (args(proc, p).includes(HOST_ARG)) return p;
+    if (isHost(proc, p)) return p;
   }
   return 0;
 }
