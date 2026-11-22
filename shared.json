@@ -1,5 +1,5 @@
 {
-  "core": "983a7797c34bd8bdbf493435d1558db9508af9df",
+  "core": "1d2cceff9b0798c9fe5f7be9d4b7988ec3ca4823",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -124,7 +124,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/skill_route.py",
       "from": "shared/plugin/hooks/skill_route.py",
-      "sha256": "65019a6dfbc0230dec0e2dd891560741ae21ee73967642d1d3cc60d4bbf63b54"
+      "sha256": "681bd9a4aaaa66b07e89359e342ce6b6b7ed3dbe7a9da85e58fb56a6a4104b6d"
     },
     {
       "path": "claude-plugin/agent-work-plan/skills/maintain/SKILL.md",
