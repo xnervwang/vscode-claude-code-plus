@@ -61,9 +61,9 @@ const RESUME_ASK_MS = 500;
 const RESUME_RETRY_MS = 1000;
 
 /*
- * The tool call in the steward's transcript that ran steward-relay.py for this request, as { id, at }, or null. It
- * must be the steward's own, not a subagent's, at most RAN_MS old, and its command must contain the conversation's
- * session id (for `open`, the folder) and the text; the line that runs the script must carry the flag of `action` and
+ * The tool call in the asker's transcript that ran steward-relay.py for this request, as { id, at }, or null: the
+ * steward's, or for a handoff that of the conversation handing off. It must be the asker's own, not a subagent's, at most
+ * RAN_MS old, and its command must contain `to` (a session id; for `open`, the folder) and the text; the line that runs the script must carry the flag of `action` and
  * none of the others, and --confirmed when `confirmed` is set. Claude Code writes a tool call to the transcript before running it, so the call is already there
  * while the script waits for an answer.
  */
@@ -193,7 +193,7 @@ async function heldElsewhere(id, deps, managed) {
 
 /*
  * Opens a stored conversation in an editor tab here and, with `text`, sends it once a panel here shows it. deps:
- * open(id), shows(id) -> whether a panel here has the conversation, deliver(id, text) -> a send's result, sleep(ms) and
+ * open(id), shows(id) -> whether a panel here has the conversation and its page takes answers, deliver(id, text) -> a send's result, sleep(ms) and
  * now() for tests. The result has opened: true once a panel showed it, also when the text was then not sent.
  */
 async function resume(id, text, deps) {
@@ -203,7 +203,7 @@ async function resume(id, text, deps) {
   const shownBy = now() + RESUME_SHOW_MS;
   while (!deps.shows(id)) {
     if (now() >= shownBy) {
-      return { outcome: 'uncertain', reason: `Claude Code was asked to open it, but no panel here showed it within ${RESUME_SHOW_MS / 1000} seconds` };
+      return { outcome: 'uncertain', reason: `Claude Code was asked to open it, but no panel here was ready for it within ${RESUME_SHOW_MS / 1000} seconds` };
     }
     await sleep(RESUME_ASK_MS);
   }

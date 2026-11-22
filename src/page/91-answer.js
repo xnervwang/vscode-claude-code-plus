@@ -124,6 +124,17 @@
       look();
     });
   };
+  /* An answer handed over before this page listens is lost, and a tab a steward has just opened on a stored conversation
+     (src/relay.js) is sent its text at once. So the page says, through the answers' own reply, when it listens for its
+     conversation: as it starts listening, and when it finds which conversation it shows. */
+  var ANSWERS_READY = 'cce-answers-ready';
+  var answersOn = false;
+  var sayAnswersReady = function(){
+    var sid = sigValue('sessionId');
+    if (!answersOn || typeof sid !== 'string' || !sid) return;
+    try { acquireVsCodeApi().postMessage({ type: 'cce_answer_result', id: ANSWERS_READY, sent: false, reason: '', detail: sid }); }
+    catch (e) { /* the steward's text then waits until its wait runs out */ }
+  };
   var listenForAnswers = function(){
     window.addEventListener('message', function(ev){
       var d = ev && ev.data, m = d && d.type === 'from-extension' ? d.message : null;
@@ -134,4 +145,6 @@
       if (!m || m.type !== 'cce_answer' || typeof m.text !== 'string' || typeof m.id !== 'string') return;
       try { sendAnswer(m); } catch (e) { answerResult(m.id, false, 'error'); }
     });
+    answersOn = true;
+    sayAnswersReady();
   };

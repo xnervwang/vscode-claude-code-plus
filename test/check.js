@@ -9634,12 +9634,45 @@ console.log('\nthe Steward panel');
           + 'sends the text as from this conversation, and needs text');
       } else bad(`steward-relay.py --handoff: ${JSON.stringify({ stranger: out(stranger), unseen: out(unseen), handed, empty: out(empty) })}`);
 
-      /* The extension opens the conversation the way the panel's own links do, without moving the preferred location. */
+      /* The extension opens the conversation with Claude Code's own command, without moving the preferred location, and
+         hands the text over only once the new tab's page listens for that conversation. */
       const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-      if (/relay\.resume\(sessionId, text, \{\s*open: \(id\) => vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, undefined, \{ programmatic: 'pin-to-panel' \}\),\s*shows: \(id\) => claude\.source\.canDeliver\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
-          && /agentsNow: \(\) => waiting\.listAgents\(pluginInstall\.findClaude\(claudeFolders\(\)\)\), resume: resumeConversation,/.test(ext)) {
-        ok('the window opens a stored conversation with Claude Code\'s own command, sends through the panel that then shows it, and asks claude agents afresh');
+      const answerPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '91-answer.js'), 'utf8');
+      const readyId = (/var ANSWERS_READY = '([^']+)';/.exec(answerPage) || [])[1];
+      if (/open: \(id\) => \{\s*answersReady\.delete\(id\);\s*return vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, undefined, \{ programmatic: 'pin-to-panel' \}\);\s*\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
+          && /agentsNow: \(\) => waiting\.listAgents\(pluginInstall\.findClaude\(claudeFolders\(\)\)\), resume: resumeConversation,/.test(ext)
+          && readyId && ext.includes(`const ANSWERS_READY = '${readyId}', answersReady = new Set();`)
+          && /if \(key !== ANSWERS_READY\) \{ claude\.answered\(key, sent, reason, detail\); return; \}/.test(ext)) {
+        ok('the window opens a stored conversation with Claude Code\'s own command, sends only once that tab\'s page says it listens, '
+          + 'keeps that word out of the answers it waits for, and asks claude agents afresh');
       } else bad('extension.js does not wire the resume request as expected');
+      /* The page's side: it says it listens once it does and knows its conversation, and not before. */
+      const readyPage = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const vm = require('vm'), fs = require('fs');
+        const src = fs.readFileSync(${JSON.stringify(path.join(__dirname, '..', 'src', 'page', '91-answer.js'))}, 'utf8');
+        const run = (sid) => {
+          const posted = [], session = { sessionId: { value: sid } }, listeners = [];
+          const ctx = { out: {}, window: { addEventListener: (t, f) => listeners.push(t) }, document: {}, setTimeout, sessionRef: session,
+            acquireVsCodeApi: () => ({ postMessage: (m) => posted.push(m) }) };
+          new vm.Script('(function(){var sigValue = function(n){ var s = sessionRef && sessionRef[n]; return s ? s.value : undefined; };'
+            + src + '\\n;sayAnswersReady(); var before = out.before = posted_len(); listenForAnswers(); out.say = sayAnswersReady;})()')
+            .runInNewContext(Object.assign(ctx, { posted_len: () => posted.length }));
+          const atStart = posted.slice();
+          session.sessionId.value = 'S-LATER';
+          ctx.out.say();
+          return { before: ctx.out.before, atStart, after: posted.slice(atStart.length), listeners };
+        };
+        process.stdout.write(JSON.stringify({ known: run('S-1'), unknown: run(undefined) }));`], { encoding: 'utf8', timeout: 30000 }));
+      const said = (sid) => ({ type: 'cce_answer_result', id: readyId, sent: false, reason: '', detail: sid });
+      if (readyPage.known.before === 0 && JSON.stringify(readyPage.known.atStart) === JSON.stringify([said('S-1')])
+          && JSON.stringify(readyPage.known.listeners) === '["message"]'
+          && readyPage.unknown.atStart.length === 0 && JSON.stringify(readyPage.unknown.after) === JSON.stringify([said('S-LATER')])) {
+        ok('a page says it listens for answers only once it listens, and names its conversation, again when it learns which one it shows');
+      } else bad(`a page saying it listens: ${JSON.stringify(readyPage)}`);
+      const sessionPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '25-session.js'), 'utf8');
+      if (/sessionRef = s;\s*try \{ sayFocusIfFocused\(\); \} catch \(e\) \{\}\s*try \{ sayAnswersReady\(\); \} catch \(e\) \{\}/.test(sessionPage)) {
+        ok('a page says so again each time it finds the conversation it shows');
+      } else bad('src/page/25-session.js does not say the page listens when it finds its conversation');
     }
 
     /* What a steward's notices add (src/steward-watch.js): what a waiting conversation waits on, background work that

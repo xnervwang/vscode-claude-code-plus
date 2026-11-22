@@ -912,11 +912,17 @@ function start(context, log, renamed, handing = false) {
       ask();
     });
   };
+  /* The conversations whose page has said it listens for answers, by session id (src/page/91-answer.js). */
+  const ANSWERS_READY = 'cce-answers-ready', answersReady = new Set();
   /* A stored conversation a steward asked for, in an editor tab here (src/relay.js). Without `programmatic`, Claude Code
-     would also make the editor the user's preferred place to open conversations. */
+     would also make the editor the user's preferred place to open conversations. The text waits until the new tab's
+     page says it listens for that conversation (src/page/91-answer.js); an answer handed over earlier is lost. */
   const resumeConversation = (sessionId, text) => relay.resume(sessionId, text, {
-    open: (id) => vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, undefined, { programmatic: 'pin-to-panel' }),
-    shows: (id) => claude.source.canDeliver(id),
+    open: (id) => {
+      answersReady.delete(id);
+      return vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, undefined, { programmatic: 'pin-to-panel' });
+    },
+    shows: (id) => claude.source.canDeliver(id) && answersReady.has(id),
     deliver: (id, words) => claude.source.deliverAnswer(id, words, {}),
   });
   const steward = stewardView.create(vscode, {
@@ -1001,7 +1007,11 @@ function start(context, log, renamed, handing = false) {
     if (stewardWatch) { planNames.watching(''); try { stewardWatch.close(); } catch (_) { /* closed */ } }
   } });
 
-  globalThis.__cceAnswerHook = (key, sent, reason, detail) => claude.answered(key, sent, reason, detail);
+  globalThis.__cceAnswerHook = (key, sent, reason, detail) => {
+    if (key !== ANSWERS_READY) { claude.answered(key, sent, reason, detail); return; }
+    if (answersReady.size > 500) answersReady.clear();
+    if (typeof detail === 'string' && detail) answersReady.add(detail);
+  };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceAnswerHook) delete globalThis.__cceAnswerHook; } });
   coreLink.link(vscode, claude.source, { name: 'the Claude Code source', log: (m) => log.appendLine(m) }).then((r) => {
     if (!r.registered) return;

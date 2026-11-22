@@ -1116,9 +1116,10 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
             if (/^Closed: /.test(closed)) {
               const later = 'Carry on where you left off, please.';
               let resumed = '';
-              for (let i = 0; i < 15 && !/^Opened: /.test(resumed); i++) {
+              // Retried only while it was not opened at all; once opened, the answer says whether the text was sent.
+              for (let i = 0; i < 15 && !/^Opened/.test(resumed); i++) {
                 resumed = await act(['--resume', newId], later);
-                if (!/^Opened: /.test(resumed)) await new Promise((r) => setTimeout(r, 2000));
+                if (!/^Opened/.test(resumed)) await new Promise((r) => setTimeout(r, 2000));
               }
               const arrived2 = /^Opened: /.test(resumed) ? await until(() => {
                 try { return fs.readFileSync(transcriptOf({ id: newId }), 'utf8').includes(JSON.stringify(later).slice(1, -1)); } catch (_) { return false; }
@@ -1127,7 +1128,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
               check(/^Opened: /.test(resumed) && !!arrived2, 'the steward opens a conversation no window shows in an editor tab of this window, and passes it a message',
                 { resumed, arrived: !!arrived2, tab });
               await shot('steward-resume');
-              if (/^Opened: /.test(resumed)) {
+              if (/^Opened/.test(resumed)) {
                 const twice = await act(['--resume', newId], later);
                 check(/already open in the VS Code window|already shows it/.test(twice), 'and it does not open one that a window already shows', { twice });
                 for (let i = 0; i < 15; i++) {
