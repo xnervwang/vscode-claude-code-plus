@@ -1550,6 +1550,299 @@ console.log('\nreply efforts');
   } else bad('the effort code polls on its own, or the revision probe no longer hands it the height');
 }
 
+/* ── the skills each turn was given ──
+   The skill search's block (route-skills.py) read from the transcript in the same pass as the efforts (src/efforts.js),
+   kept against the turn's first reply and handed over in the same stylesheet; the page puts the names after the figures
+   of the first reply it draws in that turn (77-turn-skills.js, 99-sweep.js). */
+console.log('\nthe skills each turn was given, after its first reply\'s figures');
+{
+  const U = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const H = (n) => U(n).replace(/-/g, '');
+  const efforts = require('../src/efforts');
+  const hooks = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
+
+  /* The words the reading depends on, against the hook that writes them. */
+  const hookSrc = fs.readFileSync(path.join(hooks, 'skill_route.py'), 'utf8');
+  const constant = (name) => { const m = new RegExp(`^${name} = "([^"]*)"`, 'm').exec(hookSrc); return m ? m[1] : null; };
+  const endLine = /^ORDER_END = \("([^"]*)"/m.exec(hookSrc);
+  const words = [constant('MARK'), constant('ORDER_LINE'), constant('GIVEN_EARLIER'), endLine ? endLine[1] : null];
+  if (words[0] === efforts.ROUTE_MARK && words[1] === efforts.ORDER_LINE && words[2] === efforts.GIVEN_EARLIER
+      && !!words[3] && words[3].startsWith(efforts.ORDER_END)) {
+    ok('the block is read with the words skill_route.py writes it with');
+  } else bad(`skill_route.py writes ${JSON.stringify(words)}; src/efforts.js reads ${JSON.stringify([efforts.ROUTE_MARK, efforts.ORDER_LINE, efforts.GIVEN_EARLIER, efforts.ORDER_END])}`);
+
+  /* The blocks as the hook renders them for Claude Code (claude_block in skill_route.py): `given` maps a skill given in
+     full earlier to its description, which makes the hook only name it. */
+  const render = (turns) => JSON.parse(cp.execFileSync('python3', ['-c', [
+    'import json, sys', `sys.path.insert(0, ${JSON.stringify(hooks)})`, 'sys.dont_write_bytecode = True', 'import skill_route as s',
+    'out = []',
+    'for top, given in json.load(sys.stdin):',
+    '    out.append(s.claude_block([{"name": n, "desc": "What " + n + " does. Use when it fits."} for n in top], {n: "What " + n + " does. Use when it fits." for n in given})[0])',
+    'print(json.dumps(out))'].join('\n')], { encoding: 'utf8', input: JSON.stringify(turns) }));
+  const long = Array.from({ length: 12 }, (_, i) => `Plugin-all:a-rather-long-skill-name-number-${i}`);
+  const [full, earlier, onlyNamed, compacted, interrupted, many] = render([
+    [['Tools-all:disk-cleanup', 'web-fetching'], []],
+    [['web-fetching', 'git-identity', 'Tools-all:disk-cleanup'], ['web-fetching', 'Tools-all:disk-cleanup']],
+    [['git-identity', 'web-fetching'], ['git-identity', 'web-fetching']],
+    [['compaction-continuity'], []],
+    [['periodic-wakeup'], []],
+    [long, []],
+  ]);
+  /* What the cases below are made of; a hook that renders them otherwise would leave the checks testing nothing. */
+  if (!(/\nIn order of fit: web-fetching \(given earlier\), git-identity, Tools-all:disk-cleanup \(given earlier\)\. /.test(earlier)
+      && /\n- git-identity: /.test(earlier) && !/\n- web-fetching: /.test(earlier) && /\n- Tools-all:disk-cleanup: /.test(full))) {
+    bad(`the hook no longer renders a block as these checks expect: ${JSON.stringify([full.slice(0, 400), earlier.slice(0, 600)])}`);
+  }
+
+  /* One turn's rows as Claude Code 2.1.330 writes them: the message, a few attachments, the hook's text, the replies. */
+  let ts = 0;
+  const at = () => `2026-11-22T10:${String(Math.floor(ts / 60)).padStart(2, '0')}:${String(ts++ % 60).padStart(2, '0')}.000Z`;
+  const row = (o) => JSON.stringify(Object.assign({ parentUuid: null, isSidechain: false, timestamp: at(), cwd: '/work', sessionId: 's' }, o)) + '\n';
+  const typed = (text, extra = {}) => row(Object.assign({ type: 'user', message: { role: 'user', content: text }, uuid: U(900 + ts) }, extra));
+  const attach = (attachment, extra = {}) => row(Object.assign({ type: 'attachment', attachment, uuid: U(950 + ts) }, extra));
+  const hook = (text, event = 'UserPromptSubmit', extra = {}) => attach({ type: 'hook_additional_context', content: [text], hookName: event,
+    toolUseID: 'hook-1', hookEvent: event }, extra);
+  const zone = hook('The user is in America/Los_Angeles (PST, UTC-08:00), where it is now Sun 2026-11-22 13:53.');
+  const reply = (n, extra = {}) => row(Object.assign({ message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'reply ' + n }] },
+    requestId: 'r' + n, type: 'assistant', uuid: U(n), effort: 'high' }, extra));
+  const result = (text) => row({ type: 'user', message: { role: 'user', content: [{ tool_use_id: 'toolu_1', type: 'tool_result', content: text }] }, uuid: U(800 + ts) });
+  const turnRows = (text, block, replies) => typed(text) + attach({ type: 'environment' }) + zone + (block ? hook(block) : '') + replies.join('');
+  const rows = [
+    // The first turn: every skill in full. Its second reply follows a tool's result.
+    turnRows('Clean up the disk and fetch the page.', full, [reply(1), result('Filesystem 90% used'), reply(2)]),
+    // Some given earlier: the order line names them all, in order of fit.
+    turnRows('And check the git identity first.', earlier, [reply(3)]),
+    // A turn without a block: a short message, or one whose words no skill shares.
+    turnRows('go on', '', [reply(4)]),
+    // Only named, every one given earlier.
+    turnRows('Fetch it once more with the same identity.', onlyNamed, [reply(5)]),
+    // A block whose turn got no reply, then a turn of its own without a block: nothing carries over.
+    turnRows('Wake me in an hour.', interrupted, []), typed('[Request interrupted by user]'), turnRows('never mind', '', [reply(6)]),
+    // A compaction between the block and the reply, as an automatic one comes: the boundary, its attachments, the
+    // summary, a command row Claude Code adds unseen.
+    typed('Carry on after the compaction.') + hook(compacted) + row({ type: 'system', subtype: 'compact_boundary', uuid: U(970) })
+      + attach({ type: 'instructions' }) + typed('This session is being continued from a previous conversation.', { isCompactSummary: true })
+      + typed('<local-command-caveat>Caveat</local-command-caveat>', { isMeta: true }) + reply(7),
+    // Rows that only look like a block: a tool's result quoting one, another hook's text, a sub-agent's row.
+    turnRows('Show me the transcript.', '', [reply(8), result(full), reply(9)]),
+    typed('Start over.') + hook(full, 'SessionStart') + hook(full, 'UserPromptSubmit', { isSidechain: true }) + reply(10),
+    // Twelve long names: the hook gives ten at most, and so does the line.
+    turnRows('All of the long ones.', many, [reply(11)]),
+  ];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-skills-'));
+  try {
+    const sid = 'aaaaaaaa-2222-4333-8444-666666666666';
+    const transcript = path.join(root, sid + '.jsonl');
+    const plans = path.join(root, 'plans');
+    fs.writeFileSync(transcript, rows.join(''));
+    const run = (steps) => JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+      const e = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'efforts.js'))});
+      const fs = require('fs');
+      (async () => {
+        const out = [];
+        for (const step of ${JSON.stringify(steps)}) {
+          if (step.append) fs.appendFileSync(${JSON.stringify(transcript)}, step.append);
+          out.push(await e.scan(${JSON.stringify(sid)}, Object.assign(${JSON.stringify({ dir: plans, transcript })}, step.opts || {})));
+        }
+        process.stdout.write(JSON.stringify(out));
+      })().catch((err) => process.stdout.write(JSON.stringify([{ error: err.message }])));`], { encoding: 'utf8' }));
+    const skillsOf = (r) => { const m = /;--cce-skills:"([^"]*)"\}/.exec((r && r.css) || ''); return m ? m[1] : ''; };
+    const tenLong = long.slice(0, 10).map(encodeURIComponent).join(',');
+    const want = [`${H(1)}=Tools-all%3Adisk-cleanup,web-fetching`, `${H(3)}=web-fetching,git-identity,Tools-all%3Adisk-cleanup`,
+      `${H(5)}=git-identity,web-fetching`, `${H(7)}=compaction-continuity`, `${H(11)}=${tenLong}`];
+    const [a, b] = run([{}, {}]);
+    const got = skillsOf(a).split(';');
+    if (skillsOf(a) === want.join(';')) {
+      ok('each turn\'s skills are kept against its first reply: in full, partly and wholly given earlier, across a compaction, ten at most');
+    } else bad(`the turns' skills read ${JSON.stringify(got)}, not ${JSON.stringify(want)}`);
+    if (got.length === want.length && !got.some((t) => [2, 4, 6, 8, 9, 10].some((n) => t.startsWith(H(n) + '=')))) {
+      ok('a turn without a block gets none, nor does one after a block whose turn got no reply, nor a later reply of a turn, nor a block quoted, another hook\'s, or a sub-agent\'s');
+    } else bad(`turns that were given nothing got skills: ${JSON.stringify(got)}`);
+    if (a.css.startsWith(`#cce-effort{--cce-effort:"${H(1)}=high!${H(11)}";--cce-skills:"`) && !b.changed && skillsOf(b) === skillsOf(a)) {
+      ok('the skills are a second property of the efforts\' own rule, and an unchanged transcript changes nothing');
+    } else bad(`the stylesheet read ${JSON.stringify(a.css.slice(0, 160))}; a second pass changed: ${b.changed}`);
+
+    /* A block cut short: the row still being written is taken once it is whole, and an order line cut before its end
+       loses its last name, which may be cut too. */
+    const cutRow = hook(full).trimEnd();
+    const half = cutRow.slice(0, Math.floor(cutRow.length / 2));
+    const cutOrder = earlier.slice(0, earlier.indexOf('Tools-all:disk-cleanup (given')) + 'Tools-all:disk-cl';
+    const cutLines = full.slice(0, full.indexOf('\n- web-fetching: ') + 8);
+    const [c, d, e2] = run([
+      { append: typed('Clean up again.') + half },
+      { append: cutRow.slice(half.length) + '\n' + reply(12) + turnRows('And the order line cut short.', cutOrder, [reply(13)]) },
+      { append: turnRows('And a skill line cut short.', cutLines, [reply(14)]) },
+    ]);
+    const tail = (r) => skillsOf(r).split(';').slice(want.length);
+    if (!skillsOf(c).includes(H(12)) && JSON.stringify(tail(d)) === JSON.stringify([`${H(12)}=Tools-all%3Adisk-cleanup,web-fetching`, `${H(13)}=web-fetching,git-identity`])
+        && JSON.stringify(tail(e2)) === JSON.stringify(tail(d).concat([`${H(14)}=Tools-all%3Adisk-cleanup`]))) {
+      ok('a block row still being written is read once it is whole, and a block cut short gives only the names it holds whole');
+    } else bad(`blocks cut short read ${JSON.stringify([skillsOf(c).slice(-80), tail(d), tail(e2)])}`);
+
+    /* Switched off, the blocks are not read and nothing is written of them; on again, the transcript is read from the
+       start, so the turns from while it was off show too. A restart carries on from what was kept. */
+    const [off] = run([{ opts: { skills: false }, append: turnRows('While they are off.', full, [reply(15)]) }]);
+    const [on] = run([{}]);
+    const [after] = run([{ append: turnRows('After a restart.', onlyNamed, [reply(16)]) }]);
+    if (!off.css.includes('--cce-skills') && skillsOf(on).includes(`${H(15)}=Tools-all%3Adisk-cleanup,web-fetching`)
+        && skillsOf(after) === skillsOf(on) + `;${H(16)}=git-identity,web-fetching`) {
+      ok('switched off no skills are read or written; switched on again the whole transcript is read; a restart reads on');
+    } else bad(`off ${JSON.stringify(off.css.slice(-120))}; on again ${JSON.stringify(skillsOf(on).slice(-120))}; after a restart ${JSON.stringify(skillsOf(after).slice(-120))}`);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+
+  /* The newest 200 turns are kept. */
+  {
+    const many2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-skills-many-'));
+    try {
+      const sid = 'aaaaaaaa-2222-4333-8444-777777777777';
+      const transcript = path.join(many2, sid + '.jsonl');
+      let text = '';
+      for (let i = 1; i <= 205; i++) text += typed('Turn ' + i + ' asks for a skill.') + hook(full) + reply(i);
+      fs.writeFileSync(transcript, text);
+      const [r] = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        require(${JSON.stringify(path.join(__dirname, '..', 'src', 'efforts.js'))}).scan(${JSON.stringify(sid)}, ${JSON.stringify({ dir: path.join(many2, 'plans'), transcript })})
+          .then((r) => process.stdout.write(JSON.stringify([r])));`], { encoding: 'utf8' }));
+      const turns = (/;--cce-skills:"([^"]*)"/.exec(r.css) || [, ''])[1].split(';');
+      if (turns.length === 200 && turns[0].startsWith(H(6) + '=') && turns[199].startsWith(H(205) + '=')) ok('of 205 turns with skills, the newest 200 are kept');
+      else bad(`of 205 turns, ${turns.length} were kept, from ${turns[0].slice(0, 32)} to ${turns[turns.length - 1].slice(0, 32)}`);
+    } finally { fs.rmSync(many2, { recursive: true, force: true }); }
+  }
+
+  /* The page's half on its own: the property read back, a turn's text, and where its line may break. */
+  {
+    const fragment = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '76-effort.js'), 'utf8')
+      + fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '77-turn-skills.js'), 'utf8');
+    const box = { out: {}, isOff: () => false, sessionRef: null, turnStartFor: () => null, WeakMap };
+    new vm.Script(`(function(){${fragment}\n;out.parse = parseSkills; out.text = skillsText;})()`, { filename: '77-turn-skills.js' }).runInNewContext(box);
+    const parsed = box.out.parse(`${H(1)}=Tools-all%3Adisk-cleanup,web-fetching;nothex=a;${H(2)}=%E0%A4%A;${H(3)}=a%2Cb%3Bc%22d`);
+    if (JSON.stringify(parsed) === JSON.stringify({ [H(1)]: ['Tools-all:disk-cleanup', 'web-fetching'], [H(3)]: ['a,b;c"d'] })
+        && box.out.text(parsed[H(1)]) === 'skills disk-cleanup, web-fetching') {
+      ok('the page reads each turn\'s names back, drops what the extension would not have written, and names a plugin\'s skill without its plugin');
+    } else bad(`the page read ${JSON.stringify(parsed)} and wrote ${JSON.stringify(box.out.text(['Tools-all:disk-cleanup', 'web-fetching']))}`);
+    const marks = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '35-marks.js'), 'utf8');
+    const mbox = { out: {}, ATTR: 'data-cce-ts', WALK: { text: 0 }, WeakMap, Set };
+    new vm.Script(`(function(){${marks}\n;out.breakable = breakable;})()`, { filename: '35-marks.js' }).runInNewContext(mbox);
+    const NB = '\u00a0', SEP = `${NB}\u00b7 `, J = '\u2060';
+    const line = mbox.out.breakable('11/09 04:05:06  40s · opus-5-5 high · skills web-fetching, disk-cleanup');
+    if (line === `11/09${NB}04:05:06  40s${SEP}opus-${J}5-${J}5${NB}high${SEP}skills${NB}web-${J}fetching, disk-${J}cleanup`) {
+      ok('a line of skills may also break between two of them, so a long one need not break inside a name');
+    } else bad(`the skills' line came out ${JSON.stringify(line)}`);
+  }
+
+  /* Where the README and the setting put them: a row of the features table that names the setting, and nothing in the
+     token modes, since what is drawn in the panel costs no tokens. */
+  {
+    const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+    const setting = require('../package.json').contributes.configuration.properties['claudeCodePlus.show.skillNames'];
+    const featureRow = readme.split('\n').find((l) => l.startsWith('| Skill names on replies |')) || '';
+    const modes = readme.slice(readme.indexOf('### Token modes'), readme.indexOf('### Added to every message'));
+    const suggestions = readme.split('\n').find((l) => l.startsWith('| Skill suggestions | Before each turn')) || '';
+    if (featureRow.includes('`claudeCodePlus.show.skillNames`') && /after the figures of its first reply/.test(suggestions)
+        && modes.includes('`claudeCodePlus.skillRouting`') && !modes.includes('skillNames')
+        && setting && setting.default === true && !String(setting.markdownDescription).includes('tokenMode')) {
+      ok('the README names the setting in a row of its features and says where the names appear, and the token modes leave it out');
+    } else bad(`the README's row ${JSON.stringify(featureRow.slice(0, 120))}, the setting ${JSON.stringify(setting)}`);
+  }
+
+  /* The look steps' skills (test/vscode/ui-look.js) are asked for by one message only: the skill search, run as Claude
+     Code runs it in a home holding just those skills, gives them all to that message and none to any other message the
+     steps send, so no other step's reply names skills. */
+  {
+    const look = require('./vscode/ui-look');
+    const fakeModel = require('./vscode/lib/fake-model');
+    const source = fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look.js'), 'utf8');
+    const pic = path.join(os.tmpdir(), 'claude-code-plus-look', 'ws', 'expense-tracker', 'artifacts', 'chart.png');
+    const sent = [...source.matchAll(/(?:send|runAsked)\(d, frame, ((['`])(?:(?!\2).)*\2|SKILL_ASK)/g)]
+      .map((m) => new Function('fakeModel', 'pic', 'SKILL_ASK', `return ${m[1]};`)(fakeModel, pic, look.SKILL_ASK));
+    const others = [...new Set(sent.filter((m) => m !== look.SKILL_ASK))];
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-look-skills-')));
+    try {
+      const claude = path.join(home, '.claude'), data = path.join(claude, 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const work = path.join(home, 'work');
+      fs.mkdirSync(path.join(work, '.git'), { recursive: true });
+      fs.mkdirSync(data, { recursive: true });
+      for (const sk of look.SKILLS) {
+        fs.mkdirSync(path.join(claude, 'skills', sk.name), { recursive: true });
+        fs.writeFileSync(path.join(claude, 'skills', sk.name, 'SKILL.md'), `---\nname: ${sk.name}\ndescription: ${sk.description}\n---\n\nSteps.\n`);
+      }
+      const env = Object.assign({}, process.env, { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: claude });
+      for (const k of Object.keys(env)) if (/^AWS_/.test(k) || k === 'CLAUDE_CODE_USE_BEDROCK') delete env[k];
+      const transcript = path.join(home, 't.jsonl');
+      fs.writeFileSync(transcript, '');
+      const given = (prompt) => {
+        const r = cp.spawnSync('python3', [path.join(hooks, 'route-skills.py'), data], { encoding: 'utf8', env, timeout: 30000,
+          input: JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+            transcript_path: transcript, cwd: work, prompt }) });
+        let text = '';
+        try { text = JSON.parse(r.stdout).hookSpecificOutput.additionalContext; } catch (_) { /* none */ }
+        return efforts.skillNames(text);
+      };
+      given('Build the index first.');
+      const pause = new Int32Array(new SharedArrayBuffer(4));
+      const indexed = () => { try { return fs.readdirSync(path.join(data, 'skill-route')).some((n) => /^index-[0-9a-f]+\.pickle$/.test(n)); } catch (_) { return false; } };
+      for (const until = Date.now() + 30000; !indexed() && Date.now() < until;) Atomics.wait(pause, 0, 0, 100);
+      const asked = given(look.SKILL_ASK);
+      const stray = others.map((m) => [m, given(m)]).filter(([, names]) => names.length);
+      if (others.length >= 8 && sent.includes(look.SKILL_ASK) && asked.length === look.SKILLS.length && !stray.length) {
+        ok(`the look steps' message about the zebra ledger is given all ${asked.length} of their skills, and none of the other ${others.length} messages they send is given any`);
+      } else bad(`the look steps' skills: asked ${JSON.stringify(asked)} of ${sent.length} messages; given to others ${JSON.stringify(stray)}`);
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  }
+
+  /* In a browser, the whole way through: the page loads the stylesheet, and each turn's names go after the figures of the
+     first reply it draws in that turn; the other replies, and the turns without a block, get none. */
+  const harness = require('./page-harness');
+  const browser = harness.findBrowser();
+  if (!browser) {
+    if (process.env.CCE_REQUIRE_BROWSER) bad('no Chrome or Chromium found, and this run requires one (CCE_REQUIRE_BROWSER)');
+    else note('skipped: no Chrome or Chromium here - set CCE_BROWSER to one to run the skills in a page');
+  } else {
+    const sid = 'dddddddd-2222-4333-8444-555555555555';
+    const plain = (l) => String(l || '').replace(/\u00a0/g, ' ').replace(/\u2060/g, '');
+    const skillsIn = (labels) => (labels || []).map((l) => { const m = / · (skills .*)$/.exec(plain(l)); return m ? m[1] : ''; });
+    // The harness gives each turn your message and three replies, numbered from 1: turn i's first reply is 3i + 1.
+    const first = (i) => H(3 * i + 1);
+    const tenLong = Array.from({ length: 10 }, (_, i) => `Plugin-all:a-rather-long-skill-name-number-${i}`);
+    const css = `#cce-effort{--cce-effort:"${H(1)}=high!${H(90)}";--cce-skills:"${first(0)}=Tools-all%3Adisk-cleanup,web-fetching;`
+      + `${first(2)}=git-identity;${first(5)}=${tenLong.map(encodeURIComponent).join(',')}"}\n`;
+    const want = (n, folded) => Array.from({ length: n }, (_, k) => {
+      const reply = k + 1 + folded, turn = Math.floor((reply - 1) / 3), firstShown = (reply - 1) % 3 === 0 || reply === folded + 1;
+      if (!firstShown) return '';
+      return { 0: 'skills disk-cleanup, web-fetching', 2: 'skills git-identity', 5: 'skills ' + tenLong.map((x) => x.split(':').pop()).join(', ') }[turn] || '';
+    });
+    const r = harness.run(browser, { turns: 30, focus: false, subagent: false, settleCapMs: 15000, listMessages: true, efforts: { sid, css } });
+    const shown = skillsIn(r.labels);
+    if (r.error) bad('the page with skills did not run: ' + r.error);
+    else if (shown.length === 90 && JSON.stringify(shown) === JSON.stringify(want(90, 0)) && r.idleSweeps === 0) {
+      ok('in a page: each turn\'s skills end the figures of its first reply, ten long names whole, and no other reply or turn has any');
+    } else bad(`in a page the replies' skills were ${JSON.stringify(shown.map((s, i) => s && `${i + 1}: ${s}`).filter(Boolean))}, ${r.idleSweeps} idle sweeps`);
+    /* Focus view draws no row for the first replies of a turn: the names go on the first one it draws. */
+    const folded = harness.run(browser, { turns: 30, focus: false, subagent: false, settleCapMs: 15000, listMessages: true, foldFirst: 1, efforts: { sid, css } });
+    const foldShown = skillsIn(folded.labels);
+    if (folded.error) bad('the page with a folded first reply did not run: ' + folded.error);
+    else if (foldShown.length === 89 && JSON.stringify(foldShown) === JSON.stringify(want(89, 1))) {
+      ok('with a turn\'s first reply folded away, its skills go on the first reply the page draws in that turn');
+    } else bad(`with the first reply folded the skills were ${JSON.stringify(foldShown.map((s, i) => s && `${i + 2}: ${s}`).filter(Boolean))}`);
+    /* Arriving after the replies settled, and moving when Focus view takes replies off the page and puts them back. */
+    const moved = harness.run(browser, { turns: 30, focus: false, subagent: false, settleCapMs: 15000, listMessages: true, skillsFold: true,
+      efforts: { sid, sidAfterMs: 2500, css } });
+    const mv = moved.skillsFold || {};
+    const third = (i) => mv.folded && skillsIn([mv.folded[i]])[0];
+    if (moved.error) bad('the page with skills moving did not run: ' + moved.error);
+    else if ((mv.before || []).length === 93 && JSON.stringify(skillsIn(mv.before)) === JSON.stringify(want(93, 0))
+        && third(0) === 'skills disk-cleanup, web-fetching' && third(1) === '' && third(2) === 'skills git-identity'
+        && JSON.stringify(skillsIn(mv.back)) === JSON.stringify(want(93, 0))) {
+      ok('skills that arrive after the replies settled reach them, move to a turn\'s last reply while the others are off the page, and back after');
+    } else bad(`skills moving: ${JSON.stringify({ before: skillsIn(mv.before).filter(Boolean).length, folded: (mv.folded || []).slice(0, 6).map((l) => skillsIn([l])[0]), back: skillsIn(mv.back).filter(Boolean).length })}`);
+    const offRun = harness.run(browser, { turns: 30, focus: false, subagent: false, settleCapMs: 15000, listMessages: true, offSwitches: ['skillNames'], efforts: { sid, css } });
+    const offShown = skillsIn(offRun.labels);
+    if (offRun.error) bad('the page with the skills switched off did not run: ' + offRun.error);
+    else if (offShown.length === 90 && offShown.every((s) => s === '') && (offRun.labels || []).every((l) => /opus-5-5 high/.test(plain(l)))) {
+      ok('with claudeCodePlus.show.skillNames off no reply names a skill, and the effort still shows');
+    } else bad(`with the skills switched off: ${JSON.stringify(offShown.filter(Boolean).slice(0, 3))}`);
+  }
+}
+
 console.log('\nverified builds');
 /* With no verified builds the list would read "Verified against Claude Code no build." and be parsed back as a build
    named "no build", so an empty list writes nothing and the no-build sentence parses as no builds. */

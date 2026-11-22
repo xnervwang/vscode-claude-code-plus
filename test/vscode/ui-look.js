@@ -45,6 +45,16 @@ const PLAIN = 'Done. The retry delay is set in config/sync.yml.';
 /* The demo leaves a command running detached on Linux only (lib/demo.js), and detached commands and workers are found
    through /proc, so what the agent map and the dots show of them differs by platform. */
 const LINUX = process.platform === 'linux';
+/* Skills kept in the run's ~/.claude/skills, and the one message that asks for them. Their words are shared by no other
+   message the steps send, which a check runs the skill search on, so only that message's reply names skills. */
+const SKILLS = [
+  { name: 'zebra-ledger-reconcile', description: 'Reconcile the zebra ledger with the striped invoices before the quarter closes, and list the ledger lines no invoice matches.' },
+  { name: 'striped-invoice-matcher', description: 'Match each striped invoice to its zebra ledger line by the stripe number printed on it.' },
+  { name: 'quarterly-books-close', description: 'Close the quarterly zebra books once every striped invoice is reconciled.' },
+  { name: 'ledger-audit-trail', description: 'Keep an audit trail of each zebra ledger edit: who made it, when, and the amount before and after.' },
+  { name: 'stripe-number-finder', description: 'Find the stripe number printed on a striped invoice when its ledger line cannot be found.' },
+];
+const SKILL_ASK = 'Please reconcile the zebra ledger with the striped invoices: match each stripe number, keep an audit trail, and close the quarterly books.';
 
 /* The helpers the steps share. */
 
@@ -326,6 +336,31 @@ async function renameInList(d, list, id, name) {
   await d.sleep(2000);
   return held;
 }
+/* The reply in `frame` whose figures name skills, scrolled to the middle; false when there is none. */
+const toSkillReply = (frame) => frame.evaluate(() => {
+  const r = [...document.querySelectorAll('[data-testid="assistant-message"]')].reverse()
+    .find((m) => /skills/.test((m.querySelector('[data-cce-ts]') || { getAttribute: () => '' }).getAttribute('data-cce-ts') || ''));
+  if (r) r.scrollIntoView({ block: 'center' });
+  return !!r;
+});
+/* Sends SKILL_ASK in the live conversation once the skill search has an index, and waits for the reply to name skills.
+   The first message the plugin sees only starts building the index, so one is sent for that when no index is there. */
+async function skillTurn(d, frame) {
+  const data = path.join(d.profile.home, '.claude', 'plugins', 'data', require('../../src/plugin-install').DATA_DIR, 'skill-route');
+  const indexed = () => { try { return fs.readdirSync(data).some((n) => /^index-[0-9a-f]+\.pickle$/.test(n)); } catch (_) { return false; } };
+  if (!indexed()) {
+    await send(d, frame, 'Warm the index up, if it is not ready yet.');
+    if (!await d.until(indexed, 60000, 500)) throw new Error('the skill search built no index within 60 s of a message');
+    await d.until(() => lastReplyHas(frame, PLAIN), 30000, 500);
+  }
+  await send(d, frame, SKILL_ASK);
+  if (!await d.until(() => frame.evaluate((ask) => {
+    const all = [...document.querySelectorAll('[data-testid="assistant-message"], [class*="userMessage_"]')];
+    const at = all.findIndex((e) => e.matches('[class*="userMessage_"]') && e.innerText.includes(ask.slice(0, 40)));
+    return at >= 0 && all.slice(at + 1).some((e) => /skills/.test((e.querySelector('[data-cce-ts]') || { getAttribute: () => '' }).getAttribute('data-cce-ts') || ''));
+  }, SKILL_ASK), 60000, 500)) throw new Error('no reply to the message asking for the skills named any within 60 s');
+}
+
 /* The live conversation (the first fake one), with the session list in the side bar for its row under OPEN SESSIONS. */
 async function live(d) {
   const t = d.threads[0];
@@ -339,7 +374,11 @@ async function live(d) {
 const BACKGROUND_TITLE = 'Nightly report run in the background';
 const PRINT_TITLE = 'Weekly digest written by claude -p';
 const DAEMON_TITLE = 'Daemon session never listed';
-function prepare({ projects, threads }) {
+function prepare({ home, projects, threads }) {
+  for (const s of SKILLS) {
+    fs.mkdirSync(path.join(home, '.claude', 'skills', s.name), { recursive: true });
+    fs.writeFileSync(path.join(home, '.claude', 'skills', s.name, 'SKILL.md'), `---\nname: ${s.name}\ndescription: ${s.description}\n---\n\nSteps.\n`);
+  }
   const t = threads[2];
   const src = fs.readFileSync(path.join(projects, `${t.id}.jsonl`), 'utf8');
   /* Every record id of the conversation it is copied from starts with that conversation's first 24 characters. */
@@ -1185,6 +1224,68 @@ const STEPS = [
     unchanged: 'The conversation is otherwise as before.',
     area: async (d) => { const frame = await live(d); await toBottom(frame); await d.sleep(600); return d.editor(); },
   },
+  /* The skills skill suggestions gave a turn, after the figures of its first reply: in the tab, in the secondary side
+     bar, and switched off. */
+  {
+    name: 'live-skills', features: ['skill-names', 'reply-figures'],
+    expect: 'The newest reply, "' + PLAIN + '", answers your message that asks to reconcile the zebra ledger. Its first row '
+      + 'carries its time, how long the turn took, "ctx" with a share, "cost $" with an amount and the model name, and then, '
+      + 'after another separator dot, the word "skills" and the names of the skills that turn was given, separated by commas: '
+      + 'zebra-ledger-reconcile among them, each name whole and none with a plugin\'s name and a colon in front of it. The '
+      + 'names are in the same small, dimmed type as the rest of that row, and any line they wrap onto breaks after a comma, '
+      + 'not inside a name. No other reply in view names skills.',
+    unchanged: 'The earlier messages of this conversation are as before.',
+    act: async (d) => {
+      const frame = await live(d);
+      await skillTurn(d, frame);
+      await toBottom(frame);
+      await d.sleep(1500);
+      await d.away();
+      return d.editor();
+    },
+  },
+  {
+    name: 'live-skills-sidebar', features: ['skill-names', 'narrow-panel'],
+    expect: 'The same conversation, resumed in the secondary side bar on the right of the window, which is much narrower '
+      + 'than the editor. The reply that names skills is in view: its first row shows the time, the figures and "skills" '
+      + 'followed by the names, wrapped onto further lines inside the side bar. Every line breaks after a separator dot or after '
+      + 'the comma between two names; no name is cut off at the edge or broken in the middle, and the reply\'s own text '
+      + 'starts below the names, not under them.',
+    unchanged: 'The editor no longer shows this conversation\'s tab.',
+    act: async (d) => {
+      const t = d.threads[0];
+      await closeTab(d, t);
+      d.liveFrame = null;
+      const list = await sessionList(d);
+      await rowPick(d, list, t.id, 'Resume in sidebar');
+      const frame = await d.frameWhere((ask) => document.body.innerText.includes(ask.slice(0, 40))
+        && !!document.querySelector('[data-testid="assistant-message"] [data-cce-ts]'), 60000, SKILL_ASK);
+      if (!frame) throw new Error('the conversation did not open in the secondary side bar within 60 s');
+      await d.sleep(1500);
+      if (!await d.until(() => toSkillReply(frame), 20000, 500)) throw new Error('no reply in the side bar names skills');
+      await d.sleep(800);
+      await d.away();
+      return d.part('workbench.parts.auxiliarybar');
+    },
+    undo: async (d) => { await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {}); await d.sleep(800); },
+  },
+  {
+    name: 'off-skill-names', features: ['skill-names'], ...off('claudeCodePlus.show.skillNames'),
+    expect: 'The reply to your message about the zebra ledger, in the editor tab again, shows its time, duration, figures and '
+      + 'model on its first row and no "skills" and no skill names after them; the row ends with the model, without a '
+      + 'trailing or doubled separator dot.',
+    unchanged: 'The conversation is otherwise as before.',
+    area: async (d) => {
+      const frame = await live(d);
+      await d.sleep(1500);
+      await frame.evaluate((ask) => {
+        const u = [...document.querySelectorAll('[class*="userMessage_"]')].find((e) => e.innerText.includes(ask.slice(0, 40)));
+        if (u) u.scrollIntoView({ block: 'start' });
+      }, SKILL_ASK);
+      await d.sleep(800);
+      return d.editor();
+    },
+  },
   {
     name: 'live-unread', features: ['unread-envelope', 'dot-stopped', 'open-sessions', 'need-you-notices'],
     expect: 'A reply landed while the conversation\'s tab was in the background, behind a text file (notes.txt) opened in the '
@@ -1863,6 +1964,21 @@ const STEPS = [
     undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.exec('notifications.clearAll'); await d.sleep(2000); },
   },
   {
+    name: 'light-skills', features: ['light-theme', 'skill-names'],
+    expect: 'In the light theme, the live conversation in its tab, with the reply that names skills in view: its first row '
+      + 'shows the time, the figures and then "skills" and the names of the skills, in the same dimmed dark type as the rest '
+      + 'of that row and readable against the light background.',
+    unchanged: 'Still the light theme.',
+    act: async (d) => {
+      const frame = await live(d);
+      await d.sleep(1200);
+      if (!await d.until(() => toSkillReply(frame), 20000, 500)) throw new Error('no reply in the conversation names skills');
+      await d.sleep(800);
+      await d.away();
+      return d.editor();
+    },
+  },
+  {
     name: 'light-work-plan', features: ['light-theme', 'work-plan-view'],
     expect: 'Agent Plus\'s work plan view in the light theme: the state marks and titles readable against the light background.',
     unchanged: 'The editor is as before.',
@@ -2045,4 +2161,4 @@ async function main() {
 
 if (require.main === module) main().catch((e) => { console.error((e && e.stack) || e); process.exitCode = 1; });
 
-module.exports = { STEPS, coverage };
+module.exports = { STEPS, coverage, SKILLS, SKILL_ASK };

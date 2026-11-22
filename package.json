@@ -197,6 +197,11 @@
           "default": true,
           "markdownDescription": "Which model, effort level and fast mode produced a reply. Turning it off stops the work, not only the drawing, and takes effect without a reload."
         },
+        "claudeCodePlus.show.skillNames": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "The skills that skill suggestions (`#claudeCodePlus.skillRouting#`) gave a turn, named at the end of the figures of the turn's first reply, as in `skills web-fetching, git-identity`. A plugin's skill is named without its plugin. Turning it off stops the work, not only the drawing, and takes effect without a reload."
+        },
         "claudeCodePlus.show.subAgentTags": {
           "type": "boolean",
           "default": true,

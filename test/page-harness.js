@@ -568,9 +568,28 @@ const PHASES = String.raw`
       });
     });
   };
+  /* The same folding, read for the skills: every reply's line before, the line of each reply left while the others are
+     away, and every reply's line once they are back. */
+  var skillsFolded = function(){
+    var all = Array.prototype.slice.call(document.querySelectorAll('[data-testid="assistant-message"]'));
+    var lineOf = function(m){ var l = m.querySelector('[data-cce-ts]'); return l ? l.getAttribute('data-cce-ts') : null; };
+    var out = { before: all.map(lineOf) }, away = [];
+    all.forEach(function(m, i){
+      if (i % 3 === 2) return;
+      var spot = document.createComment('folded');
+      m.parentNode.replaceChild(spot, m);
+      away.push([spot, m]);
+    });
+    later(1500, function(){
+      out.folded = Array.prototype.map.call(document.querySelectorAll('[data-testid="assistant-message"]'), lineOf);
+      away.forEach(function(p){ p[0].parentNode.replaceChild(p[1], p[0]); });
+      later(1500, function(){ out.back = all.map(lineOf); R.skillsFold = out; next(); });
+    });
+  };
   if (CFG.clickFocus) STEPS.push(clickFocus);
   if (CFG.redraw) STEPS.push(redrawn);
   if (CFG.foldBack) STEPS.push(foldedBack);
+  if (CFG.skillsFold) STEPS.push(skillsFolded);
   if (CFG.switchSession) STEPS.push(switched);
   if (CFG.pickView) STEPS.push(pickView);
   if (CFG.flip) STEPS.push(flipped);
@@ -602,7 +621,8 @@ function page(cfg, script) {
  * Run one simulated panel to completion. `cfg`: turns, compactEvery, focus, focusCtx, clickFocus, subagent,
  * subagentTurn, switchSession, offSwitches (off from the start), pickView, flip (switches turned off later), listMessages
  * and foldFirst (the session's message list, and how many replies have no row), redraw (the oldest reply's rows drawn
- * again), foldBack (most replies taken off the page and put back), and the phase lengths. Resolves to the page's counts
+ * again), foldBack (most replies taken off the page and put back), skillsFold (the same, reading every reply's line),
+ * and the phase lengths. Resolves to the page's counts
  * or { error }.
  */
 const DEFAULTS = { turns: 100, compactEvery: 20, focus: true, subagent: true, settleCapMs: 6000, idleMs: 3000, grows: 8 };
@@ -629,7 +649,7 @@ function run(browser, cfg, script) {
       fs.writeFileSync(path.join(dir, 'claude-code-extras.css'), `:root[data-cce-test-flip]{${offRules(full.flip)}}\n` + wv.liveCss({ enabled: true }));
     }
     const steps = (full.clickFocus ? 1000 : 0) + (full.switchSession ? 2000 : 0) + (full.pickView ? 1000 : 0)
-      + (full.flip ? 8500 : 0) + (full.redraw ? 2000 : 0) + (full.foldBack ? 3500 : 0);
+      + (full.flip ? 8500 : 0) + (full.redraw ? 2000 : 0) + (full.foldBack ? 3500 : 0) + (full.skillsFold ? 3500 : 0);
     const budget = full.settleCapMs + full.idleMs + full.grows * 300 + 3000 + steps;
     /* No --user-data-dir. Headless already starts from a temporary profile of its own, which is what keeps it apart
        from a browser the person is using; naming a directory instead makes it set that up as a lasting profile, and

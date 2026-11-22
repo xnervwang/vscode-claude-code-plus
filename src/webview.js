@@ -272,6 +272,7 @@ const SWITCHES = [
   'contextShare',     // ctx N% in those figures
   'cost',             // cost $N in those figures
   'modelName',        // which model, effort and fast mode produced the reply
+  'skillNames',       // the skills skill suggestions gave a turn, at the end of its first reply's figures
   'subAgentTags',     // which sub-agent a row came from
   'toc',              // the handle on the right edge, and the list of your messages behind it
   'contextMeter',     // the usage meter kept on screen after the panel would have hidden it

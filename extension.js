@@ -414,13 +414,15 @@ function start(context, log, renamed, handing = false) {
   /* Reads what the conversation in front of the reader has added to its transcript since last time - the only one, since
      that is the one being looked at; the others were read when they were. A new session is written out at once rather
      than at the next refresh, so it appears in the agent map while the launch is still on screen. */
-  /* Where each reply's effort changed, for the conversation in front of the reader, written beside the panel for it to
-     read (src/efforts.js). Not read at all when the model is switched off, since the effort is shown with it. */
+  /* Where each reply's effort changed, and the skills each turn was given, for the conversation in front of the reader,
+     written beside the panel for it to read (src/efforts.js). Not read at all while both are switched off; the effort
+     is shown with the model. */
+  const figuresOff = () => { const off = switchedOff(); return off.includes('modelName') && off.includes('skillNames'); };
   const scanEffort = (opts) => {
-    if (removed() || !enabled() || uninstalling() || replaced() || switchedOff().includes('modelName')) return;
+    if (removed() || !enabled() || uninstalling() || replaced() || figuresOff()) return;
     const id = activeChat();
     if (!id) return;
-    efforts.scan(id, opts || {})
+    efforts.scan(id, Object.assign({}, opts, { skills: !switchedOff().includes('skillNames') }))
       .then((r) => {
         // Asked again: the scan may have finished after Remove, or once this window no longer runs the installed build.
         if (!r || !r.css || removed() || uninstalling() || replaced()) return;
@@ -1067,7 +1069,7 @@ function start(context, log, renamed, handing = false) {
   const watchEffort = () => {
     const id = activeChat();
     if (id !== effortWatch.id) unwatchEffort();
-    if (!id || removed() || !enabled() || replaced() || switchedOff().includes('modelName')) { unwatchEffort(); return; }
+    if (!id || removed() || !enabled() || replaced() || figuresOff()) { unwatchEffort(); return; }
     const transcript = transcriptOf(id);
     if (!transcript) return;
     effortWatch.id = id;
@@ -1908,6 +1910,7 @@ function start(context, log, renamed, handing = false) {
       try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the list catches up on its next read */ }
     }
     if (!LIVE_SETTINGS.some((k) => e.affectsConfiguration(k))) return;
+    if (e.affectsConfiguration(PREFIX + 'show.modelName') || e.affectsConfiguration(PREFIX + 'show.skillNames')) { scanEffort(); watchEffort(); }
     const c = cfg().get(COLOR_SETTING, '');
     if (c && !safeColor(c)) vscode.window.showWarningMessage(`Claude Code Plus: "${c}" is not a CSS color (use e.g. #90EE90, lightgreen or rgb(144,238,144)); your message color is left unchanged.`);
     /* A switch has to reach the panel the moment it is flipped, which is what writing the stylesheet does. */

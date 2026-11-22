@@ -2319,9 +2319,11 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
     });
 
     /* Skill suggestions: a skill kept in this run's ~/.claude/skills that a message asks for reaches the model before the
-       turn, by its name and with its whole description, from the plugin's route-skills.py. With claudeCodePlus.skillRouting
-       off in Custom, and in Essential features, it does not. The skill is written first and a turn is sent until the
-       plugin has rebuilt its index since then, as read from the log the search keeps beside it. */
+       turn, by its name and with its whole description, from the plugin's route-skills.py, and the reply's first row names
+       it after its figures; claudeCodePlus.show.skillNames takes the name off and puts it back. With
+       claudeCodePlus.skillRouting off in Custom, and in Essential features, nothing is suggested and the reply names
+       nothing. The skill is written first and a turn is sent until the plugin has rebuilt its index since then, as read
+       from the log the search keeps beside it. */
     await step('skill suggestions', async () => {
       const pi = require('../../src/plugin-install');
       const { ROUTE_MARK } = require('./lib/fake-model');
@@ -2383,6 +2385,27 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       check(!!on && on.route.startsWith(ROUTE_MARK) && on.route.includes(`\n- ${NAME}: ${DESC}`),
         'a message that asks for a skill reaches the model with that skill by name and with its whole description',
         on ? on.route.slice(0, 600) : model.seen.slice(-3));
+      /* The first row of the reply to your message holding `text` with no words after it, as the page draws it, without its
+         no-break spaces and word joiners; '' for a reply with no row of times, null before there is a reply. */
+      const lineAfter = (text) => frame.evaluate((t) => {
+        const all = [...document.querySelectorAll('[data-testid="assistant-message"], [class*="userMessage_"]')];
+        const at = all.map((e) => e.matches('[class*="userMessage_"]') && e.innerText.includes(t) && !e.innerText.includes(t + ' ')).lastIndexOf(true);
+        const r = at < 0 ? null : all.slice(at + 1).find((e) => e.matches('[data-testid="assistant-message"]'));
+        if (!r) return null;
+        const l = r.querySelector('[data-cce-ts]');
+        return l ? l.getAttribute('data-cce-ts').replace(/\u00a0/g, ' ').replace(/\u2060/g, '') : '';
+      }, text);
+      const named = (l) => new RegExp(`\\u00b7 skills (?:[^,\\s]+, )*${NAME}(?:, [^,\\s]+)*$`).test(l || '');
+      const shown = await until(async () => { const l = await lineAfter(ask); return named(l) ? l : null; }, 30000, 500);
+      await shot('skill-names');
+      check(!!shown && /\d\d:\d\d:\d\d .+ \u00b7 skills /.test(shown),
+        'the reply\'s first row names the skill after its figures, as "\u00b7 skills ' + NAME + '"', await lineAfter(ask));
+      await setOwn('claudeCodePlus.show.skillNames', false);
+      const hidden = await until(async () => { const l = await lineAfter(ask); return l && !/skills/.test(l) ? l : null; }, 15000, 300);
+      check(!!hidden && /\d\d:\d\d:\d\d/.test(hidden), 'with claudeCodePlus.show.skillNames off the row keeps its time and figures and names no skill',
+        await lineAfter(ask));
+      await setOwn('claudeCodePlus.show.skillNames', null);
+      check(!!await until(async () => named(await lineAfter(ask)), 30000, 500), 'and turned on again the name comes back', await lineAfter(ask));
 
       await setMode('custom');
       await setOwn('claudeCodePlus.skillRouting', false);
@@ -2390,6 +2413,11 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       const off = await turn(frame, `${ask} With the setting off.`);
       check(!!off && off.route === '' && routeNow() === false, 'with claudeCodePlus.skillRouting off in Custom no skill is suggested',
         off ? off.route.slice(0, 300) : model.seen.slice(-3));
+      const plain = await until(async () => { const l = await lineAfter(`${ask} With the setting off.`); return l ? l : null; }, 15000, 300);
+      await sleep(3000);
+      const still = await lineAfter(`${ask} With the setting off.`);
+      check(!!plain && !/skills/.test(still || '') && named(await lineAfter(ask)),
+        'the reply to a turn given no skills names none, while the turn before it keeps its name', { still, before: await lineAfter(ask) });
 
       await setOwn('claudeCodePlus.skillRouting', null);
       await setMode('essential');

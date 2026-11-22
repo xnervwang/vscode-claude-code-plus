@@ -61,7 +61,7 @@
   /* Switches that affect a mark's content. Marks are cached, so a change to one of these, or to the marks switch
      itself, recomputes everything on that sweep; otherwise only the newest message and the last LIVE_TAIL replies would
      update. */
-  var MARK_SWITCHES = ['timestamps', 'subAgentTags', 'replyDuration', 'contextShare', 'cost', 'modelName'];
+  var MARK_SWITCHES = ['timestamps', 'subAgentTags', 'replyDuration', 'contextShare', 'cost', 'modelName', 'skillNames'];
   var markSig = '';
   var marksFollowSwitches = function(){
     var s = isOn() ? '1' : '0';
@@ -155,6 +155,8 @@
     var agentView = (VIEW !== 'all' && VIEW !== 'main'), acts = [];
     // Each owner's effort run, carried through the replies in document order (76-effort.js).
     var effState = {};
+    // Each turn's skills, and the turn of the reply before on the page (77-turn-skills.js).
+    var turnSkills = skillsByTurn(promptTs), prevTurn = null;
     for (var j = 0; j < msgs.length; j++) {
       // A reply well behind the newest one cannot change again: its time, duration and figures are fixed, and its
       // owner is already recorded on the element. Re-deriving all of that on every sweep is the one cost that would
@@ -162,6 +164,13 @@
       // has its visibility refreshed - which is all a view switch needs.
       if (j < msgs.length - LIVE_TAIL) {
         var own0 = msgs[j].getAttribute(OWNER_ATTR);
+        /* Except its turn's skills, which arrive after the reply, and move to another reply when Focus view takes the
+           one before it off the page or puts one back: such a reply is worked out again. */
+        if (own0) {
+          var turn0 = TURN_OF.get(msgs[j]);
+          if (skillsFor(turnSkills, turn0, prevTurn) !== (SKILLS_OF.get(msgs[j]) || '')) { unsettle(msgs[j]); own0 = null; }
+          else if (turn0 !== null && turn0 !== undefined) prevTurn = turn0;
+        }
         if (own0) {
           var held0 = UUIDS_OF.get(msgs[j]);
           if (held0) for (var hu = 0; hu < held0.length; hu++) effortAt(effState, own0, held0[hu]);
@@ -184,6 +193,7 @@
          `marked` again rather than removed at the end of the sweep. */
       if (msgs[j].getAttribute(SETTLED_ATTR) === '1') msgs[j].removeAttribute(SETTLED_ATTR);
       var rows = msgs[j].children, ownerDone = false, own = 'main', uus = [], effHere = '', figured = false, tools = null;
+      var turnHere = null, skillsHere = '';
       var quietN = 0, loudN = 0, thinkN = 0;
       blocks += rows.length;
       for (var r = 0; r < rows.length; r++) {
@@ -229,6 +239,9 @@
           var st = statAt(cx.message, j === msgs.length - 1, effHere);
           if (st) bits.push(st);
           if (!effHere && cx.message.model) effortPending.add(msgs[j]);
+          turnHere = t0;
+          skillsHere = skillsFor(turnSkills, t0, prevTurn);
+          if (skillsHere) bits.push(skillsHere);
           if (bits.length) v += '  ' + bits.join(' ' + String.fromCharCode(183) + ' ');
         }
         set(row, lead(v), annot && (t === 'tool_use' || t === 'server_tool_use'));
@@ -239,6 +252,9 @@
       }
       if (!silentMsg) { quietMsgMark(msgs[j], quietMsg ? 'reply' : ''); quietFold(msgs[j], quietMsg); }
       if (uus.length) UUIDS_OF.set(msgs[j], uus);
+      TURN_OF.set(msgs[j], turnHere);
+      SKILLS_OF.set(msgs[j], skillsHere);
+      if (turnHere !== null) prevTurn = turnHere;
       if (ownerDone && j < msgs.length - LIVE_TAIL) settleNext = true;
       if (tools) {
         ACTS_OF.set(msgs[j], tools);

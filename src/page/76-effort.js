@@ -27,6 +27,22 @@
   var effortPending = new WeakSet();
 
   var hexOf = function(uuid){ return typeof uuid === 'string' ? uuid.replace(/-/g, '') : ''; };
+  /* The skills skill suggestions gave each turn, by the uuid of the turn's first reply, from a second property of the
+     same stylesheet (src/efforts.js); 77-turn-skills.js puts them on the page. */
+  var SKILLS = {}, skillRaw = null;
+  var parseSkills = function(raw){
+    var out = {}, turns = String(raw || '').split(';');
+    for (var i = 0; i < turns.length; i++) {
+      var kv = turns[i].split('=');
+      if (kv.length !== 2 || !/^[0-9a-f]{32}$/.test(kv[0]) || !kv[1]) continue;
+      var names = [], enc = kv[1].split(',');
+      for (var k = 0; k < enc.length; k++) {
+        try { var n = decodeURIComponent(enc[k]); if (n) names.push(n); } catch (e) { /* not one the extension wrote */ }
+      }
+      if (names.length) out[kv[0]] = names;
+    }
+    return out;
+  };
   var parseEfforts = function(raw){
     var runs = {}, lasts = {}, sections = String(raw || '').split(';');
     for (var i = 0; i < sections.length; i++) {
@@ -48,11 +64,17 @@
       effortCarrier.style.display = 'none';
       document.body.appendChild(effortCarrier);
     }
-    var raw = '';
-    try { raw = String(getComputedStyle(effortCarrier).getPropertyValue('--cce-effort') || '').trim(); } catch (e) {}
+    var raw = '', sk = '';
+    try {
+      var cs = getComputedStyle(effortCarrier);
+      raw = String(cs.getPropertyValue('--cce-effort') || '').trim();
+      sk = String(cs.getPropertyValue('--cce-skills') || '').trim();
+    } catch (e) {}
+    var skillsNew = sk !== skillRaw;
+    if (skillsNew) { skillRaw = sk; SKILLS = parseSkills(sk.replace(/^["']|["']$/g, '')); }
     /* The revision moves when any conversation's efforts change, so most loads bring back exactly what this page
        already has. Then there is nothing to relabel, and a sweep would be work for its own sake. */
-    if (raw === effortRaw) return;
+    if (raw === effortRaw) { if (skillsNew) schedule(); return; }
     effortRaw = raw;
     var got = parseEfforts(raw.replace(/^["']|["']$/g, ''));
     EFFORT_RUNS = got.runs; EFFORT_LASTS = got.lasts;
@@ -74,7 +96,7 @@
   var loadEfforts = function(rev){
     var sid = sigValue('sessionId');
     if (!base || typeof sid !== 'string' || !/^[0-9a-f-]{36}$/i.test(sid)) return false;
-    if (sid !== effortFor) { EFFORT_RUNS = {}; EFFORT_LASTS = {}; effortRaw = null; }
+    if (sid !== effortFor) { EFFORT_RUNS = {}; EFFORT_LASTS = {}; effortRaw = null; SKILLS = {}; skillRaw = null; }
     effortFor = sid;
     dropEffortLoad();
     var l = document.createElement('link');
@@ -109,11 +131,12 @@
       effortLink = null;
     }
     EFFORT_RUNS = {}; EFFORT_LASTS = {}; effortRaw = null; effortFor = ''; effortRev = -1;
+    SKILLS = {}; skillRaw = null;
   };
   /* Called by the revision probe with the image's height, which the extension moves whenever any conversation's
-     efforts change. The panel moving to another conversation counts too: that is another file. */
+     efforts or skills change. The panel moving to another conversation counts too: that is another file. */
   var effortProbe = function(rev){
-    if (isOff('modelName')) return;
+    if (isOff('modelName') && isOff('skillNames')) return;
     if (rev === effortRev && sigValue('sessionId') === effortFor) return;
     if (loadEfforts(rev)) effortRev = rev;
   };
