@@ -6768,9 +6768,9 @@ console.log('\na panel whose bundle never arrives says so');
 
     const live = require('../src/webview').liveCss({}), off = require('../src/webview').liveCss({ enabled: false });
     if (live.includes('[class*="sessionItem_"]{--app-status-busy:#22c55e;--app-status-pending:#ef4444;}')
-        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;') && live.includes('[class*="sessionItem_"]>[data-cce-crown]{flex:none;')
+        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;') && live.includes('[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;}') && live.includes('[class*="sessionItem_"]>[data-cce-crown]{flex:none;')
         && !off.includes('sessionItem_')) {
-      ok('the session list\'s dots turn green and red, and its envelope goes to the row\'s end');
+      ok('the session list\'s dots turn green and red, and its envelope goes after the title and before the time');
     } else bad('the live stylesheet does not colour the list\'s dots as expected');
 
     const T = 'Fix the build';
@@ -10964,18 +10964,18 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     const html = sv.body({ front: { id: 'f', title: 'F' }, rows: [], groups: [{ key: 'w:1', name: 'w', rows: [...all.values()].map((c) => Object.assign({ managed: true, processes: [] }, c)) }],
       managed: 5, hidden: 0, every: false });
     const dots = [...html.matchAll(/<span class="dot ([a-z]*)"/g)].map((m) => m[1]);
-    const envs = [...html.matchAll(/<span class="env"[^>]*>&#x2709;&#xFE0F;<\/span>\s*<\/li>/g)].length;
+    const envs = [...html.matchAll(/<\/a>\s*<span class="env"[^>]*>&#x2709;&#xFE0F;<\/span>/g)].length;
     const shell = sv.shell('', 'n');
     const long = 'A title far too long for the row, which the panel cuts short with an ellipsis before the envelope'.repeat(2);
     const longHtml = sv.body({ front: { id: 'f', title: 'F' }, rows: [], groups: [{ key: 'w:1', name: 'w', rows: [Object.assign({ managed: false, processes: [] },
       all.get(S(5)), { title: long })] }], managed: 0, hidden: 0, every: false });
     const nameSpan = (/<a [^>]*class="name"[^>]*>([^<]*)<\/a>/.exec(longHtml) || [])[1] || '';
-    const cut = nameSpan === long && /<\/a>[\s\S]*<span class="env"[^>]*>&#x2709;&#xFE0F;<\/span>\s*<\/li>/.test(longHtml)
+    const cut = nameSpan === long && /<\/a>\s*<span class="env"[^>]*>&#x2709;&#xFE0F;<\/span>[\s\S]*<span class="when">/.test(longHtml)
       && /\.name \{[^}]*overflow: hidden; text-overflow: ellipsis;/.test(shell) && /\.env \{ flex: 0 0 auto;/.test(shell);
     if (cut && JSON.stringify(rows) === JSON.stringify(['working/working/-', 'background/background/u', 'prompt/waiting/-', 'idle/waiting/-', 'unread//u'])
         && JSON.stringify(dots) === JSON.stringify(['working', 'background', 'waiting', 'waiting', '']) && envs === 2
         && /\.dot\.background \{ border: 2px solid #22c55e; \}/.test(shell) && !/3b82f6/i.test(shell)) {
-      ok('the Steward panel draws each conversation\'s dot as the tab does, red for a fresh question to the user, and an envelope last on the row for a reply not read yet, '
+      ok('the Steward panel draws each conversation\'s dot as the tab does, red for a fresh question to the user, and an envelope right after the title, before the time, for a reply not read yet, '
         + 'outside the title, which a long title cuts short with an ellipsis while the envelope keeps its size');
     } else bad(`steward rows ${JSON.stringify(rows)}, dots ${JSON.stringify(dots)}, envelopes ${envs}, long title kept apart ${cut}`);
   }

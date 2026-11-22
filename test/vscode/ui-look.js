@@ -1109,8 +1109,8 @@ const STEPS = [
     name: 'live-unread', features: ['unread-envelope', 'dot-stopped', 'open-sessions'],
     expect: 'A reply landed while the conversation\'s tab was in the background, behind a text file (notes.txt) opened in the '
       + 'same group: that tab\'s logo has no dot, and its title ends in a white envelope. Its row under OPEN SESSIONS in the '
-      + 'side bar has no dot either and shows the envelope at the row\'s right end, after the time, with the title before it '
-      + 'not running into it. No red or blue dot anywhere.',
+      + 'side bar has no dot either and shows the envelope after the title and before the time, with the title not running '
+      + 'into it, and the row\'s time lined up with the other rows\' times. No red or blue dot anywhere.',
     unchanged: 'The tab bar has the same Claude Code tabs as before, plus notes.txt.',
     act: async (d) => {
       const frame = await live(d);
@@ -1134,9 +1134,9 @@ const STEPS = [
     expect: 'The conversation with a reply not read yet was renamed through its session list row\'s own rename box, typing a '
       + 'very long name with an envelope before it, an envelope and a crown after it. The side bar is narrow, the demo '
       + 'conversation is in front, and the Steward panel is open at the bottom. In the side bar, both rows of the renamed '
-      + 'conversation show "Where the retry delay..." cut short with an ellipsis, and exactly one envelope at the row\'s right '
-      + 'end, after the time, not cut and not inside the title; no crown. In the Steward panel its row\'s title is cut short '
-      + 'the same way and ends with one envelope at the row\'s end. Its tab\'s title ends in one envelope and has no crown.',
+      + 'conversation show "Where the retry delay..." cut short with an ellipsis, and exactly one envelope after the title and '
+      + 'before the time, not cut and not inside the title; no crown. In the Steward panel its row\'s title is cut short '
+      + 'the same way and is followed by one envelope. Its tab\'s title ends in one envelope and has no crown.',
     unchanged: 'The other conversations\' rows are as before.',
     act: async (d) => {
       const list = await sessionList(d);
@@ -1171,7 +1171,7 @@ const STEPS = [
     name: 'live-background', features: ['dot-background', 'unread-envelope', 'open-sessions'],
     expect: 'A turn that put a command in the background ("sleep 40") ended while the conversation\'s tab was behind notes.txt: '
       + 'the tab\'s logo carries a green ring, hollow in the middle, and its title ends in a white envelope, so both show at '
-      + 'once. Its row under OPEN SESSIONS starts with the same green ring and has the envelope at its right end.',
+      + 'once. Its row under OPEN SESSIONS starts with the same green ring and has the envelope after the title, before the time.',
     unchanged: 'The tab bar has the same tabs as before; notes.txt is in front.',
     act: async (d) => {
       const frame = await live(d);
@@ -1475,7 +1475,7 @@ const STEPS = [
     name: 'light-envelope', features: ['light-envelope', 'light-theme', 'unread-envelope'],
     expect: 'In the light theme, a reply landed while the conversation "Where the retry delay..." was behind notes.txt: its tab\'s '
       + 'title ends in an envelope drawn as a dark outline on the light tab, clearly readable, not a white or faint shape; '
-      + 'its rows in the session list show the same dark envelope at their right end. No colour emoji envelope anywhere.',
+      + 'its rows in the session list show the same dark envelope after the title, before the time. No colour emoji envelope anywhere.',
     unchanged: 'The session list is as before, apart from the envelopes.',
     act: async (d) => {
       const frame = await live(d);

@@ -202,12 +202,12 @@ function body(model) {
       <input type="checkbox" data-id="${esc(c.sessionId)}" ${c.managed ? 'checked' : ''} ${model.every ? 'disabled' : ''} title="Managed by this conversation">
       <span class="dot ${esc(c.dot || '')}" ${c.dot ? `title="${esc(DOT_TEXT[c.dot] || c.dot)}"` : ''}></span>
       <a href="#" class="name" data-open="${esc(c.sessionId)}" title="${esc(c.cwd)}">${esc(c.title)}</a>
+      ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${htmlChars(model.envelope || envelope.COLOUR)}</span>` : ''}
       ${c.processes.length > 1 ? `<span class="twice" title="${esc(twiceText(c.processes))}">${c.processes.length} processes</span>
       <button class="stop-old" data-stop-old="${esc(c.sessionId)}" title="${esc(stopText(c.processes))}">Stop the old process</button>` : ''}
       ${c.managed ? `<span class="doing">${esc(c.doing.join(' · ') || (c.running ? STATE_TEXT[c.state] : 'stopped'))}</span>
       ${c.questions ? `<span class="questions">${c.questions} question${c.questions === 1 ? '' : 's'} for you</span>` : ''}
       <span class="when">${esc(ago(c.lastActiveAt, now))}</span>` : `<span class="when">${esc(ago(c.lastActiveAt, now))}</span>`}
-      ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${htmlChars(model.envelope || envelope.COLOUR)}</span>` : ''}
     </li>`;
   const group = (g) => {
     const on = g.rows.filter((c) => c.managed).length;
