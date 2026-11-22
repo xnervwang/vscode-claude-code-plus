@@ -8598,8 +8598,8 @@ console.log('\ntext colors in the session list');
     denv.prop = '"' + Buffer.from(JSON.stringify([[A, 2], ['not an id', 3], [B, 1]]), 'utf8').toString('base64') + '"'; denv.reset(); denv.paint();
     const rule = denv.appended[0] && denv.appended[0].textContent;
     if (JSON.stringify(carried) === JSON.stringify([[A, 2]]) && absent === null && before === 0
-        && rule === `[class*="sessionItem_"][id$="${A}"] span[class*="sessionName_"]::after{content:" \u00b7 2 processes";color:var(--vscode-errorForeground,#f14c4c);font-weight:normal}`) {
-      ok('a conversation run by several processes is marked after its title in every session-list row that shows it, through the stylesheet');
+        && rule === `[class*="sessionItem_"][id$="${A}"]::after{content:"\u00b7 2 processes";order:1;flex:none;white-space:nowrap;color:var(--vscode-errorForeground,#f14c4c);font-weight:normal}`) {
+      ok('a conversation run by several processes is marked after its title, outside it and never shrunk, in every session-list row that shows it, through the stylesheet');
     } else bad(`the mark on a conversation run twice: ${JSON.stringify([carried, absent, before, rule])}`);
   }
 
@@ -10416,6 +10416,42 @@ console.log('\nthe Steward panel');
           ok('a question is given to a steward once: a later notice lists only the questions that are new');
         } else bad(`the questions in the notices: ${JSON.stringify(out.posts)}`);
       }
+      /* A conversation two processes run is in no window's entry, since each host sees the other's process as running
+         elsewhere; its row is still listed, with the window whose host runs one of its processes, and its Stop button.
+         One with a single process that no window shows is not. */
+      {
+        const tdir = path.join(root, 'twice-plans');
+        fs.mkdirSync(tdir, { recursive: true });
+        const out2 = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+          const sv = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'steward-view.js'))});
+          const P = (n) => '5e5e5e5e-0000-4000-8000-00000000001' + n;
+          const records = [{ sessionId: P(1), pid: 21, kind: 'interactive', cwd: '/w/a', name: 'steward', status: 'idle' },
+            { sessionId: P(2), pid: 22, kind: 'interactive', cwd: '/w/b', name: 'Twice', status: 'idle' },
+            { sessionId: P(2), pid: 23, kind: 'interactive', cwd: '/w/b', name: 'Twice', status: 'idle' },
+            { sessionId: P(3), pid: 24, kind: 'interactive', cwd: '/w/c', name: 'Elsewhere', status: 'idle' }];
+          let view = null;
+          const vscode = { window: { registerWebviewViewProvider: (id, p) => { view = p; return { dispose() {} }; }, showInformationMessage() {} } };
+          const v = sv.create(vscode, { activeChat: () => P(1), freshAgents: async () => ({ records }), readPlan: () => null,
+            titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true,
+            shownHere: (id) => id === P(1), canWrite: () => true, canShare: () => true, enabled: () => true, log: () => {}, home: '/',
+            dir: ${JSON.stringify(tdir)}, isBackground: () => false, records: () => [], post: async () => true,
+            windowName: () => 'here', windowFolders: () => ['/w'], shownList: () => [P(1)],
+            duplicates: () => new Map([[P(2), [{ pid: 22, host: process.pid, startedAt: 1, window: 'here', windowless: false, idle: true },
+              { pid: 23, host: process.pid, startedAt: 2, window: 'here', windowless: false, idle: false }]]]) });
+          (async () => {
+            const bodies = [];
+            const pageView = { visible: true, webview: { options: {}, html: '', onDidReceiveMessage() {}, postMessage: (m) => { if (m.type === 'body') bodies.push(m.html); } },
+              onDidChangeVisibility() {}, onDidDispose() {} };
+            view.resolveWebviewView(pageView);
+            await v._pass();
+            v.dispose();
+            process.stdout.write(JSON.stringify({ page: bodies.pop() || pageView.webview.html, P2: P(2), P3: P(3) }));
+          })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
+        if (!out2.error && out2.page.includes(`data-stop-old="${out2.P2}"`) && out2.page.includes('2 processes') && !out2.page.includes(out2.P3)
+            && /<span class="gname">here<\/span>/.test(out2.page)) {
+          ok('a conversation two processes run is listed in the Steward panel with the window whose host runs one of them, and can be stopped there, though no window\'s entry lists it');
+        } else bad(`a conversation run twice in the Steward panel: ${JSON.stringify(out2.error || out2.page.slice(0, 1500))}`);
+      }
       /* src/duplicates.js on a made-up /proc: which processes run one conversation, and which may be stopped. */
       {
         const dup = require('../src/duplicates');
@@ -10442,6 +10478,19 @@ console.log('\nthe Steward panel');
         const rec = (pid, sessionId, o) => Object.assign({ pid, sessionId, kind: 'interactive', status: 'idle', statusUpdatedAt: old,
           startedAt: old + pid, procStart: String(pid === 100 ? 111 : pid === 200 ? 222 : pid === 300 ? 333 : pid === 400 ? 444 : 555) }, o);
         const records = [rec(100, A), rec(200, A, { status: 'busy' }), rec(300, A), rec(400, B), rec(500, B, { kind: 'bg' })];
+        /* The desktop app's extension host is a utility process, with the same command line as its pty host, and known by
+           the window entry it keeps; an entry two minutes old no longer vouches for its pid. */
+        const UTILITY = ['/opt/code/code', '--type=utility', '--utility-sub-type=node.mojom.NodeService'];
+        put(80, 'code', 1, UTILITY); put(81, 'code', 1, UTILITY); put(82, 'code', 1, UTILITY);
+        fs.writeFileSync(path.join(ddir, 'windows', '80.json'), JSON.stringify({ pid: 80, at: now - 30000, name: 'desk', pageAt: now - 30000 }));
+        fs.writeFileSync(path.join(ddir, 'windows', '82.json'), JSON.stringify({ pid: 82, at: now - 3 * 60000, name: 'old', pageAt: now - 3 * 60000 }));
+        put(600, 'claude', 80, ['claude', '--output-format', 'stream-json'], 666); put(700, 'claude', 81, ['claude'], 777); put(800, 'claude', 82, ['claude'], 888);
+        const C = 'dddddddd-0000-4000-8000-000000000003';
+        const desktop = dup.find({ records: [rec(600, C, { procStart: '666' }), rec(700, C, { procStart: '777' }), rec(800, C, { procStart: '888' }),
+          rec(500, C, { procStart: '555' })], dir: ddir, proc, now, transcript: () => tr });
+        if (JSON.stringify((desktop.get(C) || []).map((p) => [p.pid, p.host, p.window])) === '[[500,50,"gone"],[600,80,"desk"]]') {
+          ok('a process under the desktop app\'s extension host counts, known by the window entry it keeps; one under its pty host, or under a pid an old entry names, does not');
+        } else bad(`the processes found under the desktop app: ${JSON.stringify([...desktop])}`);
         const groups = dup.find({ records, dir: ddir, proc, now, transcript: () => tr });
         const g = groups.get(A) || [];
         if (groups.size === 1 && JSON.stringify(g.map((p) => [p.pid, p.host, p.window, p.windowless, p.idle]))
@@ -11246,6 +11295,41 @@ console.log('\nthe window test\'s own parts');
     for (const k of listed) if (!keys.includes(k)) gaps.push(`${k} is not in package.json`);
   }
   expect(!gaps.length, 'every setting, command and view in package.json belongs to exactly one of those features', gaps.join('; '));
+  /* The steward's actions are what its script can be asked for, the plain message with no option among them, plus what
+     it is told and what its links do. Each is a feature with a step here, and with a step of the window test that CI runs
+     (test/vscode/ui.js), which asserts it in code. */
+  const featureFile = JSON.parse(fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look-features.json'), 'utf8'));
+  const relayScript = fs.readFileSync(path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py'), 'utf8');
+  const docEnd = relayScript.indexOf('"""', relayScript.indexOf('"""') + 3);
+  const relayUsage = relayScript.slice(0, docEnd).split('\n').filter((l) => /^\s+python3 steward-relay\.py /.test(l))
+    .flatMap((l) => l.match(/--[a-z-]+/g) || ['send']);
+  const relayOptions = [...new Set(['send', ...[...relayScript.slice(docEnd).matchAll(/"(--[a-z-]+)"/g)].map((m) => m[1])])];
+  const relayed = featureList.flatMap((f) => (f.relay || []).map((o) => [o, f.id]));
+  const actions = Array.isArray(featureFile.stewardActions) ? featureFile.stewardActions : [];
+  const stewardGaps = [];
+  for (const o of relayOptions) {
+    const n = relayed.filter(([x]) => x === o).length;
+    if (n !== 1) stewardGaps.push(`${o} belongs to ${n} features`);
+    if (!relayUsage.includes(o)) stewardGaps.push(`${o} is not in the script's usage lines`);
+  }
+  for (const [o, id] of relayed) {
+    if (!relayOptions.includes(o)) stewardGaps.push(`${id}: ${o} is not an option of steward-relay.py`);
+    if (!actions.includes(id)) stewardGaps.push(`${id} has options of the script but is not in stewardActions`);
+  }
+  for (const id of actions) {
+    const f = featureList.find((x) => x.id === id);
+    if (!f) { stewardGaps.push(`${id} is not a feature`); continue; }
+    if (f.notShown !== undefined || !shownBy.has(id)) stewardGaps.push(`${id} has no step in ui-look.js`);
+    if (!Array.isArray(f.window) || !f.window.length) stewardGaps.push(`${id} names no step of the window test`);
+  }
+  expect(relayOptions.length >= 8 && actions.length >= relayed.length / 2 && !stewardGaps.length,
+    'every option of the steward\'s script belongs to exactly one feature, and every steward action has a step here and a step in the window test',
+    JSON.stringify({ relayOptions, gaps: stewardGaps }));
+  const windowSteps = [...fs.readFileSync(path.join(__dirname, 'vscode', 'ui.js'), 'utf8').matchAll(/await step\('((?:[^'\\]|\\.)*)'/g)]
+    .map((m) => m[1].replace(/\\'/g, "'"));
+  const strayWindow = featureList.flatMap((f) => (f.window === undefined ? [] : Array.isArray(f.window) && f.window.length ? f.window : [''])
+    .filter((w) => !windowSteps.includes(w)).map((w) => `${f.id}: "${w}"`));
+  expect(windowSteps.length > 10 && !strayWindow.length, 'and every window step a feature names is a step of test/vscode/ui.js', strayWindow.join(', '));
   /* The same for Agent Plus's, against the Agent Plus found: the copy installed beside this one (VSCODE_EXTENSIONS, as
      run.js runs this), AGENT_WORK_PLAN_DIR, or its checkout beside this repository. */
   const apUsed = { settings: [], commands: [], views: [] };
@@ -11734,6 +11818,36 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
         ok('a session list row asks the page for its dot, crown and envelope, with where the conversation is open, and draws its own dot when the page gives none; '
           + 'they are children of the row beside the title element the list cuts short, not inside it');
       } else bad(`row marks ${JSON.stringify([own, marked, calls, fallback])}`);
+    }
+
+    /* A rename typed in the list's box: the list shows it at once (renameSession below is Claude Code 2.1.330's opening),
+       and with the edit it shows it without the marks, as src/title-marks.js stores it. */
+    {
+      const list = 'var Store={lastLocalRenameAt:new Map(),sessions:{value:[]},async renameSession(e,t){this.lastLocalRenameAt.set(e,Date.now());'
+        + 'let n=this.sessions.value.find((o)=>o.sessionId.value===e);if(n)n.summary.value=t;return t}};';
+      const lr = applyEdits(list, [wedit('session list renames show no marks')]);
+      const marksLib = require('../src/title-marks');
+      const typed = ['\u{1F6CE}\uFE0F\u{1F451}Retry delay of the sync', '\u2709\uFE0F Add a flag \u2709\uFE0F \u{1F451}', 'Retry \u{1F451} delay \u2709\uFE0E', 'No marks here', '\u{1F451}'];
+      if (lr.error) bad('the session list rename edit did not apply: ' + lr.error);
+      else {
+        const penv = { window: {}, isOn: () => true, Date, Array, String, Math, isFinite, JSON, Object, Map, head: { appendChild() {} },
+          TITLE_MARKS: new RegExp(webview.TITLE_MARKS, 'gu'),
+          document: { createElement: () => ({ setAttribute() {}, textContent: '' }) }, localStorage: { getItem: () => null } };
+        vm.createContext(penv);
+        vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-row-marks.js'), 'utf8'), penv);
+        vm.runInContext(lr.out, penv);
+        const shown = [];
+        for (const t of typed) {
+          const row = { sessionId: { value: 'S' }, summary: { value: 'old' } };
+          penv.Store.sessions.value = [row];
+          penv.Store.renameSession('S', t);
+          shown.push(row.summary.value);
+        }
+        const want = typed.map((t) => marksLib.withoutMarks(t));
+        if (JSON.stringify(shown) === JSON.stringify(want) && want[0] === 'Retry delay of the sync' && want[3] === 'No marks here') {
+          ok('a title typed in the session list\'s rename box is shown at once without the crown, envelope and bell typed into it, as it is stored');
+        } else bad(`a rename typed in the list shows ${JSON.stringify(shown)}, not ${JSON.stringify(want)}`);
+      }
     }
 
     /* The page side (src/page/84-row-marks.js), with the list's own dot component. */

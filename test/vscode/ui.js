@@ -11,7 +11,8 @@
  *                  tab bar keeps the one Claude button, Claude Code's own, before the reload and after it
  *   session list   Claude Code's session list as the patch changes it: New in tab and New in sidebar, a pin and the dates
  *                  on every row, the right-click menu's Resume in tab, Resume in sidebar and Text color, a pin clicked,
- *                  and the hover text of a row
+ *                  the hover text of a row, and claude --bg, claude -p and daemon sessions left out, and the first two
+ *                  listed once claudeCodePlus.hideBackgroundSessions is off
  *   a tab          a conversation resumed in a tab: its title, the times on every message and reply, the bar on your
  *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
@@ -28,10 +29,21 @@
  *                  the detached program in the agent map, and the notice once it is gone;
  *                  on Linux, a `claude -p` worker left running under a detached shell beside a command in the
  *                  background: the agents button's dot green and its label counting both once, the map listing the
- *                  worker by name in place of its shell and its own row a green ring, all grey once both have ended
+ *                  worker by name in place of its shell and its own row a green ring, all grey once both have ended;
+ *                  a claude --bg session the conversation starts (a stand-in of the CLI, on every platform): the
+ *                  agents button's 1 bg and its green dot, the tab's ring, the map's row, the notice of its end, 1 bg
+ *                  done and grey, and the setting that leaves it out
  *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
  *                  Dismiss, Open bringing the conversation forward, the count, and no notice with each of the
  *                  agentPlus.notifications settings off
+ *   the steward    the Steward panel, a steward's crown on its tab, on every session list row and in the panel's
+ *                  header, the bell an older build stored left out, renames through both of Claude Code's rename
+ *                  boxes with marks typed anywhere, a managed conversation's dot and envelope in the panel while it
+ *                  works, has a reply unread, waits for permission and runs work in the background, and each of the
+ *                  steward's requests: a message passed on, a rename, close (refused while busy without --confirmed),
+ *                  --windows, a new conversation, one reopened (refused while another process runs it or no window
+ *                  has its folder, and ticked again), a handoff, a notice, a second steward's crown, and a link;
+ *                  on Linux, a conversation two processes run: the marks, and Stop the old process
  *   two windows    a second window of the same VS Code on a folder of its own: a conversation open there comes to
  *                  the front, in that window, from the first window's Steward panel and from a steward's link, and no
  *                  copy of it opens; a link to one open nowhere says so; once that window has reloaded with the
@@ -51,6 +63,7 @@
  *                  settings, Claude Code's list of plugins, the notice for a feature's own setting, what the fake model
  *                  receives, a detached command's end, and the four settings in the Settings editor
  *   commands       Show Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
+ *   removal        last: Remove from Claude Code restores both files, and turning the extension on puts the patch back
  *   self-check     no page of a Claude Code panel drew the warning that its messages are no longer found, all through the run
  *
  * Every step saves a screenshot to <out>/shots, and crops of the parts this extension draws are compared with the
@@ -66,6 +79,7 @@ const fakeHome = require('./lib/fake-home');
 const { folderName } = fakeHome;
 const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB,
   ASK_FOR_WORKER, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_CHOICE, CHOICE } = require('./lib/fake-model');
+const { ASK_FOR_BG_SESSION, BG_SESSION_NAME, BG_SESSION_SCRIPT } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
 const tabdot = require('../../src/tabdot');
@@ -96,8 +110,19 @@ const LABELS = {
 /* A stamp as the page writes it: a no-break space inside each part, so it can wrap only after a "·" and after the time. */
 const NB = '\u00a0', SEP = `${NB}\u00b7 `;
 const STAMP = `(?:\\d\\d/\\d\\d${NB})?\\d\\d:\\d\\d:\\d\\d`;
+/* The marks this extension draws with a title and never stores (src/title-marks.js): the crown, the envelope in either
+   form, and the bell older builds drew. */
+const CROWN = '\u{1F451}', BELL = '\u{1F6CE}\uFE0F';
+const MARK_RE = /\u{1F451}|\u{1F6CE}|\u2709/u;
+/* Conversations a steward opens again: one started in a folder below the window's, one in a folder no window has open. */
+const FOLDER_THREADS = [
+  { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fa', title: 'Tidy the helper scripts in the sub folder', days: 0,
+    turns: [['Tidy the helper scripts in the sub folder.', 'Moved the two helpers into scripts/ and removed the unused one.']] },
+  { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fb', title: 'Draft the migration notes for the other project', days: 0,
+    turns: [['Draft the migration notes for the other project.', 'Drafted them in docs/migration.md.']] },
+];
 
-async function run({ exe, profile, env, playwright, model, threads, out, check, note }) {
+async function run({ exe, profile, env, playwright, model, threads, background = [], out, check, note }) {
   const shotsDir = path.join(out, 'shots');
   fs.mkdirSync(shotsDir, { recursive: true });
   const base = baselines({ out, check, note });
@@ -667,6 +692,28 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       const hover = await labelOf(list, row(threads[2]).locator('span[class*="sessionName_"]').first());
       check(hover.text === `Group: Ungrouped\nSession ID: ${threads[2].id}`, 'resting on a row shows its group and its session ID', hover.text);
       if (hover.png) base.compare('row-hover-label', hover.png);
+
+      /* The transcripts of a `claude --bg`, a `claude -p` and a daemon session that lib/fake-home.js wrote with the
+         others. claudeCodePlus.hideBackgroundSessions, on by default, leaves all three out; turned off, without a reload,
+         the first two are listed and the daemon session still is not. */
+      const titles = () => list.evaluate(() => [...document.querySelectorAll('[class*="sessionItem_"] span[class*="sessionName_"]')].map((e) => e.textContent.trim()));
+      const backgroundShown = async () => { const got = await titles(); return background.filter((b) => got.includes(b.title)).map((b) => b.title); };
+      const setHide = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('hideBackgroundSessions', arg === null ? undefined : arg,
+        vscode.ConfigurationTarget.Global); return true;`, v);
+      const listedWhenShown = background.filter((b) => b.listedWhenShown).map((b) => b.title);
+      check(background.length === 3 && !(await backgroundShown()).length,
+        'with claudeCodePlus.hideBackgroundSessions on, the list leaves out the claude --bg, claude -p and daemon sessions', await backgroundShown());
+      await setHide(false);
+      try {
+        const shown = await until(async () => { const b = await backgroundShown(); return listedWhenShown.every((x) => b.includes(x)) && b; }, 30000, 500);
+        check(!!shown && JSON.stringify(shown.slice().sort()) === JSON.stringify(listedWhenShown.slice().sort()),
+          'turned off, without a reload, the list shows the claude --bg and claude -p sessions, and still not the daemon session', shown || await backgroundShown());
+        await page.mouse.move(5, 880);
+        await sleep(300);
+        await shot('session-list-background-shown');
+      } finally { await setHide(null); }
+      const hiddenAgain = await until(async () => !(await backgroundShown()).length, 30000, 500);
+      check(!!hiddenAgain, 'and turned back on, it leaves them out again', await backgroundShown());
     });
 
     const tab0 = threads[0];
@@ -1246,6 +1293,115 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       await page.keyboard.press('Escape');
     });
 
+    /* The live session records under ~/.claude/sessions whose processes run, as `claude agents` lists them. */
+    const liveRecords = () => {
+      const dir = path.join(profile.home, '.claude', 'sessions');
+      let names = [];
+      try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+      return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } })
+        .filter((d) => d && Number.isInteger(d.pid) && (() => { try { process.kill(d.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } })());
+    };
+    /* The status of the conversation's own Claude Code process (not a `claude -p` or `claude --bg` one), or null. */
+    const sessionStatus = (id) => {
+      const r = liveRecords().find((d) => d.sessionId === id && d.kind !== 'bg' && !/^sdk-/.test(d.entrypoint || ''));
+      return r ? r.status || null : null;
+    };
+    /* Claude Code's own command line in this run's extensions, and the environment that sends its turns to the fake model. */
+    const claudeCli = () => {
+      const dir = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
+      return dir ? path.join(profile.exts, dir, 'resources', 'native-binary', process.platform === 'win32' ? 'claude.exe' : 'claude') : '';
+    };
+    const modelEnv = () => Object.assign({}, env, { ANTHROPIC_BASE_URL: model.url, ANTHROPIC_API_KEY: fakeHome.KEY,
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_AUTOUPDATER: '1' });
+
+    /* A `claude --bg` session the conversation starts, through the stand-in of lib/fake-model.js (BG_SESSION_SCRIPT):
+       a session record of kind "bg" and the job's state under ~/.claude/jobs. Nothing here reads /proc, so it runs on every
+       platform. */
+    await step('a claude --bg session', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
+      if (!t) throw new Error('the conversation\'s tab is gone');
+      const SECONDS = 60;
+      const bin = path.join(profile.home, 'fake-bg');
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(path.join(bin, 'claude'), BG_SESSION_SCRIPT(SECONDS), { mode: 0o755 });
+      const GREEN = `rgb(${DOTS.running.join(', ')})`;
+      const pill = () => conv.evaluate(() => {
+        const b = document.querySelector('button[data-agents-dot]');
+        if (!b) return null;
+        const dot = b.querySelector('[data-status-dot]');
+        return { dot: b.getAttribute('data-agents-dot'), label: b.getAttribute('aria-label') || '', colour: dot ? getComputedStyle(dot).backgroundColor : '' };
+      });
+      const map = () => conv.evaluate(() => {
+        const own = document.querySelector('[class*="rowMain_"] [data-status-dot]'), s = own && getComputedStyle(own);
+        return { text: document.body.innerText.slice(-3000), own: own ? { state: own.getAttribute('data-status-dot'),
+          ring: /statusDotElsewhere/.test(own.className), border: s.borderTopColor } : null };
+      });
+      const jobs = () => { try { return fs.readdirSync(path.join(profile.home, '.claude', 'jobs')); } catch (_) { return []; } };
+      const before = model.seen.length, jobsBefore = jobs();
+      await conv.locator('[contenteditable][role="textbox"]').first().click();
+      await page.keyboard.type(`Please ${ASK_FOR_BG_SESSION}.`);
+      await page.keyboard.press('Enter');
+      check(!!await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300), 'the fake model answers with a Bash call of claude --bg', model.seen.slice(before));
+      const asking = await until(() => conv.evaluate(() => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes('--bg')), 8000, 500);
+      if (asking) await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+      const started = Date.now();
+      const job = await until(() => jobs().find((j) => !jobsBefore.includes(j)), 30000, 500);
+      const ended = await until(() => sessionStatus(tab0.id) === 'idle' && model.seen.slice(before).some((x) => x.stream && !x.tool && (x.parts || []).includes('tool_result')), 60000, 500);
+      check(!!job && !!ended, 'the turn that started the session ends while it runs', { job, status: sessionStatus(tab0.id), bg: liveRecords().filter((r) => r.kind === 'bg') });
+      const running = await until(async () => { const f = await pill(); return f && f.dot === 'running' && /\b1 bg\b/.test(f.label) && f; }, 40000, 500);
+      check(!!running && running.colour === GREEN, 'with the turn over, the agents button counts it as 1 bg, and its dot is the tabs\' green', await pill());
+      const ring = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
+      check(!!ring, 'and the tab\'s logo carries the green ring', await dotsOn(t.label));
+      const listRing = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
+      check(!!listRing, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      await shot('agents-button-bg-running');
+      if (running) {
+        await conv.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+        const listed = await until(async () => { const m = await map(); return /1 background session · 1 running · started from this conversation/.test(m.text) && m.text.includes(BG_SESSION_NAME) && m; }, 10000, 500);
+        check(!!listed && listed.text.includes(job) && !!listed.own && listed.own.state === 'running' && listed.own.ring && listed.own.border === GREEN,
+          'the agent map lists the session by name and job id as running, and the map\'s own row has a green ring', listed ? { text: listed.text.slice(-900), own: listed.own } : await map());
+        await shot('agent-map-bg-running');
+        await page.keyboard.press('Escape');
+        await sleep(500);
+      }
+      /* The session ends SECONDS after it started; the conversation is told through its inbox, which native Windows does
+         not offer (src/stewards.js post()). */
+      const notice = /notice, not a message from the user: news of a `claude --bg` session this conversation started/;
+      if (process.platform !== 'win32') {
+        const told = await until(() => model.seen.slice(before).some((x) => notice.test(x.ask || '')), started + SECONDS * 1000 - Date.now() + 90000, 1000);
+        check(!!told, 'once it has finished, the conversation is told, which starts a turn', model.seen.slice(before).map((x) => (x.ask || '').slice(0, 160)));
+      }
+      const done = await until(async () => {
+        const f = await pill(), d = await dotsOn(t.label);
+        return Date.now() - started > SECONDS * 1000 && sessionStatus(tab0.id) === 'idle' && d && d.running === 0 && f && f.dot !== 'running' && /\b1 bg done\b/.test(f.label) && { f, d };
+      }, started + SECONDS * 1000 - Date.now() + 120000, 1000);
+      check(!!done && done.f.colour !== GREEN, 'once it has finished, the agents button says 1 bg done and its dot is grey, and the tab\'s dot is gone',
+        { pill: await pill(), dots: await dotsOn(t.label), status: sessionStatus(tab0.id) });
+      if (process.platform === 'win32') note(`on native Windows the conversation is not told that the session ended: ${model.seen.slice(before).some((x) => notice.test(x.ask || '')) ? 'it was told' : 'it was not told'}`);
+      await shot('agents-button-bg-done');
+      if (done) {
+        await conv.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
+        /* The result is in the session's folded row, which innerText leaves out. */
+        const result = () => conv.evaluate(() => [...document.querySelectorAll('details pre')].some((p) => p.textContent.includes('The nightly report is written')));
+        const over = await until(async () => { const m = await map(); return /1 background session · 1 done/.test(m.text) && await result() && m; }, 10000, 500);
+        check(!!over && !!over.own && over.own.state === 'idle' && !over.own.ring, 'the map keeps it, done, with its result, and the map\'s own row is grey',
+          over ? { text: over.text.slice(-900), own: over.own } : await map());
+        await shot('agent-map-bg-done');
+        await page.keyboard.press('Escape');
+        await sleep(500);
+      }
+      /* claudeCodePlus.show.backgroundSessions off leaves the session out of the button and the map. */
+      const setShow = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('show.backgroundSessions', arg === null ? undefined : arg,
+        vscode.ConfigurationTarget.Global); return true;`, v);
+      await setShow(false);
+      try {
+        const gone = await until(async () => { const f = await pill(); return (!f || !/\bbg\b/.test(f.label)) && { f }; }, 20000, 500);
+        check(!!gone, 'with claudeCodePlus.show.backgroundSessions off, the agents button no longer counts it', await pill());
+      } finally { await setShow(null); }
+      check(!!await until(async () => { const f = await pill(); return f && /\b1 bg done\b/.test(f.label); }, 20000, 500), 'and turned back on, it does again', await pill());
+    });
+
     /* What makes a conversation wait for the user besides a permission prompt: a question its plan put to the user since
        the user last wrote, and a choice box. Each makes its dot red, and Agent Plus tells of it in a notice and counts it
        in the status bar while the user is not looking at it, as its agentPlus.notifications settings allow. */
@@ -1585,7 +1741,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       if (d) check(await answerDialog('Cancel') && fs.existsSync(transcriptOf(t1)), 'Cancel closes it and deletes nothing', transcriptOf(t1));
     });
 
-    await step('the steward panel', async () => {
+    await step('the steward panel', async () => { try {
       const front = threads[0];
       /* The Steward panel lists only conversations open in a window, so the others are opened in tabs first. */
       for (const t of threads.slice(1)) { await exec('claude-vscode.editor.open', t.id); await sleep(800); }
@@ -1606,30 +1762,121 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         { boxes, groups, windows: readAll(path.join(dataDir, 'windows')).map((w) => w.sessions),
           running: readAll(path.join(profile.home, '.claude', 'sessions')).map((r) => [r.sessionId, r.kind, r.status]) });
       await shot('steward-panel');
+      /* The title a conversation's transcript stores last, or ''. */
+      const storedTitle = (id) => {
+        let text = '';
+        try { text = fs.readFileSync(transcriptOf({ id }), 'utf8'); } catch (_) { return ''; }
+        const line = text.split('\n').filter((l) => l.includes('"type":"custom-title"')).pop();
+        try { return line ? String(JSON.parse(line).customTitle || '') : ''; } catch (_) { return ''; }
+      };
       if (frame && boxes.length) {
-        await frame.locator('input[data-id]').first().click();
+        /* The name an older build stored for a steward: the title with its bell after it, as the last custom title in the
+           transcript and as the name of its process's session record. */
+        const belledName = `${front.title} ${BELL}`;
+        fs.appendFileSync(transcriptOf(front), JSON.stringify({ type: 'custom-title', customTitle: belledName, sessionId: front.id }) + '\n');
+        for (const r of liveRecords().filter((x) => x.sessionId === front.id)) {
+          const recFile = path.join(profile.home, '.claude', 'sessions', `${r.pid}.json`);
+          try { fs.writeFileSync(recFile, JSON.stringify(Object.assign({}, r, { name: belledName }))); } catch (_) { /* the process rewrote it */ }
+        }
+        /* One of the test conversations that has an editor tab: an earlier step can leave one in the sidebar, which closing
+           and the tab checks below need it not to be. */
+        const tabbed = await claudeTabs();
+        const inTab = (id) => { const t = threads.find((x) => x.id === id); return !!t && tabbed.some((x) => titled(x.label.replace(ENVELOPE, ''), t.title)); };
+        const chosen = (boxes.find(([id]) => inTab(id)) || boxes[0])[0];
+        await frame.locator(`input[data-id="${chosen}"]`).first().click();
         const file = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
         const table = await until(() => {
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
-        check(!!table && table.stewards[front.id].manages.includes(boxes[0][0]), 'ticking one makes the conversation in front its steward', table);
+        check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its steward', table);
         const belled = (label) => typeof label === 'string' && label.startsWith('\u{1F451} ') && (label.match(/\u{1F451}/gu) || []).length === 1
           && titled(label.slice('\u{1F451} '.length), front.title);
         const marked = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
         check(!!marked, 'and its tab keeps its title with one crown before it', await claudeTabs());
-        const row = list ? await until(() => list.evaluate(() => (document.body.innerText.match(/\u{1F451}/gu) || []).length), 15000, 500) : 0;
-        check(row >= 1, 'and its row in the session list too', row);
+        /* Each of its rows in the session list, in OPEN SESSIONS and below it: one crown, before the title and outside
+           it, and no mark in the title; the other conversations' rows have none. */
+        const rowsOf = (id) => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"], [class*="sessionItem_"]:has([data-cce-pin="${id}"]), [data-cce-open-row="${id}"]`)]
+          .map((r) => {
+            const name = r.querySelector('span[class*="sessionName_"]'), crowns = [...r.querySelectorAll('[data-cce-crown]')];
+            return { section: !!r.closest('[data-cce-section]'), crowns: crowns.length, name: name ? name.textContent : null,
+              before: !!name && crowns.length === 1 && !name.contains(crowns[0]) && !!(crowns[0].compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING) };
+          }), id);
+        const crownedRows = (rs, title) => rs.length >= 2 && rs.some((r) => r.section) && rs.some((r) => !r.section)
+          && rs.every((r) => r.crowns === 1 && r.before && r.name === title && !MARK_RE.test(r.name));
+        const crownRows = list ? await until(async () => { const rs = await rowsOf(front.id); return crownedRows(rs, front.title) && rs; }, 15000, 500) : null;
+        const others = list ? await Promise.all(threads.filter((t) => t.id !== front.id).map((t) => rowsOf(t.id))) : [];
+        check(!!crownRows && others.every((rs) => rs.every((r) => r.crowns === 0)),
+          'and each of its rows in the session list, in OPEN SESSIONS and below, has one crown, before the title and not in it; no other row has one',
+          { steward: crownRows || (list && await rowsOf(front.id)), others });
+        /* The Steward panel's header names the steward with its crown, and without the bell its stored name carries. */
+        const header = () => frame.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : null; });
+        const headed = await until(async () => (await header()) === `${CROWN} ${front.title}`, 15000, 500);
+        check(!!headed, 'the Steward panel\'s header names the steward with one crown first and without the bell an older build stored in its name',
+          { header: await header(), stored: storedTitle(front.id) });
         await shot('steward-ticked');
+
+        /* Renamed through Claude Code's own two rename boxes, the tab's and the session list row's, with marks typed in
+           every place: neither box is filled with a mark, the title is stored without any, and the tab and each row still
+           show exactly one crown, first. */
+        const crowned = (label, title) => typeof label === 'string' && label.startsWith(`${CROWN} `) && (label.match(/\u{1F451}/gu) || []).length === 1
+          && !/\u2709|\u{1F6CE}/u.test(label) && titled(label.slice(CROWN.length + 1), title);
+        const viaTab = async (typed) => {
+          await exec('claude-vscode.editor.open', front.id);
+          await sleep(500);
+          const asked = exec('claude-vscode.renameSessionTab').catch((e) => String(e));
+          const input = page.locator('.quick-input-widget input').first();
+          if (!await until(() => input.isVisible().catch(() => false), 10000, 300)) throw new Error('Rename Session Tab did not open its box');
+          const held = await input.inputValue();
+          if (typed !== null) await input.fill(typed);
+          await page.keyboard.press('Enter');
+          await asked;
+          return held;
+        };
+        const viaRow = async (id, typed) => {
+          await openList();
+          const r = row({ id });
+          await page.mouse.move(5, 880);
+          await r.hover();
+          await r.locator('[title="Rename session"]').first().click({ timeout: 5000 });
+          const box = r.locator('[contenteditable]').first();
+          await box.waitFor({ state: 'visible', timeout: 5000 });
+          const held = await box.textContent();
+          await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+          await page.keyboard.insertText(typed);
+          await page.keyboard.press('Enter');
+          return held;
+        };
+        const NAME = 'Retry delay of the inventory sync';
+        const renames = [
+          ['Rename Session Tab', viaTab, null, 'nothing, saving what it was filled with, the stored name less its bell'],
+          ['Rename Session Tab', viaTab, NAME, 'no mark'],
+          ['Rename Session Tab', viaTab, `${CROWN} ${CROWN} Retry delay ${CROWN} of the inventory sync ${CROWN} ${BELL}`, 'crowns first, in the middle and last, and the old bell'],
+          ['the session list row\'s Rename', (x) => viaRow(front.id, x), `Retry delay ${ENVELOPE.trim()} of the inventory sync ${ENVELOPE.trim()}${CROWN}`, 'envelopes and a crown'],
+          ['the session list row\'s Rename', (x) => viaRow(front.id, x), `${BELL}${CROWN}Retry delay of the inventory sync`, 'a bell and a crown with no space before the title'],
+          ['Rename Session Tab', viaTab, front.title, 'no mark, giving the conversation its own title back'],
+        ];
+        for (const [how, rename, typed, what] of renames) {
+          const want = typed === front.title || typed === null ? front.title : NAME;
+          let held = null, err = '';
+          try { held = await rename(typed); } catch (e) { err = String((e && e.message) || e).split('\n')[0]; }
+          const done = !err && await until(async () => {
+            const tab = (await claudeTabs()).find((x) => crowned(x.label, want)), rs = await rowsOf(front.id);
+            return storedTitle(front.id) === want && tab && crownedRows(rs, want) && { tab: tab.label, rows: rs };
+          }, 20000, 500);
+          check(!err && typeof held === 'string' && !MARK_RE.test(held) && !!done,
+            `renamed through ${how} with ${what} typed: the box held no mark, the title is stored without one, and the tab and each row show one crown, first`,
+            { err, held, typed, stored: storedTitle(front.id), tabs: (await claudeTabs()).map((x) => x.label), rows: await rowsOf(front.id) });
+        }
+        await page.mouse.move(5, 880);
+        await shot('steward-renamed');
         /* A message the steward passes on with its script: the window types it into the managed conversation, which
            sends it as the user's message. The steward's tool call that runs the script is in its transcript first. */
-        const target = threads.find((t) => t.id === boxes[0][0]);
+        const target = threads.find((t) => t.id === chosen);
         if (target) {
           const words = 'Please run the tests once more, then stop.';
           const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
-          fs.appendFileSync(transcriptOf(front), JSON.stringify({ type: 'assistant', uuid: `${front.id.slice(0, 24)}000000000777`,
-            timestamp: new Date().toISOString(), sessionId: front.id, cwd: profile.folder, isSidechain: false,
-            message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_relay_test', name: 'Bash',
-              input: { command: `python3 ${hooks} ${target.id} <<'EOF'\n${words}\nEOF`, description: 'Pass the message on' } }] } }) + '\n');
+          const answered = fakeHome.appendToolCall(transcriptOf(front), { sessionId: front.id, cwd: profile.folder, uuid: `${front.id.slice(0, 24)}000000000777`,
+            toolId: 'toolu_relay_test', command: `python3 ${hooks} ${target.id} <<'EOF'\n${words}\nEOF`, description: 'Pass the message on' });
           const said = await new Promise((resolve) => {
             const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, target.id, dataDir],
               { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: front.id }) });
@@ -1640,6 +1887,7 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
             kid.on('exit', () => resolve(out.trim()));
             kid.stdin.end(words);
           });
+          answered(said);
           const arrived = /^Sent: /.test(said) ? await until(() => {
             try { return fs.readFileSync(transcriptOf(target), 'utf8').includes(JSON.stringify(words).slice(1, -1)); } catch (_) { return false; }
           }, 30000, 500) : false;
@@ -1650,23 +1898,23 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
              this window's folder with its first message sent, and closing that new one's tab. Each is run the way the
              steward runs it, so its tool call is in the steward's transcript first. */
           let calls = 0;
-          const act = (args, input) => {
+          /* `asker` runs the script: its tool call goes in its own transcript first. */
+          const actAs = (asker, args, input) => {
             const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
-            fs.appendFileSync(transcriptOf(front), JSON.stringify({ type: 'assistant', uuid: `${front.id.slice(0, 24)}00000000078${calls++}`,
-              timestamp: new Date().toISOString(), sessionId: front.id, cwd: profile.folder, isSidechain: false,
-              message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_act_${calls}`, name: 'Bash',
-                input: { command: line, description: 'Act for the user' } }] } }) + '\n');
+            const answered = fakeHome.appendToolCall(transcriptOf({ id: asker }), { sessionId: asker, cwd: profile.folder,
+              uuid: `${asker.slice(0, 24)}${String(780000 + calls++).padStart(12, '0')}`, toolId: `toolu_act_${calls}`, command: line, description: 'Act for the user' });
             return new Promise((resolve) => {
               const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
-                { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: front.id }) });
+                { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: asker }) });
               let out = '';
               kid.stdout.on('data', (d) => { out += d; });
               kid.stderr.on('data', (d) => { out += d; });
               kid.on('error', (e) => resolve('could not run the script: ' + e.message));
               kid.on('exit', () => resolve(out.trim()));
               kid.stdin.end(input || '');
-            });
+            }).then((said) => { answered(said); return said; });
           };
+          const act = (args, input) => actAs(front.id, args, input);
           const title = 'Renamed by its steward';
           const renamed = await act(['--rename', target.id], title);
           const titled2 = /^Renamed\./.test(renamed) ? await until(() => {
@@ -1675,6 +1923,142 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           check(/^Renamed\./.test(renamed) && !!titled2, 'the steward renames a conversation it manages, and Claude Code records the title', { renamed });
           // Later steps find this conversation's tab by its own title.
           if (/^Renamed\./.test(renamed)) await act(['--rename', target.id], target.title);
+
+          /* The managed conversation, in a tab behind the steward's, as the Steward panel's row shows it: a filled green
+             dot while a turn runs, an envelope once its reply has landed unread, a red dot while it waits for permission,
+             and a green ring while only work it put in the background runs. */
+          const GREEN = `rgb(${DOTS.running.join(', ')})`, RED = `rgb(${DOTS.waiting.join(', ')})`;
+          const panelRow = (id) => frame.evaluate((id) => {
+            const a = document.querySelector(`li.row [data-open="${id}"]`), li = a && a.closest('li.row');
+            if (!li) return null;
+            const dot = li.querySelector('.dot'), env = li.querySelector('.env'), cs = dot ? getComputedStyle(dot) : null;
+            return { dot: dot ? [...dot.classList].filter((c) => c !== 'dot').join(' ') : null, env: env ? env.textContent : null,
+              fill: cs && cs.backgroundColor, ring: cs && cs.borderTopWidth !== '0px' ? cs.borderTopColor : '', text: li.innerText.replace(/\s+/g, ' ').trim() };
+          }, id);
+          const rowIs = (want) => until(async () => { const r = await panelRow(target.id); return r && want(r) && r; }, 30000, 500);
+          const sendTo = async (words) => { const said2 = await act([target.id], words); if (!/^Sent: /.test(said2)) throw new Error(`the steward could not pass "${words}" on: ${said2}`); };
+          const front2 = async () => { await exec('claude-vscode.editor.open', front.id); await sleep(800); };
+          model.hold();
+          try {
+            await sendTo('Please look at the build log, then stop.');
+            const working = await rowIs((r) => r.dot === 'working' && r.fill === GREEN);
+            check(!!working, 'while a turn of the managed conversation runs, its row in the Steward panel has a filled green dot', await panelRow(target.id));
+            await shot('steward-row-working');
+          } finally { model.release(); }
+          const unread = await rowIs((r) => !r.dot && r.env === ENVELOPE.trim());
+          check(!!unread, 'once its reply lands with its tab behind another, the row has no dot and ends in the envelope', await panelRow(target.id));
+          await shot('steward-row-unread');
+          /* Renamed through its session list row while the reply is unread, with envelopes and a crown typed: the title is
+             stored without them, its tab ends in one envelope, and its rows have one envelope after the title. */
+          /* The row's marks come before its title in the page and the envelope is drawn after it, so where it stands is read
+             from the screen. Rows in a folded section have no box. */
+          const envRows = (id) => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"], [class*="sessionItem_"]:has([data-cce-pin="${id}"])`)]
+            .filter((r) => r.getClientRects().length).map((r) => {
+              const name = r.querySelector('span[class*="sessionName_"]'), envs = [...r.querySelectorAll('[data-cce-envelope]')];
+              const nb = name && name.getBoundingClientRect(), eb = envs[0] && envs[0].getBoundingClientRect();
+              return { envs: envs.length, crowns: r.querySelectorAll('[data-cce-crown]').length, name: name ? name.textContent : null,
+                after: !!nb && envs.length === 1 && !name.contains(envs[0]) && eb.width > 0 && eb.left >= nb.right - 1 };
+            }), id);
+          let heldT = null, errT = '';
+          try { heldT = await viaRow(target.id, `${ENVELOPE.trim()} ${target.title} ${ENVELOPE.trim()} ${CROWN}`); } catch (e) { errT = String((e && e.message) || e).split('\n')[0]; }
+          const kept = !errT && await until(async () => {
+            const tab = (await claudeTabs()).find((x) => titled(x.label.replace(ENVELOPE, ''), target.title)), rs = await envRows(target.id);
+            return storedTitle(target.id) === target.title && tab && tab.label.endsWith(ENVELOPE) && (tab.label.match(/\u2709/gu) || []).length === 1
+              && !tab.label.includes(CROWN) && rs.length >= 1 && rs.every((r) => r.envs === 1 && r.after && r.crowns === 0 && r.name === target.title) && { tab: tab.label, rows: rs };
+          }, 20000, 500);
+          check(!errT && typeof heldT === 'string' && !MARK_RE.test(heldT) && !!kept,
+            'renamed through its row with envelopes and a crown typed while its reply is unread: the title is stored without them, and its tab and rows show one envelope, last',
+            { errT, heldT, stored: storedTitle(target.id), tabs: (await claudeTabs()).map((x) => x.label), rows: await envRows(target.id) });
+          await front2();
+
+          const asked = model.seen.length;
+          await sendTo(`Please ${ASK_TO_RUN}.`);
+          const waitingRow = await rowIs((r) => r.dot === 'waiting' && r.fill === RED);
+          check(!!waitingRow, 'while it waits for permission to run a command, the row has a filled red dot', await panelRow(target.id));
+          await shot('steward-row-waiting');
+          /* The steward is told, through its inbox, which native Windows does not offer (src/stewards.js post()). */
+          const noticed = () => { try { const x = fs.readFileSync(transcriptOf(front), 'utf8'); return x.includes('Steward notice from Claude Code Plus') && x.includes(`(${target.id}) is waiting for the user`); } catch (_) { return false; } };
+          if (process.platform === 'win32') {
+            await sleep(15000);
+            check(!noticed(), 'on native Windows the steward is not sent a notice, since its inbox socket takes none from other processes', model.seen.slice(asked).map((x) => (x.ask || '').slice(0, 120)));
+          } else {
+            check(!!await until(noticed, 45000, 1000), 'the steward is sent a notice, not as the user\'s message, that the conversation is waiting for the user',
+              model.seen.slice(asked).map((x) => (x.ask || '').slice(0, 160)));
+          }
+          const closeBusy = await act(['--close', target.id]);
+          check(/^Not done: busy: it is waiting/.test(closeBusy), 'asked to close it while it waits, without --confirmed, the steward is told to ask the user first', { closeBusy });
+          await exec('claude-vscode.editor.open', target.id);
+          const targetPage = await conversation(target, 30000);
+          if (targetPage) await targetPage.locator('button, [role="button"]').filter({ hasText: /^\s*3\s*No\s*$/ }).first().click({ timeout: 5000 }).catch(() => {});
+          await front2();
+          check(!!await rowIs((r) => r.dot !== 'waiting'), 'answered, its red dot goes', await panelRow(target.id));
+
+          await sendTo(`Please ${ASK_TO_BACKGROUND}.`);
+          const ringRow = await until(async () => {
+            const r = await panelRow(target.id);
+            if (r && r.dot === 'waiting') {
+              await exec('claude-vscode.editor.open', target.id);
+              const pg = await conversation(target, 30000);
+              if (pg) await pg.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 }).catch(() => {});
+              await front2();
+            }
+            return r && r.dot === 'background' && r.ring === GREEN && r.fill !== GREEN && r;
+          }, 60000, 1000);
+          check(!!ringRow, 'once its turn has ended with a command still running in the background, the row has a green ring, hollow in the middle', await panelRow(target.id));
+          await shot('steward-row-background');
+
+          /* A handoff, run from the managed conversation: it reaches the steward that manages it, as a notice that is not
+             the user's message, through the steward's inbox. */
+          const handed = model.seen.length;
+          const handText = 'The user asked here for the release notes, which belong in another conversation.';
+          const handoff = await actAs(target.id, ['--handoff'], handText);
+          const arrivedHand = () => { try { const x = fs.readFileSync(transcriptOf(front), 'utf8'); return x.includes('Handoff from') && x.includes(`(${target.id}), passed on by Claude Code Plus`); } catch (_) { return false; } };
+          if (process.platform === 'win32') {
+            check(/^Not done: /.test(handoff) && /inbox/.test(handoff), 'on native Windows a handoff says the steward\'s inbox could not be reached', { handoff });
+          } else {
+            check(handoff.startsWith('Handed off to the steward ') && handoff.includes(`(${front.id})`) && !!await until(arrivedHand, 30000, 1000),
+              'a managed conversation hands something off: the answer names the steward, which gets it as a notice from Claude Code Plus', { handoff, seen: model.seen.slice(handed).map((x) => (x.ask || '').slice(0, 160)) });
+            /* Claude Code draws no row for what arrives through the inbox, so the turn the handoff starts begins at no
+               message on the page; its reply's duration still runs from the handoff, not from the last message typed. */
+            const replyTo = () => {
+              let recs = [];
+              try { recs = fs.readFileSync(transcriptOf(front), 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (_) { return {}; } }); } catch (_) { return null; }
+              const at = recs.findIndex((r) => r.type === 'user' && JSON.stringify(r.message || '').includes(`(${target.id}), passed on by Claude Code Plus`));
+              const reply = at < 0 ? null : recs.slice(at + 1).find((r) => r.type === 'assistant' && r.message && Array.isArray(r.message.content)
+                && r.message.content.some((b) => b.type === 'text' && b.text.trim()));
+              return reply && { from: Date.parse(recs[at].timestamp), at: Date.parse(reply.timestamp), uuid: reply.uuid };
+            };
+            const answer = await until(replyTo, 30000, 500);
+            const page2 = answer ? await conversation(front, 30000) : null;
+            /* The reply's first line, found by its time, and the duration on it as the page writes one (75-turn-stats.js dur). */
+            const stampOf = () => page2 ? page2.evaluate((at) => {
+              const fmt = (ms) => { const d = new Date(ms), p = (n) => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+              return [...document.querySelectorAll('[data-testid="assistant-message"] [data-cce-ts]')].map((e) => e.getAttribute('data-cce-ts').replace(/\u2060/g, ''))
+                .find((x) => x.includes(fmt(at))) || null;
+            }, answer.at) : null;
+            const took = (ms) => {
+              if (!(ms > 0)) return '';
+              const s = Math.round(ms / 1000); if (s < 60) return `${s}s`;
+              const mi = Math.floor(s / 60); return mi < 60 ? `${mi}m${s % 60 ? `${s % 60}s` : ''}` : `${Math.floor(mi / 60)}h${mi % 60}m`;
+            };
+            const want2 = answer ? took(answer.at - answer.from) : '';
+            const timed = (x) => !!x && (want2 ? new RegExp(`\\s${want2}(\\s|$)`).test(x) : !/\s\d+(h\d+m|m(\d+s)?|s)(\s|$)/.test(x.replace(/^\S+/, '')));
+            const shown2 = answer && await until(async () => { const x = await stampOf(); return timed(x) && x; }, 30000, 500);
+            const listed = () => page2 && page2.evaluate(() => {
+              const node = document.querySelector('[data-testid="assistant-message"]');
+              const key = node && Object.keys(node).find((k) => k.startsWith('__reactFiber'));
+              for (let f = key && node[key], i = 0; f && i < 80; f = f.return, i++) {
+                const pr = f.memoizedProps, list = pr && pr.session && pr.session.messages && pr.session.messages.value;
+                if (Array.isArray(list)) return list.filter((m) => m && m.type === 'user').slice(-4).map((m) => ({ ts: m.timestamp, origin: m.origin && m.origin.kind, folded: m.foldedIntoTurn, notAPrompt: m.notAPrompt }));
+              }
+              return null;
+            });
+            check(!!shown2, 'the steward\'s reply to the handoff, which Claude Code draws no row for, is timed from the handoff',
+              { shown: await stampOf(), want: want2, answer, listed: await listed() });
+          }
+          const listedWindows = await act(['--windows']);
+          const sameAs = (a, b) => (process.platform === 'win32' ? String(a).toLowerCase().includes(String(b).toLowerCase()) : String(a).includes(b));
+          check(sameAs(listedWindows, profile.folder), '--windows lists this window with its folder', { listedWindows });
           const first = 'Start a new piece of work, please.';
           const opened = await act(['--open', profile.folder], first);
           const newId = (/Session id: ([0-9a-f-]{36})/.exec(opened) || [])[1] || '';
@@ -1686,18 +2070,58 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
             const managed = await until(() => {
               try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(newId); } catch (_) { return false; }
             }, 10000, 300);
-            let closed = '';
-            for (let i = 0; i < 15 && !/^Closed: /.test(closed); i++) {
-              closed = await act(['--close', newId]);
-              if (!/^Closed: /.test(closed)) await new Promise((r) => setTimeout(r, 2000));
-            }
-            check(!!managed && /^Closed: /.test(closed), 'the new conversation is the steward\'s, and the steward closes its tab once it is idle', { managed, closed });
+            /* A title of its own: Claude Code counts a closed tab it remembers as shown while another tab has its label, and a
+               new conversation's tab is labelled Claude Code, as is the empty one a step before leaves. */
+            const ownTitle = await act(['--rename', newId], 'A new piece of work');
+            check(/^Renamed\./.test(ownTitle), 'the steward gives the new conversation a title', { ownTitle });
+            /* With a turn of the new conversation running, closing it needs --confirmed. */
+            const idleNew = await until(() => sessionStatus(newId) === 'idle', 60000, 500);
+            let refusedClose = '', closed = '';
+            model.hold();
+            try {
+              const sent = idleNew ? await act([newId], 'Carry on with the plan, please.') : '';
+              if (/^Sent: /.test(sent) && await until(() => sessionStatus(newId) === 'busy', 20000, 300)) {
+                refusedClose = await act(['--close', newId]);
+                closed = await act(['--close', '--confirmed', newId]);
+              }
+            } finally { model.release(); }
+            check(!!managed && /^Not done: busy: it is working/.test(refusedClose) && /^Closed: /.test(closed),
+              'the new conversation is the steward\'s; while it works, closing it is refused without --confirmed, and done with it', { managed, idleNew, refusedClose, closed });
             /* With its tab closed no window shows that conversation, so the steward opens it again and passes it a
                message. Its process and this window's list of what it shows can take a moment to let it go. */
             if (/^Closed: /.test(closed)) {
               /* Two lines, to see that the line break reaches the transcript: the panel types the text, and Claude Code
                  sends what its input holds. */
               const later = 'Carry on where you left off, please.\nStart with the tests.';
+              const manages = (id) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(id); } catch (_) { return null; } };
+              /* Unticked first, from the line the panel shows for ticked conversations no window has open, so that the tick
+                 the resume gives is seen to be given. */
+              const drop = frame.locator('button[data-act="drop-hidden"]').first();
+              const offered = await until(() => drop.isVisible().catch(() => false), 30000, 500);
+              if (offered) await drop.click();
+              const unticked = offered && await until(() => manages(newId) === false, 10000, 300);
+              check(!!unticked, 'the Steward panel says a ticked conversation is open in no window, and its Untick button unticks it', { offered, manages: manages(newId) });
+              /* What this window's panels show, less what Claude Code knows runs in another process (shownList in extension.js). */
+              const shownHere = () => call(`if (typeof globalThis.__cceSessionsShown !== 'function') return null;
+                const away = typeof globalThis.__cceSessionsElsewhere === 'function' ? globalThis.__cceSessionsElsewhere() : [];
+                return globalThis.__cceSessionsShown().filter((id) => !away.includes(id));`);
+              /* Another process runs it: a `claude -p --resume`, held by the fake model. Started once no window's entry, which
+                 the script reads, lists the conversation as shown. */
+              const listedBy = () => readAll(path.join(dataDir, 'windows')).filter((x) => Array.isArray(x.sessions) && x.sessions.includes(newId)).map((x) => x.name);
+              const unlisted = await until(() => !listedBy().length, 30000, 500);
+              check(!!unlisted, 'once its tab is closed, no window\'s entry lists the conversation', { listedBy: listedBy() });
+              const cli = claudeCli();
+              let other = null;
+              model.hold();
+              try {
+                other = cli ? require('child_process').spawn(cli, ['-p', '--resume', newId, 'Check the logs.'], { cwd: profile.folder, env: modelEnv(), stdio: 'ignore' }) : null;
+                const running = other && await until(() => liveRecords().some((r) => r.pid === other.pid && r.sessionId === newId), 30000, 500);
+                const refusedResume = running ? await act(['--resume', newId], later) : '';
+                const shown = await shownHere();
+                check(!!running && new RegExp(`^Not done: process ${other.pid} runs it`).test(refusedResume) && Array.isArray(shown) && !shown.includes(newId),
+                  'while another process runs a conversation, the steward is refused opening it, told which process, and no tab opens', { refusedResume, shown, cli });
+              } finally { model.release(); }
+              if (other) await until(() => !liveRecords().some((r) => r.pid === other.pid), 30000, 500);
               let resumed = '';
               // Retried only while it was not opened at all; once opened, the answer says whether the text was sent.
               for (let i = 0; i < 15 && !/^Opened/.test(resumed); i++) {
@@ -1711,6 +2135,12 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
               check(/^Opened: /.test(resumed) && /It is now ticked for you in the Steward panel\./.test(resumed) && !!arrived2,
                 'the steward opens a conversation no window shows in an editor tab of this window, passes it a message of two lines, which arrives with its line break, and has it ticked',
                 { resumed, arrived: !!arrived2, tab });
+              /* The panel is about the conversation in front, which is the resumed one now; the steward is brought back.
+                 Running conversations reach the panel from `claude agents --json`, asked at most every 30 s. */
+              await exec('claude-vscode.editor.open', front.id);
+              const boxOf = () => frame.evaluate((id) => { const b = document.querySelector(`input[data-id="${id}"]`); return b ? b.checked : null; }, newId);
+              const tickedBox = await until(async () => (await boxOf()) === true, 45000, 500);
+              check(manages(newId) === true && !!tickedBox, 'and it is ticked: stewards.json has it again, and so does its box in the Steward panel', { manages: manages(newId), box: await boxOf() });
               await shot('steward-resume');
               if (/^Opened/.test(resumed)) {
                 const twice = await act(['--resume', newId], later);
@@ -1720,9 +2150,54 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
                   await new Promise((r) => setTimeout(r, 2000));
                 }
               }
+              /* Opened only in the window whose first folder is the one Claude Code keeps the conversation under: one kept
+                 under a folder no window has open is refused, and so is one kept under a folder below this window's, which
+                 Claude Code's panel would show as an empty tab. */
+              const [inside, outside] = [FOLDER_THREADS[0], FOLDER_THREADS[1]];
+              const insideFolder = path.join(profile.folder, 'sub'), outsideFolder = path.join(path.dirname(profile.folder), 'ws-c');
+              for (const d of [insideFolder, outsideFolder]) fs.mkdirSync(d, { recursive: true });
+              fakeHome.writeThreads(profile.home, insideFolder, [inside]);
+              fakeHome.writeThreads(profile.home, outsideFolder, [outside]);
+              const away2 = await act(['--resume', outside.id]);
+              check(/^Not done: no open VS Code window has its folder, .*, as its first folder/.test(away2) && !(await shownHere() || []).includes(outside.id),
+                'a conversation started in a folder no window has open is not opened, in this window or any other', { away2 });
+              const tabsBefore = (await claudeTabs()).length;
+              /* The script refuses before it writes any request, so nothing can open afterwards. */
+              const below = await act(['--resume', inside.id]);
+              check(/^Not done: no open VS Code window has its folder, .*, as its first folder/.test(below) && !(await shownHere() || []).includes(inside.id)
+                && (await claudeTabs()).length === tabsBefore,
+                'and so is one started in a folder below this window\'s folder, which Claude Code\'s panel would show as an empty tab: no tab opens', { below, tabs: await claudeTabs() });
+              /* Claude Code itself, asked to open it here, shows an empty tab: the reason for the refusal. */
+              await exec('claude-vscode.editor.open', inside.id);
+              const direct = await conversation(inside, 20000);
+              note(`a conversation started in a folder below this window's, opened with claude-vscode.editor.open: ${direct ? 'it loads' : 'it does not load'}`);
+              await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
+                && (x.label === 'Claude Code' || ${JSON.stringify(inside.title)}.startsWith(x.label.replace(/…$/, ''))));
+                if (t) await vscode.window.tabGroups.close(t); return !!t;`);
+              await exec('claude-vscode.editor.open', front.id);
             }
           }
           await shot('steward-actions');
+          /* A second steward: the managed conversation ticks the steward in its own panel. In the first steward's panel its
+             row then shows one crown, and the other rows none. */
+          await exec('claude-vscode.editor.open', target.id);
+          const box2 = frame.locator(`input[data-id="${front.id}"]`).first();
+          const ticked2 = await until(async () => { const h = await header(); return h && h.includes(target.title.slice(0, 20)) && await box2.isVisible().catch(() => false); }, 45000, 500);
+          if (ticked2 && !await box2.isChecked()) await box2.click();
+          const isSteward2 = await until(() => { try { const t2 = JSON.parse(fs.readFileSync(file, 'utf8')).stewards[target.id]; return t2 && t2.manages.includes(front.id); } catch (_) { return false; } }, 10000, 300);
+          await exec('claude-vscode.editor.open', front.id);
+          const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row [data-open]')].map((a) => [a.dataset.open, a.textContent])));
+          const shown2 = await until(async () => {
+            const n = await names(), others = Object.entries(n).filter(([id]) => id !== target.id);
+            return n[target.id] === `${CROWN} ${target.title}` && others.length && others.every(([, t]) => !t.includes(CROWN)) && n;
+          }, 30000, 500);
+          check(!!isSteward2 && !!shown2, 'in the first steward\'s panel, a second steward\'s row shows one crown before its title, and the rows of conversations that are no steward show none',
+            { ticked2: !!ticked2, isSteward2: !!isSteward2, names: await names() });
+          await shot('steward-two-stewards');
+          await exec('claude-vscode.editor.open', target.id);
+          if (await until(async () => { const h = await header(); return h && h.includes(target.title.slice(0, 20)); }, 30000, 500)) await frame.locator('button[data-act="none"]').click();
+          await exec('claude-vscode.editor.open', front.id);
+          await until(async () => (await header()) === `${CROWN} ${front.title}`, 15000, 500);
         } else note('the conversation ticked first is not one of the test conversations, so passing words on was not looked at');
         await frame.locator('button[data-act="none"]').click();
         const back = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, front.title)), 10000, 300);
@@ -1780,6 +2255,75 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
           { clickError, asked: !!allow, dialogText, toasts: await toasts(), tabs: await claudeTabs() });
         await shot('steward-link-jump');
       }
+      await exec('workbench.action.closePanel');
+    } finally {
+      /* Whatever happened above, the conversation in front is no steward afterwards: later steps find its tab by its own
+         title. */
+      try {
+        await exec('claude-vscode.editor.open', threads[0].id);
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        const p = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 15000);
+        if (p && await p.locator('input[data-every]').isChecked().catch(() => false)) await p.locator('input[data-every]').click();
+        if (p) await p.locator('button[data-act="none"]').click().catch(() => {});
+        await until(async () => (await claudeTabs()).some((x) => titled(x.label, threads[0].title)), 10000, 300);
+        await exec('workbench.action.closePanel');
+      } catch (_) { /* the steps after this one say what is left */ }
+    } });
+
+    /* Two Claude Code processes under VS Code's extension host for one conversation, as after a window went away while
+       its extension host stayed: the conversation's own tab, and then its CLI started from the extension host the way the
+       panel starts it (stream-json, entry point claude-vscode), idle. Stop the old process then stops the tab's, the older.
+       A process is tied to its extension host through /proc, so on Linux only. */
+    await step('a conversation run by two processes', async () => {
+      if (process.platform !== 'linux') { note('a conversation\'s processes are tied to their extension host through /proc, so this runs on Linux only'); return; }
+      const t = threads[1], front = threads[0];
+      const of = (id) => liveRecords().filter((r) => r.sessionId === id);
+      await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
+        && x.label && arg.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, t.title);
+      check(!!await until(() => !of(t.id).length, 30000, 500), 'with its tab closed, no process runs the conversation', of(t.id));
+      /* Its tab first: Claude Code starts no process of its own for a conversation another process runs. */
+      await exec('claude-vscode.editor.open', t.id);
+      const own = await until(() => { const r = of(t.id); return r.length === 1 && r[0]; }, 60000, 500);
+      let pid = 0;
+      try {
+        pid = await call(`const k = require('child_process').spawn(arg.bin, ['--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose',
+          '--resume', arg.id], { cwd: arg.cwd, env: arg.env, stdio: ['pipe', 'ignore', 'ignore'] });
+          globalThis.__cceTestSecond = k; return k.pid;`, { bin: claudeCli(), id: t.id, cwd: profile.folder,
+          env: Object.assign(modelEnv(), { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' }) });
+        const two = await until(() => of(t.id).some((r) => r.pid === pid) && of(t.id).length === 2 && of(t.id), 30000, 500);
+        check(!!own && !!two, 'its tab runs the conversation, and so does its CLI started after it from the extension host as the panel starts it', of(t.id));
+        const older = own ? own.pid : 0;
+        await exec('claude-vscode.editor.open', front.id);
+        await openList();
+        /* The mark is the row's own ::after, after the title and never shrunk, so a title cut short does not cut it. */
+        const mark = () => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"]`)].map((r) => {
+          const after = getComputedStyle(r, '::after'), name = r.querySelector('span[class*="sessionName_"]');
+          return { mark: after.content, shrink: after.flexShrink, inName: name ? getComputedStyle(name, '::after').content : '' };
+        }), t.id);
+        const marked = await until(async () => { const m = await mark(); return m.length && m.every((x) => /· 2 processes/.test(x.mark) && x.shrink === '0' && !/processes/.test(x.inName)) && m; }, 45000, 1000);
+        check(!!marked, 'each of its rows in the session list says 2 processes after the title, outside it and never shrunk', await mark());
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
+        const rowNow = () => panel.evaluate((id) => {
+          const a = document.querySelector(`li.row [data-open="${id}"]`), li = a && a.closest('li.row');
+          const tw = li && li.querySelector('.twice'), stop = li && li.querySelector('[data-stop-old]');
+          return li ? { twice: tw ? tw.textContent : null, stop: stop ? stop.textContent : null, title: stop ? stop.title : null } : null;
+        }, t.id);
+        const shown = panel && await until(async () => { const r = await rowNow(); return r && r.twice === '2 processes' && r && r.stop === 'Stop the old process' && r; }, 45000, 1000);
+        check(!!shown && shown.title.startsWith(`Stops pid ${older}, `), 'its row in the Steward panel says 2 processes and offers Stop the old process, which names the older one, the tab\'s', shown || (panel && await rowNow()));
+        await shot('steward-two-processes');
+        if (shown) {
+          await exec('notifications.clearAll');
+          await panel.locator(`[data-stop-old="${t.id}"]`).first().click();
+          const said = await until(async () => (await toasts()).find((x) => /^Stopped process \d+ of that conversation\./.test(x)) || '', 15000, 300);
+          const gone = await until(() => !of(t.id).some((r) => r.pid === older) && of(t.id).length === 1, 20000, 300);
+          check(said === `Stopped process ${older} of that conversation.` && !!gone, 'clicked, it stops the older process and says which, and the other runs on', { said, left: of(t.id) });
+          /* The process left is the one started here as the panel starts one, which no window's panel shows, so the
+             conversation can leave the Steward panel altogether. */
+          const cleared = await until(async () => { const r = await rowNow(), m = await mark(); return (!r || (!r.twice && !r.stop)) && m.every((x) => !/processes/.test(x.mark)); }, 45000, 1000);
+          check(!!cleared, 'and the marks go from the panel and the session list', { row: await rowNow(), list: await mark() });
+        }
+      } finally { await call('if (globalThis.__cceTestSecond) globalThis.__cceTestSecond.kill(); return true;').catch(() => {}); }
       await exec('workbench.action.closePanel');
     });
 
@@ -2059,6 +2603,114 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         await until(async () => !(await w.pageOf(path.basename(folderB), 1000)), 20000, 500);
         w.pin(undefined);
       }
+    });
+
+    /* A steward reopens a stored conversation in the window whose first folder Claude Code keeps it under, and nowhere
+       else. A second window opens a workspace whose folders are R, then this window's own folder A, then Q. Conversation
+       Z was started in A and later resumed in R, so its transcript is kept under R's folder of projects while its first
+       record still names A: it opens in the second window, and this one starts no new conversation. One kept under Q,
+       which no window has first, is refused at once and opens nowhere. */
+    await step('a steward reopening a conversation in the window of its folder', async () => {
+      const front = threads[0];
+      const base = path.dirname(profile.folder);
+      for (const d of ['ws-r', 'ws-q']) fs.mkdirSync(path.join(base, d), { recursive: true });
+      /* Real paths, as Claude Code names a conversation's folder after the real one: on macOS the temporary folder is
+         under a symbolic link, and on Windows it can carry a short name. */
+      const [folderR, folderQ] = ['ws-r', 'ws-q'].map((d) => fs.realpathSync.native(path.join(base, d)));
+      const Z = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fc', title: 'Carry the parser work over to the new folder', days: 0,
+        turns: [['Carry the parser work over to the new folder.', 'Moved it; the tests pass in the new folder.'], ['Anything left?', 'Only the docs.']] };
+      const W = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fd', title: 'Notes kept in the third folder', days: 0,
+        turns: [['Write down the notes for the third folder.', 'Written to notes.md.']] };
+      fakeHome.writeThreads(profile.home, folderR, [Z]);
+      fakeHome.writeThreads(profile.home, folderQ, [W]);
+      const zFile = path.join(profile.home, '.claude', 'projects', folderName(folderR), `${Z.id}.jsonl`);
+      const records = fs.readFileSync(zFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+      const firstAt = records.findIndex((r) => r.cwd);
+      records[firstAt].cwd = profile.folder;
+      fs.writeFileSync(zFile, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const workspace = path.join(base, 'resume-b.code-workspace');
+      fs.writeFileSync(workspace, JSON.stringify({ folders: [{ path: folderR }, { path: profile.folder }, { path: folderQ }] }, null, 2));
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
+      let calls = 0;
+      const act = (args, input) => {
+        const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
+        const answered = fakeHome.appendToolCall(transcriptOf(front), { sessionId: front.id, cwd: profile.folder,
+          uuid: `${front.id.slice(0, 24)}${String(880000 + calls++).padStart(12, '0')}`, toolId: `toolu_reopen_${calls}`, command: line, description: 'Act for the user' });
+        return new Promise((resolve) => {
+          const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
+            { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: front.id }) });
+          let said = '';
+          kid.stdout.on('data', (d) => { said += d; });
+          kid.stderr.on('data', (d) => { said += d; });
+          kid.on('error', (e) => resolve('could not run the script: ' + e.message));
+          kid.on('exit', () => resolve(said.trim()));
+          kid.stdin.end(input || '');
+        }).then((said) => { answered(said); return said; });
+      };
+      /* What this window has before: its Claude Code tabs, the transcripts under its folder, and the conversations its
+         processes run. */
+      const sessionsNow = () => liveRecords().map((r) => r.sessionId);
+      const transcriptsOf = (folder) => { try { return fs.readdirSync(path.join(profile.home, '.claude', 'projects', folderName(folder))).sort(); } catch (_) { return []; } };
+      /* The steward: the conversation in front, ticking one other in the Steward panel. */
+      await exec('claude-vscode.editor.open', front.id);
+      await exec('workbench.view.extension.claudeCodePlusSteward');
+      const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
+      const box = panel && await until(async () => { const b = panel.locator('input[data-id]').first(); return (await b.isVisible().catch(() => false)) && b; }, 40000, 1000);
+      if (box && !await box.isChecked()) await box.click();
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', workspace);
+      const pageB = await w.pageOf('resume-b', 90000);
+      const hostB = pageB ? await w.hostUp(before, folderR).catch(() => null) : null;
+      check(!!box && !!pageB && !!hostB, 'a steward in this window, and a second window on a workspace whose first folder is R and whose second is this window\'s folder', { box: !!box, pageB: !!pageB });
+      if (!pageB || !hostB) {
+        if (pageB) await pageB.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        return;
+      }
+      w.pin(profile.folder);
+      try {
+        await until(() => call(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`, undefined, 60000, folderR), 60000, 1000);
+        const entryB = await until(() => {
+          let names = [];
+          try { names = fs.readdirSync(path.join(dataDir, 'windows')).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return null; }
+          for (const n of names) {
+            try { const e = JSON.parse(fs.readFileSync(path.join(dataDir, 'windows', n), 'utf8')); if (Array.isArray(e.folders) && e.folders.length === 3) return e; } catch (_) { /* being written */ }
+          }
+          return null;
+        }, 60000, 500);
+        const tabsA = (await claudeTabs()).length, filesA = transcriptsOf(profile.folder), runningA = sessionsNow();
+        const words = 'Carry on with the docs, please.';
+        const said = await act(['--resume', Z.id], words);
+        const tabB = await until(async () => (await call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)})
+          .map((t) => t.label);`, undefined, 60000, folderR)).find((l) => titled(l, Z.title)), 60000, 1000);
+        const drawn = await until(async () => {
+          for (const f of pageB.frames()) { try { if (await f.evaluate((t) => !!document.body && document.body.innerText.includes(t), Z.turns[0][1])) return true; } catch (_) { /* gone */ } }
+          return false;
+        }, 60000, 1000);
+        const sent = await until(() => { try { return fs.readFileSync(zFile, 'utf8').includes(words); } catch (_) { return false; } }, 60000, 1000);
+        check(!!entryB && said.startsWith(`Opened: the conversation was opened in an editor tab in the VS Code window "${entryB.name}"`) && !!tabB && !!drawn && !!sent,
+          'a conversation started in A and resumed in R opens in the window whose first folder is R, which shows it, the answer names that window, and the message reaches it',
+          { said, entryB: entryB && entryB.name, tabB, drawn: !!drawn, sent: !!sent });
+        await shotB();
+        const runningAfter = sessionsNow().filter((id) => !runningA.includes(id) && id !== Z.id);
+        check((await claudeTabs()).length === tabsA && JSON.stringify(transcriptsOf(profile.folder)) === JSON.stringify(filesA) && !runningAfter.length,
+          'and this window, whose first folder is the one the conversation\'s first record names, gets no tab, no new conversation and no new transcript',
+          { tabs: [tabsA, (await claudeTabs()).length], newTranscripts: transcriptsOf(profile.folder).filter((n) => !filesA.includes(n)), runningAfter });
+        const tabsB = (await call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;`, undefined, 60000, folderR));
+        const refused = await act(['--resume', W.id], 'Pick it up again, please.');
+        const tabsB2 = (await call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;`, undefined, 60000, folderR));
+        check(refused.startsWith(`Not done: no open VS Code window has its folder, ${folderQ}, as its first folder`)
+          && (await claudeTabs()).length === tabsA && tabsB2 === tabsB && !fs.readdirSync(path.join(dataDir, 'relay')).some((n) => /^[0-9a-f-]{36}\.json$/.test(n)),
+          'one kept under a folder that a window has open but not first is refused at once, and nothing opens anywhere', { refused, tabsB: [tabsB, tabsB2] });
+      } finally {
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderR).catch(() => {});
+        await until(async () => !(await w.pageOf('resume-b', 1000)), 20000, 500);
+        w.pin(undefined);
+        if (panel) await panel.locator('button[data-act="none"]').click().catch(() => {});
+        await exec('workbench.action.closePanel');
+      }
+      /* The second window's screenshot, taken while it is open. */
+      async function shotB() { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-reopen-in-window-b.png`) }).catch(() => {}); }
     });
 
     /* In a light theme a colour emoji font draws the envelope white, so the tab title, the session list and the Steward
@@ -2714,6 +3366,38 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       await shot('command-stop-loading');
       if (d) check(await answerDialog('Cancel'), 'and Cancel closes the question');
     });
+
+    /* Last, since every step before needs the patch. Remove from Claude Code restores both files, and after a reload the
+       session list is Claude Code's own; turning the extension on again puts the patch back, as the suite run after this
+       stage expects. */
+    await step('removing the patch', async () => {
+      const allAre = (st, want) => !!st && st.targets.length === 2 && st.targets.every(([, x]) => x === want);
+      const plainList = () => frameWhere(() => [...document.querySelectorAll('button')].some((b) => b.innerText.trim() === 'New session')
+        && !document.querySelector('[data-cce-new-session]'), 30000);
+      await exec('notifications.clearAll');
+      await exec('claudeCodePlus.remove');
+      const clean = await until(async () => { const st = await patchState(); return allAre(st, 'clean') && st; }, 60000, 1000);
+      check(!!clean, 'Remove from Claude Code restores both of Claude Code\'s files', await patchState());
+      const asked = await until(async () => (await toasts()).find((x) => /^Claude Code Plus was removed from Claude Code panel and Claude Code host\. Reload the window to finish\./.test(x)) || '', 30000, 500);
+      check(!!asked, 'and asks for a reload to finish', asked || await toasts());
+      await shot('removed-reload-prompt');
+      await exec('notifications.clearAll');
+      await w.reload();
+      const after = await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
+      check(allAre(after, 'clean'), 'after the reload both files are still Claude Code\'s own: the extension does not patch them again', after);
+      await exec('workbench.view.extension.claude-sessions-sidebar');
+      check(!!await plainList(), 'and the session list is Claude Code\'s own again: its New session button, none of this extension\'s');
+      await shot('removed');
+      await exec('claudeCodePlus.enable');
+      const back = await until(async () => { const st = await patchState(); return allAre(st, 'patched') && st; }, 60000, 1000);
+      check(!!back, 'turning Claude Code Plus on again puts the patch back in both files', await patchState());
+      await exec('notifications.clearAll');
+      await w.reload();
+      await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
+      await exec('workbench.view.extension.claude-sessions-sidebar');
+      check(!!await frameWhere(() => !!document.querySelector('[data-cce-new-session]'), 60000), 'and after a reload the session list has this extension\'s buttons again');
+    });
+
     /* Last, as it is about the whole run. */
     await step('no self-check warning', async () => {
       check(!warned.size, 'no page of a Claude Code panel drew the warning that its messages are no longer found, at any point of the run', [...warned.values()]);

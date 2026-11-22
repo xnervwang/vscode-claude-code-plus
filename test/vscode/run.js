@@ -167,7 +167,7 @@ async function testStage() {
   writeSettings(p.user, model, fakeHome.KEY);
 
   try {
-    await require('./ui').run({ exe, profile: p, env, playwright, model, threads: made.threads, out, check, note });
+    await require('./ui').run({ exe, profile: p, env, playwright, model, threads: made.threads, background: made.background, out, check, note });
   } catch (e) {
     check(false, 'the window stage ran to its end', (e && e.stack) || String(e));
   }
