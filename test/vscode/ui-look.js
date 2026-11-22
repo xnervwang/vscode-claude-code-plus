@@ -1150,10 +1150,11 @@ const STEPS = [
   {
     name: 'steward-notice', features: ['steward-notices'],
     expect: 'The demo conversation, the steward, is in front. The conversation it manages was asked to run the test suite and '
-      + 'waits for permission. At the end of the steward conversation, a message that you did not type, from Claude Code '
-      + 'Plus, says that "Why does the nightly export skip archived rows?" (with its session id) is waiting for the user, '
-      + 'and names the command it asks to run; the fake model replied to it. In the Steward panel, that conversation\'s '
-      + 'row starts with a filled red dot.',
+      + 'waits for permission, so Claude Code Plus has sent the steward a notice through its inbox. Claude Code draws no row '
+      + 'for what a script sends there, so the notice itself is not on screen: at the end of the steward conversation comes '
+      + 'the fake model\'s reply to it with no message of yours before it, and that reply\'s first line gives a duration of '
+      + 'a few seconds, not the hours since the last message you typed. In the Steward panel, that conversation\'s row starts '
+      + 'with a filled red dot.',
     unchanged: 'The other conversation\'s title is its own again.',
     act: async (d) => {
       const t = d.threads[1];
@@ -1232,10 +1233,11 @@ const STEPS = [
   },
   {
     name: 'steward-handoff', features: ['steward-handoff'],
-    expect: 'The demo conversation, the steward, is in front. At its end, a message that you did not type, from Claude Code '
-      + 'Plus, is a handoff from "Why does the nightly export skip archived rows?" (with its session id): it says it is not '
-      + 'a message from the user and quotes what that conversation wrote, that the release notes belong in another '
-      + 'conversation; the fake model replied to it.',
+    expect: 'The demo conversation, the steward, is in front, after "Why does the nightly export skip archived rows?" handed '
+      + 'something off to it through Claude Code Plus. Claude Code draws no row for what arrives through its inbox, so the '
+      + 'handoff itself is not on screen: the conversation ends with the fake model\'s reply to it, with no message of yours '
+      + 'before it, and that reply\'s first line gives a duration of a few seconds, not the time since the last message you '
+      + 'typed.',
     unchanged: null,
     act: async (d) => {
       const t = d.threads[1];
@@ -1791,11 +1793,12 @@ const STEPS = [
   },
   {
     name: 'live-bg-ended', features: ['background-sessions', 'detached-end-notices'],
-    expect: 'The conversation once the claude --bg session has finished. At its end, a message that you did not type, from '
-      + 'Claude Code Plus, says that a claude --bg session this conversation started has finished, names nightly-report, and '
-      + 'gives its result (the nightly report is written, 2 failed tests); the fake model replied to it. In the footer the '
-      + 'agents button reads "1 bg done" and its dot is grey, not green; the tab\'s logo has no green ring.',
-    unchanged: 'The conversation is as before, with the notice and its answer at its end.',
+    expect: 'The conversation once the claude --bg session has finished. Claude Code Plus has told it so through its inbox, '
+      + 'for which Claude Code draws no row: at its end comes the fake model\'s reply to that notice, with no message of '
+      + 'yours before it, and its first line gives a duration of a few seconds, not the minutes since the last message you '
+      + 'typed. In the footer the agents button reads "1 bg done" and its dot is grey, not green; the tab\'s logo has no '
+      + 'green ring.',
+    unchanged: 'The conversation is as before, with that reply at its end.',
     act: async (d) => {
       const frame = await live(d);
       const due = (d.bgStarted || Date.now()) + 120000 - Date.now();
@@ -1834,13 +1837,18 @@ const STEPS = [
       + 'buttons are in place and nothing overlaps.',
     unchanged: 'The conversation is as before.',
     act: async (d) => {
-      await setting(d, 'claudeCodePlus.show.backgroundSessions', false);
       const frame = await live(d);
+      /* The close-up is of where the button stands now, which it leaves. */
+      const was = await frame.locator('button[data-agents-dot]').first().boundingBox().catch(() => null);
+      await setting(d, 'claudeCodePlus.show.backgroundSessions', false);
       await d.until(async () => { const b = await agentsButton(frame); return !b || !/\bbg\b/.test(b.label); }, 15000, 500);
       await toBottom(frame);
       await d.away();
       await d.sleep(800);
-      return around(d, frame, '[data-cce-info]');
+      const ed = await d.editor();
+      if (!was || !ed) return around(d, frame, '[data-cce-info]');
+      const x = Math.max(ed.x, was.x - 240), y = Math.max(ed.y, was.y - 40);
+      return { x, y, width: Math.min(ed.x + ed.width, was.x + was.width + 240) - x, height: Math.min(ed.y + ed.height, was.y + was.height + 40) - y };
     },
     undo: async (d) => { await d.page.keyboard.press('Escape'); await setting(d, 'claudeCodePlus.show.backgroundSessions', undefined); await d.sleep(1500); },
   },
