@@ -279,6 +279,9 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
       } catch (e) { said.push(e.message.split('\n')[0]); }
       const landed = await list.evaluate(() => window.__cceLanded.slice());
       if (landed.some((x) => x.startsWith(wanted))) return attempt;
+      /* A dialog the item opens can take the focus before its click is recorded (seen on macOS); then it did land, and
+         opening the menu again would click behind the dialog. */
+      if (await dialog().catch(() => null)) return attempt;
       said.push(landed.join(', ') || 'no click recorded');
       if (!landed.includes('the page lost the focus')) throw new Error(`the click on ${labels.join(' > ')} landed elsewhere: ${said.join('; ')}`);
       await sleep(1000);
