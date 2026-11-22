@@ -102,7 +102,7 @@ The window checks these steps in order:
 - Both patched files are written on the first start, and VS Code asks for a reload. The tab bar then has exactly one Claude button: Claude Code's own.
 - The session list has New in tab and New in sidebar, a pin and dates on each row, Resume in tab, Resume in sidebar and Text color in the right-click menu, and hover text for a row.
 - A conversation resumed in a tab has times on every message and reply, a bar on your own messages, the rail and its list, footer buttons and their hover text, and the information box. At the top of the session list, OPEN SESSIONS lists the conversation while its tab is open, and RECENTLY CLOSED lists it once the tab is closed. The times disappear and return when this extension is turned off and on.
-- The dot on the tab's logo is green while a turn runs, red when its reply lands while the tab is in the background, and blue while Claude Code waits for permission to run a command.
+- The tab's logo has a green dot while a turn runs; when the reply lands with the tab in the background, the dot disappears, the tab title ends in an envelope, and its row in Open sessions shows the envelope and no dot. The dot is red while Claude Code waits for permission to run a command, and an idle conversation's tab has no dot and no envelope.
 - Delete session… asks for confirmation on an archived conversation. The window also checks Show Status, Settings, and the confirmation for Stop Loading the Work Plan Plugin.
 - Not covered by the window stage: the footer's filter for the main thread or one sub-agent, which only appears in a conversation that ran sub-agents; the sound of the chimes.
 
