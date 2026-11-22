@@ -82,6 +82,7 @@
     var found = seed ? findSession(seed) : null;
     if (found && found !== sessionRef) useSession(found);
     viewFilterOff();
+    try { imgFollowSwitch(); } catch (e) {}
     marksFollowSwitches();
     if (!isOn()) { sweep(); return; }
     if (sessionRef) indexTitles(sessionRef);

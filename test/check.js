@@ -2597,6 +2597,43 @@ console.log('\nimages in replies, the page');
     sized.keys.length === 1 && sized.keys[0].capture === true, esc.stopped, view && view.style.display],
     ['min(100%, 640px)', 'min(480px, 70vh)', 'auto', 'auto', '', 'zoom-in', 0, 1, 1, 'flex', png, true, true, 'none'],
     'an image is shown at most 640 by 480, one shown smaller than it is opens over the conversation on a click, and Escape closes it without reaching the panel');
+  /* The switch turned off and on again while an image is drawn. A render is redrawn only when the signal it read moves, so
+     the sweep moves it when the switch changed, and every render reads it. */
+  {
+    const sw = { off: false };
+    let signal = null;
+    const env = {
+      window: { addEventListener() {} }, document: { documentElement: {}, createElement: () => ({ style: {}, appendChild() {}, addEventListener() {} }), body: { appendChild() {} } },
+      acquireVsCodeApi: () => ({ postMessage() {} }), sigValue: () => 'abcdef01-0000-4000-8000-000000000011',
+      isOff: (k) => sw.off && k === 'replyImages', console, setTimeout() {},
+    };
+    env.window.__cceSignal = (v) => (signal = { reads: 0, v, get value() { this.reads++; return this.v; }, set value(x) { this.v = x; } });
+    let follow = null;
+    try {
+      new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '94-reply-images.js'), 'utf8')}\n;window.__testFollow = imgFollowSwitch;})()`,
+        { filename: '94-reply-images.js' }).runInNewContext(env);
+      follow = env.window.__testFollow;
+    } catch (e) { follow = null; }
+    if (typeof follow !== 'function') bad('the page has no way to redraw the images in replies when their switch changes');
+    else {
+      const ticks = () => (signal ? signal.v : null);
+      follow();
+      const drawn = env.window.__cceImage(h, png, 'chart'), t0 = ticks();
+      follow();
+      const still = ticks();
+      sw.off = true;
+      follow();
+      const offTick = ticks(), readsBefore = signal.reads;
+      const asText = env.window.__cceImage(h, png, 'chart');
+      const readOff = signal.reads > readsBefore;
+      sw.off = false;
+      follow();
+      const onTick = ticks(), back = env.window.__cceImage(h, png, 'chart');
+      same([drawn.type, still === t0, offTick === t0 + 1, asText.type, readOff, onTick === t0 + 2, back.type],
+        ['img', true, true, 'span', true, true, 'img'],
+        'switching images off redraws an image already on screen as its text, switching them on draws it again, and a sweep with no change redraws nothing');
+    }
+  }
 }
 
 console.log('\ninstalled copy');

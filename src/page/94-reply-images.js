@@ -36,6 +36,15 @@
     return imgTick ? imgTick.value : 0;
   };
   var imgRedraw = function(){ if (imgTick) imgTick.value = imgTick.value + 1; };
+  /* The switch is read from the stylesheet, which no render is subscribed to, so an image already drawn stayed after it
+     was switched off. Each sweep compares the switch with what it was and moves the signal when it changed; every
+     render reads the signal, the switched-off text included, so switching back on draws the image again too. */
+  var imgSwitch = null;
+  var imgFollowSwitch = function(){
+    var off = isOff('replyImages');
+    if (imgSwitch !== null && off !== imgSwitch) imgRedraw();
+    imgSwitch = off;
+  };
   var imgKeep = function(src, got){
     if (!Object.prototype.hasOwnProperty.call(imgFound, src)) imgOrder.push(src);
     imgFound[src] = got;
@@ -144,8 +153,8 @@
       if (typeof h !== 'function' || typeof src !== 'string' || !src) return null;
       var label = typeof alt === 'string' ? alt : '';
       if (IMG_WEB.test(src)) return h('a', { href: src, title: src, children: [label || src] });
-      if (isOff('replyImages')) return IMG_DATA.test(src) || IMG_LOCAL.test(src) ? imgText(h, src, label) : null;
       imgRenders();
+      if (isOff('replyImages')) return IMG_DATA.test(src) || IMG_LOCAL.test(src) ? imgText(h, src, label) : null;
       if (IMG_DATA.test(src)) return imgDrawn(h, src, label, void 0);
       if (!IMG_LOCAL.test(src)) return null;
       var got = imgFound[src];
