@@ -160,12 +160,35 @@ function transcriptTitles(file) {
   return out;
 }
 
+/** When the last assistant message of the main conversation in transcript `file` was written, in milliseconds, or 0. */
+function lastReplyAt(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, TAIL_BYTES);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    const lines = buf.toString('utf8').split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i];
+      if (!l.includes('"type":"assistant"') || l.includes('"isSidechain":true')) continue;
+      let d;
+      try { d = JSON.parse(l); } catch (_) { continue; }
+      const at = d && d.type === 'assistant' ? Date.parse(d.timestamp) : NaN;
+      if (at > 0) return at;
+    }
+  } catch (_) { /* no transcript yet, or unreadable */ }
+  finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (_) { /* closed */ } }
+  return 0;
+}
+
 /**
  * Transcript lookups, kept between calls: a transcript's path, and the titles near its end, which are read again only
  * when the file has changed.
  */
 function reader() {
-  const paths = new Map(), seen = new Map();
+  const paths = new Map(), seen = new Map(), replies = new Map();
   const fileOf = (sessionId) => {
     const known = paths.get(sessionId);
     if (known && fs.existsSync(known)) return known;
@@ -184,6 +207,16 @@ function reader() {
       seen.set(file, { key, titles });
       return titles;
     },
+    /* The time of the conversation's last reply, read again only when the transcript has changed. */
+    replyAt(s) {
+      const file = fileOf(s.sessionId), st = file && stat(file);
+      if (!st) return 0;
+      const key = st.size + ':' + st.mtimeMs, hit = replies.get(file);
+      if (hit && hit.key === key) return hit.at;
+      const at = lastReplyAt(file);
+      replies.set(file, { key, at });
+      return at;
+    },
     /* Claude Code does not report when a wait began. A waiting session stops writing its transcript, so the transcript's
        modification time stands in for it. */
     since(s) {
@@ -194,5 +227,5 @@ function reader() {
 }
 
 module.exports = {
-  parseAgents, listAgents, isDefaultName, merge, pidsOf, folderTest, inFolders, foreground, transcriptTitles, reader,
+  parseAgents, listAgents, isDefaultName, merge, pidsOf, folderTest, inFolders, foreground, transcriptTitles, lastReplyAt, reader,
 };

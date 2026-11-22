@@ -18,6 +18,11 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/steward.py\" \"${CLAUDE_PLUGIN_DATA}\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/route-skills.py\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10
           }
         ]
       }
@@ -36,6 +41,11 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/record-background.py\" \"${CLAUDE_PLUGIN_DATA}\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/route-skills.py\" \"${CLAUDE_PLUGIN_DATA}\"",
+            "timeout": 10
           }
         ]
       }

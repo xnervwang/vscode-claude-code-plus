@@ -2282,6 +2282,25 @@ console.log('\nbackground sessions');
     if (JSON.stringify(got) === JSON.stringify(want)) {
       ok('a running background command opens the button and is named on it, beside any agents');
     } else bad(`background commands: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+    /* A render subscribes only to the signals it reads, so every call reads the panel's own sets, the held counts or
+       not: a render served from the held counts alone would not be drawn again once that work ends. */
+    let tasks = new Map([['t0', { taskId: 't0', taskType: 'local_bash', description: 'sleep 40' }]]), helpers = new Set(['a0']);
+    const reads = [];
+    const env = Object.assign({}, sandbox, { window: {}, sigValue: (name) => {
+      if (name === 'backgroundTasks' || name === 'backgroundTaskIds') reads.push(name);
+      return name === 'sessionId' ? 'nobody' : name === 'backgroundTasks' ? tasks : name === 'backgroundTaskIds' ? helpers : undefined;
+    } });
+    new vm.Script(`(function(){${frag}})()`, { filename: '82-scheduled-tasks.js' }).runInNewContext(env);
+    const before = [env.window.__cceAgentsDot('idle'), env.window.__cceAgentsLabel('1 agent', 1)];
+    const first = reads.length;
+    tasks = new Map();
+    helpers = new Set();
+    const after = [env.window.__cceAgentsDot('idle'), env.window.__cceAgentsLabel('0 agents', 0)];
+    const again = reads.slice(first);
+    if (JSON.stringify([before, after]) === JSON.stringify([['running', '1 agent · 1 task'], ['idle', '0 agents']])
+        && ['backgroundTasks', 'backgroundTaskIds'].every((n) => again.filter((x) => x === n).length >= 2)) {
+      ok('each call reads the panel\'s own sets of background work, so the button\'s dot and label follow that work\'s end at once');
+    } else bad(`the button after its work ended: ${JSON.stringify({ before, after, readsAgain: again })}`);
   }
 
   sandbox.sigValue = (name) => (name === 'sessionId' ? 'someone-else' : undefined);
@@ -4197,8 +4216,9 @@ console.log('\nswitched off, the work plan costs nothing and keeps nothing');
     if (/WORK_PLAN_SETTING/.test(map)) names.push('claudeCodePlus.workPlan');
     if (/brief: BRIEF_SETTING/.test(map)) names.push('claudeCodePlus.conversationBrief');
     if (/tellTimeZone: TIME_ZONE_SETTING/.test(map)) names.push('claudeCodePlus.tellClaudeYourTimeZone');
+    if (/skillRoute: SKILL_ROUTING_SETTING/.test(map)) names.push('claudeCodePlus.skillRouting');
     const scoped = names.filter((n) => props[n] && props[n].scope === 'application');
-    if (names.length === 6 && scoped.length === names.length) ok('every setting the hooks read is an application setting');
+    if (names.length === 9 && scoped.length === names.length) ok('every setting the hooks read is an application setting');
     else bad(`hook settings ${JSON.stringify(names)}, application-scoped ${JSON.stringify(scoped)}`);
     const brief = props['claudeCodePlus.conversationBrief'];
     if (brief && brief.type === 'boolean' && brief.default === true
@@ -4948,7 +4968,8 @@ console.log("\nthe reader's time zone, told to the model");
 console.log('\none copy of what the hooks share');
 {
   const hooks = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
-  const scripts = fs.readdirSync(hooks).filter((f) => f.endsWith('.py') && !PLAN_PATH.includes(f));
+  /* skill_route.py is Agent Plus's shared search module, checked in Agent Plus with both agents' plan_agent.py. */
+  const scripts = fs.readdirSync(hooks).filter((f) => f.endsWith('.py') && !PLAN_PATH.includes(f) && f !== 'skill_route.py');
   const copies = [
     ['reads a transcript from its end', /\.seek\(/],
     ['writes a file and renames it into place', /os\.replace\(/],
@@ -4973,6 +4994,76 @@ console.log('\none copy of what the hooks share');
   if (!kills.length && probe.stdout.trim() === '[True, False, False, False, False]') {
     ok('only proc_alive.py checks a process with os.kill, and it tells a running process from one that has exited');
   } else bad(`os.kill outside proc_alive.py: ${JSON.stringify(kills)}; the check said ${JSON.stringify(probe.stdout + probe.stderr)}`);
+}
+
+/* ── 19e. skill suggestions ── route-skills.py, on UserPromptSubmit and Stop, searches the skills Claude Code can call
+   with the shared skill_route.py and puts the best few in front of the turn. Run here as Claude Code runs it, against a
+   made-up Claude Code folder: a personal skill and an enabled plugin's skill that a message asks for are given by the
+   names the Skill tool takes, with their descriptions, and skillRoute off in config.json, which the extension writes
+   from claudeCodePlus.skillRouting and the token mode, gives nothing. */
+console.log('\nskill suggestions');
+{
+  const hooks = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
+  const spec = JSON.parse(fs.readFileSync(path.join(hooks, 'hooks.json'), 'utf8')).hooks;
+  const ours = (event) => (spec[event] || []).flatMap((m) => m.hooks || [])
+    .filter((h) => h.command === 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/route-skills.py" "${CLAUDE_PLUGIN_DATA}"');
+  const up = ours('UserPromptSubmit'), stop = ours('Stop');
+  if (up.length === 1 && stop.length === 1 && up[0].timeout === 10 && stop[0].timeout === 10 && fs.existsSync(path.join(hooks, 'route-skills.py'))) {
+    ok('route-skills.py runs on UserPromptSubmit and on Stop, each given 10 seconds');
+  } else bad(`route-skills.py in hooks.json: UserPromptSubmit ${JSON.stringify(up)}, Stop ${JSON.stringify(stop)}`);
+  const copy = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'shared.json'), 'utf8')).files
+    .find((f) => f.path === 'claude-plugin/agent-work-plan/hooks/skill_route.py');
+  if (copy && copy.from === 'shared/plugin/hooks/skill_route.py') ok('skill_route.py beside it is the copy of Agent Plus\'s shared search');
+  else bad(`shared.json lists skill_route.py as ${JSON.stringify(copy)}`);
+
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-route-')));
+  try {
+    const claude = path.join(home, '.claude');
+    const data = path.join(claude, 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+    const work = path.join(home, 'work');
+    const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
+    const skill = (dir, name, desc) => put(path.join(dir, name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${desc}\n---\n\nSteps.\n`);
+    fs.mkdirSync(path.join(work, '.git'), { recursive: true });
+    fs.mkdirSync(data, { recursive: true });
+    skill(path.join(claude, 'skills'), 'quokka-census', 'Count the quokkas on the island and file the census sheet.');
+    const kit = path.join(claude, 'plugins', 'cache', 'test-market', 'fauna-kit', '1.0.0');
+    put(path.join(kit, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'fauna-kit' }));
+    skill(path.join(kit, 'skills'), 'wombat-burrows', 'Map the wombat burrows on the island before the census.');
+    put(path.join(claude, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2,
+      plugins: { 'fauna-kit@test-market': [{ scope: 'user', installPath: kit }] } }));
+    put(path.join(claude, 'settings.json'), JSON.stringify({ enabledPlugins: { 'fauna-kit@test-market': true } }));
+    const env = Object.assign({}, process.env, { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: claude });
+    for (const k of Object.keys(env)) if (/^AWS_/.test(k) || k === 'CLAUDE_CODE_USE_BEDROCK') delete env[k];
+    const transcript = path.join(home, 't.jsonl');
+    fs.writeFileSync(transcript, '');
+    const hook = (event, prompt, config) => {
+      fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify(config || {}));
+      const r = cp.spawnSync('python3', [path.join(hooks, 'route-skills.py'), data], { encoding: 'utf8', env, timeout: 30000,
+        input: JSON.stringify({ hook_event_name: event, session_id: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', transcript_path: transcript,
+          cwd: work, prompt }) });
+      return { code: r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
+    };
+    const ask = 'Count the quokkas and map the wombat burrows on the island.';
+    const first = hook('UserPromptSubmit', ask);
+    const indexed = () => { try { return fs.readdirSync(path.join(data, 'skill-route')).some((n) => /^index-[0-9a-f]+\.pickle$/.test(n)); } catch (_) { return false; } };
+    const until = Date.now() + 30000;
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    while (!indexed() && Date.now() < until) Atomics.wait(pause, 0, 0, 100);
+    const second = hook('UserPromptSubmit', ask);
+    let added = '';
+    try { added = JSON.parse(second.out).hookSpecificOutput.additionalContext; } catch (_) { /* none */ }
+    if (first.code === 0 && first.out === '' && indexed() && second.code === 0
+      && added.startsWith('Skills that may fit this message') && added.includes('\n- quokka-census: Count the quokkas on the island and file the census sheet.')
+      && added.includes('\n- fauna-kit:wombat-burrows: Map the wombat burrows on the island before the census.')) {
+      ok('the first message starts building the index, and the next one is given the personal and the plugin skill it asks for, by name and description');
+    } else bad(`route-skills.py gave ${JSON.stringify({ first, indexed: indexed(), second: second.out.slice(0, 400), err: second.err.slice(-300) })}`);
+    const off = hook('UserPromptSubmit', ask, { skillRoute: false });
+    if (off.code === 0 && off.out === '') ok('with skillRoute off in config.json it adds nothing');
+    else bad(`with skillRoute off route-skills.py printed ${off.out.slice(0, 200)}`);
+    const stopped = hook('Stop', '');
+    if (stopped.code === 0 && stopped.out === '') ok('at the end of a turn it prints nothing, and only logs');
+    else bad(`on Stop route-skills.py printed ${stopped.out.slice(0, 200)} ${stopped.err.slice(-200)}`);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
 /* ── 21. an uninstall puts Claude Code back at once ──
@@ -9706,8 +9797,9 @@ console.log('\nthe Steward panel');
         put(R(7), { action: 'rename', to: S(2), text: 'Only a message' });
         put(R(8), { action: 'open', steward: S(9), to: '/w/proj', text: 'Start on the parser' });
         put(R(9), { action: 'delete', to: S(2), text: '' });
+        put(R('c'), { action: 'open', to: '/w/lib', text: 'Start on the parser' });
         const did = [];
-        const deps = { shownHere: () => true, hasFolder: (f) => f === '/w/proj', stewards: () => table,
+        const deps = { shownHere: () => true, folders: () => ['/w/proj', '/w/lib'], stewards: () => table,
           transcriptOf: (id) => (id === S(1) || id === S(9) || id === S('c') ? ${JSON.stringify(transcript)} : ''), pid: 78, now: () => now, sleep: async () => {},
           deliver: async (id, text) => { did.push(['send', id, text]); return { outcome: 'submitted' }; },
           rename: async (id, title) => { did.push(['rename', id, title]); return { outcome: 'submitted' }; },
@@ -9727,10 +9819,10 @@ console.log('\nthe Steward panel');
       if (did && JSON.stringify(did) === JSON.stringify(want) && results[R(3)][1] === 'refused' && results[R(7)][1] === 'refused'
           && results[R(8)][1] === 'refused' && results[R(9)][1] === 'refused' && results[R(4)][2] === S(7) && results[R(4)][3] === true
           && results[R('a')][1] === 'submitted' && results[R('a')][3] === false && results[R('b')][1] === 'notReceived' && results[R('b')][3] === false
-          && left.includes(R(5) + '.json') && !left.includes(R(4) + '.json')) {
+          && left.includes(R(5) + '.json') && left.includes(R('c') + '.json') && !left.includes(R(4) + '.json')) {
         ok('a window renames, closes and opens for the steward that ran the script so, gives the new conversation\'s id back and ticks it for that steward, '
           + 'though not for a steward of all conversations nor after an open that failed, '
-          + 'leaves an open for a folder it does not have to another window, and refuses a close not confirmed in the command, a title the steward did not send, '
+          + 'leaves an open for a folder that is not its first folder (Claude Code starts a new conversation there) to another window, and refuses a close not confirmed in the command, a title the steward did not send, '
           + 'an open from a conversation that is no steward and an action there is none of');
       } else bad(`steward actions gave ${JSON.stringify(acted)}`);
 
@@ -9806,17 +9898,30 @@ console.log('\nthe Steward panel');
     {
       const relay = require('../src/relay');
       const xdir = path.join(root, 'relay-resume'), tdir = path.join(root, 'relay-resume-transcripts');
-      const work = path.join(root, 'relay-resume-work'), proj = path.join(work, 'proj'), sub = path.join(proj, 'pkg');
+      // Real paths: Claude Code files a conversation under the folder it ran in, and the temporary folder can itself sit
+      // under a symbolic link (macOS) or a short name (Windows) that a window's real path would not match.
+      fs.mkdirSync(path.join(root, 'relay-resume-work'), { recursive: true });
+      const work = fs.realpathSync.native(path.join(root, 'relay-resume-work')), proj = path.join(work, 'proj'), sub = path.join(proj, 'pkg');
       const elsewhere = path.join(work, 'other'), sibling = path.join(work, 'proj-old'), link = path.join(work, 'link');
       for (const d of [path.join(xdir, relay.RELAY_DIR), tdir, sub, elsewhere, sibling]) fs.mkdirSync(d, { recursive: true });
       let linked = true;
       try { fs.symlinkSync(proj, link, 'dir'); } catch (_) { linked = false; }
       const now = Date.now(), iso = (ms) => new Date(ms).toISOString();
-      const T = (id) => path.join(tdir, id + '.jsonl');
-      const started = (id, cwd) => fs.writeFileSync(T(id), JSON.stringify({ type: 'user', uuid: 'h-' + id, timestamp: iso(now - 600000), cwd, sessionId: id,
-        message: { role: 'user', content: 'Earlier work' } }) + '\n');
-      started(S(3), proj); started(S(4), sub); started(S(5), elsewhere); started(S(6), linked ? path.join(link, 'pkg') : sub);
-      started(S(7), sub); started(S(8), proj); started(S(0), sub); started('5e5e5e5e-0000-4000-8000-00000000000a', sibling);
+      /* Claude Code keeps a conversation in projects/<its folder, with every character but a letter or digit a hyphen>. */
+      const filed = {}, fileName = (cwd) => cwd.replace(/[^a-zA-Z0-9]/g, '-');
+      const T = (id) => path.join(tdir, filed[id] || 'stewards', id + '.jsonl');
+      fs.mkdirSync(path.join(tdir, 'stewards'), { recursive: true });
+      const record = (id, cwd, uuid, ms) => JSON.stringify({ type: 'user', uuid, timestamp: iso(ms), cwd, sessionId: id,
+        message: { role: 'user', content: 'Earlier work' } }) + '\n';
+      const started = (id, cwd, kept = cwd) => {
+        filed[id] = fileName(kept);
+        fs.mkdirSync(path.join(tdir, filed[id]), { recursive: true });
+        fs.writeFileSync(T(id), record(id, cwd, 'h-' + id, now - 600000) + (kept !== cwd ? record(id, kept, 'k-' + id, now - 300000) : ''));
+      };
+      started(S(3), proj); started(S(4), proj); started(S(5), elsewhere); started(S(6), proj);
+      started(S(7), proj); started(S(8), proj); started(S(0), proj); started('5e5e5e5e-0000-4000-8000-00000000000a', sibling);
+      // Started in another folder and resumed in this one: Claude Code copied its old records, with their old cwd, to here.
+      started(S('d'), elsewhere, proj); started(S('b'), sub);
       const call = (uuid, id, command) => ({ type: 'assistant', uuid, timestamp: iso(now - 30000), isSidechain: false,
         message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command, description: 'x' } }] } });
       const py = 'python3 /p/hooks/steward-relay.py';
@@ -9842,15 +9947,26 @@ console.log('\nthe Steward panel');
         ok('a resume or handoff request counts only with a call whose line runs the script with that flag, and such a call is no plain send');
       } else bad(`resume and handoff calls read ${JSON.stringify(flagged)}`);
 
-      /* Which window takes a resume: one with a folder holding the folder the conversation was started in. */
+      /* Which window takes a resume: the one where Claude Code finds the conversation, whose first folder is the one the
+         conversation is kept under. */
       const find = (id) => (fs.existsSync(T(id)) ? T(id) : '');
-      const inside = [relay.startedIn(S(4), [proj], find), relay.startedIn(S(4), [sub], find), relay.startedIn(S(5), [proj], find),
-        relay.startedIn('5e5e5e5e-0000-4000-8000-00000000000a', [proj], find), relay.startedIn(S(9) + '0', [proj], find)];
-      const through = linked ? [relay.startedIn(S(4), [link], find), relay.startedIn(S(6), [proj], find)] : [true, true];
-      if (JSON.stringify(inside) === JSON.stringify([true, true, false, false, false]) && through.every(Boolean)) {
-        ok('a resume is for a window with the conversation\'s folder or a folder above it open, also through a symbolic link on either side; '
-          + 'not for another folder, nor one whose name only starts the same, nor a conversation with no transcript');
-      } else bad(`folder matching for a resume: ${JSON.stringify({ inside, through, linked })}`);
+      const inside = [relay.opensHere(S(4), [proj], find), relay.opensHere(S(4), [proj, elsewhere], find), relay.opensHere(S(4), [elsewhere, proj], find),
+        relay.opensHere(S(4), [sub], find), relay.opensHere(S('b'), [proj], find), relay.opensHere(S(5), [proj], find),
+        relay.opensHere('5e5e5e5e-0000-4000-8000-00000000000a', [proj], find), relay.opensHere(S(9) + '0', [proj], find),
+        relay.opensHere(S('d'), [proj], find), relay.opensHere(S('d'), [elsewhere], find)];
+      const through = linked ? [relay.opensHere(S(4), [link], find)] : [true];
+      const { transcriptCwd } = require('../src/conversations');
+      const { filedUnder } = require('../src/claude-files');
+      const long = '/w/' + 'x'.repeat(240);
+      const names = [filedUnder(fileName(long).slice(0, 200) + '-1a2b3c', long), filedUnder(fileName(long).slice(0, 200) + '-1a2b3c', long + 'y'),
+        filedUnder(fileName(long), long), filedUnder('-w-proj', '/w/proj'), filedUnder('-w-proj', '/w/proj-old')];
+      if (JSON.stringify(inside) === JSON.stringify([true, true, false, false, false, false, false, false, true, false]) && through.every(Boolean)
+          && transcriptCwd(T(S('d'))) === proj && transcriptCwd(T(S(5))) === elsewhere
+          && JSON.stringify(names) === JSON.stringify([true, true, false, true, false])) {
+        ok('a resume is for the window whose first folder is the one the conversation is kept under, also through a symbolic link, '
+          + 'and a conversation resumed in another folder belongs to that one, though its first records say where it was started; '
+          + 'not for a window with that folder second, one with a folder above or below it, another folder, nor a conversation with no transcript');
+      } else bad(`folder matching for a resume: ${JSON.stringify({ inside, through, linked, moved: transcriptCwd(T(S('d'))), names })}`);
       if (!linked) note('symbolic links could not be made here, so matching through one was not checked');
 
       /* What counts as another process running it. */
@@ -9869,12 +9985,12 @@ console.log('\nthe Steward panel');
       /* A window opens the conversation, waits for its panel, and only then sends; text not received is tried again. */
       const opened = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
         const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
-        const run = async (text, { showAfter = 2, notIn = 2, opens = true, answer } = {}) => {
+        const run = async (text, { showAfter = 2, notIn = 2, opens = true, answer, tabAt = Infinity } = {}) => {
           let t = 0, polls = 0, tries = 0;
           const log = [];
           const r = await relay.resume('S', text, { now: () => t, sleep: async (ms) => { t += ms; },
             open: async (id) => { log.push('open ' + id); if (!opens) throw new Error('no such command'); },
-            shows: () => ++polls > showAfter,
+            shows: () => ++polls > showAfter, tabOpen: () => t >= tabAt,
             deliver: async (id, words) => { log.push('send ' + words); return answer ? answer : ++tries > notIn ? { outcome: 'submitted' }
               : { outcome: 'notReceived', reason: 'the panel has no message input' }; } });
           return { r, log, waited: t };
@@ -9882,7 +9998,9 @@ console.log('\nthe Steward panel');
         (async () => process.stdout.write(JSON.stringify({
           sent: await run('Go on'), bare: await run(''), never: await run('Go on', { showAfter: 1e9 }),
           broken: await run('Go on', { opens: false }), unsure: await run('Go on', { answer: { outcome: 'uncertain', reason: 'the panel did not report' } }),
-          stuck: await run('Go on', { notIn: 1e9 }) })))().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`],
+          stuck: await run('Go on', { notIn: 1e9 }),
+          slow: await run('Go on', { showAfter: 120, tabAt: 1000 }), loading: await run('Go on', { showAfter: 1e9, tabAt: 1000 }) })))()
+          .catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`],
         { encoding: 'utf8', timeout: 30000 }));
       const o = opened;
       if (o.sent && JSON.stringify(o.sent.r) === JSON.stringify({ outcome: 'submitted', opened: true })
@@ -9891,9 +10009,14 @@ console.log('\nthe Steward panel');
           && o.never.r.outcome === 'uncertain' && !o.never.r.opened && o.never.log.length === 1 && o.never.waited >= relay.RESUME_SHOW_MS
           && o.broken.r.outcome === 'notReceived' && /could not open it: no such command/.test(o.broken.r.reason) && o.broken.log.length === 1
           && o.unsure.r.outcome === 'uncertain' && o.unsure.r.opened === true && o.unsure.log.length === 2
-          && o.stuck.r.outcome === 'notReceived' && o.stuck.r.opened === true && o.stuck.waited >= relay.RESUME_SEND_MS) {
+          && o.stuck.r.outcome === 'notReceived' && o.stuck.r.opened === true && o.stuck.waited >= relay.RESUME_SEND_MS
+          && o.never.r.reason === 'Claude Code was asked to open it, but no tab here showed it within 30 seconds'
+          && o.slow.r.outcome === 'submitted' && o.slow.r.opened === true && o.slow.waited > relay.RESUME_SHOW_MS
+          && o.loading.r.outcome === 'uncertain' && o.loading.r.opened === true && o.loading.waited >= relay.RESUME_LOAD_MS
+          && /^its tab here opened, but the conversation had not loaded within 180 seconds$/.test(o.loading.r.reason)) {
         ok('a resumed conversation is opened once and sent the text only after its panel shows it; text the panel did not take is tried again '
-          + 'for a while, an unclear send is not, and with no text opening is all');
+          + 'for a while, an unclear send is not, and with no text opening is all; a long one whose tab is open gets minutes to load, '
+          + 'and with no tab at all it is given up after half a minute');
       } else bad(`resuming in a window: ${JSON.stringify(o)}`);
 
       /* The window's side of resume requests. */
@@ -9903,7 +10026,8 @@ console.log('\nthe Steward panel');
         const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
         const dir = ${JSON.stringify(xdir)}, S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, now = ${now};
         const R = (n) => 'cccccccc-0000-4000-8000-00000000000' + n;
-        const T = (id) => path.join(${JSON.stringify(tdir)}, id + '.jsonl');
+        const filed = ${JSON.stringify(filed)};
+        const T = (id) => path.join(${JSON.stringify(tdir)}, filed[id] || 'stewards', id + '.jsonl');
         const words = ${JSON.stringify(words)};
         // S(1) is a steward of S(2) only, S('c') a steward of all; S(4) to S(8) and S(0) are managed by nobody.
         const table = { [S(1)]: { manages: [S(2)], names: { [S(2)]: 'Parser work' }, at: 0, all: false },
@@ -9920,7 +10044,7 @@ console.log('\nthe Steward panel');
         put(R(8), { action: 'resume', to: S(6), text: '' });
         put(R('f'), { action: 'resume', to: S(0), text: '' });
         const did = [];
-        const deps = { shownHere: (id) => id === S(1), folders: () => [${JSON.stringify(proj)}], stewards: () => table,
+        const deps = { shownHere: (id) => id === S(1), folders: () => [${JSON.stringify(linked ? link : proj)}], stewards: () => table,
           transcriptOf: (id) => (fs.existsSync(T(id)) ? T(id) : ''), pid: 79, now: () => now, sleep: async () => {},
           windows: () => [{ pid: 79, name: 'proj', folders: [${JSON.stringify(proj)}], sessions: [S(1)] },
             { pid: 80, name: 'other-win', folders: [${JSON.stringify(elsewhere)}], sessions: [S(8)] }],
@@ -10025,8 +10149,10 @@ console.log('\nthe Steward panel');
       const rdata = path.join(root, 'resume-data'), rconf = path.join(root, 'resume-conf');
       fs.mkdirSync(path.join(rdata, relay.RELAY_DIR), { recursive: true });
       fs.mkdirSync(path.join(rdata, 'windows'), { recursive: true });
-      fs.mkdirSync(path.join(rconf, 'projects', '-w'), { recursive: true });
-      for (const id of [S(4), S(5), S(8)]) fs.copyFileSync(T(id), path.join(rconf, 'projects', '-w', id + '.jsonl'));
+      for (const id of [S(4), S(5), S(8), S('d')]) {
+        fs.mkdirSync(path.join(rconf, 'projects', filed[id]), { recursive: true });
+        fs.copyFileSync(T(id), path.join(rconf, 'projects', filed[id], id + '.jsonl'));
+      }
       fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a',
         folders: [linked ? link : proj], sessions: [S(1)] }));
       fs.writeFileSync(path.join(rdata, 'windows', process.ppid + '.json'), JSON.stringify({ pid: process.ppid, at: Date.now(), name: 'other-win',
@@ -10064,25 +10190,27 @@ console.log('\nthe Steward panel');
       const half = talk(['--resume', S(4)], S(1), words, `(q) => ({ outcome: 'notReceived', reason: 'the panel has no message input', opened: true, ticked: true, window: ${pids} })`);
       const vague = talk(['--resume', S(4)], S(1), words, `(q) => ({ outcome: 'uncertain', reason: 'no panel here showed it', window: ${pids} })`);
       const busy = talk(['--resume', S(4)], S(1), '', `(q) => ({ outcome: 'refused', reason: 'process 4242 runs it', window: ${pids} })`);
+      const resumedHere = talk(['--resume', S('d')], S(1), '', `(q) => ({ outcome: 'submitted', reason: '', opened: true, window: ${pids} })`);
       const out = (r) => String((r && (r.out !== undefined ? r.out : r.stdout)) || '').trim();
       const TICKED = ' It is now ticked for you in the Steward panel.';
       if (JSON.stringify(usage) === '[2,2,2]' && missing.status === 1 && /^Not done: no conversation with that session id was found under /.test(out(missing))
           && shown.status === 1 && out(shown) === 'Not done: it is already open in the VS Code window "other-win"; a plain send reaches it there once the user ticks it for this steward in the Steward panel.'
-          && away.status === 1 && out(away).startsWith(`Not done: no open VS Code window has its folder, ${elsewhere}, or a folder above it, open; it was not opened in a window for another folder. The open windows:`)
+          && away.status === 1 && out(away).startsWith(`Not done: no open VS Code window has its folder, ${elsewhere}, as its first folder, and Claude Code opens a stored conversation only in such a window; in any other it would start a new, empty one. Ask the user to open that folder in a window (as its first folder). The open windows:`)
           && out(away).includes(`  proj-a: ${linked ? link : proj}`) && out(away).includes(`  other-win: ${sibling}`)
           && fs.readdirSync(path.join(rdata, relay.RELAY_DIR)).length === 0) {
         ok('steward-relay.py --resume says at once, writing no request, when the conversation has no transcript, a window already shows it, '
-          + 'or no window has its folder open, and then names the folder and lists the open windows');
+          + 'or no window has its folder as its first folder, and then names the folder and lists the open windows');
       } else bad(`steward-relay.py --resume checks: ${JSON.stringify({ usage, missing: out(missing), shown: out(shown), away: out(away) })}`);
       if (good.code === 0 && out(good) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a", and the message was typed into its input and sent as the user\'s message.' + TICKED
           && good.req && good.req.action === 'resume' && good.req.to === S(4) && good.req.text === words && good.req.steward === S(1)
           && bare.code === 0 && out(bare) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a".' && bare.req && bare.req.text === ''
           && half.code === 1 && out(half) === 'Opened in an editor tab in the VS Code window "proj-a", but the message was not sent: the panel has no message input.' + TICKED
           && vague.code === 1 && out(vague) === 'Unclear whether it was opened: no panel here showed it'
-          && busy.code === 1 && out(busy) === 'Not done: process 4242 runs it') {
+          && busy.code === 1 && out(busy) === 'Not done: process 4242 runs it'
+          && resumedHere.code === 0 && resumedHere.req && resumedHere.req.to === S('d')) {
         ok('steward-relay.py --resume asks a window with the folder to open it, with the message or without, and says whether it opened, '
           + 'whether the message was sent, and whether it is now ticked');
-      } else bad(`steward-relay.py --resume answers: ${JSON.stringify({ good, bare, half: out(half), vague: out(vague), busy: out(busy) })}`);
+      } else bad(`steward-relay.py --resume answers: ${JSON.stringify({ good, bare, half: out(half), vague: out(vague), busy: out(busy), resumedHere })}`);
       const NOT_HANDED = ' Say in your reply where it seems to belong, so the user decides.';
       const stranger = sync(['--handoff'], S(9), moved);
       fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a', folders: [proj], sessions: [] }));
@@ -10106,7 +10234,7 @@ console.log('\nthe Steward panel');
       const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
       const answerPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '91-answer.js'), 'utf8');
       const readyId = (/var ANSWERS_READY = '([^']+)';/.exec(answerPage) || [])[1];
-      if (/open: \(id\) => \{\s*answersReady\.delete\(id\);\s*return vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, undefined, \{ programmatic: 'pin-to-panel' \}\);\s*\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
+      if (/open: \(id\) => \{\s*answersReady\.delete\(id\);\s*return vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, undefined, \{ programmatic: 'pin-to-panel' \}\);\s*\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*tabOpen: \(id\) => shownList\(\)\.includes\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
           && /agentsFresh: \(\) => waiting\.listAgents\(pluginInstall\.findClaude\(claudeFolders\(\)\)\), resume: resumeConversation,/.test(ext)
           && readyId && ext.includes(`const ANSWERS_READY = '${readyId}', answersReady = new Set();`)
           && /if \(key !== ANSWERS_READY\) \{ claude\.answered\(key, sent, reason, detail\); return; \}/.test(ext)) {
@@ -11118,6 +11246,34 @@ console.log('\nthe window test\'s own parts');
     for (const k of listed) if (!keys.includes(k)) gaps.push(`${k} is not in package.json`);
   }
   expect(!gaps.length, 'every setting, command and view in package.json belongs to exactly one of those features', gaps.join('; '));
+  /* The same for Agent Plus's, against the Agent Plus found: the copy installed beside this one (VSCODE_EXTENSIONS, as
+     run.js runs this), AGENT_WORK_PLAN_DIR, or its checkout beside this repository. A feature that names in agentPlusNeeds
+     a setting of a newer Agent Plus than the one found is left out of this check, with a note. */
+  const installedAp = (() => {
+    try { const d = fs.readdirSync(process.env.VSCODE_EXTENSIONS || '').filter((n) => /^xnervwang\.agent-plus-\d/.test(n)).sort().pop(); return d ? path.join(process.env.VSCODE_EXTENSIONS, d) : ''; } catch (_) { return ''; }
+  })();
+  const apDir = [installedAp, process.env.AGENT_WORK_PLAN_DIR, path.join(__dirname, '..', '..', 'vscode-agent-plus')]
+    .find((d) => d && fs.existsSync(path.join(d, 'package.json')));
+  const apPkg = apDir ? JSON.parse(fs.readFileSync(path.join(apDir, 'package.json'), 'utf8')) : null;
+  const apKeys = apPkg ? [...Object.keys(apPkg.contributes.configuration.properties), ...apPkg.contributes.commands.map((x) => x.command)] : [];
+  const waiting = featureList.filter((f) => f.agentPlusNeeds && apPkg && !apKeys.includes(f.agentPlusNeeds));
+  for (const f of waiting) note(`${f.id}: the Agent Plus found (${apPkg.version}) has no ${f.agentPlusNeeds}, so its Agent Plus settings and commands are not checked`);
+  const apUsed = { settings: [], commands: [], views: [] };
+  for (const f of featureList) if (!waiting.includes(f)) for (const kind of Object.keys(apUsed)) apUsed[kind].push(...(((f.agentPlus || {})[kind]) || []));
+  const apOther = JSON.parse(fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look-features.json'), 'utf8')).agentPlusOther || [];
+  const apListed = [...Object.values(apUsed).flat(), ...apOther.map((o) => o.key)];
+  const apGaps = [...new Set(apListed)].filter((k) => apListed.filter((x) => x === k).length !== 1).map((k) => `${k} is listed more than once`)
+    .concat(apOther.filter((o) => !ascii(o.why)).map((o) => `${o.key} says no why`));
+  if (apPkg) {
+    const c = apPkg.contributes;
+    const has = { settings: Object.keys(c.configuration.properties), commands: c.commands.map((x) => x.command), views: Object.values(c.views || {}).flat().map((v) => v.id) };
+    const all = Object.values(has).flat();
+    for (const k of all) if (!apListed.includes(k)) apGaps.push(`${k} of Agent Plus is not listed`);
+    for (const [kind, keys] of Object.entries(apUsed)) for (const k of keys) if (!has[kind].includes(k)) apGaps.push(`${k} is not one of Agent Plus's ${kind}`);
+    for (const o of apOther) if (!all.includes(o.key)) apGaps.push(`${o.key} is not Agent Plus's`);
+  } else note('no Agent Plus found to hold the feature list\'s Agent Plus settings, commands and views against');
+  expect(!apGaps.length, `and every setting, command and view of Agent Plus${apPkg ? ` ${apPkg.version}` : ''} is listed once: under a feature that uses it, or in agentPlusOther with why it is not this extension's`,
+    apGaps.join('; '));
   const lookMd = (() => { try { return fs.readFileSync(path.join(__dirname, 'vscode', 'LOOK.md'), 'utf8'); } catch (_) { return null; } })();
   expect(lookMd !== null && lookMd.includes('look.json') && lookMd.includes('REVIEW.md') && !/[^\x09\x0a\x20-\x7e]/.test(lookMd),
     'and test/vscode/LOOK.md, in ASCII, tells the agent that reviews the pictures what to read and what to write');
@@ -11852,6 +12008,31 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
           + 'a stored name carries, and a steward gets one crown first and steward: true');
       } else bad(`source titles ${JSON.stringify(o)}`);
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
+    {
+      // The time of the last reply, which Agent Plus uses to tell that a short turn ran (lastReplyAt): the last assistant
+      // row of the main conversation, not a sub-agent's, nor a title or attachment written after it.
+      const rdir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-reply-at-'));
+      try {
+        const w = require(path.join(__dirname, '..', 'src', 'waiting.js'));
+        const f = path.join(rdir, 't.jsonl');
+        const rows = [{ type: 'user', timestamp: '2026-11-22T10:00:00.000Z', message: { content: 'go' } },
+          { type: 'assistant', timestamp: '2026-11-22T10:00:05.000Z', message: { content: [{ type: 'text', text: 'done' }] } },
+          { type: 'assistant', isSidechain: true, timestamp: '2026-11-22T10:00:09.000Z', message: { content: [] } },
+          { type: 'custom-title', customTitle: 'Renamed', timestamp: '2026-11-22T10:05:00.000Z' },
+          { type: 'attachment', timestamp: '2026-11-22T10:06:00.000Z', attachment: { type: 'hook_additional_context' } }];
+        fs.writeFileSync(f, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+        const got = [w.lastReplyAt(f), w.lastReplyAt(path.join(rdir, 'none.jsonl'))];
+        const empty = path.join(rdir, 'e.jsonl');
+        fs.writeFileSync(empty, JSON.stringify(rows[0]) + '\n');
+        got.push(w.lastReplyAt(empty));
+        const srcText = fs.readFileSync(path.join(__dirname, '..', 'src', 'claude-source.js'), 'utf8');
+        const extText2 = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+        if (JSON.stringify(got) === JSON.stringify([Date.parse('2026-11-22T10:00:05.000Z'), 0, 0])
+            && /if \(reply > 0\) out\.lastReplyAt = reply;/.test(srcText) && /replyAt: readTitles\.replyAt,/.test(extText2)) {
+          ok('each conversation the source lists carries lastReplyAt, its last reply\'s time, which a rename or a hook\'s text written later does not move');
+        } else bad(`lastReplyAt: ${JSON.stringify(got)}`);
+      } finally { fs.rmSync(rdir, { recursive: true, force: true }); }
+    }
     const svBody = require(path.join(__dirname, '..', 'src', 'steward-view.js')).body;
     const row = (over) => Object.assign({ sessionId: 'x', title: 'x', cwd: '', state: 'idle', dot: '', unseen: false, running: true, processes: [],
       lastActiveAt: 0, doing: [], questions: 0, managed: false }, over);
@@ -11975,7 +12156,7 @@ console.log('\na panel\'s page getting the focus');
 }
 
 /* ── the token mode ──
-   agentPlus.tokenMode in Agent Plus decides which of the four features that add to Claude's context run
+   agentPlus.tokenMode in Agent Plus decides which of the features that add to Claude's context run
    (src/token-mode.js). For each mode the checks read config.json, which the hooks read, count the redraws of Agent
    Plus's list, and look for the notice shown when a feature's own setting is changed outside Custom. */
 console.log('\nthe token mode');
@@ -12012,16 +12193,18 @@ console.log('\nthe token mode');
       const subs = [], keep = setInterval;
       global.setInterval = () => keep(() => {}, 1 << 30);
       const hooks = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.enabled, c.tellTimeZone, c.brief]; } catch (_) { return null; } };
+      const route = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.skillRoute, c.skillRouteCount, c.skillRouteVector]; } catch (_) { return null; } };
       const change = (...keys) => { for (const fn of vs.listeners) fn({ affectsConfiguration: (k) => keys.some((x) => x === k || x.startsWith(k + '.')) }); };
       const pause = () => new Promise((r) => setTimeout(r, 50));
       (async () => {
-        const out = { threw: '', hooks: {}, features: {}, redraws: {} };
+        const out = { threw: '', hooks: {}, route: {}, features: {}, redraws: {} };
         try {
           await ext.activate({ subscriptions: subs, extensionPath: ${JSON.stringify(root)}, globalState: memo(), workspaceState: memo(),
             extension: { id: 'x.y', packageJSON: require(${JSON.stringify(path.join(root, 'package.json'))}) },
             globalStorageUri: { fsPath: store }, logUri: { fsPath: path.join(store, 'logs', 'exthost1', 'x.y') } });
           await new Promise((r) => setTimeout(r, 200));
           out.hooks.start = hooks();
+          out.route.start = route();
           let redraws = 0;
           if (vs.state.source) vs.state.source.onDidChangeConversations(() => { redraws++; });
           for (const mode of ['interface', 'essential', 'all']) {
@@ -12030,12 +12213,17 @@ console.log('\nthe token mode');
             change('agentPlus.tokenMode');
             await pause();
             out.hooks[mode] = hooks();
+            out.route[mode] = route();
             out.features[mode] = vs.state.source ? JSON.stringify(vs.state.source.features) : null;
             out.redraws[mode] = redraws - before;
           }
           Object.assign(vs.values, { 'claudeCodePlus.workPlan': true, 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false });
           vs.values['agentPlus.tokenMode'] = 'custom'; change('agentPlus.tokenMode'); await pause(); out.hooks.custom = hooks();
-          vs.values['agentPlus.tokenMode'] = 'all'; change('agentPlus.tokenMode'); await pause(); out.hooks.allAgain = hooks();
+          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': false, 'claudeCodePlus.skillRoutingCount': 7, 'claudeCodePlus.skillRoutingVectorSearch': true });
+          change('claudeCodePlus.skillRouting', 'claudeCodePlus.skillRoutingCount', 'claudeCodePlus.skillRoutingVectorSearch'); await pause();
+          out.route.custom = route();
+          vs.values['agentPlus.tokenMode'] = 'all'; change('agentPlus.tokenMode'); await pause(); out.hooks.allAgain = hooks(); out.route.allAgain = route();
+          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': true, 'claudeCodePlus.skillRoutingCount': undefined, 'claudeCodePlus.skillRoutingVectorSearch': undefined });
           vs.values['agentPlus.tokenMode'] = 'custom'; change('agentPlus.tokenMode'); await pause(); out.hooks.customAgain = hooks();
           out.updates = vs.updates.filter(([k]) => k.startsWith('claudeCodePlus.'));
           vs.values['agentPlus.tokenMode'] = 'essential';
@@ -12064,6 +12252,13 @@ console.log('\nthe token mode');
       && JSON.stringify(h.customAgain) === '[true,false,false]' && Array.isArray(r.updates) && !r.updates.length) {
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
+    const rt = r.route || {};
+    const routeWant = { start: [true, null, null], interface: [false, null, null], essential: [false, null, null], all: [true, null, null],
+      custom: [false, 7, true], allAgain: [true, 7, true] };
+    const routeWrong = Object.keys(routeWant).filter((k) => JSON.stringify(rt[k] === undefined ? null : rt[k]) !== JSON.stringify(routeWant[k]));
+    if (!r.threw && !routeWrong.length) {
+      ok('skill suggestions reach the hooks only in All features or while claudeCodePlus.skillRouting is on in Custom, with their count and vector setting');
+    } else bad(`skillRoute, skillRouteCount and skillRouteVector were ${JSON.stringify(rt)}`);
     const f = r.features || {}, d = r.redraws || {};
     if (f.interface === '["showNotices"]' && f.essential === '["showNotices"]' && f.all === '["brief","showNotices"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
       ok('the brief is offered to Agent Plus only in a mode that runs it, and every change of mode redraws its list');
@@ -12073,7 +12268,7 @@ console.log('\nthe token mode');
       && JSON.stringify(told[0][1]) === '["Switch to Custom"]') {
       ok('outside Custom, changing a feature\'s own setting says once that it has no effect, with a button to switch to Custom');
     } else bad(`the notices were ${JSON.stringify(told)}`);
-    if (typeof r.status === 'string' && /^Token mode: Essential features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief off, notices when a detached command stops off$/.test(r.status)) {
+    if (typeof r.status === 'string' && /^Token mode: Essential features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief off, skill suggestions off, notices when a detached command stops off$/.test(r.status)) {
       ok('Show Status names the mode and what it leaves running');
     } else bad(`Show Status says ${JSON.stringify(r.status)}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
@@ -12160,7 +12355,7 @@ console.log('\nthe token mode');
   const tm = require('../src/token-mode');
   const mine = tm.SWITCHES.filter((x) => x.key.startsWith('claudeCodePlus.')).map((x) => x.key);
   const short = mine.filter((k) => !props[k] || !String(props[k].markdownDescription || '').trim().endsWith(tm.ONLY_IN_CUSTOM));
-  if (mine.length === 4 && !short.length) ok('each of the four features\' settings ends its description saying it is used only in Custom');
+  if (mine.length === 5 && !short.length) ok('each of the five features\' settings ends its description saying it is used only in Custom');
   else bad(`settings without the Custom sentence: ${JSON.stringify(short)} of ${JSON.stringify(mine)}`);
   const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
   const sec = readme.slice(readme.indexOf('## What it costs in tokens'));
@@ -12168,11 +12363,11 @@ console.log('\nthe token mode');
   const cols = head.split('|').map((c) => c.trim()).filter(Boolean).slice(1);
   const custom = lines.filter((l) => l.startsWith('| ') && l.trim().endsWith('|')).map((l) => l.split('|').map((c) => c.trim()).filter(Boolean)).filter((c) => c.length === 5).map((c) => c[4]);
   if (JSON.stringify(cols) === JSON.stringify(tm.MODES.map((m) => m.label)) && mine.every((k) => custom.includes('`' + k + '`'))) {
-    ok('the README\'s token section opens with the four modes, its Custom column naming the four settings');
+    ok('the README\'s token section opens with the four modes, its Custom column naming each feature\'s setting');
   } else bad(`the README's mode table has columns ${JSON.stringify(cols)} and Custom ${JSON.stringify(custom)}`);
   const row = readme.split('\n').find((l) => l.startsWith('| Token mode |')) || '';
-  const unnamed = [/work plan/, /time-zone note/, /conversation brief/, /detached-command notices/].filter((re) => !re.test(row));
-  if (row && !unnamed.length) ok('the README\'s feature table says the token mode decides all four: work plan, time-zone note, brief and detached-command notices');
+  const unnamed = [/work plan/, /time-zone note/, /conversation brief/, /skill suggestions/, /detached-command notices/].filter((re) => !re.test(row));
+  if (row && !unnamed.length) ok('the README\'s feature table says the token mode decides all five: work plan, time-zone note, brief, skill suggestions and detached-command notices');
   else bad(`the README's Token mode row does not name ${unnamed.map(String).join(', ')}: ${row.slice(0, 300)}`);
 }
 
@@ -12265,10 +12460,10 @@ console.log('\nthe token mode');
   const OFF = { 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false };
   const r = runModes([['all', {}], ['essential', {}], ['interface', {}], ['custom', OFF], ['all', {}]]);
   const want = {
-    all: ['All features', 'work plan on, time-zone note on, conversation brief on, notices when a detached command stops on', [true, true, true]],
-    essential: ['Essential features', 'work plan on, time-zone note on, conversation brief off, notices when a detached command stops off', [true, true, false]],
-    interface: ['Interface features', 'work plan off, time-zone note off, conversation brief off, notices when a detached command stops off', [false, false, false]],
-    custom: ['Custom', 'work plan on, time-zone note off, conversation brief off, notices when a detached command stops on', [true, false, false]],
+    all: ['All features', 'work plan on, time-zone note on, conversation brief on, skill suggestions on, notices when a detached command stops on', [true, true, true]],
+    essential: ['Essential features', 'work plan on, time-zone note on, conversation brief off, skill suggestions off, notices when a detached command stops off', [true, true, false]],
+    interface: ['Interface features', 'work plan off, time-zone note off, conversation brief off, skill suggestions off, notices when a detached command stops off', [false, false, false]],
+    custom: ['Custom', 'work plan on, time-zone note off, conversation brief off, skill suggestions on, notices when a detached command stops on', [true, false, false]],
   };
   const steps = r.steps || [];
   const wrong = steps.filter((s) => {
@@ -12283,18 +12478,18 @@ console.log('\nthe token mode');
   if (steps.length === 5 && !stale.length) {
     ok('a change of mode sends each conversation shown in the window its new mode, so an information box left open does not keep the old one');
   } else bad(`after a change of mode the conversations shown were sent ${JSON.stringify(steps.map((s) => [s.mode, s.pushed]))}`);
-  /* Told once per setting and window: four notices in the first mode, naming it, and none after. */
+  /* Told once per setting and window: one notice per feature setting in the first mode, naming it, and none after. */
   const first = (steps[0] || {}).told || [];
   const named = KEYS.every((k) => first.some(([t, b]) => t === `Claude Code Plus: the token mode is All features, so ${k} has no effect until the mode is Custom.`
     && JSON.stringify(b) === JSON.stringify([tm.SWITCH_BUTTON])));
   const later = steps.slice(1).map((s) => (s.told || []).length);
-  if (first.length === 4 && named && later.every((n) => n === 0)) {
-    ok('changing each of the four settings twice outside Custom says once, for each, that it has no effect, and Custom says nothing');
+  if (first.length === KEYS.length && KEYS.length === 5 && named && later.every((n) => n === 0)) {
+    ok('changing each of the five settings twice outside Custom says once, for each, that it has no effect, and Custom says nothing');
   } else bad(`the notices were ${JSON.stringify(steps.map((s) => [s.mode, s.told]))}`);
   const r2 = runModes([['interface', {}], ['custom', {}], ['essential', {}]]);
   const s2 = r2.steps || [];
   const inInterface = (s2[0] || {}).told || [];
-  if (!r2.threw && inInterface.length === 4 && inInterface.every(([t]) => /^Claude Code Plus: the token mode is Interface features, so claudeCodePlus\.\w+ has no effect until the mode is Custom\.$/.test(t))
+  if (!r2.threw && inInterface.length === KEYS.length && inInterface.every(([t]) => /^Claude Code Plus: the token mode is Interface features, so claudeCodePlus\.\w+ has no effect until the mode is Custom\.$/.test(t))
     && s2.slice(1).every((s) => !(s.told || []).length)) {
     ok('a window that starts in Interface features names that mode in its notices');
   } else bad(`a window in Interface features: ${JSON.stringify(s2.map((s) => [s.mode, s.told]))} ${(r2.threw || '').slice(0, 300)}`);
@@ -12786,10 +12981,14 @@ const repo = path.join(__dirname, '..');
         { type: 'text', text: `Please ${fakeModel.ASK_TO_BACKGROUND}.` }] }] })).text);
     eq([refused[1].content_block.name, JSON.parse(refused[2].delta.partial_json).command], ['Bash', fakeModel.BG_RUN],
       'a message typed after a refused tool call, which arrives with the refusal, is still answered');
+    const chosen = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_FOR_CHOICE}.` }] })).text);
+    const choiceInput = JSON.parse(chosen[2].delta.partial_json);
+    eq([chosen[1].content_block.name, choiceInput.questions.length, choiceInput.questions[0].question, choiceInput.questions[0].options.map((o) => o.label)],
+      ['AskUserQuestion', 1, fakeModel.CHOICE.question, fakeModel.CHOICE.options], 'a message asking to be asked gets an AskUserQuestion call with one question and its options');
     const counted = await post('/v1/messages/count_tokens', { messages: [] });
     const other = await post('/v1/models', {});
     eq([counted.status, JSON.parse(counted.text).input_tokens > 0, other.status], [200, true, 404], 'it counts tokens, and answers nothing else');
-    eq(m.turns(), 7, 'and counts only the streamed turns');
+    eq(m.turns(), 8, 'and counts only the streamed turns');
   } catch (e) {
     bad(`the fake model: ${(e && e.stack) || e}`);
   } finally { await m.close(); }

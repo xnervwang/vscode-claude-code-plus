@@ -17,7 +17,8 @@
  * DETACH_SHORT_RUN, which ends sooner. One whose message contains ASK_FOR_HELPER gets an Agent call run in the background, whose prompt is
  * HELPER_TASK; the helper's own turns are held until releaseHelper(), so it keeps running for as long as a test needs.
  * One whose message contains ASK_FOR_WORKER gets a Bash call of WORKER_RUN, which starts $HOME/fake-bin/claude as a
- * `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT).
+ * `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT). One whose message contains
+ * ASK_FOR_CHOICE gets an AskUserQuestion call with CHOICE's question and options, so that Claude Code shows a choice box.
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
@@ -42,6 +43,8 @@ const ASK_FOR_WORKER = 'start a worker detached';
 const WORKER_RUN = 'setsid nohup bash -c \'"$HOME/fake-bin/claude" -p "Draft the release notes" --output-format stream-json'
   + ' > "$HOME/worker.jsonl" 2>&1; echo done\' > /dev/null 2>&1 < /dev/null &';
 const WORKER_NAME = 'release-notes-worker';
+const ASK_FOR_CHOICE = 'ask me which config to change';
+const CHOICE = { question: 'Which config should I change?', header: 'Config', options: ['Staging', 'Production'] };
 /*
  * A stand-in for the CLI's `claude -p`, at $HOME/fake-bin/claude: it writes a session record of the CLI's shape for
  * its own process, as a worker started with --output-format stream-json does, and runs for `seconds`.
@@ -95,6 +98,7 @@ const asksForHelper = (ask) => { const t = lastAsk(ask); return t !== null && t.
 const asksToDetach = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH); };
 const asksToDetachShort = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH_SHORT); };
 const asksForWorker = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_WORKER); };
+const asksForChoice = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_CHOICE); };
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
@@ -113,6 +117,23 @@ function contextOf(ask) {
   const out = { tools: Array.isArray(ask.tools) ? ask.tools.length : 0 };
   for (const [k, re] of Object.entries(CONTEXT)) out[k] = re.test(input);
   return out;
+}
+/* The skill suggestions block in this turn's input (route-skills.py), from its first words to the end of the hook's
+   text; '' without one. Claude Code wraps a hook's text in a system-reminder. */
+const ROUTE_MARK = 'Skills that may fit this message';
+function routeOf(ask) {
+  const msgs = Array.isArray(ask.messages) ? ask.messages : [];
+  let i = msgs.length;
+  while (i > 0 && !(msgs[i - 1] && msgs[i - 1].role === 'assistant')) i--;
+  for (const m of msgs.slice(i)) {
+    const texts = !m ? [] : typeof m.content === 'string' ? [m.content]
+      : Array.isArray(m.content) ? m.content.map((x) => (x && typeof x.text === 'string' ? x.text : '')) : [];
+    for (const text of texts) {
+      const at = text.indexOf(ROUTE_MARK);
+      if (at >= 0) return text.slice(at).replace(/\n*<\/system-reminder>[\s\S]*$/, '');
+    }
+  }
+  return '';
 }
 /* The folder named by the note on images in replies, wherever in the conversation it was added; '' without one. */
 const imagesNote = (ask) => {
@@ -136,14 +157,15 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const helping = !helper && isHelper(ask);
       const detach = asksToDetach(ask), detachShort = asksToDetachShort(ask);
       const worker = asksForWorker(ask);
-      const tool = background || helper || detach || detachShort || worker || asksToRun(ask);
+      const choice = asksForChoice(ask);
+      const tool = background || helper || detach || detachShort || worker || choice || asksToRun(ask);
       const linked = linkAsked(ask), picture = imageAsked(ask);
       const reply = linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
         : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain;
-      seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping,
+      seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping, choice,
         parts: lastParts(ask).map((p) => (p && p.type) || typeof p), result: resultText(ask), ask: (lastAsk(ask) || '').slice(0, 400),
         typed: typedText(ask).slice(0, 400),
-        picture, imagesNote: imagesNote(ask), context: contextOf(ask) });
+        picture, imagesNote: imagesNote(ask), context: contextOf(ask), route: routeOf(ask) });
       if (req.method === 'POST' && /\/v1\/messages\/count_tokens$/.test(url)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ input_tokens: 1200 }));
@@ -162,8 +184,10 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
           : detach ? { command: DETACH_RUN, description: 'Start the long job detached' }
           : detachShort ? { command: DETACH_SHORT_RUN, description: 'Start the short job detached' }
           : worker ? { command: WORKER_RUN, description: 'Start a worker detached' }
+          : choice ? { questions: [{ question: CHOICE.question, header: CHOICE.header, multiSelect: false,
+            options: CHOICE.options.map((label) => ({ label, description: `The ${label.toLowerCase()} config` })) }] }
           : { command: RUN, description: 'Run the test suite' };
-      const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name: helper ? 'Agent' : 'Bash', input } : { type: 'text', text: reply };
+      const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name: helper ? 'Agent' : choice ? 'AskUserQuestion' : 'Bash', input } : { type: 'text', text: reply };
       const stop = tool ? 'tool_use' : 'end_turn';
       if (!ask.stream) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -198,6 +222,6 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
     turns: () => seen.filter((s) => s.method === 'POST' && s.stream && /\/v1\/messages(\?|$)/.test(s.url)).length };
 }
 
-module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
+module.exports = { start, ROUTE_MARK, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
   DETACH_SHORT_RUN, LINK_TEXT,
-  IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT };
+  IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_CHOICE, CHOICE };
