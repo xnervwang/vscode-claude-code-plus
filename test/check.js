@@ -11893,6 +11893,59 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   }
 
+  {
+    // A steward whose stored name still carries the bell an older build added, and a plain conversation whose stored name
+    // carries a crown and an envelope typed into a rename box.
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-claude-titles-')));
+    try {
+      const stub = path.join(home, 'vscode-stub.js');
+      fs.writeFileSync(stub, `module.exports = { TabInputWebview: class { constructor(v) { this.viewType = v; } } };`);
+      const script = `
+        const Module = require('module'), realResolve = Module._resolveFilename;
+        Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+        const C = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+        const id = (n) => n + n + n + n + n + n + n + n + '-1111-4222-8333-444444444444';
+        const records = [{ sessionId: id('a'), cwd: '/w/one', status: 'idle' }, { sessionId: id('b'), cwd: '/w/two', status: 'idle' }];
+        const names = { [id('a')]: 'Many conversations \\u{1F6CE}\\uFE0F', [id('b')]: '\\u{1F451} Plain \\u2709\\uFE0F' };
+        const base = { planDir: () => '/plans', enabled: () => false, listAgents: async () => ({ records, error: '' }), folders: () => ['/w'],
+          readPlan: () => null, titles: (s) => ({ custom: names[s.sessionId], ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
+          activeChat: () => '', logo: () => null, canDeliver: () => false, hand: () => false, reveal: async () => false };
+        const marked = C.createClaudeSource(Object.assign({}, base, { isSteward: (sid) => sid === id('a') }));
+        const unmarked = C.createClaudeSource(base);
+        const broken = C.createClaudeSource(Object.assign({}, base, { isSteward: () => { throw new Error('x'); } }));
+        const pick = (list) => list.map((c) => [c.sessionId.slice(0, 1), c.title, c.steward === true]).sort();
+        (async () => {
+          process.stdout.write(JSON.stringify({ here: pick(await marked.source.listConversations()), all: pick(await marked.source.listAllConversations()),
+            unmarked: pick(await unmarked.source.listAllConversations()), broken: pick(await broken.source.listAllConversations()) }));
+        })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
+      const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
+      let o = {};
+      try { o = JSON.parse(r.stdout); } catch (_) { o = { threw: r.stdout + r.stderr }; }
+      const steward = [['a', '\u{1F451} Many conversations', true], ['b', 'Plain', false]];
+      const want = { here: steward, all: steward, unmarked: [['a', 'Many conversations', false], ['b', 'Plain', false]],
+        broken: [['a', 'Many conversations', false], ['b', 'Plain', false]] };
+      if (JSON.stringify(o) === JSON.stringify(want)) {
+        ok('the titles the source gives Agent Plus (its notices, status bar list and Conversations view) drop the bell, crown and envelope '
+          + 'a stored name carries, and a steward gets one crown first and steward: true');
+      } else bad(`source titles ${JSON.stringify(o)}`);
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+    const svBody = require(path.join(__dirname, '..', 'src', 'steward-view.js')).body;
+    const row = (over) => Object.assign({ sessionId: 'x', title: 'x', cwd: '', state: 'idle', dot: '', unseen: false, running: true, processes: [],
+      lastActiveAt: 0, doing: [], questions: 0, managed: false }, over);
+    const html = svBody({ front: { id: 'f', title: 'Many conversations' }, managed: 1, rows: [], groups: [{ key: 'w:1', name: 'w',
+      rows: [row({ sessionId: 's', title: 'Other steward', steward: true }), row({ sessionId: 'p', title: 'Plain' })] }], hidden: 0, every: false });
+    const shownNames = [...html.matchAll(/<a [^>]*class="name"[^>]*>([^<]*)<\/a>/g)].map((m) => m[1]);
+    const free = svBody({ front: { id: 'f', title: 'Not yet' }, managed: 0, rows: [], groups: [], hidden: 0, every: false });
+    if (JSON.stringify(shownNames) === JSON.stringify(['\u{1F451} Other steward', 'Plain']) && html.includes('Managed by <b>\u{1F451} Many conversations</b>: 1')
+        && free.includes('Managed by <b>Not yet</b>: 0')) {
+      ok('the Steward panel draws one crown before a steward, in its rows and in its header, and none before a conversation that manages nothing');
+    } else bad(`steward panel names ${JSON.stringify(shownNames)} / ${html.slice(0, 200)} / ${free.slice(0, 120)}`);
+    const extText = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    if (/isSteward: \(id\) => enabled\(\) && !removed\(\) && stewardMarks\.stewardIds\(stewardTable\(\)\)\.includes\(String\(id\)\.toLowerCase\(\)\),/.test(extText)) {
+      ok('the extension tells its source which conversations are stewards, from the same table the tabs and the session list draw the crown from');
+    } else bad('extension.js does not give the source isSteward');
+  }
+
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   if (/globalThis\.__cceTurnHook = \(sessionId, busy, bg, farewell\) =>/.test(ext) && /activity\.marksUnread\(true, r\.bg \|\| bgWorking\.has\(sessionId\), shown\)/.test(ext)
       && /globalThis\.__cceSetUnread\(sessionId, true\)/.test(ext) && /globalThis\.__cceActivityMap = \(\) =>/.test(ext)
