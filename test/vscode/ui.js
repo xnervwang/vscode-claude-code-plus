@@ -2321,10 +2321,14 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
     /* Skill suggestions: a skill kept in this run's ~/.claude/skills that a message asks for reaches the model before the
        turn, by its name and with its whole description, from the plugin's route-skills.py. With claudeCodePlus.skillRouting
        off in Custom, and in Essential features, it does not. The skill is written first and a turn is sent until the
-       plugin has rebuilt its index since then, as read from the log the search keeps beside it. */
+       plugin has rebuilt its index since then, as read from the log the search keeps beside it. Then the query log: a turn
+       in which the model loads that skill puts the message that opened it in the log, and a later message worded like it,
+       sharing no word with the skill's description, is given the skill. And the search after a tool call: a Read of a
+       file named for another fixture skill's topic is followed by a line for that skill. Forty more skills make a word only
+       one skill has weigh what it does among a few hundred. */
     await step('skill suggestions', async () => {
       const pi = require('../../src/plugin-install');
-      const { ROUTE_MARK } = require('./lib/fake-model');
+      const { ROUTE_MARK, RESEARCH_MARK, ASK_TO_READ } = require('./lib/fake-model');
       const claudeDir = path.join(profile.home, '.claude');
       const dataDir = path.join(claudeDir, 'plugins', 'data', pi.DATA_DIR);
       const NAME = 'zebra-ledger-reconcile';
@@ -2336,8 +2340,21 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
         'invoices do not add up, when a quarter is about to close, or when an auditor asks which invoices are missing.',
         'This description runs past the few words a long list of skills leaves room for, so a turn that gets all of it',
         'got it from the search and not from that list.'].join(' ');
-      fs.mkdirSync(path.join(claudeDir, 'skills', NAME), { recursive: true });
-      fs.writeFileSync(path.join(claudeDir, 'skills', NAME, 'SKILL.md'), `---\nname: ${NAME}\ndescription: ${DESC}\n---\n\n# Zebra ledger\n\nSteps.\n`);
+      const putSkill = (name, desc) => {
+        fs.mkdirSync(path.join(claudeDir, 'skills', name), { recursive: true });
+        fs.writeFileSync(path.join(claudeDir, 'skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${desc}\n---\n\n# ${name}\n\nSteps.\n`);
+      };
+      putSkill(NAME, DESC);
+      const TIDES = 'walrus-tide-tables';
+      const TIDES_FIRST = 'Print the walrus tide tables for the harbour before the boats go out.';
+      putSkill(TIDES, `${TIDES_FIRST} Use when someone asks when the tide turns at the walrus harbour.`);
+      const chores = ['Bake sourdough loaves', 'Paint the garden fence', 'Tune the piano strings', 'Sort the library shelves',
+        'Water the orchid pots', 'Repair the bicycle chain', 'Brew cold coffee', 'Fold the laundry neatly', 'Clean the aquarium glass',
+        'Sharpen kitchen knives', 'Plant tulip bulbs', 'Wash the car windows', 'Knit a wool scarf', 'Polish leather boots',
+        'Mow the lawn edges', 'Frame the old photos', 'Label spice jars', 'Oil the door hinges', 'Prune the rose bushes', 'Restring the guitar'];
+      chores.concat(chores).forEach((d, i) => putSkill(`chore-${i}`, `${d} in batch ${i}.`));
+      const tideNotes = path.join(profile.folder, 'walrus-tide-tables-harbour.txt');
+      fs.writeFileSync(tideNotes, 'High water at six.\n');
       const written = Date.now() / 1000;
       const setMode = (m) => call(`await vscode.workspace.getConfiguration('agentPlus').update('tokenMode', arg === null ? undefined : arg, vscode.ConfigurationTarget.Global); return true;`, m);
       const setOwn = (k, v) => call(`await vscode.workspace.getConfiguration().update(arg[0], arg[1] === null ? undefined : arg[1], vscode.ConfigurationTarget.Global); return true;`, [k, v]);
@@ -2400,6 +2417,34 @@ async function run({ exe, profile, env, playwright, model, threads, out, check, 
 
       await setMode(null);
       check(!!await until(() => routeNow() === true, 10000, 300), 'back in All features the hooks are told to suggest skills again', routeNow());
+
+      const queries = path.join(dataDir, 'skill-route', 'queries.jsonl');
+      const inLog = () => { try { return fs.readFileSync(queries, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch (_) { return []; } };
+      const TALLY = 'Tally the marmots on the ridge before dusk';
+      await turn(frame, `${TALLY}, and use the skill named ${NAME}.`);
+      const entry = await until(() => inLog().find((e) => e.skill === NAME && e.text.startsWith(TALLY)), 30000, 300);
+      check(!!entry, 'a turn in which the model loaded a skill puts the message that opened it in the query log', inLog().slice(-3));
+      const loggedAt = Date.now() / 1000;
+      const withLog = () => logged().some((r) => r.ev === 'build' && r.logged === true && r.t - (r.ms || 0) / 1000 >= loggedAt - 1);
+      for (let i = 1; i <= 4 && !withLog(); i++) {
+        await until(withLog, 30000, 500);
+        if (!withLog()) await turn(frame, `Skill suggestions check: waiting for the index, ${i}.`);
+      }
+      check(withLog(), 'the plugin rebuilds its index with the query log', logged().slice(-6));
+      const worded = await turn(frame, 'Tally the marmots on the ridge once more.');
+      check(!!worded && worded.route.startsWith(ROUTE_MARK) && worded.route.includes(NAME),
+        'a later message that shares no word with the skill\'s description, but is worded like the one that loaded it, is given the skill',
+        worded ? worded.route.slice(0, 600) : model.seen.slice(-3));
+
+      model.setRead(tideNotes);
+      const before = model.seen.length;
+      await turn(frame, `Please ${ASK_TO_READ}.`);
+      const after = await until(() => model.seen.slice(before).find((x) => x.stream && x.research), 30000, 300);
+      model.setRead('');
+      check(!!after && after.research.startsWith(RESEARCH_MARK) && after.research.includes(`\n- ${TIDES}: ${TIDES_FIRST}`)
+        && !after.research.includes('Use when'),
+        'a tool call that names a skill\'s topic is followed by that skill\'s name and the first sentence of its description',
+        after ? after.research.slice(0, 600) : model.seen.slice(before).map((x) => [x.typed, x.result, x.research]).slice(-4));
     });
 
     /* Agent Plus's agentPlus.tokenMode in each mode in turn, without a reload: All, Essential, Interface, Custom with

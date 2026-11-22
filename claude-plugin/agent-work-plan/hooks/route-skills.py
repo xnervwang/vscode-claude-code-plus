@@ -3,14 +3,18 @@
 # Copyright (c) 2026, Xnerv Wang
 # All rights reserved.
 
-"""UserPromptSubmit and Stop hook of the skill search (skill_route.py, shared with Codex Plus through Agent Plus).
+"""UserPromptSubmit, PostToolUse and Stop hook of the skill search (skill_route.py, shared with Codex Plus through Agent
+Plus).
 
 On UserPromptSubmit it searches the skills Claude Code can call in this conversation for the message and puts the best
 few in front of the model, each by the name the Skill tool takes and with its full description. A message under six
 characters gets nothing, the whole run is held to 1.5 seconds, and anything that goes wrong leaves the turn alone.
 
+On PostToolUse it searches again for the tool call and the model's latest text, and names a skill, with its
+description's first sentence, only when it matches well and has not been given in the conversation yet.
+
 On Stop it logs which skills the turn's Skill tool calls named, so the log shows whether the model used what it was
-given.
+given, and adds the message that opened the turn to the query log under each of them.
 """
 import time
 

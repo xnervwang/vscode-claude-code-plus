@@ -19,6 +19,8 @@
  * One whose message contains ASK_FOR_WORKER gets a Bash call of WORKER_RUN, which starts $HOME/fake-bin/claude as a
  * `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT). One whose message contains
  * ASK_FOR_CHOICE gets an AskUserQuestion call with CHOICE's question and options, so that Claude Code shows a choice box.
+ * One that says "use the skill named <name>" (SKILL_ASK) gets a Skill call of that name, and one that contains ASK_TO_READ
+ * a Read call of the file setRead() named. Claude Code runs both without asking.
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
@@ -45,6 +47,8 @@ const WORKER_RUN = 'setsid nohup bash -c \'"$HOME/fake-bin/claude" -p "Draft the
 const WORKER_NAME = 'release-notes-worker';
 const ASK_FOR_CHOICE = 'ask me which config to change';
 const CHOICE = { question: 'Which config should I change?', header: 'Config', options: ['Staging', 'Production'] };
+const SKILL_ASK = /use the skill named ([\w:.-]+)/i;
+const ASK_TO_READ = 'read the prepared notes';
 /*
  * A stand-in for the CLI's `claude -p`, at $HOME/fake-bin/claude: it writes a session record of the CLI's shape for
  * its own process, as a worker started with --output-format stream-json does, and runs for `seconds`.
@@ -99,6 +103,8 @@ const asksToDetach = (ask) => { const t = lastAsk(ask); return t !== null && t.t
 const asksToDetachShort = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH_SHORT); };
 const asksForWorker = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_WORKER); };
 const asksForChoice = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_CHOICE); };
+const skillAsked = (ask) => { const m = SKILL_ASK.exec(lastAsk(ask) || ''); return m ? m[1] : null; };
+const asksToRead = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_READ); };
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
@@ -121,7 +127,9 @@ function contextOf(ask) {
 /* The skill suggestions block in this turn's input (route-skills.py), from its first words to the end of the hook's
    text; '' without one. Claude Code wraps a hook's text in a system-reminder. */
 const ROUTE_MARK = 'Skills that may fit this message';
-function routeOf(ask) {
+/* The same for the lines route-skills.py adds after a tool call. */
+const RESEARCH_MARK = 'Skills that may fit this step';
+function routeOf(ask, mark = ROUTE_MARK) {
   const msgs = Array.isArray(ask.messages) ? ask.messages : [];
   let i = msgs.length;
   while (i > 0 && !(msgs[i - 1] && msgs[i - 1].role === 'assistant')) i--;
@@ -129,7 +137,7 @@ function routeOf(ask) {
     const texts = !m ? [] : typeof m.content === 'string' ? [m.content]
       : Array.isArray(m.content) ? m.content.map((x) => (x && typeof x.text === 'string' ? x.text : '')) : [];
     for (const text of texts) {
-      const at = text.indexOf(ROUTE_MARK);
+      const at = text.indexOf(mark);
       if (at >= 0) return text.slice(at).replace(/\n*<\/system-reminder>[\s\S]*$/, '');
     }
   }
@@ -143,7 +151,7 @@ const imagesNote = (ask) => {
 
 async function start({ reply: plain = 'Done. The retry delay is set in config/sync.yml.' } = {}) {
   const seen = [];
-  let gate = null, helperGate = null;
+  let gate = null, helperGate = null, readPath = '';
   let n = 0;
   const server = http.createServer((req, res) => {
     let body = '';
@@ -158,14 +166,15 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const detach = asksToDetach(ask), detachShort = asksToDetachShort(ask);
       const worker = asksForWorker(ask);
       const choice = asksForChoice(ask);
-      const tool = background || helper || detach || detachShort || worker || choice || asksToRun(ask);
+      const skillName = skillAsked(ask), reading = asksToRead(ask) && !!readPath;
+      const tool = background || helper || detach || detachShort || worker || choice || !!skillName || reading || asksToRun(ask);
       const linked = linkAsked(ask), picture = imageAsked(ask);
       const reply = linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
         : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain;
       seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping, choice,
         parts: lastParts(ask).map((p) => (p && p.type) || typeof p), result: resultText(ask), ask: (lastAsk(ask) || '').slice(0, 400),
         typed: typedText(ask).slice(0, 400),
-        picture, imagesNote: imagesNote(ask), context: contextOf(ask), route: routeOf(ask) });
+        picture, imagesNote: imagesNote(ask), context: contextOf(ask), route: routeOf(ask), research: routeOf(ask, RESEARCH_MARK) });
       if (req.method === 'POST' && /\/v1\/messages\/count_tokens$/.test(url)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ input_tokens: 1200 }));
@@ -186,8 +195,11 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
           : worker ? { command: WORKER_RUN, description: 'Start a worker detached' }
           : choice ? { questions: [{ question: CHOICE.question, header: CHOICE.header, multiSelect: false,
             options: CHOICE.options.map((label) => ({ label, description: `The ${label.toLowerCase()} config` })) }] }
+          : skillName ? { skill: skillName }
+          : reading ? { file_path: readPath }
           : { command: RUN, description: 'Run the test suite' };
-      const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name: helper ? 'Agent' : choice ? 'AskUserQuestion' : 'Bash', input } : { type: 'text', text: reply };
+      const name = helper ? 'Agent' : choice ? 'AskUserQuestion' : skillName ? 'Skill' : reading ? 'Read' : 'Bash';
+      const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name, input } : { type: 'text', text: reply };
       const stop = tool ? 'tool_use' : 'end_turn';
       if (!ask.stream) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -218,10 +230,11 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
   const holdHelper = () => { if (!helperGate) { let open; const promise = new Promise((r) => { open = r; }); helperGate = { promise, open }; } };
   const releaseHelper = () => { if (helperGate) { helperGate.open(); helperGate = null; } };
   const close = () => new Promise((r) => { release(); releaseHelper(); server.close(() => r()); server.closeAllConnections(); setTimeout(r, 2000); });
-  return { port: server.address().port, url: `http://127.0.0.1:${server.address().port}`, seen, hold, release, holdHelper, releaseHelper, close,
+  const setRead = (file) => { readPath = file || ''; };
+  return { port: server.address().port, url: `http://127.0.0.1:${server.address().port}`, seen, hold, release, holdHelper, releaseHelper, close, setRead,
     turns: () => seen.filter((s) => s.method === 'POST' && s.stream && /\/v1\/messages(\?|$)/.test(s.url)).length };
 }
 
-module.exports = { start, ROUTE_MARK, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
+module.exports = { start, ROUTE_MARK, RESEARCH_MARK, ASK_TO_READ, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
   DETACH_SHORT_RUN, LINK_TEXT,
   IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_CHOICE, CHOICE };

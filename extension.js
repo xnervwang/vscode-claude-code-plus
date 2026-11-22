@@ -114,6 +114,8 @@ const HOOK_SETTINGS = {
   skillRoute: SKILL_ROUTING_SETTING,
   skillRouteVector: PREFIX + 'skillRoutingVectorSearch',
   skillRouteCount: PREFIX + 'skillRoutingCount',
+  skillRouteLog: PREFIX + 'skillRoutingQueryLog',
+  skillRouteAfterTools: PREFIX + 'skillRoutingAfterToolCalls',
 };
 
 /*

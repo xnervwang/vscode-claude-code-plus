@@ -29,6 +29,11 @@ EXTRA_DEFAULTS = {
     "skillRouteVector": False,
     # How many skills a turn is given.
     "skillRouteCount": 5,
+    # Whether the search also reads the messages that opened earlier turns in which the model loaded each skill
+    # (skill_route.py's query log, kept in the data directory).
+    "skillRouteLog": True,
+    # Whether the skills are searched again after each tool call, for the call and the model's latest text.
+    "skillRouteAfterTools": True,
 }
 # Settings besides `enabled`, `tellTimeZone` and `replyImages` that are off once the extension is gone from every editor.
 OFF_WHEN_GONE = ("skillRoute",)

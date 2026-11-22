@@ -87,7 +87,7 @@ Verified against Claude Code 2.1.328, 2.1.329 and 2.1.330.
 | --- | --- |
 | Timestamps | Times from the transcript on every message and reply block, and `start→result` on tool calls. Claude Code's own message times are hidden while these are on. |
 | Your time zone for Claude | When Claude runs on a machine in another time zone, as with Remote SSH, it is told yours, so it gives you times in your zone. |
-| Skill suggestions | Before each turn, Claude is given the skills it can call that best fit your message, from your personal skills, the project's skills and the skills of enabled plugins, by the names to call them with and with their full descriptions. Claude Code's own list of skills leaves most descriptions out once many skills are installed. A skill given in full earlier in the conversation is only named. |
+| Skill suggestions | Before each turn, Claude is given the skills it can call that best fit your message, from your personal skills, the project's skills and the skills of enabled plugins, by the names to call them with and with their full descriptions. Claude Code's own list of skills leaves most descriptions out once many skills are installed. A skill given in full earlier in the conversation is only named. The search also matches your earlier messages that led Claude to load a skill, and after a tool call it names a skill that fits the call and was not given yet. |
 | Images in replies | An image Claude gives by absolute path or `file://` address (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) and a `data:` image are drawn in the reply, at most 640 by 480 pixels; click one drawn smaller than its own size to see it as large as the panel allows. An image at a web address stays a link. Claude is told how to give one: save it in the conversation's own folder, and download an image from the web there first. `claudeCodePlus.show.replyImages` turns both off. |
 | Reply figures | `2m10s · ctx 33% · cost $0.42 · opus-5 high` on each reply shows turn duration, how much of the context window is in use, the conversation's cost so far, model and effort. |
 | Sub-agent tags and filters | Each sub-agent's messages are tagged with its task, such as `#look up tomorrow's weather`. A filter in the footer shows only the main thread or one sub-agent. |
@@ -226,6 +226,7 @@ In a running conversation, a mode change applies from the next message to work p
 
 | What | When | At most | Turned off by |
 | --- | --- | --- | --- |
+| Skills after a tool call | After a tool call of the main conversation, when a skill not yet given in the conversation matches the call's input and Claude's latest text well: at most two at a time, each by name with the first sentence of its description | 2,000 bytes in a turn | `claudeCodePlus.skillRoutingAfterToolCalls`, `claudeCodePlus.skillRouting` |
 | End-of-turn reminders | At the end of a turn that left rows `doing`, asked you something without putting the question on a row, or changed things without reading or updating the plan | About 2,400 characters and the paths of the plan and of the command that writes it, when every reminder and both of the brief's requests come at once | `claudeCodePlus.workPlan` |
 | The brief's requests | At the end of a turn in which a row of the plan changed state: the status once per turn; the summary when there is none, after a top-level row was added, removed or closed, and after a compaction | Included in the end-of-turn reminders | `claudeCodePlus.conversationBrief` |
 | No row `doing` | At most once per turn, when the main thread has made three tool calls or changed two things besides the plan and no row is `doing` | About 430 characters, and the paths of the plan and of the command that writes it, twice each | `claudeCodePlus.workPlan` |
@@ -258,7 +259,7 @@ In a running conversation, a mode change applies from the next message to work p
 
 ## Settings
 
-Open `Claude Code Plus: Settings` for all 44 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
+Open `Claude Code Plus: Settings` for all 46 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
 
 **Work plan settings**
 
@@ -277,6 +278,10 @@ Open `Claude Code Plus: Settings` for all 44 settings. Most take effect without 
 | `claudeCodePlus.skillRouting` | on | In Custom, gives each turn the skills that best fit your message. The search runs on this machine, by keywords, with no network or credentials. |
 | `claudeCodePlus.skillRoutingCount` | 5 | How many skills each turn is given, from 1 to 10. |
 | `claudeCodePlus.skillRoutingVectorSearch` | off | Searches by meaning instead, through `cohere.embed-v4` on Amazon Bedrock, while Claude Code itself runs on Bedrock. The first 1,500 characters of each message are sent to the region Claude Code uses, with the credentials Claude Code is configured with. A failure or a slow answer falls back to keywords. |
+| `claudeCodePlus.skillRoutingQueryLog` | on | The search also matches the messages that opened earlier turns in which Claude loaded a skill, so a message worded like one of them finds that skill even when its description shares none of the words. At most two of a turn's skills come from this alone. |
+| `claudeCodePlus.skillRoutingAfterToolCalls` | on | After each tool call, searches again with the call's input and Claude's latest text, and names a skill that matches well and was not given yet. |
+
+The query log is `skill-route/queries.jsonl` in the plugin's data folder, `~/.claude/plugins/data/agent-work-plan-claude-code-extras/`, and nowhere else. Each line is a skill's name and the first 300 characters of a message you typed that opened a turn in which Claude loaded it; turns started by notifications, other conversations, wake-ups and slash commands are left out. It is filled once from your earlier Claude Code conversations on this machine, then as each turn ends, and keeps the newest 150 messages per skill and 3,000 in all. A skill that is removed drops out. To clear it, delete that file; it is not filled from your earlier conversations again.
 
 **To turn off**
 

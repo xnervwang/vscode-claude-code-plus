@@ -4218,7 +4218,7 @@ console.log('\nswitched off, the work plan costs nothing and keeps nothing');
     if (/tellTimeZone: TIME_ZONE_SETTING/.test(map)) names.push('claudeCodePlus.tellClaudeYourTimeZone');
     if (/skillRoute: SKILL_ROUTING_SETTING/.test(map)) names.push('claudeCodePlus.skillRouting');
     const scoped = names.filter((n) => props[n] && props[n].scope === 'application');
-    if (names.length === 9 && scoped.length === names.length) ok('every setting the hooks read is an application setting');
+    if (names.length === 11 && scoped.length === names.length) ok('every setting the hooks read is an application setting');
     else bad(`hook settings ${JSON.stringify(names)}, application-scoped ${JSON.stringify(scoped)}`);
     const brief = props['claudeCodePlus.conversationBrief'];
     if (brief && brief.type === 'boolean' && brief.default === true
@@ -4996,21 +4996,24 @@ console.log('\none copy of what the hooks share');
   } else bad(`os.kill outside proc_alive.py: ${JSON.stringify(kills)}; the check said ${JSON.stringify(probe.stdout + probe.stderr)}`);
 }
 
-/* ── 19e. skill suggestions ── route-skills.py, on UserPromptSubmit and Stop, searches the skills Claude Code can call
-   with the shared skill_route.py and puts the best few in front of the turn. Run here as Claude Code runs it, against a
-   made-up Claude Code folder: a personal skill and an enabled plugin's skill that a message asks for are given by the
-   names the Skill tool takes, with their descriptions, and skillRoute off in config.json, which the extension writes
-   from claudeCodePlus.skillRouting and the token mode, gives nothing. */
+/* ── 19e. skill suggestions ── route-skills.py, on UserPromptSubmit, PostToolUse and Stop, searches the skills Claude
+   Code can call with the shared skill_route.py and puts the best few in front of the turn. Run here as Claude Code runs
+   it, against a made-up Claude Code folder: a personal skill and an enabled plugin's skill that a message asks for are
+   given by the names the Skill tool takes, with their descriptions, and skillRoute off in config.json, which the
+   extension writes from claudeCodePlus.skillRouting and the token mode, gives nothing. A turn that loaded a skill puts
+   the message that opened it in the query log, and a later message worded the same way finds that skill; a tool call
+   that names a skill's topic gets a line for it after the call; each is off with its own key in config.json. */
 console.log('\nskill suggestions');
 {
   const hooks = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
   const spec = JSON.parse(fs.readFileSync(path.join(hooks, 'hooks.json'), 'utf8')).hooks;
   const ours = (event) => (spec[event] || []).flatMap((m) => m.hooks || [])
     .filter((h) => h.command === 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/route-skills.py" "${CLAUDE_PLUGIN_DATA}"');
-  const up = ours('UserPromptSubmit'), stop = ours('Stop');
-  if (up.length === 1 && stop.length === 1 && up[0].timeout === 10 && stop[0].timeout === 10 && fs.existsSync(path.join(hooks, 'route-skills.py'))) {
-    ok('route-skills.py runs on UserPromptSubmit and on Stop, each given 10 seconds');
-  } else bad(`route-skills.py in hooks.json: UserPromptSubmit ${JSON.stringify(up)}, Stop ${JSON.stringify(stop)}`);
+  const up = ours('UserPromptSubmit'), stop = ours('Stop'), post = ours('PostToolUse');
+  if (up.length === 1 && stop.length === 1 && post.length === 1 && [up, stop, post].every((h) => h[0].timeout === 10)
+    && !(spec.PostToolUse || []).some((m) => m.matcher) && fs.existsSync(path.join(hooks, 'route-skills.py'))) {
+    ok('route-skills.py runs on UserPromptSubmit, after every tool call and on Stop, each given 10 seconds');
+  } else bad(`route-skills.py in hooks.json: UserPromptSubmit ${JSON.stringify(up)}, PostToolUse ${JSON.stringify(post)}, Stop ${JSON.stringify(stop)}`);
   const copy = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'shared.json'), 'utf8')).files
     .find((f) => f.path === 'claude-plugin/agent-work-plan/hooks/skill_route.py');
   if (copy && copy.from === 'shared/plugin/hooks/skill_route.py') ok('skill_route.py beside it is the copy of Agent Plus\'s shared search');
@@ -5029,6 +5032,12 @@ console.log('\nskill suggestions');
     const kit = path.join(claude, 'plugins', 'cache', 'test-market', 'fauna-kit', '1.0.0');
     put(path.join(kit, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'fauna-kit' }));
     skill(path.join(kit, 'skills'), 'wombat-burrows', 'Map the wombat burrows on the island before the census.');
+    /* Enough other skills that a word only one skill has weighs what it does among a few hundred. */
+    const chores = ['Bake sourdough loaves', 'Paint the garden fence', 'Tune the piano strings', 'Sort the library shelves',
+      'Water the orchid pots', 'Repair the bicycle chain', 'Brew cold coffee', 'Fold the laundry neatly', 'Clean the aquarium glass',
+      'Sharpen kitchen knives', 'Plant tulip bulbs', 'Wash the car windows', 'Knit a wool scarf', 'Polish leather boots',
+      'Mow the lawn edges', 'Frame the old photos', 'Label spice jars', 'Oil the door hinges', 'Prune the rose bushes', 'Restring the guitar'];
+    chores.concat(chores).forEach((d, i) => skill(path.join(claude, 'skills'), `chore-${i}`, `${d} in batch ${i}.`));
     put(path.join(claude, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2,
       plugins: { 'fauna-kit@test-market': [{ scope: 'user', installPath: kit }] } }));
     put(path.join(claude, 'settings.json'), JSON.stringify({ enabledPlugins: { 'fauna-kit@test-market': true } }));
@@ -5036,12 +5045,26 @@ console.log('\nskill suggestions');
     for (const k of Object.keys(env)) if (/^AWS_/.test(k) || k === 'CLAUDE_CODE_USE_BEDROCK') delete env[k];
     const transcript = path.join(home, 't.jsonl');
     fs.writeFileSync(transcript, '');
-    const hook = (event, prompt, config) => {
+    const hook = (event, prompt, config, extra) => {
       fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify(config || {}));
       const r = cp.spawnSync('python3', [path.join(hooks, 'route-skills.py'), data], { encoding: 'utf8', env, timeout: 30000,
-        input: JSON.stringify({ hook_event_name: event, session_id: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', transcript_path: transcript,
-          cwd: work, prompt }) });
+        input: JSON.stringify(Object.assign({ hook_event_name: event, session_id: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', transcript_path: transcript,
+          cwd: work, prompt }, extra || {})) });
       return { code: r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
+    };
+    const contextOf = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } catch (_) { return {}; } };
+    const row = (o) => fs.appendFileSync(transcript, JSON.stringify(o) + '\n');
+    /* The rebuild route-skills.py starts in the background, run here until one that read the query log has ended. */
+    const rebuild = () => {
+      const since = Date.now() / 1000;
+      const done = () => { try { return fs.readFileSync(path.join(data, 'skill-route', 'route.log'), 'utf8').split('\n').filter(Boolean)
+        .some((l) => { const r = JSON.parse(l); return r.ev === 'build' && r.logged === true && r.t >= since; }); } catch (_) { return false; } };
+      const end = Date.now() + 30000;
+      while (!done() && Date.now() < end) {
+        cp.spawnSync('python3', [path.join(hooks, 'skill_route.py'), '--build', data, '--cwd', work], { env, timeout: 60000 });
+        if (!done()) Atomics.wait(pause, 0, 0, 100);
+      }
+      return done();
     };
     const ask = 'Count the quokkas and map the wombat burrows on the island.';
     const first = hook('UserPromptSubmit', ask);
@@ -5063,6 +5086,41 @@ console.log('\nskill suggestions');
     const stopped = hook('Stop', '');
     if (stopped.code === 0 && stopped.out === '') ok('at the end of a turn it prints nothing, and only logs');
     else bad(`on Stop route-skills.py printed ${stopped.out.slice(0, 200)} ${stopped.err.slice(-200)}`);
+
+    const queries = path.join(data, 'skill-route', 'queries.jsonl');
+    const logged = () => { try { return fs.readFileSync(queries, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch (_) { return []; } };
+    const tally = 'Tally the marsupials on the ridge before dusk.';
+    row({ type: 'user', promptId: 'p-tally', origin: { kind: 'human' }, message: { role: 'user', content: tally } });
+    row({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-tally', name: 'Skill', input: { skill: 'quokka-census' } }] } });
+    row({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-tally', content: 'Launching skill: quokka-census' }] } });
+    const offLog = hook('Stop', '', { skillRouteLog: false }, { prompt_id: 'p-tally' });
+    const noneYet = logged().length === 0;
+    hook('Stop', '', {}, { prompt_id: 'p-tally' });
+    const kept = logged();
+    if (offLog.code === 0 && noneYet && kept.length === 1 && kept[0].skill === 'quokka-census' && kept[0].text === tally
+      && JSON.stringify(Object.keys(kept[0]).sort()) === '["skill","text"]') {
+      ok('a turn that loaded a skill puts the message that opened it in the query log, with the skill\'s name and nothing else, unless skillRouteLog is off');
+    } else bad(`the query log after the turn: ${JSON.stringify(kept)}, with skillRouteLog off it was ${noneYet ? 'empty' : 'not empty'}`);
+    const built = rebuild();
+    const again = contextOf(hook('UserPromptSubmit', 'Tally the marsupials on the ridge once more.'));
+    const without = contextOf(hook('UserPromptSubmit', 'Tally the marsupials on the ridge once more.', { skillRouteLog: false }));
+    if (built && (again.additionalContext || '').includes('\n- quokka-census: Count the quokkas')
+      && !(without.additionalContext || '').includes('quokka-census')) {
+      ok('a later message that shares no word with the skill\'s description but is worded like that message finds the skill, and with skillRouteLog off it does not');
+    } else bad(`a message worded like the logged one got ${JSON.stringify((again.additionalContext || '').slice(0, 300))} (rebuilt: ${built}); with the log off ${JSON.stringify((without.additionalContext || '').slice(0, 200))}`);
+
+    const grep = { prompt_id: 'p-grep', tool_name: 'Grep', tool_input: { pattern: 'wombat-burrows: map the wombat burrows on the island', path: '.' },
+      tool_use_id: 'tu-grep' };
+    row({ type: 'user', promptId: 'p-grep', origin: { kind: 'human' }, message: { role: 'user', content: 'Look through the notes.' } });
+    row({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-grep', name: 'Grep', input: grep.tool_input }] } });
+    const offAfter = hook('PostToolUse', '', { skillRouteAfterTools: false }, grep);
+    const after = hook('PostToolUse', '', {}, grep);
+    const said = contextOf(after);
+    if (offAfter.code === 0 && offAfter.out === '' && after.code === 0 && said.hookEventName === 'PostToolUse'
+      && (said.additionalContext || '').startsWith('Skills that may fit this step')
+      && (said.additionalContext || '').includes('\n- fauna-kit:wombat-burrows: Map the wombat burrows on the island before the census.')) {
+      ok('a tool call that names a skill\'s topic gets that skill by name with its description\'s first sentence after the call, unless skillRouteAfterTools is off');
+    } else bad(`after the call route-skills.py printed ${JSON.stringify(after.out.slice(0, 400))} ${after.err.slice(-200)}; with skillRouteAfterTools off ${JSON.stringify(offAfter.out.slice(0, 200))}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
@@ -12164,7 +12222,7 @@ console.log('\nthe token mode');
       const subs = [], keep = setInterval;
       global.setInterval = () => keep(() => {}, 1 << 30);
       const hooks = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.enabled, c.tellTimeZone, c.brief]; } catch (_) { return null; } };
-      const route = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.skillRoute, c.skillRouteCount, c.skillRouteVector]; } catch (_) { return null; } };
+      const route = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.skillRoute, c.skillRouteCount, c.skillRouteVector, c.skillRouteLog, c.skillRouteAfterTools]; } catch (_) { return null; } };
       const change = (...keys) => { for (const fn of vs.listeners) fn({ affectsConfiguration: (k) => keys.some((x) => x === k || x.startsWith(k + '.')) }); };
       const pause = () => new Promise((r) => setTimeout(r, 50));
       (async () => {
@@ -12190,11 +12248,14 @@ console.log('\nthe token mode');
           }
           Object.assign(vs.values, { 'claudeCodePlus.workPlan': true, 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false });
           vs.values['agentPlus.tokenMode'] = 'custom'; change('agentPlus.tokenMode'); await pause(); out.hooks.custom = hooks();
-          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': false, 'claudeCodePlus.skillRoutingCount': 7, 'claudeCodePlus.skillRoutingVectorSearch': true });
-          change('claudeCodePlus.skillRouting', 'claudeCodePlus.skillRoutingCount', 'claudeCodePlus.skillRoutingVectorSearch'); await pause();
+          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': false, 'claudeCodePlus.skillRoutingCount': 7, 'claudeCodePlus.skillRoutingVectorSearch': true,
+            'claudeCodePlus.skillRoutingQueryLog': false, 'claudeCodePlus.skillRoutingAfterToolCalls': false });
+          change('claudeCodePlus.skillRouting', 'claudeCodePlus.skillRoutingCount', 'claudeCodePlus.skillRoutingVectorSearch',
+            'claudeCodePlus.skillRoutingQueryLog', 'claudeCodePlus.skillRoutingAfterToolCalls'); await pause();
           out.route.custom = route();
           vs.values['agentPlus.tokenMode'] = 'all'; change('agentPlus.tokenMode'); await pause(); out.hooks.allAgain = hooks(); out.route.allAgain = route();
-          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': true, 'claudeCodePlus.skillRoutingCount': undefined, 'claudeCodePlus.skillRoutingVectorSearch': undefined });
+          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': true, 'claudeCodePlus.skillRoutingCount': undefined, 'claudeCodePlus.skillRoutingVectorSearch': undefined,
+            'claudeCodePlus.skillRoutingQueryLog': undefined, 'claudeCodePlus.skillRoutingAfterToolCalls': undefined });
           vs.values['agentPlus.tokenMode'] = 'custom'; change('agentPlus.tokenMode'); await pause(); out.hooks.customAgain = hooks();
           out.updates = vs.updates.filter(([k]) => k.startsWith('claudeCodePlus.'));
           vs.values['agentPlus.tokenMode'] = 'essential';
@@ -12224,12 +12285,12 @@ console.log('\nthe token mode');
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
     const rt = r.route || {};
-    const routeWant = { start: [true, null, null], interface: [false, null, null], essential: [false, null, null], all: [true, null, null],
-      custom: [false, 7, true], allAgain: [true, 7, true] };
+    const routeWant = { start: [true, null, null, null, null], interface: [false, null, null, null, null], essential: [false, null, null, null, null],
+      all: [true, null, null, null, null], custom: [false, 7, true, false, false], allAgain: [true, 7, true, false, false] };
     const routeWrong = Object.keys(routeWant).filter((k) => JSON.stringify(rt[k] === undefined ? null : rt[k]) !== JSON.stringify(routeWant[k]));
     if (!r.threw && !routeWrong.length) {
-      ok('skill suggestions reach the hooks only in All features or while claudeCodePlus.skillRouting is on in Custom, with their count and vector setting');
-    } else bad(`skillRoute, skillRouteCount and skillRouteVector were ${JSON.stringify(rt)}`);
+      ok('skill suggestions reach the hooks only in All features or while claudeCodePlus.skillRouting is on in Custom, with their count, vector, query log and after-tool-call settings');
+    } else bad(`skillRoute, skillRouteCount, skillRouteVector, skillRouteLog and skillRouteAfterTools were ${JSON.stringify(rt)}`);
     const f = r.features || {}, d = r.redraws || {};
     if (f.interface === '[]' && f.essential === '[]' && f.all === '["brief"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
       ok('the brief is offered to Agent Plus only in a mode that runs it, and every change of mode redraws its list');

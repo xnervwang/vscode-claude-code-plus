@@ -51,8 +51,8 @@ import time
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from plan_path import (AGENT, COMPACTED_SUFFIX, TURN_FIELD, data_dir, open_tail, plan_file, read_payload,  # noqa: E402
-                       settings, side_file, spoke, tool_calls, write_atomic, write_quietly)
+from plan_path import (AGENT, COMPACTED_SUFFIX, PEER_START, TURN_FIELD, data_dir, open_tail, plan_file,  # noqa: E402
+                       read_payload, settings, side_file, spoke, tool_calls, write_atomic, write_quietly)
 
 CLAUDE = AGENT == "Claude Code"
 
@@ -103,6 +103,30 @@ FRONTMATTER_BYTES = 64 * 1024
 EMBED_BATCH = 96         # texts per request; the model takes no more
 EMBED_MODEL = "cohere.embed-v4:0"
 SEARCH_COUNT_MAX = 20    # the most skills one skill_search call returns
+
+# The query log and the search after a tool call, in Claude Code only (see "The query log" and "The search after a tool
+# call" below for what each number was measured on).
+QUERY_LOG = "queries.jsonl"
+QUERY_IMPORTED = "queries.imported"
+QUERY_LOCK = "queries.lock"
+IMPORT_LOCK = "import.lock"
+LOG_PER_SKILL = 150      # messages kept for one skill, the newest
+LOG_TOTAL = 3000         # messages kept in all, the newest
+LOG_SLOTS = 2            # of a turn's skills, the most that only the log brought in
+W_LOG = 1.0              # the log's weight beside the name's, the trigger words' and the description's
+TURN_READ_MAX = 16 << 20  # transcript bytes the Stop hook reads back for the turn's start
+IMPORT_SECONDS = 300     # the import stops after this long with what it has read, newest transcripts first
+IMPORT_STALE = 1800      # seconds after which an import still holding its lock is taken to have died
+LOG_LOCK_STALE = 30      # the same for a write of the log
+STEP_CHARS = 1500        # characters of the latest text and of the tool call that the search after a call reads
+RESEARCH_MARK = "Skills that may fit this step"
+RESEARCH_INDEX = "keyword_log"   # the index searched after a tool call while the query log is on
+RESEARCH_MIN_SCORE = 50.0
+RESEARCH_PER_SEARCH = 2
+RESEARCH_TURN_BYTES = 2000
+RESEARCH_LOOK = 20       # skills over the threshold looked at, best first, for ones not given yet
+RESEARCH_SUFFIX = ".researched"
+SENTENCE_CHARS = 200
 
 # Keyword search: field weights and the BM25 constants, tuned on the 540 past requests above.
 W_NAME, W_TRIGGER, W_DESC = 4.0, 1.0, 1.0
@@ -1039,12 +1063,16 @@ def tokens(text):
     return out
 
 
-def keyword_index(skills):
+def keyword_index(skills, extra=None):
+    """The index of `skills`; `extra`, {skill index: text}, is one more field of those skills, weighted W_LOG."""
     weighted = []
-    for s in skills:
+    for i, s in enumerate(skills):
         tf, length = {}, 0.0
-        for toks, w in ((tokens(s["name"].replace(":", " ") + " " + s["short"]), W_NAME),
-                        (tokens(s["triggers"]), W_TRIGGER), (tokens(s["desc"]), W_DESC)):
+        fields = [(tokens(s["name"].replace(":", " ") + " " + s["short"]), W_NAME), (tokens(s["triggers"]), W_TRIGGER),
+                  (tokens(s["desc"]), W_DESC)]
+        if extra and extra.get(i):
+            fields.append((tokens(extra[i]), W_LOG))
+        for toks, w in fields:
             for x in toks:
                 tf[x] = tf.get(x, 0.0) + w
             length += w * len(toks)
@@ -1069,12 +1097,13 @@ def keyword_index(skills):
     return {"post": post, "idf": idf, "code": code}
 
 
-def keyword_scores(index, text):
+def keyword_scores(index, text, key="keyword"):
+    """{skill index: score} for `text` in the index's `key` keyword index, or its plain one when it has none."""
     q = {}
     for x in tokens(text[:KEYWORD_CHARS]):
         q[x] = q.get(x, 0) + 1
     scores = {}
-    kw = index["keyword"]
+    kw = index.get(key) or index["keyword"]
     post, idf = kw["post"], kw["idf"]
     for x, qf in q.items():
         hit = post.get(x)
@@ -1521,8 +1550,8 @@ def save_pickle(path, value):
 
 
 def watched_settings(given):
-    return json.dumps([given.get("skillRouteExtraDirs"), given.get("skillRouteClaudePlugins"),
-                       given.get("skillRouteVector")], sort_keys=True)
+    watched = [given.get("skillRouteExtraDirs"), given.get("skillRouteClaudePlugins"), given.get("skillRouteVector")]
+    return json.dumps(watched + ([given.get("skillRouteLog")] if CLAUDE else []), sort_keys=True)
 
 
 def vectors_for(directory, skills, aws, given, region, old_model, deadline, sent=None, also_keep=()):
@@ -1617,6 +1646,12 @@ def build(directory, home, cwd, given=None, embed_now=True, deadline=None, write
              "keyword": keyword_index(skills), "model": "", "dim": 0, "vectors": b"", "has": [], "vectorTried": 0}
     if CLAUDE:
         index.update(cwd=cwd or "", project=found["project"])
+        if given.get("skillRouteLog"):
+            extra = log_fields(directory, skills, cwd, prune=write)
+            path = os.path.join(data_root(directory), QUERY_LOG)
+            index["files"][path] = stamp(path)
+            if extra:
+                index["keyword_log"] = keyword_index(skills, extra)
     aws = vector_wanted(given, found["conf"])
     if aws is not None and embed_now and not vector_off(directory, fingerprint(aws, given)):
         region = region_of(aws)
@@ -1639,8 +1674,11 @@ def build(directory, home, cwd, given=None, embed_now=True, deadline=None, write
         save_pickle(os.path.join(data_root(directory), index_name(cwd)), index)
         if CLAUDE:
             prune_indexes(directory)
-        log(directory, {"ev": "build", "skills": len(skills), "vectors": sum(index["has"]), "ms":
-                        round((time.time() - t0) * 1000, 1)})
+        record = {"ev": "build", "skills": len(skills), "vectors": sum(index["has"]),
+                  "ms": round((time.time() - t0) * 1000, 1)}
+        if "keyword_log" in index:
+            record["logged"] = True
+        log(directory, record)
     return index
 
 
@@ -1732,6 +1770,9 @@ def stale(index, home, cwd, given, directory=None, conf=None):
         return "another folder"
     if index.get("settings") != watched_settings(given):
         return "settings changed"
+    if CLAUDE and given.get("skillRouteLog") and directory and \
+            os.path.join(data_root(directory), QUERY_LOG) not in index["files"]:
+        return "no query log in it"
     for p, st in index["files"].items():
         if stamp(p) != st:
             return "a file changed"
@@ -1828,19 +1869,44 @@ def ranked(scores, skills):
     return [i for i, _ in sorted(scores.items(), key=lambda kv: (-kv[1], skills[kv[0]]["name"]))]
 
 
-def search(index, text, count, cwd, deadline, directory, given, conf, allow_vector=True):
-    """(skills, how, timings, why it fell back): the top `count` skills for `text`, found by "vector" or "keyword"."""
+def with_log(base, full, count, slots):
+    """The top `count` of `base`, the skills found without the query log, after letting in at most `slots` of `full`,
+    the top `count` found with it, that `base` lacks; more when `base` has fewer than `count`. Those of `base` that
+    `full` ranks come first, in its order, then the rest of `base` in its own."""
+    have = set(base)
+    room = max(slots, count - len(base))
+    out, extra = [], 0
+    for i in full:
+        if i in have:
+            out.append(i)
+        elif extra < room:
+            out.append(i)
+            extra += 1
+    out += [i for i in base if i not in out]
+    return out[:count]
+
+
+def search(index, text, count, cwd, deadline, directory, given, conf, allow_vector=True, notes=None):
+    """(skills, how, timings, why it fell back): the top `count` skills for `text`, found by "vector" or "keyword".
+    `notes`, a dict, is given "byLog": the names only the query log brought in."""
     t0 = time.time()
     here = set(claude_project_dirs(cwd) if CLAUDE else repo_dirs(cwd))
     mentioned = {m.casefold() for m in (SLASH.findall(text) if CLAUDE else MENTION.findall(text))}
     skills = index["skills"]
-    order = ranked(keyword_scores(index, text), skills)
-    kept = []
-    for i in order:
-        if len(kept) >= count:
-            break
-        if applies(skills[i], here, mentioned):
-            kept.append(i)
+
+    def top(scores):
+        kept = []
+        for i in ranked(scores, skills):
+            if len(kept) >= count:
+                break
+            if applies(skills[i], here, mentioned):
+                kept.append(i)
+        return kept
+
+    kept = top(keyword_scores(index, text))
+    logged = None
+    if index.get("keyword_log") and given.get("skillRouteLog"):
+        logged = top(keyword_scores(index, text, "keyword_log"))
     timings = {"local": (time.time() - t0) * 1000, "net": 0.0}
     how, why = "keyword", ""
     aws = vector_wanted(given, conf) if allow_vector else None
@@ -1878,6 +1944,11 @@ def search(index, text, count, cwd, deadline, directory, given, conf, allow_vect
                 why = str(e)
             except Transient as e:
                 why = str(e)
+    if logged is not None:
+        merged = with_log(kept, logged, count, LOG_SLOTS)
+        if isinstance(notes, dict):
+            notes["byLog"] = [skills[i]["name"] for i in merged if i not in kept]
+        kept = merged
     return [skills[i] for i in kept], how, timings, why
 
 
@@ -2010,7 +2081,411 @@ def skills_read(tail, turn_id, index, cwd):
     return named, unknown
 
 
-"""Claude Code's hook: route-skills.py, which Claude Code runs on UserPromptSubmit and Stop, calls run_hook().
+"""The query log, in Claude Code only.
+
+The skill the model goes on to load is often one whose description shares no word with what the user wrote. So the log
+keeps, for each past turn the user opened in which the model called the Skill tool, the message that opened the turn,
+under each skill the turn loaded; the index counts a skill's messages as one more field of its text (keyword_log). Turns
+that count are those a replay of past conversations counted (opener_class): not a task notification, a message from
+another session, a scheduled wake-up, a compaction's continuation, a slash command or a hook's feedback, and not in a
+subagent's transcript or in a session another conversation started (claude -p, claude --bg). In that replay, 411 loads
+of the newest third of sessions, with the log filled from the older two thirds, had the loaded skill among the top five
+for 17.5% without the log and 39.9% with it.
+
+QUERY_LOG holds one line per entry, {"skill": name, "text": message}, oldest first, and nothing else. The text is the
+message as the search reads it: system reminders, IDE attachments and image placeholders taken out, cut to
+KEYWORD_CHARS, not kept under MIN_CHARS. The log is filled once from the transcripts under the Claude Code folder's
+projects/, newest first, by a background process the first turn starts (import_log), and then by the Stop hook as each
+turn ends. QUERY_IMPORTED records that the import ran, so a log deleted to clear it is not filled again from the
+transcripts.
+
+Each skill keeps its newest LOG_PER_SKILL messages and the log its newest LOG_TOTAL; a message seen again under the same
+skill moves to the newest place. A rebuild drops the entries of a skill no kept index has, so a skill that is gone drops
+out, and a renamed one starts with none. A skill loaded often gathers messages of every kind and comes to match almost
+any message, so at most LOG_SLOTS of a turn's skills may be ones the log alone brought in (with_log). With no such limit
+the same replay gave 51.6%, but the plugin skills no standing instruction names fell from 6 of their 21 loads without
+the log to 2; with it they keep 5.
+"""
+TAG_BLOCKS = re.compile(r"<(system-reminder|ide_opened_file|ide_selection|ide_diagnostics)>.*?</\1>", re.S)
+IMAGE_MARK = re.compile(r"\[Image[^\]]*\]")
+# Lines are tested for these before they are parsed; Claude Code writes its rows without spaces after the colons.
+USER_ROW = ('"type":"user"', '"type": "user"')
+RESULT_ROW = ('"type":"tool_result"', '"type": "tool_result"')
+ASSISTANT_ROW = ('"type":"assistant"', '"type": "assistant"')
+SKILL_CALL = ('"name":"Skill"', '"name": "Skill"')
+USER_ROW_B, RESULT_ROW_B, ASSISTANT_ROW_B, SKILL_CALL_B = (tuple(x.encode() for x in t) for t in (
+    USER_ROW, RESULT_ROW, ASSISTANT_ROW, SKILL_CALL))
+
+
+def holds(line, forms):
+    return any(f in line for f in forms)
+
+
+NOT_A_REQUEST = {
+    "notification": ("<task-notification>", "[SYSTEM NOTI", "[Workflow "),
+    "peer": ("Another Claude session sent a message", "[Cross-session", "<agent-message", "[handback",
+             "[Subagent hand-back"),
+}
+
+
+def logged_text(text):
+    """A message as the log keeps it, or None when it is too short to be searched."""
+    t = IMAGE_MARK.sub(" ", TAG_BLOCKS.sub(" ", str(text or ""))).strip()
+    return t[:KEYWORD_CHARS] if len(t) >= MIN_CHARS else None
+
+
+def message_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(str(p.get("text", "")) for p in content if isinstance(p, dict) and p.get("type") == "text")
+    return ""
+
+
+def has_result(content):
+    return isinstance(content, list) and any(isinstance(p, dict) and p.get("type") == "tool_result" for p in content)
+
+
+def started_elsewhere(row):
+    """Whether a transcript row is from a session another conversation started: claude -p or claude --bg."""
+    return row.get("entrypoint") == "sdk-cli" or row.get("sessionKind") == "bg" or (
+        row.get("turnOrigin") == "sdk" and not row.get("origin"))
+
+
+def opener_class(row, text):
+    """What opened a turn: "human" for the user, else what wrote the row."""
+    origin = row.get("origin") if isinstance(row.get("origin"), dict) else {}
+    kind, by, t = origin.get("kind"), row.get("turnOrigin"), text.lstrip()
+    if row.get("isCompactSummary") or t.startswith("This session is being continued from a previous conversation"):
+        return "compact"
+    if t.startswith("Stop hook feedback"):
+        return "stop-hook"
+    if kind == "task-notification" or by == "task_notification" or t.startswith(NOT_A_REQUEST["notification"]):
+        return "notification"
+    if kind in ("peer", "coordinator") or by == "peer" or t.startswith(NOT_A_REQUEST["peer"]) or \
+            PEER_START.match(text):
+        return "peer"
+    if by in ("scheduled", "system") or row.get("wakeupSource"):
+        return "scheduled"
+    if t.startswith("[Request interrupted"):
+        return "interrupt"
+    if t.startswith(("<local-command", "Caveat:")):
+        return "local"
+    if t.startswith(("<command-message>", "<command-name>")) and "<command-name>" in t:
+        return "slash"
+    if row.get("isMeta"):
+        return "meta"
+    return "human" if kind in ("human", None) else "other"
+
+
+def turns_of(rows):
+    """The turns in transcript rows, in order: [{"cls", "text", "row", "loads": [(skill, tool call id, time)]}].
+
+    A turn is the run of rows that share a promptId; a user row without one opens a turn unless the client wrote it
+    (isMeta). A hook's feedback opens a turn of its own, and a row the client writes inside a turn does not."""
+    out, turn = [], None
+    for r in rows:
+        kind = r.get("type")
+        message = r.get("message") if isinstance(r.get("message"), dict) else {}
+        content = message.get("content")
+        if kind == "user":
+            if has_result(content):
+                continue
+            raw = message_text(content)
+            pid = r.get("promptId")
+            stop = raw.lstrip().startswith("Stop hook feedback")
+            if turn is not None and not stop and (pid == turn["pid"] if pid else r.get("isMeta")):
+                continue
+            cls = opener_class(r, raw)
+            if cls == "meta" and turn is not None:
+                continue
+            turn = {"pid": pid, "cls": cls, "text": raw, "row": r, "loads": []}
+            out.append(turn)
+        elif kind == "assistant" and turn is not None and isinstance(content, list):
+            for p in content:
+                if not isinstance(p, dict) or p.get("type") != "tool_use" or p.get("name") != "Skill":
+                    continue
+                given = p.get("input") if isinstance(p.get("input"), dict) else {}
+                name = str(given.get("skill") or given.get("command") or given.get("name") or "").strip().lstrip("/")
+                if name:
+                    turn["loads"].append((name, p.get("id"), r.get("timestamp")))
+    return out
+
+
+def user_entries(turns, skip_elsewhere=True):
+    """(skill, text, tool call id, time, session) for the loads of the turns the user opened."""
+    out = []
+    for t in turns:
+        if t["cls"] != "human" or (skip_elsewhere and started_elsewhere(t["row"])):
+            continue
+        text = logged_text(t["text"])
+        if text:
+            out += [(s, text, i, ts, t["row"].get("sessionId")) for s, i, ts in t["loads"]]
+    return out
+
+
+def file_entries(path):
+    """user_entries() of one transcript, or [] for a session another conversation started. Only the rows a turn's
+    start or a Skill call can be on are parsed."""
+    rows, first = [], None
+    try:
+        with open(path, "rb") as fh:
+            for raw in fh:
+                if holds(raw, USER_ROW_B):
+                    if holds(raw, RESULT_ROW_B):
+                        continue
+                elif not holds(raw, SKILL_CALL_B) or not holds(raw, ASSISTANT_ROW_B):
+                    continue
+                try:
+                    row = json.loads(raw.decode("utf-8", "replace"))
+                except ValueError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                if first is None and row.get("type") == "user":
+                    first = row
+                    if started_elsewhere(row):
+                        return []
+                rows.append(row)
+    except OSError:
+        return []
+    return user_entries(turns_of(rows), skip_elsewhere=False)
+
+
+def transcripts(home):
+    """The main conversations' transcripts under `home`/projects, newest first. A subagent's is a level deeper."""
+    root = os.path.join(home, "projects")
+    out = []
+    try:
+        folders = os.listdir(root)
+    except OSError:
+        return []
+    for f in folders:
+        try:
+            names = os.listdir(os.path.join(root, f))
+        except OSError:
+            continue
+        for n in names:
+            p = os.path.join(root, f, n)
+            if n.endswith(".jsonl"):
+                try:
+                    out.append((os.stat(p).st_mtime, p))
+                except OSError:
+                    pass
+    return [p for _, p in sorted(out, reverse=True)]
+
+
+def import_entries(home, deadline=None, paths=None):
+    """[(time, session, skill, text)] from the transcripts, oldest first, each tool call once (a forked or resumed
+    conversation copies the rows of the one it came from). Stops at `deadline`, or once the log could hold no more."""
+    seen, got = set(), []
+    for n, path in enumerate(transcripts(home) if paths is None else paths):
+        if deadline is not None and time.time() > deadline:
+            break
+        for skill, text, ident, ts, session in file_entries(path):
+            if ident in seen:
+                continue
+            seen.add(ident)
+            got.append((ts or "", session, skill, text))
+        if n % 50 == 49 and len(bounded([(s, x) for _, _, s, x in sorted(got, key=lambda e: e[0])])) >= LOG_TOTAL:
+            break
+    got.sort(key=lambda e: e[0])
+    return got
+
+
+def bounded(entries):
+    """`entries`, [(skill, text)] oldest first, as the log keeps them: each once, in its newest place; each skill's
+    newest LOG_PER_SKILL; the newest LOG_TOTAL."""
+    newest = {}
+    for i, e in enumerate(entries):
+        newest[(e[0], e[1])] = i
+    kept, per = [], {}
+    for i in range(len(entries) - 1, -1, -1):
+        e = (entries[i][0], entries[i][1])
+        if newest[e] != i or per.get(e[0], 0) >= LOG_PER_SKILL:
+            continue
+        per[e[0]] = per.get(e[0], 0) + 1
+        kept.append(e)
+        if len(kept) >= LOG_TOTAL:
+            break
+    kept.reverse()
+    return kept
+
+
+def read_log(directory):
+    out = []
+    try:
+        with open(os.path.join(data_root(directory), QUERY_LOG), encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(e, dict) and isinstance(e.get("skill"), str) and isinstance(e.get("text"), str):
+                    out.append((e["skill"], e["text"]))
+    except (OSError, UnicodeDecodeError):
+        return []
+    return out
+
+
+def write_log(directory, entries):
+    write_atomic(os.path.join(data_root(directory), QUERY_LOG),
+                 "".join(json.dumps({"skill": s, "text": t}, ensure_ascii=False) + "\n" for s, t in entries))
+
+
+class LogLock:
+    """The lock folder every writer of the log takes. `held` is False when another writer kept it past a second."""
+
+    def __init__(self, directory, name=QUERY_LOCK, stale=LOG_LOCK_STALE, wait=1.0):
+        self.path, self.stale, self.wait, self.held = os.path.join(data_root(directory), name), stale, wait, False
+
+    def __enter__(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        end = time.time() + self.wait
+        while True:
+            try:
+                os.mkdir(self.path)
+                self.held = True
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - os.stat(self.path).st_mtime > self.stale:
+                        os.rmdir(self.path)
+                        continue
+                except OSError:
+                    continue
+            except OSError:
+                return self
+            if time.time() >= end:
+                return self
+            time.sleep(0.025)
+
+    def __exit__(self, *exc):
+        if self.held:
+            try:
+                os.rmdir(self.path)
+            except OSError:
+                pass
+        return False
+
+
+def add_entries(directory, entries):
+    """Put `entries`, [(skill, text)], at the newest end of the log."""
+    with LogLock(directory) as lock:
+        if lock.held:
+            write_log(directory, bounded(read_log(directory) + list(entries)))
+            return True
+    return False
+
+
+def log_fields(directory, skills, cwd, prune=True):
+    """{skill index: the skill's logged messages, joined} for the log's entries of `skills`. With `prune`, entries of
+    a skill that neither these skills nor another kept index has are taken out of the file."""
+    entries = read_log(directory)
+    if not entries:
+        return {}
+    if prune:
+        known = {s["name"] for s in skills}
+        mine = os.path.join(data_root(directory), index_name(cwd))
+        for path in claude_indexes(directory)[:REPOS_KEPT]:
+            if not same_path(path, mine):
+                got = load_pickle(path)
+                if isinstance(got, dict) and isinstance(got.get("skills"), list):
+                    known |= {s.get("name") for s in got["skills"] if isinstance(s, dict)}
+        kept = bounded([e for e in entries if e[0] in known])
+        if kept != entries:
+            with LogLock(directory) as lock:
+                if lock.held:
+                    now = read_log(directory)
+                    kept = bounded([e for e in now if e[0] in known])
+                    if kept != now:
+                        write_log(directory, kept)
+        entries = kept
+    pos = {s["name"]: i for i, s in enumerate(skills)}
+    by = {}
+    for name, text in entries:
+        if name in pos:
+            by.setdefault(pos[name], []).append(text)
+    return {i: " ".join(texts) for i, texts in by.items()}
+
+
+def import_wanted(directory, given):
+    """Whether the log has yet to be filled from the transcripts, and no import is running."""
+    if not (CLAUDE and given.get("skillRouteLog")):
+        return False
+    root = data_root(directory)
+    if os.path.exists(os.path.join(root, QUERY_IMPORTED)):
+        return False
+    try:
+        return time.time() - os.stat(os.path.join(root, IMPORT_LOCK)).st_mtime > IMPORT_STALE
+    except OSError:
+        return True
+
+
+def spawn_import(directory):
+    flags = {"creationflags": 0x00000008 | 0x00000200} if os.name == "nt" else {"start_new_session": True}
+    try:
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "--import", directory], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                         env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"), **flags)
+        return True
+    except OSError:
+        return False
+
+
+def import_log(directory, home):
+    """Fill the log from the transcripts, once. Entries the Stop hook added meanwhile stay newest."""
+    with LogLock(directory, IMPORT_LOCK, IMPORT_STALE, 0) as lock:
+        if not lock.held or os.path.exists(os.path.join(data_root(directory), QUERY_IMPORTED)):
+            return None
+        t0 = time.time()
+        got = import_entries(home, time.time() + IMPORT_SECONDS)
+        with LogLock(directory, wait=10) as inner:
+            if not inner.held:
+                return None
+            write_log(directory, bounded([(s, x) for _, _, s, x in got] + read_log(directory)))
+        write_atomic(os.path.join(data_root(directory), QUERY_IMPORTED), "%d\n" % int(time.time()))
+        log(directory, {"ev": "import", "entries": len(got), "ms": round((time.time() - t0) * 1000, 1)})
+        return got
+
+
+def record_turn(directory, payload):
+    """At the end of a turn: add the turn's entries to the log. Returns them."""
+    tail = open_tail(payload.get("transcript_path"))
+    if tail is None:
+        return []
+    prompt = payload.get(TURN_FIELD)
+    rows = []
+    for line in tail.lines(TURN_READ_MAX):
+        if holds(line, USER_ROW):
+            if holds(line, RESULT_ROW):
+                continue
+        elif not holds(line, SKILL_CALL):
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        if row.get("type") == "user":
+            pid = row.get("promptId")
+            if prompt and pid and pid != prompt:
+                break
+            rows.append(row)
+            if not prompt and spoke(row):
+                break
+        else:
+            rows.append(row)
+    rows.reverse()
+    entries = [(s, x) for s, x, _, _, _ in user_entries(turns_of(rows))]
+    if entries and add_entries(directory, entries):
+        return entries
+    return []
+
+
+"""Claude Code's hook: route-skills.py, which Claude Code runs on UserPromptSubmit, PostToolUse and Stop, calls
+run_hook().
 
 On UserPromptSubmit the message is searched and the best few skills are put in front of the model. A skill given earlier
 in the conversation, with the same description, is not given again: the earlier blocks are read from the transcript,
@@ -2020,7 +2495,10 @@ what was added since. A compaction empties it (Claude Code's compact_boundary ro
 hook's COMPACTED_SUFFIX mark), since it takes the earlier blocks out of the context. When some of a turn's skills were
 given earlier, ORDER_LINE lists every one in order of fit and marks those with GIVEN_EARLIER.
 
-On Stop the turn is read back and the log records which skills its Skill tool calls named.
+On PostToolUse the skills are searched again for the call and the model's latest text (claude_research).
+
+On Stop the turn is read back and the log records which skills its Skill tool calls named, and the query log is given
+the turn's entries.
 """
 ROUTED_SUFFIX = ".routed"
 ROUTED_FORMAT = 1
@@ -2034,13 +2512,18 @@ CLAUDE_RESETS = ('"compact_boundary"', '"isCompactSummary"')
 
 
 def claude_blocks(row):
-    """The lines of the routing blocks in one transcript row: [(name, description)]."""
+    """The lines of the routing blocks in one transcript row: [(name, description)]. A block from the search after a
+    tool call gives a description's first sentence only."""
     att = row.get("attachment") if row.get("type") == "attachment" else None
     if not isinstance(att, dict) or att.get("type") != "hook_additional_context":
         return []
     out = []
     for text in att.get("content") if isinstance(att.get("content"), list) else []:
-        at = text.find(MARK) if isinstance(text, str) else -1
+        at = -1
+        for mark in (MARK, RESEARCH_MARK):
+            at = text.find(mark) if isinstance(text, str) else -1
+            if at >= 0:
+                break
         if at < 0:
             continue
         for line in text[at:].split("\n")[1:]:
@@ -2092,7 +2575,8 @@ def claude_given_earlier(plan, transcript):
             return {}
     end = data.rfind(b"\n") + 1
     for raw in data[:end].split(b"\n"):
-        if MARK.encode() not in raw and not any(k.encode() in raw for k in CLAUDE_RESETS):
+        if MARK.encode() not in raw and RESEARCH_MARK.encode() not in raw and \
+                not any(k.encode() in raw for k in CLAUDE_RESETS):
             continue
         try:
             row = json.loads(raw.decode("utf-8"))
@@ -2151,8 +2635,9 @@ def claude_submit(payload, directory, given, t0):
         log(directory, dict(ids, ev="skip", why="the index is being built"))
         return None
     count = max(1, min(MAX_COUNT, int(given.get("skillRouteCount") or 5)))
+    notes = {}
     top, how, timings, failed = search(index, text, count, cwd, t0 + BUDGET, directory, given, conf,
-                                       allow_vector=not standing_in)
+                                       allow_vector=not standing_in, notes=notes)
     out, full, named = None, [], []
     if top:
         out, full, named = claude_block(top, claude_given_earlier(plan_file(payload, directory),
@@ -2162,6 +2647,8 @@ def claude_submit(payload, directory, given, t0):
                   msLocal=round(timings["local"], 1), msNet=round(timings["net"], 1))
     if failed:
         record["fellBack"] = failed[:160]
+    if notes.get("byLog"):
+        record["byLog"] = notes["byLog"]
     if why:
         record["rebuild"] = why
     if standing_in:
@@ -2194,6 +2681,124 @@ def claude_called(tail):
     return named
 
 
+"""The search after a tool call, in Claude Code only.
+
+Most skills are loaded well into a turn, after many tool calls, when the turn's first message says little about what is
+needed. So after each tool call of the main conversation the skills are searched again, with the latest text the model
+wrote followed by the call's own input (call_text: the tool's name and its input as JSON), in the index with the query
+log (RESEARCH_INDEX). A skill is given only when its score clears RESEARCH_MIN_SCORE and it has not been given in the
+conversation yet, at most RESEARCH_PER_SEARCH at a time, each by its name and its description's first sentence, and no
+more than RESEARCH_TURN_BYTES in a turn. In the replay, it gave 14.6% of the loads that had a tool call before them
+before the model loaded them, and about 1,400 bytes in an average turn.
+
+A turn is the prompt_id Claude Code puts on each event; RESEARCH_SUFFIX beside the plan keeps what this turn was given
+and how many bytes. The block is recorded as a hook_additional_context row like the others, so claude_given_earlier
+reads it back, and a later message gives such a skill's whole description.
+"""
+
+
+def first_sentence(desc, limit=SENTENCE_CHARS):
+    d = one_line(desc, CLAUDE_DESC_CHARS)
+    m = re.match(u"(.+?(?:[.!?](?=\\s|$)|[\u3002\uff01\uff1f]))", d)
+    s = m.group(1) if m else d
+    return s if len(s) <= limit else s[:limit - 3].rstrip() + "..."
+
+
+def call_text(tool, tool_input):
+    return ("%s %s" % (tool or "", json.dumps(tool_input, ensure_ascii=False, default=str)))[:STEP_CHARS]
+
+
+def research_query(latest, call):
+    return "\n".join(x for x in (latest, call) if x).strip()
+
+
+def latest_text(tail):
+    """The newest text the model wrote in this turn, or ''."""
+    for line in tail.lines() if tail is not None else []:
+        if holds(line, USER_ROW):
+            if holds(line, RESULT_ROW):
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and spoke(row):
+                return ""
+            continue
+        if not holds(line, ASSISTANT_ROW) or '"text"' not in line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        content = (row.get("message") or {}).get("content") if isinstance(row, dict) else None
+        texts = [str(p.get("text", "")) for p in content if isinstance(p, dict) and p.get("type") == "text"
+                 and str(p.get("text", "")).strip()] if isinstance(content, list) else []
+        if texts:
+            return texts[-1][:STEP_CHARS]
+    return ""
+
+
+def research_block(skills):
+    head = ("%s, found by searching for this tool call and your latest text. Each line is a name for the Skill tool, "
+            "then the first sentence of its description; call one only if it fits." % RESEARCH_MARK)
+    return "\n".join([head] + ["- %s: %s" % (s["name"], first_sentence(s["desc"]) or "(no description)")
+                               for s in skills])
+
+
+def claude_research(payload, directory, given, t0):
+    """The block for a PostToolUse event, or None."""
+    if not CLAUDE or not given.get("skillRouteAfterTools") or payload.get("agent_id"):
+        return None
+    tool = str(payload.get("tool_name") or "")
+    plan = plan_file(payload, directory)
+    cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else ""
+    if not plan or tool == "Skill":
+        return None
+    index = load_index(directory, cwd)
+    if index is None:
+        return None
+    transcript = payload.get("transcript_path")
+    query = research_query(latest_text(open_tail(transcript)), call_text(tool, payload.get("tool_input")))
+    if len(query) < MIN_CHARS:
+        return None
+    skills = index["skills"]
+    scores = keyword_scores(index, query, RESEARCH_INDEX if given.get("skillRouteLog") else "keyword")
+    order = [i for i in ranked(scores, skills) if scores[i] >= RESEARCH_MIN_SCORE][:RESEARCH_LOOK]
+    if not order:
+        return None
+    turn = str(payload.get(TURN_FIELD) or "")
+    with LogLock(directory, os.path.basename(plan) + RESEARCH_SUFFIX + ".lock", 10, 0.5) as lock:
+        if not lock.held:
+            return None
+        try:
+            with open(side_file(plan, RESEARCH_SUFFIX), encoding="utf-8") as fh:
+                state = json.load(fh)
+        except Exception:
+            state = {}
+        if not isinstance(state, dict) or state.get("turn") != turn:
+            state = {"turn": turn, "bytes": 0, "names": []}
+        had = set(claude_given_earlier(plan, transcript)) | set(state.get("names") or [])
+        here = set(claude_project_dirs(cwd))
+        picked = [skills[i] for i in order if skills[i]["name"] not in had and applies(skills[i], here, set())]
+        picked = picked[:RESEARCH_PER_SEARCH]
+        block = ""
+        while picked:
+            block = research_block(picked)
+            if state.get("bytes", 0) + len(block.encode("utf-8")) <= RESEARCH_TURN_BYTES:
+                break
+            picked.pop()
+        if not picked:
+            return None
+        state["bytes"] = state.get("bytes", 0) + len(block.encode("utf-8"))
+        state["names"] = list(state.get("names") or []) + [s["name"] for s in picked]
+        write_quietly(side_file(plan, RESEARCH_SUFFIX), json.dumps(state))
+    log(directory, {"session": str(payload.get("session_id") or ""), "turn": turn, "ev": "research", "tool": tool,
+                    "skills": [s["name"] for s in picked], "bytes": len(block.encode("utf-8")),
+                    "ms": round((time.time() - t0) * 1000, 1)})
+    return block
+
+
 def run_hook(t0):
     """route-skills.py's main: print the hook's output, if any. Anything that goes wrong leaves the turn alone."""
     try:
@@ -2211,8 +2816,18 @@ def run_hook(t0):
         if event == "Stop":
             log(directory, {"session": str(payload.get("session_id") or ""), "ev": "read",
                             "skills": claude_called(open_tail(payload.get("transcript_path")))})
+            if given.get("skillRouteLog"):
+                if import_wanted(directory, given):
+                    spawn_import(directory)
+                if record_turn(directory, payload):
+                    spawn_build(directory, payload.get("cwd") if isinstance(payload.get("cwd"), str) else "")
             return 0
-        text = claude_submit(payload, directory, given, t0)
+        if event == "PostToolUse":
+            text = claude_research(payload, directory, given, t0)
+        else:
+            if import_wanted(directory, given):
+                spawn_import(directory)
+            text = claude_submit(payload, directory, given, t0)
     except Exception as e:
         log(directory, {"ev": "error", "why": "%s: %s" % (type(e).__name__, str(e)[:160])})
         return 0
@@ -2269,6 +2884,15 @@ def main(argv):
             build_locked(argv[2], home_of(argv[2]), cwd)
         except Exception as e:
             log(argv[2], {"ev": "error", "why": "build: %s: %s" % (type(e).__name__, str(e)[:160])})
+            return 1
+        return 0
+    if argv[1:2] == ["--import"] and len(argv) >= 3:
+        try:
+            if hasattr(os, "nice"):
+                os.nice(10)
+            import_log(argv[2], home_of(argv[2]))
+        except Exception as e:
+            log(argv[2], {"ev": "error", "why": "import: %s: %s" % (type(e).__name__, str(e)[:160])})
             return 1
         return 0
     return 2

@@ -358,6 +358,18 @@
           "maximum": 10,
           "markdownDescription": "How many skills each turn is given."
         },
+        "claudeCodePlus.skillRoutingQueryLog": {
+          "scope": "application",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Let the skill search also match your earlier messages: for each past turn in which Claude loaded a skill, the message that opened the turn is kept as more words for that skill, so a later message worded the same way finds it even when the skill's description shares none of its words. The log keeps only the message's first 300 characters and the skill's name, in `skill-route/queries.jsonl` in the plugin's data folder on this machine; it is filled once from your earlier Claude Code conversations and then as each turn ends. Delete that file to clear it. Used only while `#claudeCodePlus.skillRouting#` is on."
+        },
+        "claudeCodePlus.skillRoutingAfterToolCalls": {
+          "scope": "application",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Search the skills again after each tool call, with the call's own input and the latest text Claude wrote, and give Claude a skill only when it matches well and has not been given yet in the conversation: at most two at a time, each by name with the first sentence of its description, and at most 2,000 bytes in a turn. Used only while `#claudeCodePlus.skillRouting#` is on."
+        },
         "claudeCodePlus.detachedEndNotices": {
           "scope": "application",
           "type": "boolean",
