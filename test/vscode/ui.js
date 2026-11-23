@@ -4037,7 +4037,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const pairHere = (await needNotices()).filter((x) => about(Z)(x) || about(Y)(x)), pairThere = (await needNotices(pageD)).filter((x) => about(Z)(x) || about(Y)(x));
           check(!!pair && pair.every((n) => ['Open', 'Dismiss'].every((b) => n.buttons.includes(b))) && pairHere.length === 2 && !pairThere.length,
             'two conversations of the second window that start to wait at once give two notices in the window with the focus, one for each, each with Open and Dismiss, and none in the second window',
-            { asked: [zNow, yNow], notices: pair, here: pairHere, there: pairThere, files: pair ? undefined : attentionFiles() });
+            { asked: [zNow, yNow], notices: pair, here: pairHere, there: pairThere, onScreen: pair ? undefined : await notificationItems(page, '.notifications-toasts'),
+              files: pair ? undefined : attentionFiles() });
           await shot('wait-notices-two-at-once');
           if (pair) {
             await pressNotice(Z, 'Open');
@@ -4078,7 +4079,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const replays = (await needNotices()).filter((n) => about(Z)(n) || about(Y)(n));
           check(!!replay && replays.length === 2 && replay.every((n) => n.buttons.includes('Open')),
             'once the first window has the focus, it shows two notices, one for each conversation, each saying what it waits for, with Open',
-            { notices: replay, toasts: replays, listed: replay ? undefined : await listedNotices(), files: replay ? undefined : attentionFiles(), focus: [await focusOf(), await focusOf(folderD)] });
+            { notices: replay, toasts: replays, onScreen: replay ? undefined : await notificationItems(page, '.notifications-toasts'), listed: replay ? undefined : await listedNotices(),
+              files: replay ? undefined : attentionFiles(), focus: [await focusOf(), await focusOf(folderD)] });
           await shot('wait-notices-replay');
           await testFocus(false);
           await testFocus(true, folderD);
