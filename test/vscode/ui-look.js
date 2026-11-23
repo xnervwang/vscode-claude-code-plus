@@ -326,6 +326,74 @@ const needCountBox = (d) => d.page.evaluate(() => {
   const r = e.getBoundingClientRect();
   return { x: r.left, y: r.top, width: r.width, height: r.height, text: e.innerText.trim() };
 });
+/*
+ * Another window of this machine reporting `items` to Agent Plus, which reads every window's file in the folder they share
+ * (its src/attention.js), so this window tells of them as of conversations in that window. A file not rewritten for a
+ * minute is a window that has gone, and a conversation seen waiting there is not told of again for two minutes, so each
+ * step gives its own session ids.
+ */
+const OTHER_WINDOW = 'look-0000000a.json';
+const attentionDir = (d) => path.join(d.profile.home, '.agent-work-plan', 'attention');
+function otherWindow(d, items) {
+  fs.mkdirSync(attentionDir(d), { recursive: true });
+  const file = path.join(attentionDir(d), OTHER_WINDOW);
+  const now = Date.now();
+  fs.writeFileSync(file + '.tmp', JSON.stringify({ format: 1, at: now, front: [], settled: [], items: items.map((it) => Object.assign({
+    sourceId: 'claude-code', source: 'Claude Code', state: 'prompt', activity: 'waiting', unseen: false, steward: false, lastActiveAt: now,
+    cwd: path.join(path.dirname(d.profile.folder), 'another-project') }, it)) }) + '\n');
+  fs.renameSync(file + '.tmp', file);
+}
+const noOtherWindow = (d) => { try { fs.unlinkSync(path.join(attentionDir(d), OTHER_WINDOW)); } catch (_) { /* gone */ } };
+/* Says to Agent Plus whether this window has the focus: lib/window.js starts it with AGENT_PLUS_TEST_FOCUS=1. null gives
+   the word back to VS Code. */
+const testFocus = (d, on) => d.call('if (arg === null) delete globalThis.__agentPlusTestFocused; else globalThis.__agentPlusTestFocused = arg; return true;', on);
+/* The notice toasts, padded, once `want` is among them. */
+async function noticeArea(d, want) {
+  if (!await d.until(async () => ((await needToasts(d)) || []).includes(want), 20000, 300)) {
+    throw new Error(`Agent Plus showed no notice "${want}" in 20 s: ${JSON.stringify(await needToasts(d))}`);
+  }
+  await d.sleep(600);
+  await d.away();
+  const b = await d.page.evaluate(() => {
+    const rs = [...document.querySelectorAll('.notifications-toasts .notification-toast-container')].filter((n) => n.offsetParent).map((n) => n.getBoundingClientRect());
+    if (!rs.length) return null;
+    const x = Math.min(...rs.map((r) => r.left)), y = Math.min(...rs.map((r) => r.top));
+    return { x, y, width: Math.max(...rs.map((r) => r.right)) - x, height: Math.max(...rs.map((r) => r.bottom)) - y, w: innerWidth, h: innerHeight };
+  });
+  if (!b) throw new Error('the notice is not on screen');
+  const pad = 24, x = Math.max(0, b.x - pad), y = Math.max(0, b.y - pad);
+  return { x, y, width: Math.min(b.w, b.x + b.width + pad) - x, height: Math.min(b.h, b.y + b.height + pad) - y };
+}
+/* A notice of one conversation of another window waiting for `waitingFor`. */
+const waitNotice = (sessionId, title, waitingFor, said) => ({
+  act: async (d) => {
+    await d.exec('notifications.clearAll');
+    await testFocus(d, true);
+    otherWindow(d, [{ sessionId, title, waitingFor }]);
+    return noticeArea(d, said);
+  },
+  undo: async (d) => { noOtherWindow(d); await d.exec('notifications.clearAll'); await testFocus(d, null); await d.sleep(1500); },
+});
+/* Two conversations of another window that start to wait while no window has the focus, and the notice once this one
+   has it again. */
+const replayNotice = (a, b, said) => ({
+  act: async (d) => {
+    await d.exec('notifications.clearAll');
+    await testFocus(d, false);
+    const before = Number(((await needCountBox(d)) || {}).text) || 0;
+    otherWindow(d, [a, b]);
+    if (!await d.until(async () => Number(((await needCountBox(d)) || {}).text) === before + 2, 20000, 300)) {
+      throw new Error(`Agent Plus did not count the two conversations in 20 s: ${JSON.stringify(await needCountBox(d))}`);
+    }
+    /* Longer than Agent Plus gathers changes before it shows them or, without the focus, keeps them. */
+    if (await d.until(async () => ((await needToasts(d)) || []).length > 0, 4500, 300)) throw new Error('a notice came while the window had no focus');
+    await testFocus(d, true);
+    return noticeArea(d, said);
+  },
+  undo: async (d) => { noOtherWindow(d); await d.exec('notifications.clearAll'); await testFocus(d, null); await d.sleep(1500); },
+});
+const LOOK_ID = (n) => `7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e7${String(n).padStart(2, '0')}`;
+
 /* The name a conversation's transcript stores, from its last custom-title record, or ''. */
 function storedTitle(d, id) {
   const projects = path.join(d.profile.home, '.claude', 'projects');
@@ -1780,9 +1848,8 @@ const STEPS = [
     expect: 'A reply landed while the conversation\'s tab was in the background, behind a text file (notes.txt) opened in the '
       + 'same group: that tab\'s logo has no dot, and its title ends in a white envelope. Its row under OPEN SESSIONS in the '
       + 'side bar has no dot either and shows the envelope after the title and before the time, with the title not running '
-      + 'into it, and the row\'s time lined up with the other rows\' times. No red or blue dot anywhere. At the bottom right, '
-      + 'a notification from Agent Plus says "Find where the retry delay for the inventory sync is set" finished, with an Open '
-      + 'and a Dismiss button, wholly inside the window.',
+      + 'into it, and the row\'s time lined up with the other rows\' times. No red or blue dot anywhere. No notification at '
+      + 'the bottom right: the conversation is in this window, so Agent Plus only counts it (the next step).',
     unchanged: 'The tab bar has the same Claude Code tabs as before, plus notes.txt.',
     act: async (d) => {
       const frame = await live(d);
@@ -1800,10 +1867,11 @@ const STEPS = [
       await d.sleep(800);
       d.model.release();
       await d.away();
-      const said = `"${d.threads[0].title}" finished.`;
-      if (!await d.until(async () => ((await needToasts(d)) || []).includes(said), 30000, 300)) {
-        throw new Error(`Agent Plus showed no notice that the conversation finished in 30 s: ${JSON.stringify(await needToasts(d))}`);
+      if (!await d.until(async () => ((await needCountBox(d)) || {}).text === '1', 30000, 300)) {
+        throw new Error(`Agent Plus did not count the conversation in 30 s: ${JSON.stringify(await needCountBox(d))}`);
       }
+      const said = `"${d.threads[0].title}" finished.`;
+      if (await d.until(async () => ((await needToasts(d)) || []).includes(said), 9000, 300)) throw new Error('Agent Plus told of a conversation this window shows');
       return d.body();
     },
   },
@@ -1837,8 +1905,33 @@ const STEPS = [
       const pad = 16;
       return { x: Math.max(0, b.x - pad), y: Math.max(0, b.y - pad), width: b.width + 2 * pad, height: b.height + 2 * pad };
     },
-    /* Agent Plus never takes a notice back; the one live-unread waited for would lie over the footer from here on. */
     undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(500); await d.exec('notifications.clearAll'); await d.sleep(300); },
+  },
+  {
+    name: 'wait-notice-tool', features: ['wait-notices'],
+    expect: 'At the bottom right, one notification from Agent Plus: "Deploy the staging stack" is waiting for you to approve Bash., '
+      + 'with an Open and a Dismiss button, wholly inside the window and readable. The conversation is in another window. No '
+      + 'notification from Claude Code saying it is requesting permission.',
+    unchanged: 'The editor and the side bar are as before.',
+    ...waitNotice(LOOK_ID(1), 'Deploy the staging stack', { kind: 'permission', tool: 'Bash' }, '"Deploy the staging stack" is waiting for you to approve Bash.'),
+  },
+  {
+    name: 'wait-notice-question', features: ['wait-notices'],
+    expect: 'At the bottom right, one notification from Agent Plus: "Pick the region for the new cluster" has a question for you., '
+      + 'with an Open and a Dismiss button, wholly inside the window and readable. No notification from Claude Code.',
+    unchanged: 'The editor and the side bar are as before.',
+    ...waitNotice(LOOK_ID(2), 'Pick the region for the new cluster', { kind: 'question' }, '"Pick the region for the new cluster" has a question for you.'),
+  },
+  {
+    name: 'wait-notice-replay', features: ['wait-notices'],
+    expect: 'Two conversations of another window started to wait while no VS Code window had the focus; this window got it back. '
+      + 'At the bottom right, one notification from Agent Plus, not two: 2 conversations need you (2 waiting for you): "Rotate the '
+      + 'signing keys" (approve Edit), "Choose the import config" (a question)., with a Show them and a Dismiss button, wholly inside '
+      + 'the window and readable.',
+    unchanged: 'The editor and the side bar are as before.',
+    ...replayNotice({ sessionId: LOOK_ID(3), title: 'Rotate the signing keys', waitingFor: { kind: 'permission', tool: 'Edit' } },
+      { sessionId: LOOK_ID(4), title: 'Choose the import config', waitingFor: { kind: 'question' } },
+      '2 conversations need you (2 waiting for you): "Rotate the signing keys" (approve Edit), "Choose the import config" (a question).'),
   },
   {
     name: 'renamed-unread', features: ['rename-without-marks', 'long-title-envelope', 'unread-envelope'],
@@ -2520,7 +2613,7 @@ const STEPS = [
     expect: 'In the light theme, a reply landed while the conversation "Where the retry delay..." was behind notes.txt: its tab\'s '
       + 'title ends in an envelope drawn as a dark outline on the light tab, clearly readable, not a white or faint shape; '
       + 'its rows in the session list show the same dark envelope after the title, before the time. No colour emoji envelope anywhere. '
-      + 'At the bottom right, a notification from Agent Plus says that conversation, named in full, finished, with Open and Dismiss.',
+      + 'No notification at the bottom right: the conversation is in this window, so Agent Plus only counts it, with a 1 in the status bar.',
     unchanged: 'The session list is as before, apart from the envelopes.',
     act: async (d) => {
       const frame = await live(d);
@@ -2550,12 +2643,39 @@ const STEPS = [
         .filter((r) => r.id.endsWith(id) || r.querySelector(`[data-cce-pin="${id}"]`))
         .map((r) => { const e = r.querySelector('[data-cce-envelope]'); return e ? getComputedStyle(e, '::after').content : null; }), d.threads[0].id);
       if (forms.length < 2 || !forms.every((f) => f === '"\u2709\uFE0E"')) throw new Error(`the session list draws ${JSON.stringify(forms)}`);
-      if (!await d.until(async () => ((await needToasts(d)) || []).some((x) => / finished\.$/.test(x) && x.includes('Where the retry delay')), 30000, 300)) {
-        throw new Error(`Agent Plus showed no notice that the conversation finished in 30 s: ${JSON.stringify(await needToasts(d))}`);
+      if (!await d.until(async () => Number(((await needCountBox(d)) || {}).text) >= 1, 30000, 300)) {
+        throw new Error(`Agent Plus did not count the conversation in 30 s: ${JSON.stringify(await needCountBox(d))}`);
+      }
+      if (await d.until(async () => ((await needToasts(d)) || []).some((x) => / finished\.$/.test(x) && x.includes('Where the retry delay')), 9000, 300)) {
+        throw new Error('Agent Plus told of a conversation this window shows');
       }
       return d.body();
     },
     undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.exec('notifications.clearAll'); await d.sleep(2000); },
+  },
+  {
+    name: 'light-wait-notice-tool', features: ['wait-notices', 'light-theme'],
+    expect: 'In the light theme, at the bottom right, one notification from Agent Plus: "Deploy the staging stack" is waiting for '
+      + 'you to approve Bash., with Open and Dismiss, readable against the light background and wholly inside the window.',
+    unchanged: 'The editor and the side bar are as before.',
+    ...waitNotice(LOOK_ID(11), 'Deploy the staging stack', { kind: 'permission', tool: 'Bash' }, '"Deploy the staging stack" is waiting for you to approve Bash.'),
+  },
+  {
+    name: 'light-wait-notice-question', features: ['wait-notices', 'light-theme'],
+    expect: 'In the light theme, at the bottom right, one notification from Agent Plus: "Pick the region for the new cluster" has '
+      + 'a question for you., with Open and Dismiss, readable against the light background.',
+    unchanged: 'The editor and the side bar are as before.',
+    ...waitNotice(LOOK_ID(12), 'Pick the region for the new cluster', { kind: 'question' }, '"Pick the region for the new cluster" has a question for you.'),
+  },
+  {
+    name: 'light-wait-notice-replay', features: ['wait-notices', 'light-theme'],
+    expect: 'In the light theme, after the window got the focus back: at the bottom right, one notification from Agent Plus, not two: '
+      + '2 conversations need you (2 waiting for you): "Rotate the signing keys" (approve Edit), "Choose the import config" (a question)., '
+      + 'with Show them and Dismiss, readable against the light background and wholly inside the window.',
+    unchanged: 'The editor and the side bar are as before.',
+    ...replayNotice({ sessionId: LOOK_ID(13), title: 'Rotate the signing keys', waitingFor: { kind: 'permission', tool: 'Edit' } },
+      { sessionId: LOOK_ID(14), title: 'Choose the import config', waitingFor: { kind: 'question' } },
+      '2 conversations need you (2 waiting for you): "Rotate the signing keys" (approve Edit), "Choose the import config" (a question).'),
   },
   {
     name: 'light-conversation-links', features: ['light-theme', 'conversation-links'],

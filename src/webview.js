@@ -29,6 +29,9 @@
  *                      drawn with the dot its tab has.
  *   open finished      The open of a conversation counts as finished in a background tab too, where the page gets
  *                      no animation frames, so a tab loaded behind others is still reopened after later reloads.
+ *   wait notices       Two: Claude Code's own notice of a permission request (which also covers a question and a plan
+ *                      to review) and of auto mode's Continue or Stop dialog is left out while Agent Plus tells of the
+ *                      same waits (src/waiting-for.js); the panel's state report says what it waits for.
  *
  * Then this file appends a script that reads those times back out of React props and marks rows through an attribute,
  * plus the table of contents, the view filter, the context breakdown and the chime. A row whose real time it cannot
@@ -66,7 +69,7 @@ const { patchTarget } = require('./patch-target');
 const tabdot = require('./tabdot');
 const envelope = require('./envelope');
 
-const VERSION = 36;
+const VERSION = 37;
 
 /* The marker written into the patched file has to answer one question: is the code in
  * the panel the code this tree produces? A hand-maintained number answers it only while
@@ -385,6 +388,14 @@ const SCRIPT_BODY = buildBody();
    Without the page's function the meter behaves as in Claude Code. */
 const METER_KEPT = '(typeof window.__cceMeterKept==="function"&&window.__cceMeterKept())';
 
+/* What the panel waits for, beside its state: the tool of the permission request in front, or the kind of its dialog
+   (src/waiting-for.js reads it). `s` is the expression for the panel's session. */
+const WAIT_OF = (s) => `(()=>{try{let cceR=${s}.permissionRequests.value[0];if(cceR)return{tool:String(cceR.toolName??"")};`
+  + `let cceD=${s}.userDialogRequests.value[0];if(cceD)return{dialog:String(cceD.dialogKind??"")}}catch(cceE){}return void 0})()`;
+/* The check the two notice edits insert: whether the page was told that Agent Plus tells of waits (95-wait-notices.js).
+   Without the page's function the notice is shown as in Claude Code. */
+const WAITS_LEFT = '(typeof window.__cceWaitsAnnounced==="function"&&window.__cceWaitsAnnounced()===!0)';
+
 /* Regex source for a steward link; 93-steward-links.js accepts the same form. */
 const STEWARD_HREF = String.raw`/^vscode:\/\/xnervwang\.claude-code-plus\/open\?session=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:&|$)/i`;
 
@@ -454,7 +465,23 @@ const EDITS = [
        only subagents and workflows; a command put in the background is in its list of tasks, which counts too. */
     name: 'panel state says whether a turn runs',
     re: /(let [\w$]+=\(([\w$]+)\.permissionRequests\.value\.length\?\?0\)>0\|\|\2\.userDialogRequests\.value\.length>0,([\w$]+)=\2\.busy\.value,([\w$]+)=\2\.backgroundTaskIds\.value\.size>0,[\w$]+;[^;]*;else if\(\3\|\|\4\)[^;]*;else [^;]*;[\w$]+\.updateSessionState\([\w$]+,[\w$]+,\2\.summary\.value,\{)/g,
-    to: (m, head, session, busy, bg) => `${head}cceBusy:${busy},cceBg:${bg}||((${session}.backgroundTasks&&${session}.backgroundTasks.value&&${session}.backgroundTasks.value.size)>0),`,
+    to: (m, head, session, busy, bg) => `${head}cceBusy:${busy},cceBg:${bg}||((${session}.backgroundTasks&&${session}.backgroundTasks.value&&${session}.backgroundTasks.value.size)>0),`
+      + `cceWait:${WAIT_OF(session)},`,
+  },
+  {
+    /* Claude Code's notice that a conversation asks for permission to use a tool, which it shows for AskUserQuestion's
+       question and ExitPlanMode's plan too, in the conversation's window while its panel is not on screen. While Agent
+       Plus tells of the same waits in the window the user is in, it is left out; otherwise it is shown as before. The
+       notice's own text and buttons are not touched. */
+    name: 'permission notice left to Agent Plus',
+    re: /([\w$]+)\.showNotification\(([\w$]+)\(([\w$]+)\),"info",\["View"\],!0\)/g,
+    to: (m) => `(${WAITS_LEFT}?void 0:${m})`,
+  },
+  {
+    // The same for auto mode's dialog asking to Continue or Stop.
+    name: 'auto mode notice left to Agent Plus',
+    re: /this\.showNotification\("Auto mode is waiting for you to choose Continue or Stop","info",\["View"\],!0\)/g,
+    to: (m) => `(${WAITS_LEFT}?void 0:${m})`,
   },
   {
     // The session list's search: a conversation also matches when part of its session ID was typed. The page decides
@@ -1004,7 +1031,7 @@ function findInstalls(extensionsDir) {
 module.exports = {
   SWITCHES,
   id: 'anthropic.claude-code', name: 'Claude Code panel',
-  VERSION, MARK, ANY_MARK, BACKUP_SUFFIX, EDITS, SCRIPT, TITLE_MARKS,
+  VERSION, MARK, ANY_MARK, BACKUP_SUFFIX, EDITS, SCRIPT, TITLE_MARKS, WAITS_LEFT,
   safeColor, patchSource, status: target.status, apply, restore: target.restore, wholeScript, findInstalls, webviewFile, targetFile: webviewFile,
   writeLive, liveCss,
   writeEffort, pruneEfforts, EFFORT_PREFIX, pinsProperty,

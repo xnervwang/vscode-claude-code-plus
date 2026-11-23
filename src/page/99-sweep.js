@@ -573,6 +573,7 @@
     try { window.addEventListener('pagehide', function(){ forget(lastProbeUrl); }); } catch (e) {}
     try { listenForAnswers(); } catch (e) {}
     try { listenForFocus(); } catch (e) {}
+    try { listenForWaitNotices(); } catch (e) {}
     // A heartbeat to the extension host; src/duplicates.js treats a host without one as having lost its window.
     var alive = function(){ try { acquireVsCodeApi().postMessage({ type: 'cce_alive' }); } catch (e) {} };
     alive();
