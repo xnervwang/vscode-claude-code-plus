@@ -2422,7 +2422,7 @@ async function main() {
   for (const s of named) if (!steps.includes(s)) demo.log('skipped', s.name, `runs on ${s.only.join(', ')} only`);
   fs.mkdirSync(opt.out, { recursive: true });
   const started = Date.now();
-  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: 'ui-look', prepare,
+  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: 'ui-look',
     /* Manual, as in run.js, so that a tool call stops for permission: auto mode needs a check the fake model cannot do. */
     settings: { 'claudeCode.initialPermissionMode': 'default' } });
   Object.assign(d, { sleep: demo.sleep, until: demo.until, log: demo.log });
