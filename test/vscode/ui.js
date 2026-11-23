@@ -1176,7 +1176,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       } finally { model.releaseHelper(); fs.rmSync(file, { force: true }); }
       const cleared = await until(async () => {
         const f = await footer(), d = await dotsOn(t.label);
-        return status() === 'idle' && d && d.running === 0 && (!f || !/\b(agent|task|timer)s?\b/.test(f.label.replace(/^0 agents$/, ''))) && { f, d };
+        return status() === 'idle' && d && d.running === 0 && (!f || !/\b[1-9]\d* (agent|task|timer)s?\b/.test(f.label)) && { f, d };
       }, 120000, 1000);
       check(!!cleared, 'once the helper has finished and the conversation has answered, nothing is left counted', { footer: await footer(), dots: await dotsOn(t.label), status: status() });
     });
