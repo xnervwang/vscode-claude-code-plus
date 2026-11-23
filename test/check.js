@@ -9563,6 +9563,94 @@ console.log('\nthe Steward panel');
       } else bad(`a conversation leaving every window: ${JSON.stringify([e.keptAway, e.goneLater])}`);
     }
 
+    /* Which window writes the stewards table (writesTable in src/steward-view.js): one running the installed build
+       does; one whose build was installed over does only while no live window says it runs the installed build. */
+    {
+      const sv = require('../src/steward-view');
+      const E = (installed) => (installed === undefined ? { pid: 1 } : { pid: 1, installed });
+      const cases = [
+        ['a window running the installed build', { canWrite: true, replaced: false }, [E(false)], true],
+        ['a replaced window with no other window open', { canWrite: false, replaced: true }, [], true],
+        ['a replaced window beside other replaced ones', { canWrite: false, replaced: true }, [E(false), E(false)], true],
+        ['a replaced window beside a window of an older build, whose entry says nothing', { canWrite: false, replaced: true }, [E()], true],
+        ['a replaced window once another window runs the installed build', { canWrite: false, replaced: true }, [E(false), E(true)], false],
+        ['the replaced window itself after a reload, which runs the installed build', { canWrite: true, replaced: false }, [E(false)], true],
+        ['a window being uninstalled, or after Remove', { canWrite: false, replaced: false }, [], false],
+      ];
+      const wrong = typeof sv.writesTable !== 'function' ? cases.map((c) => c[0])
+        : cases.filter(([, mine, others, want]) => sv.writesTable(mine, others) !== want).map((c) => c[0]);
+      if (!wrong.length) {
+        ok('the stewards table is written by a window running the installed build, and by one whose build was installed over only while no live window runs the installed build');
+      } else bad(`which window writes the stewards table came out wrong for: ${wrong.join('; ')}`);
+
+      /* A replaced window that shows a steward of all conversations: a conversation a window's entry lists is added
+         within one pass while no window runs the installed build, and not once one does, when the panel says why. */
+      const rdir = path.join(root, 'plans-replaced');
+      const wdir = path.join(rdir, 'windows');
+      fs.mkdirSync(wdir, { recursive: true });
+      st.setManaged(S(1), [S(2)], { [S(2)]: 'Two' }, { dir: rdir, every: true });
+      const out2 = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const fs = require('fs');
+        const sv = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'steward-view.js'))});
+        const st = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'stewards.js'))});
+        const S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, dir = ${JSON.stringify(rdir)}, wdir = ${JSON.stringify(wdir)};
+        const rec = (n, name) => ({ sessionId: S(n), kind: 'interactive', cwd: '/w/' + n, name, status: 'idle' });
+        const records = [rec(1, 'All of them'), rec(2, 'Two'), rec(8, 'Eight'), rec(9, 'Nine')];
+        const entry = (pid, sessions, more) => fs.writeFileSync(wdir + '/' + pid + '.json', JSON.stringify(Object.assign({ pid, at: Date.now(), name: 'w' + pid, folders: [], sessions }, more)));
+        entry(5151, [S(9)], { build: 'old', installed: false });
+        let canWrite = false, replaced = true, reloads = 0;
+        const offered = [];
+        const v = sv.create({ window: { registerWebviewViewProvider: (id, p) => ({ dispose() {} }), showInformationMessage() {} } }, {
+          activeChat: () => S(1), freshAgents: async () => ({ records }), readPlan: () => null, titles: () => ({ custom: '', ai: '' }),
+          since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true, shownHere: (id) => id === S(1),
+          canWrite: () => canWrite, canShare: () => true, replaced: () => replaced, build: () => ({ code: 'old', installed: canWrite }),
+          offerReload: (t) => offered.push(t), reload: async () => { reloads++; }, enabled: () => true, log: () => {}, home: '/', dir,
+          records: () => [], post: async () => true, windowName: () => 'here', windowFolders: () => [], shownList: () => [S(1), S(2)],
+          alive: (pid) => pid === 5151 || pid === 5252 });
+        const manages = () => (st.read(dir)[S(1)] || { manages: [] }).manages.slice().sort();
+        (async () => {
+          await v._pass();
+          const alone = manages();
+          const own = JSON.parse(fs.readFileSync(wdir + '/' + process.pid + '.json', 'utf8'));
+          const quiet = sv.body(v._model(new Map(), S(1)));
+          entry(5252, [], { build: 'new', installed: true });
+          entry(5151, [S(9), S(8)], { build: 'old', installed: false });
+          await v._pass();
+          const beside = manages();
+          const said = sv.body(v._model(new Map(), S(1)));
+          await v._onMessage({ type: 'every', on: false });
+          await v._onMessage({ type: 'every', on: false });
+          const refused = st.read(dir)[S(1)];
+          await v._onMessage({ type: 'reload' });
+          fs.unlinkSync(wdir + '/5252.json');
+          await v._pass();
+          const after = manages();
+          canWrite = true; replaced = false;
+          entry(5252, [], { build: 'new', installed: true });
+          const reloaded = typeof v._writes === 'function' ? v._writes() : null;
+          process.stdout.write(JSON.stringify({ alone, own, quiet, beside, said, refused, offered, reloads, after, reloaded }));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`], { encoding: 'utf8', timeout: 30000 }));
+      if (out2.error) bad('the replaced window\'s panel threw: ' + out2.error);
+      else {
+        if (JSON.stringify(out2.alone) === JSON.stringify([S(2), S(9)].sort()) && out2.own.build === 'old' && out2.own.installed === false
+            && !/earlier build/.test(out2.quiet)) {
+          ok('a window whose build was installed over, with no window running the installed build, adds to its steward of all conversations one that a window\'s entry lists, '
+            + 'and its own entry says which build it runs and that it is not the installed one');
+        } else bad(`a replaced window alone gave ${JSON.stringify({ alone: out2.alone, own: out2.own, quiet: /earlier build/.test(out2.quiet) })}`);
+        const line = (h) => (/<p class="stale">([\s\S]*?)<\/p>/.exec(h) || [])[1] || '';
+        if (JSON.stringify(out2.beside) === JSON.stringify([S(2), S(9)].sort())
+            && /This window runs an earlier build of Claude Code Plus than the one now installed, so\s+ticks made here are not saved and new conversations are not added to this steward\./.test(line(out2.said))
+            && /<button data-act="reload">Reload Window<\/button>/.test(line(out2.said))
+            && out2.refused && out2.refused.all === true && out2.offered.length === 1 && /^The tick is not saved: /.test(out2.offered[0]) && out2.reloads === 1) {
+          ok('once another window runs the installed build, it adds nothing more, keeps every tick as it was, and says why in one line of the panel with a Reload Window button, '
+            + 'and once in a notice with one');
+        } else bad(`a replaced window beside one running the installed build gave ${JSON.stringify({ beside: out2.beside, line: line(out2.said), refused: out2.refused, offered: out2.offered, reloads: out2.reloads })}`);
+        if (JSON.stringify(out2.after) === JSON.stringify([S(2), S(8), S(9)].sort()) && out2.reloaded === true) {
+          ok('when that window has gone it takes the table back within one pass, and after its own reload it writes it whoever else is open');
+        } else bad(`after the window running the installed build closed: ${JSON.stringify({ after: out2.after, reloaded: out2.reloaded })}`);
+      }
+    }
+
     /* Which managed conversations a steward's plan is waiting on: named in an open row, by title or by id. */
     {
       const sv = require('../src/steward-view');
@@ -9863,13 +9951,13 @@ console.log('\nthe Steward panel');
       const R = (n) => `bbbbbbbb-0000-4000-8000-00000000000${n}`;
       const { did, results, left } = acted;
       const want = [['rename', S(2), 'Parser rewrite'], ['close', S(3), false], ['open', '/w/proj', 'Start on the parser'], ['manage', S(1), S(7)],
-        ['send', S(2), 'use --close here'], ['open', '/w/proj', 'Start on the parser'], ['open', '/w/proj', 'Never mind']];
+        ['send', S(2), 'use --close here'], ['open', '/w/proj', 'Start on the parser'], ['manage', S('c'), S(7)], ['open', '/w/proj', 'Never mind']];
       if (did && JSON.stringify(did) === JSON.stringify(want) && results[R(3)][1] === 'refused' && results[R(7)][1] === 'refused'
           && results[R(8)][1] === 'refused' && results[R(9)][1] === 'refused' && results[R(4)][2] === S(7) && results[R(4)][3] === true
-          && results[R('a')][1] === 'submitted' && results[R('a')][3] === false && results[R('b')][1] === 'notReceived' && results[R('b')][3] === false
+          && results[R('a')][1] === 'submitted' && results[R('a')][3] === true && results[R('b')][1] === 'notReceived' && results[R('b')][3] === false
           && left.includes(R(5) + '.json') && left.includes(R('c') + '.json') && !left.includes(R(4) + '.json')) {
         ok('a window renames, closes and opens for the steward that ran the script so, gives the new conversation\'s id back and ticks it for that steward, '
-          + 'though not for a steward of all conversations nor after an open that failed, '
+          + 'a steward of all conversations too, though not after an open that failed, '
           + 'leaves an open for a folder that is not its first folder (Claude Code starts a new conversation there) to another window, and refuses a close not confirmed in the command, a title the steward did not send, '
           + 'an open from a conversation that is no steward and an action there is none of');
       } else bad(`steward actions gave ${JSON.stringify(acted)}`);
@@ -10101,7 +10189,8 @@ console.log('\nthe Steward panel');
           resume: async (id, text) => { did.push(['resume', id, text]);
             return id === S(0) ? { outcome: 'uncertain', reason: 'no panel here was ready for it' } : { outcome: 'submitted', reason: '', opened: true }; },
           deliver: async (id, text) => { did.push(['send', id, text]); return { outcome: 'submitted' }; },
-          manage: (steward, id) => did.push(['manage', steward, id]) };
+          // A window that may not write the stewards table says so with false (writesTable in src/steward-view.js).
+          manage: (steward, id) => { did.push(['manage', steward, id]); return id !== S(6); } };
         (async () => {
           const first = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, r]));
           put(R(9), { action: 'resume', to: S(4), text: words });
@@ -10112,10 +10201,10 @@ console.log('\nthe Steward panel');
           process.stdout.write(JSON.stringify({ first, again, did, left }));
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
       const f = took.first || {}, g = took.again || {}, why = (r) => (r ? r.outcome + ': ' + (r.reason || '') : 'not taken');
-      if (took.did && JSON.stringify(took.did) === JSON.stringify([['resume', S(4), words], ['resume', S(4), words], ['manage', S(1), S(4)],
+      if (took.did && JSON.stringify(took.did) === JSON.stringify([['resume', S(4), words], ['manage', S('c'), S(4)], ['resume', S(4), words], ['manage', S(1), S(4)],
         ['resume', S(6), ''], ['manage', S(1), S(6)], ['resume', S(0), '']])
           && f[R(1)] && f[R(1)].outcome === 'submitted' && f[R(1)].opened === true && f[R(1)].ticked === true && f[R(1)].window === 79
-          && f[R(0)] && f[R(0)].outcome === 'submitted' && !f[R(0)].ticked
+          && f[R(0)] && f[R(0)].outcome === 'submitted' && f[R(0)].ticked === true && f[R(8)] && !f[R(8)].ticked
           && f[R('f')] && f[R('f')].outcome === 'uncertain' && !f[R('f')].opened && !f[R('f')].ticked
           && !f[R(2)] && took.left.includes(R(2) + '.json')
           && /^refused: process 4242 runs it, and opening it here as well would run it twice$/.test(why(f[R(3)]))
@@ -10124,7 +10213,7 @@ console.log('\nthe Steward panel');
           && /^refused: the claude --bg job abcd1234 holds it \(blocked\)/.test(why(f[R(7)])) && f[R(8)] && f[R(8)].outcome === 'submitted'
           && /^refused: that call has already been carried out/.test(why(g[R(9)])) && /^refused: it could not be checked that no other process runs it: claude was not found/.test(why(g[R('e')]))) {
         ok('a window opens a conversation for any steward that ran --resume for it, with no tick needed, and then ticks it for that steward, '
-          + 'but not for a steward of all conversations nor when it did not open; it leaves one started in another folder to another window, '
+          + 'a steward of all conversations too, but not when it did not open nor when this window may not write the table; it leaves one started in another folder to another window, '
           + 'and refuses one another process or window runs, one asked by no steward, one asked without that call, the same call twice, '
           + 'and any while it cannot ask claude agents');
       } else bad(`resume requests gave ${JSON.stringify({ did: took.did, first: Object.fromEntries(Object.entries(f).map(([k, v]) => [k, why(v) + (v.ticked ? ' ticked' : '')])), again: g, left: took.left, error: took.error })}`);

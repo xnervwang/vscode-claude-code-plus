@@ -176,6 +176,18 @@ function alive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
 }
 
+/*
+ * Whether this window writes the stewards table. A window running the installed build does, as it writes every shared
+ * file. One whose build was installed over (mine.replaced) leaves shared files to the windows running the installed
+ * build, but until one of them is open nobody else keeps the table: a steward set to All would gain nothing and no tick
+ * would be saved. So it writes the table while no live window's entry (`others`, src/window-entries.js) says it runs the
+ * installed build. A window of a build older than this rule says nothing, and does not write the table either.
+ */
+function writesTable(mine, others) {
+  if (mine.canWrite) return true;
+  return !!mine.replaced && !(others || []).some((w) => w && w.installed === true);
+}
+
 /* The window name without the " [SSH: host]" suffix VS Code adds for a remote window. */
 const windowLabel = (w) => String(w.name || '').replace(/\s*\[[^\]]*\]\s*$/, '')
   || (w.folders[0] ? path.basename(w.folders[0]) : 'Window with no folder');
@@ -227,6 +239,9 @@ function body(model) {
       <ul>${g.rows.map(row).join('')}</ul>
     </div>`;
   };
+  const stale = model.stale ? `<p class="stale">This window runs an earlier build of Claude Code Plus than the one now installed, so
+      ticks made here are not saved${model.every ? ' and new conversations are not added to this steward' : ''}.
+      <button data-act="reload">Reload Window</button></p>` : '';
   const away = model.hidden ? `<p class="away">${model.hidden} ticked conversation${model.hidden === 1 ? ' is' : 's are'} not open in any
       VS Code window, so the steward cannot send ${model.hidden === 1 ? 'it' : 'them'} anything; not listed.
       <button data-act="drop-hidden">Untick ${model.hidden === 1 ? 'it' : 'them'}</button></p>` : '';
@@ -239,7 +254,7 @@ function body(model) {
     : `<div class="head"><span>Managed by <b>${esc(titleMarks.withMarks(model.front.title, { steward: !!(model.managed || model.every) }))}</b>: ${model.managed}</span>
          <label class="every" title="Also ticks conversations opened later. Other stewards are never ticked.">
            <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''}> All, including new ones</label>
-         <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${away}
+         <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${stale}${away}
        ${model.groups.length ? model.groups.map(group).join('') : '<p class="empty">No other Claude Code conversation is open in a VS Code window.</p>'}`;
 }
 
@@ -270,8 +285,8 @@ function shell(list, nonce) {
   .dot { box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
   .dot.working { background: ${GREEN}; } .dot.background { border: 2px solid ${GREEN}; } .dot.waiting { background: ${RED}; }
   .env { flex: 0 0 auto; line-height: 1; }
-  .empty, .away { opacity: 0.7; }
-  .away button { margin-left: 6px; }
+  .empty, .away, .stale { opacity: 0.7; }
+  .away button, .stale button { margin-left: 6px; }
   .group { margin-bottom: 6px; }
   .ghead { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-weight: 600; }
   .ghead .count { opacity: 0.6; font-weight: normal; }
@@ -304,7 +319,10 @@ function shell(list, nonce) {
  * optionally activity(id) and question(id) for a conversation's dot (src/activity.js),
  * shownHere(id) -> whether this window shows that conversation's panel, canWrite() -> whether this window may write
  * shared files, canShare() -> whether it may still publish its own entry and take relay requests (true also in a window
- * whose build has been replaced, which keeps showing its conversations until it is reloaded), enabled(), log(message),
+ * whose build has been replaced, which keeps showing its conversations until it is reloaded), replaced() -> whether
+ * that, and nothing else, is what keeps it from writing them (see writesTable), build() -> { code, installed } for its
+ * entry: the digest of the code it runs (src/build-digest.js) and whether that is the installed build, offerReload(text)
+ * to say what it cannot do with a Reload Window button, reload() to reload the window, enabled(), log(message),
  * home, dir (the plan directory), windowName(), windowFolders() and shownList()
  * for this window's name, folders and the conversations it shows, and optionally isBackground(id, cwd), records() ->
  * the live session records, alive(pid), post(address, text) in place of stewards.post, changed(), called once the
@@ -319,7 +337,8 @@ function shell(list, nonce) {
 function create(vscode, deps) {
   deps = Object.assign({ isBackground: bgSessions.isBackground, records: () => liveRecords(), post: stewards.post, alive, readState,
     windowName: () => '', windowFolders: () => [], shownList: () => [], changed: () => {}, focusWindow: () => {}, transcriptOf,
-    canShare: () => deps.canWrite(), otherFront: () => null,
+    canShare: () => deps.canWrite(), otherFront: () => null, replaced: () => false, build: () => null, offerReload: () => {},
+    reload: () => vscode.commands.executeCommand('workbench.action.reloadWindow'),
     deliver: () => Promise.resolve({ outcome: 'notReceived', reason: 'this window cannot type into a conversation' }) }, deps);
   let view = null, timer = 0, busy = false, last = new Map(), lastFront = '', shown = null;
   const frontKey = () => { const o = deps.otherFront(); return o ? 'other:' + o.agent + ':' + o.title : deps.activeChat(); };
@@ -358,7 +377,7 @@ function create(vscode, deps) {
     const title = self ? self.title : front ? titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: front, name: '', cwd: '' },
       deps.titles({ sessionId: front }), () => deps.readPlan(front))) : '';
     return { front: front ? { id: front, title } : null, other, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
-      every, envelope: envelope.envelope(vscode) };
+      every, envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
   };
 
   /* This window's entry in the windows folder, written when what it shows changes and once a minute besides. */
@@ -368,6 +387,8 @@ function create(vscode, deps) {
     // Omitted until the first heartbeat, so a host with no heartbeat counts as having its window (src/duplicates.js).
     const heard = deps.pageAt ? deps.pageAt() : 0;
     if (heard) entry.pageAt = heard;
+    const b = deps.build();
+    if (b) { entry.build = b.code || ''; entry.installed = b.installed === true; }
     return entry;
   }, { log: (m) => deps.log('steward panel: ' + m) });
   const publish = (now = Date.now()) => {
@@ -376,6 +397,15 @@ function create(vscode, deps) {
   /* The windows on this machine, this one included, from their entries. */
   const windows = (now = Date.now()) => [{ pid: process.pid, name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() }]
     .concat(windowEntries.others(deps.dir, { now, alive: deps.alive }).map((w) => ({ pid: w.pid, name: w.name, folders: w.folders, sessions: w.sessions })));
+  const writes = () => writesTable({ canWrite: deps.canWrite(), replaced: deps.replaced() }, windowEntries.others(deps.dir, { alive: deps.alive }));
+  /* Said once per window when a change made in the panel is not saved; the panel's own line says it all along. */
+  let toldStale = false;
+  const tellStale = () => {
+    if (toldStale) return;
+    toldStale = true;
+    deps.offerReload('The tick is not saved: this window is running an earlier build of Claude Code Plus than the one now '
+      + 'installed, and a window running that one keeps the stewards list. Reload the window to change what a steward manages.');
+  };
 
   /* The list for a steward with "all" set: every conversation open in a window, except itself and other stewards. */
   const everyIds = (steward, table) => {
@@ -417,15 +447,16 @@ function create(vscode, deps) {
     if (changed) deps.changed();
   };
 
-  /* `shown` is the list the page has, or null when it needs the whole page. */
-  const render = () => {
+  /* `shown` is the list the page has, or null when it needs the whole page. `again` sends it even when unchanged, to
+     put back a box the reader clicked that was not saved. */
+  const render = (again = false) => {
     if (!view || !view.visible) return;
     const other = deps.otherFront();
     const list = body(model(last, other ? '' : deps.activeChat(), other));
     if (shown === null) {
       view.webview.html = shell(list, Math.random().toString(36).slice(2) + Date.now().toString(36));
       shown = list;
-    } else if (list !== shown) {
+    } else if (list !== shown || again) {
       shown = list;
       view.webview.postMessage({ type: 'body', html: list });
     }
@@ -601,6 +632,7 @@ function create(vscode, deps) {
         resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsFresh || deps.freshAgents,
         records: deps.records, post: deps.post, titleOf,
         manage: (steward, id) => {
+          if (!writes()) return false;
           const t = stewards.read(deps.dir)[steward];
           if (t && !t.manages.includes(id)) {
             stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: titleOf(id) }), { dir: deps.dir });
@@ -637,7 +669,7 @@ function create(vscode, deps) {
       const r = await deps.freshAgents();
       if (planSeen.size > 1000) planSeen.clear();
       last = gather(r && r.records, cached);
-      if (deps.canWrite()) {
+      if (writes()) {
         const names = {};
         for (const [id, c] of last) names[id] = c.title;
         stewards.rename(names, { dir: deps.dir });
@@ -663,7 +695,12 @@ function create(vscode, deps) {
       if (await open(m.id) === 'nowhere') vscode.window.showInformationMessage('That conversation is not open in any VS Code window on this machine.');
       return;
     }
-    if (!m || !front || !deps.canWrite()) return;
+    if (m && m.type === 'reload') { await deps.reload(); return; }
+    if (!m || !front) return;
+    if (!writes()) {
+      if (deps.replaced()) { tellStale(); render(true); }
+      return;
+    }
     const table = stewards.read(deps.dir);
     const mine = new Set(table[front] ? table[front].manages : []);
     if (m.type === 'every') {
@@ -720,8 +757,8 @@ function create(vscode, deps) {
     refresh() { render(); },
     open,
     _gather: gather, _model: model, _notify: notify, _pass: pass, _onMessage: onMessage, _takeRequest: takeRequest, _syncEvery: syncEvery,
-    _takeRelays: takeRelays,
+    _takeRelays: takeRelays, _writes: writes,
   };
 }
 
-module.exports = { create, gather, grouped, doingRows, waitedOn, body, shell, VIEW, REFRESH_MS, NOTICE_GAP_MS, WORK_CHECK_MS, WINDOWS_DIR };
+module.exports = { create, gather, grouped, doingRows, waitedOn, body, shell, writesTable, VIEW, REFRESH_MS, NOTICE_GAP_MS, WORK_CHECK_MS, WINDOWS_DIR };

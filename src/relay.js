@@ -29,8 +29,9 @@
  * with the action's flag, and at most once per call.
  *
  * A conversation a steward opened with `open` or `resume` is then ticked for it in stewards.json, as the user would
- * tick it in the Steward panel, unless the steward manages all of them; nothing else a steward asks for changes whom it
- * manages.
+ * tick it in the Steward panel, by the window that opened it if that window may write the table (writesTable in
+ * src/steward-view.js); a steward of all conversations too, which would otherwise wait for the next pass of the panel
+ * in its own window. Nothing else a steward asks for changes whom it manages.
  *
  *   <plan dir>/relay/<id>.json          { id, steward, from, action, to, text, confirmed, at }   written by steward-relay.py
  *   <plan dir>/relay/<id>.taken-<pid>   the request, claimed by window <pid> with a rename
@@ -125,7 +126,8 @@ function readSent(dir, now) {
  * steward it shows. deps: shownHere(id), folders() -> this window's folders, first first, stewards() -> the stewards
  * table (src/stewards.js), transcriptOf(id), deliver(id, text), rename(id, title), close(id, confirmed),
  * open(folder, text) and resume(id, text) -> Promise<{ outcome, reason, sessionId, opened }> (open's sessionId is the
- * new conversation's, when known), manage(steward, id) to tick a conversation for the steward, windows() -> the
+ * new conversation's, when known), manage(steward, id) to tick a conversation for the steward, which returns false when
+ * this window may not, windows() -> the
  * windows' entries { pid, name, folders, sessions }, agents() -> Promise<{ records, error }> from `claude agents --json`,
  * records() -> the live session records and post(address, text) for a handoff, titleOf(id), pid, now(), and sleep(ms)
  * for tests. Returns the results it wrote.
@@ -365,13 +367,12 @@ async function carryOut(req, action, to, dir, deps, now) {
     try { writeAtomic(path.join(dir, SENT_FILE), JSON.stringify(sent) + '\n'); } catch (_) { /* a repeat is then not caught */ }
   }
   /* A conversation the steward has just opened, new or stored, is ticked for it as the user would tick it in the
-     Steward panel; a resumed one once it is open, also when its text was then not sent. A steward of all conversations
-     has it already. */
+     Steward panel; a resumed one once it is open, also when its text was then not sent. */
   const opened = action === 'open' ? (r && r.outcome === 'submitted' && typeof r.sessionId === 'string' && SESSION.test(r.sessionId) ? r.sessionId.toLowerCase() : '')
     : action === 'resume' && r && r.opened === true ? to : '';
   let ticked = false;
-  if (opened && !t.all && deps.manage) {
-    try { deps.manage(asker, opened); ticked = true; } catch (_) { /* the user ticks it in the panel */ }
+  if (opened && deps.manage) {
+    try { ticked = deps.manage(asker, opened) !== false; } catch (_) { /* the user ticks it in the panel */ }
   }
   const out = { outcome: (r && r.outcome) || 'uncertain', reason: (r && r.reason) || '' };
   if (r && typeof r.sessionId === 'string' && r.sessionId) out.sessionId = r.sessionId;

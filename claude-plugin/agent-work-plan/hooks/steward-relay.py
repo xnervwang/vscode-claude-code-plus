@@ -38,7 +38,7 @@ work is closed only with --confirmed. --open starts a new conversation in the VS
 Claude Code keeps the conversation under (Claude Code finds a window's stored conversations only there), and then sends it
 the message, if one is given. It is not done while a window
 shows the conversation or another process runs it; it says which. A conversation opened with --open or --resume is
-then ticked for this steward in the Steward panel, unless it manages all conversations.
+then ticked for this steward in the Steward panel, and the answer says so.
 
 --handoff is run from a conversation a steward manages, not from the steward: it gives a steward something the
 conversation thinks belongs elsewhere, as a notice that is not the user's message. Of the stewards that manage the

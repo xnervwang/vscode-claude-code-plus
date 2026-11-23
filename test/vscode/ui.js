@@ -68,6 +68,11 @@
  *   token mode     each of Agent Plus's token modes in turn: Show Status, the status bar, the information box, the hooks'
  *                  settings, Claude Code's list of plugins, the notice for a feature's own setting, what the fake model
  *                  receives, a detached command's end, and the four settings in the Settings editor
+ *   installed again
+ *                  the same version rebuilt with one file changed, installed over the running copy with a second window
+ *                  open: a steward of all conversations still gains the one it opens, in stewards.json and its panel;
+ *                  after a reload that window keeps the table, and the other, still on the earlier build, saves no tick
+ *                  and says so with a Reload Window button
  *   commands       Show Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
  *   removal        last: Remove from Claude Code restores both files, and turning the extension on puts the patch back
  *   self-check     no page of a Claude Code panel drew the warning that its messages are no longer found, all through the run
@@ -128,7 +133,7 @@ const FOLDER_THREADS = [
     turns: [['Draft the migration notes for the other project.', 'Drafted them in docs/migration.md.']] },
 ];
 
-async function run({ exe, profile, env, playwright, model, threads, background = [], out, check, note }) {
+async function run({ exe, vsix, profile, env, playwright, model, threads, background = [], out, check, note }) {
   const shotsDir = path.join(out, 'shots');
   fs.mkdirSync(shotsDir, { recursive: true });
   const base = baselines({ out, check, note });
@@ -3576,6 +3581,170 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         'the Settings editor shows the four settings, each description ending that it is used only while the token mode (a link) is Custom', items);
       await shot('token-mode-settings');
       await exec('workbench.action.closeActiveEditor');
+    });
+
+    /* The same version of this extension, a build that differs in one file, installed over the running copy, as
+       installing a build locally does: every open window then runs a build that is no longer the installed one until it
+       reloads. A steward of all conversations in window A still gains the conversation it opens; once A has reloaded it
+       keeps the stewards table, and window B, still on the earlier build, leaves it alone and says so. */
+    await step('a steward of all after its extension is installed again', async () => {
+      const front = threads[0];
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const file = path.join(dataDir, 'stewards.json');
+      const table = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards || {}; } catch (_) { return {}; } };
+      const manages = (id) => { const t = table()[front.id]; return !!t && Array.isArray(t.manages) && t.manages.includes(id); };
+      const entries = () => {
+        const dir = path.join(dataDir, 'windows');
+        let names = [];
+        try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+        return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } }).filter(Boolean);
+      };
+      const sameFolder = (a, b) => (process.platform === 'win32' ? path.resolve(String(a)).toLowerCase() === path.resolve(String(b)).toLowerCase() : a === b);
+      const entryOf = (folder) => entries().find((e) => Array.isArray(e.folders) && e.folders.some((f) => sameFolder(f, folder)));
+      const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
+      let calls = 0;
+      const act = (args, input) => {
+        const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
+        const answered = fakeHome.appendToolCall(transcriptOf(front), { sessionId: front.id, cwd: profile.folder,
+          uuid: `${front.id.slice(0, 24)}${String(990000 + calls++).padStart(12, '0')}`, toolId: `toolu_again_${calls}`, command: line, description: 'Act for the user' });
+        return new Promise((resolve) => {
+          const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
+            { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: front.id }) });
+          let said = '';
+          kid.stdout.on('data', (d) => { said += d; });
+          kid.stderr.on('data', (d) => { said += d; });
+          kid.on('error', (e) => resolve('could not run the script: ' + e.message));
+          kid.on('exit', () => resolve(said.trim()));
+          kid.stdin.end(input || '');
+        }).then((said) => { answered(said); return said; });
+      };
+      const stewardIn = (p) => until(async () => {
+        for (const f of p.frames()) { try { if (await f.evaluate(() => /Managed by/.test(document.body ? document.body.innerText : ''))) return f; } catch (_) { /* gone */ } }
+        return null;
+      }, 30000, 500);
+      const staleLine = (f) => f.evaluate(() => { const p = document.querySelector('p.stale'); return p ? { text: p.innerText.replace(/\s+/g, ' ').trim(), button: !!p.querySelector('button[data-act="reload"]') } : null; });
+
+      /* Window A: the conversation in front set to All in the Steward panel. */
+      for (const t of threads.slice(1, 3)) { await exec('claude-vscode.editor.open', t.id); await sleep(800); }
+      await exec('claude-vscode.editor.open', front.id);
+      await exec('workbench.view.extension.claudeCodePlusSteward');
+      let panel = await stewardIn(page);
+      if (panel && !await panel.locator('input[data-every]').isChecked()) await panel.locator('input[data-every]').click();
+      const every = await until(() => table()[front.id] && table()[front.id].all === true, 10000, 300);
+      check(!!panel && !!every, 'window A has a steward of all conversations in front', table()[front.id] || null);
+      if (!panel || !every) return;
+
+      /* Window B on a folder of its own, opened before the install so that it runs the earlier build too. */
+      const folderS = fs.realpathSync.native((() => { const d = path.join(path.dirname(profile.folder), 'ws-s'); fs.mkdirSync(d, { recursive: true }); return d; })());
+      const P = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fe', title: 'Sort out the logging levels of the importer', days: 0,
+        turns: [['Sort out the logging levels of the importer.', 'Set the noisy ones to debug.']] };
+      fakeHome.writeThreads(profile.home, folderS, [P]);
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderS);
+      const pageB = await w.pageOf(path.basename(folderS), 90000);
+      const hostB = pageB ? await w.hostUp(before, folderS).catch(() => null) : null;
+      check(!!pageB && !!hostB, 'a second window, B, opens on a folder of its own', { pageB: !!pageB });
+      if (!pageB || !hostB) {
+        if (pageB) await pageB.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        return;
+      }
+      w.pin(profile.folder);
+      const inB = (body, arg) => call(body, arg, 60000, folderS);
+      let newId = '';
+      try {
+        await until(() => inB(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`), 60000, 1000);
+        await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', P.id);
+        const listedB = await until(() => { const e = entryOf(folderS); return e && e.sessions.includes(P.id) && e; }, 30000, 500);
+        check(!!listedB, 'B shows a conversation of its own, which its entry lists', entryOf(folderS) || null);
+
+        /* The install, as run.js installs the extension, of the same package with one line added to its README. */
+        const extDir = path.join(profile.exts, fs.readdirSync(profile.exts).find((n) => /^xnervwang\.claude-code-plus-\d/.test(n)));
+        const stamp = () => { try { return JSON.parse(fs.readFileSync(path.join(extDir, 'package.json'), 'utf8')).__metadata.installedTimestamp || 0; } catch (_) { return 0; } };
+        const was = stamp();
+        const rebuilt = path.join(out, 'rebuilt.vsix');
+        const zipped = require('child_process').spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-I', '-c', [
+          'import sys, zipfile',
+          'src, dst = sys.argv[1], sys.argv[2]',
+          'with zipfile.ZipFile(src) as a, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as b:',
+          '    for i in a.infolist():',
+          '        data = a.read(i.filename)',
+          '        if i.filename == "extension/README.md": data += b"\\n"',
+          '        b.writestr(i, data)',
+        ].join('\n'), vsix, rebuilt], { encoding: 'utf8' });
+        const [tool] = require('@vscode/test-electron').resolveCliArgsFromVSCodeExecutablePath(exe, { reuseMachineInstall: true });
+        const cliEnv = Object.assign({}, env);
+        delete cliEnv.VSCODE_IPC_HOOK_CLI;
+        const shell = process.platform === 'win32';
+        const argv = ['--install-extension', rebuilt, '--force', `--extensions-dir=${profile.exts}`, `--user-data-dir=${profile.user}`];
+        const r = zipped.status === 0 ? require('child_process').spawnSync(shell ? `"${tool}"` : tool, shell ? argv.map((a) => `"${a}"`) : argv,
+          { env: cliEnv, encoding: 'utf8', shell, timeout: 180000 }) : null;
+        const installed = r && r.status === 0 && await until(() => stamp() && stamp() !== was, 30000, 500);
+        check(!!installed, 'the same version, rebuilt with one file changed, is installed over the running copy, as a local install does',
+          { zipped: zipped.status === 0 ? 'ok' : (zipped.stderr || '').slice(0, 300), install: r ? `${r.status} ${(r.stdout || '').trim()} ${(r.stderr || '').trim()}`.slice(0, 600) : null });
+        if (!installed) return;
+        await sleep(3000);
+        await shot('steward-installed-again');
+
+        /* The steward opens a new conversation in A's folder. Running conversations reach the panel from `claude agents
+           --json`, asked at most every 30 s. */
+        const opened = await act(['--open', profile.folder], 'Start on the changelog, please.');
+        newId = (/Session id: ([0-9a-f-]{36})/.exec(opened) || [])[1] || '';
+        const gained = newId && await until(() => manages(newId), 15000, 300);
+        const boxOf = (f, id) => f.evaluate((id) => { const b = document.querySelector(`input[data-id="${id}"]`); return b ? { checked: b.checked, disabled: b.disabled } : null; }, id);
+        await exec('claude-vscode.editor.open', front.id);
+        const rowOn = newId && await until(async () => { const b = await boxOf(panel, newId); return b && b.checked && b; }, 60000, 1000);
+        const quietA = await staleLine(panel);
+        const eA = entryOf(profile.folder), eB = entryOf(folderS);
+        check(/^Opened: /.test(opened) && !!gained && !!rowOn && !quietA,
+          'with every window on the build installed over, the steward of all gains the conversation it opened: stewards.json has it, and its panel shows it ticked, with no word of a reload',
+          { opened, gained: !!gained, row: rowOn || (newId && await boxOf(panel, newId)), line: quietA, manages: (table()[front.id] || {}).manages });
+        check(!!eA && eA.installed === false && !!eB && eB.installed === false && typeof eA.build === 'string' && eA.build.length > 0 && eA.build === eB.build,
+          'both windows\' entries say they run the same build, and not the installed one', { a: eA && [eA.build, eA.installed], b: eB && [eB.build, eB.installed] });
+        await shot('steward-replaced-gains');
+
+        /* A reloads and runs the installed build. */
+        await w.reload();
+        await until(() => call(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`), 60000, 1000);
+        const eA2 = await until(() => { const e = entryOf(profile.folder); return e && e.installed === true && e; }, 30000, 500);
+        check(!!eA2 && eA2.build !== (entryOf(folderS) || {}).build, 'after its reload A\'s entry says it runs the installed build, another than B\'s', { a: entryOf(profile.folder), b: entryOf(folderS) });
+
+        /* B, still on the earlier build, leaves the table to A: a tick in its panel is not saved, and it says so. */
+        await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); await vscode.commands.executeCommand("workbench.view.extension.claudeCodePlusSteward"); return true;', P.id);
+        const panelB = await stewardIn(pageB);
+        const firstB = panelB && await until(async () => { const b = panelB.locator('input[data-id]').first(); return (await b.isVisible().catch(() => false)) && b; }, 45000, 1000);
+        if (firstB) await firstB.click();
+        await sleep(6000);
+        const lineB = panelB ? await staleLine(panelB) : null;
+        const toastB = await until(() => pageB.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].map((e) => e.innerText)
+          .find((t) => /^The tick is not saved: /.test(t)) || ''), 10000, 500);
+        const reloadButton = toastB && await pageB.evaluate(() => [...document.querySelectorAll('.notification-list-item')].filter((n) => /The tick is not saved/.test(n.innerText))
+          .some((n) => [...n.querySelectorAll('.monaco-button')].some((b) => b.innerText.trim() === 'Reload Window')));
+        check(!!firstB && !table()[P.id] && !!lineB && /^This window runs an earlier build of Claude Code Plus than the one now installed, so ticks made here are not saved\./.test(lineB.text)
+          && lineB.button && !!toastB && !!reloadButton,
+          'window B, still on the earlier build, saves no tick once A runs the installed one, and says so in one line of its Steward panel and in a notice, each with a Reload Window button',
+          { clicked: !!firstB, saved: table()[P.id] || null, line: lineB, toast: toastB, reloadButton });
+        await (async () => { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-replaced-window-b.png`) }).catch(() => {}); })();
+
+        /* A keeps the table: turning All off there is saved. */
+        await exec('claude-vscode.editor.open', front.id);
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        panel = await stewardIn(page);
+        if (panel) await panel.locator('input[data-every]').click();
+        const offA = panel && await until(() => table()[front.id] && table()[front.id].all !== true, 10000, 300);
+        check(!!offA, 'and A, reloaded, keeps the table: turning All off there is saved', table()[front.id] || null);
+      } finally {
+        if (newId) await act(['--close', '--confirmed', newId]).catch(() => '');
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderS).catch(() => {});
+        await until(async () => !(await w.pageOf(path.basename(folderS), 1000)), 20000, 500);
+        w.pin(undefined);
+        await exec('claude-vscode.editor.open', front.id).catch(() => {});
+        await exec('workbench.view.extension.claudeCodePlusSteward').catch(() => {});
+        const p = await stewardIn(page);
+        if (p && await p.locator('input[data-every]').isChecked().catch(() => false)) await p.locator('input[data-every]').click();
+        if (p) await p.locator('button[data-act="none"]').click().catch(() => {});
+        await until(async () => (await claudeTabs()).some((x) => titled(x.label, front.title)), 10000, 300);
+        await exec('workbench.action.closePanel').catch(() => {});
+      }
     });
 
     await step('commands', async () => {

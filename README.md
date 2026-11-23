@@ -330,6 +330,7 @@ Message appearance: `claudeCodePlus.userMessageColor` and `claudeCodePlus.userMe
 - A steward can pass a message on only to a conversation that a VS Code window shows, since Claude Code Plus types it into its message input there. If no window shows the conversation, the steward first opens it in the window whose first workspace folder is the one Claude Code keeps the conversation under.
 - Whether an extension host still has its window is told by the Claude Code panels in it, which say so once a minute; a host that has not heard from one for five minutes has no window. A host that has never heard from any panel since it started is taken to have a window, so a process in it is never stopped without asking.
 - Steward notices and handoffs go to the steward's inbox socket, which Claude Code documents for scripts but not the format of the line it reads from it; they are not sent on native Windows, where that socket needs a token only the session holds, and a handoff there says the steward could not be reached.
+- After Claude Code Plus is updated or installed again, a window that has not been reloaded runs the earlier build. Until some window runs the installed build, the windows on the earlier one keep the list of who manages whom, so a steward set to All still gains new conversations. Once one window runs it, the others leave the list to it: their Steward panel says ticks there are not saved and offers Reload Window, and a steward set to All shown in one of them gains nothing until that window is reloaded.
 
 ## Contributing
 
