@@ -3994,6 +3994,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
              hears of another window's conversations through `claude agents`, which it reads at most every 30 s. */
           const settledBoth = await until(() => [Z, Y].every((c) => { const a = attentionOf(c.id); return !a || a.activity !== 'waiting'; }), SEEN_MS + 15000, 500);
           check(!!settledBoth, 'both answered, no window reports either waiting', { files: attentionFiles() });
+          /* The answered turns then end, and Agent Plus tells of a finished turn some seconds later; that notice is let
+             come and cleared first, so that it does not land in the time no window has the focus. */
+          await until(() => [Z, Y].every((c) => { const a = attentionOf(c.id); return !a || a.activity !== 'working'; }), 60000, 500);
+          await sleep(noticeDelay.finished + 1000);
+          await exec('notifications.clearAll');
+          await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
           await testFocus(false);
           await testFocus(false, folderD);
           const zAgain = await sendBehind(Z, zf, `Please ${ASK_TO_RUN} once more.`, ASK_TEXT);
@@ -4586,9 +4592,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         'a reply naming another conversation by its title, by its title in corner brackets and by its short id has a link for each, drawn by Claude Code\'s own link component',
         drawn || await linksNow());
       const link = panel.locator(`[data-testid="assistant-message"] a[href="${MENTION}"]`).first();
-      await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
-      await link.hover({ timeout: 10000 }).catch(() => {});
-      const tip = await until(() => panel.evaluate(() => { const b = document.querySelector('[data-cce-label]'); return b ? b.textContent : ''; }), 5000, 200);
+      /* A pointer that arrives while the reply is still being laid out can miss the mouseover; it leaves and comes back. */
+      let tip = '';
+      for (let i = 0; i < 3 && !tip; i++) {
+        await page.mouse.move(5, 5);
+        await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+        await link.hover({ timeout: 10000 }).catch(() => {});
+        tip = await until(() => panel.evaluate(() => { const b = document.querySelector('[data-cce-label]'); return b ? b.textContent : ''; }), 4000, 200) || '';
+      }
       check(typeof tip === 'string' && tip.startsWith(`${L.title}\nClaude Code conversation ${L.id.slice(0, 8)}`),
         'hovering over one names the conversation and its agent', tip);
       await shot('conversation-links-hover');
@@ -4902,9 +4913,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
         /* The other agent's conversation: its label and its open. */
         const link = panel.locator(`[data-testid="assistant-message"] a[href="vscode://xnervwang.claude-code-plus/open?session=${Z.sessionId}&source=${AGENT}"]`).first();
-        await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
-        await link.hover({ timeout: 10000 }).catch(() => {});
-        const tip = await until(() => panel.evaluate(() => { const b = document.querySelector('[data-cce-label]'); return b ? b.textContent : ''; }), 5000, 200);
+        let tip = '';
+        for (let i = 0; i < 3 && !tip; i++) {
+          await page.mouse.move(5, 5);
+          await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+          await link.hover({ timeout: 10000 }).catch(() => {});
+          tip = await until(() => panel.evaluate(() => { const b = document.querySelector('[data-cce-label]'); return b ? b.textContent : ''; }), 4000, 200) || '';
+        }
         check(typeof tip === 'string' && tip.startsWith(`${Z.title}\nTest agent conversation ${Z.sessionId.slice(0, 8)}`),
           'hovering over another agent\'s conversation names that agent', tip);
         const tabsBefore = (await claudeTabs()).length;
