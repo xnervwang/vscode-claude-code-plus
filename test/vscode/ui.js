@@ -4788,8 +4788,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await way('a menu closed', async () => {
           await mainRow(B).click();
           await opened(B, 'a click on its row');
-          await mainRow(B).click({ button: 'right' });
-          if (!await until(async () => (await menus()).length, 5000, 100)) throw new Error('no menu opened');
+          /* The list closes its menu when its page loses the focus, and the page of the conversation just opened can take
+             the focus a moment after the right-click, as pick() also allows for. */
+          let menuUp = false;
+          for (let i = 0; i < 3 && !menuUp; i++) {
+            await mainRow(B).click({ button: 'right' });
+            menuUp = !!await until(async () => (await menus()).length, 3000, 100);
+          }
+          if (!menuUp) throw new Error('no menu opened');
           await page.keyboard.press('Escape');
           if (!await until(async () => !(await menus()).length, 5000, 100)) throw new Error('the menu did not close');
           await after('a row\'s menu closed with nothing picked', [B], B);
