@@ -3423,18 +3423,31 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await tab.locator('.tab-actions .action-label').first().click({ timeout: 5000 });
         if (!await until(async () => !(await tabOf(t)), 15000, 300)) throw new Error(`the tab of "${t.title}" did not close`);
       };
-      /* The mouse to an empty spot of the list and then out of it: a page is told the mouse left a row only when the mouse
-         moves within the page. */
-      const mouseOut = async () => {
+      /* The pointer onto a spot of the list that is no row, a section's header found in the page: in a short window a
+         full list reaches its bottom, so no fixed spot is sure to be free of rows. The pointer stays in the list, since a
+         page is told the pointer left a row only when the pointer moves within the page. */
+      const pointerOffRows = async () => {
         const box = await (await list.frameElement()).boundingBox();
-        await page.mouse.move(box.x + 30, box.y + box.height - 12);
-        await page.mouse.move(5, 880);
+        const at = await list.evaluate(() => {
+          const free = ([x, y]) => { const e = document.elementFromPoint(x, y); return !!e && !e.closest('[class*="sessionItem_"]'); };
+          const heads = [...document.querySelectorAll('[class*="sectionHeader_"], [data-cce-section-head]')].map((h) => h.getBoundingClientRect())
+            .filter((r) => r.height > 0 && r.top >= 0 && r.bottom <= innerHeight).map((r) => [r.left + Math.min(40, r.width / 2), r.top + r.height / 2]);
+          return [...heads, [8, 8], [innerWidth - 8, 8]].find(free) || null;
+        });
+        if (!at) throw new Error('the list has no spot off its rows to rest the pointer on');
+        await page.mouse.move(box.x + at[0], box.y + at[1]);
+      };
+      /* The keyboard focus into the list as the view's own command puts it there, which no click on a row does. */
+      const focusList = async () => {
+        await exec('workbench.view.extension.claude-sessions-sidebar');
+        const inList = () => list.evaluate(() => document.hasFocus() && !!document.activeElement && document.activeElement !== document.body);
+        if (!await until(inList, 5000, 100)) await list.locator('[class*="root_"][tabindex]').first().focus();
       };
       const looked = [];
       let n = 0;
       /* `open`: the conversations open now; `front`: the one in a tab in front, or null. */
       const after = async (what, open, front) => {
-        await mouseOut();
+        await pointerOffRows();
         const ids = open.map((t) => t.id), f = front ? front.id : null;
         let looks = [];
         const ok = await until(async () => { looks = await rowLooks(); return looks.length && !misdrawn(looks, ids, f).length; }, 15000, 300);
@@ -3449,129 +3462,158 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           await shot(`rows-no-longer-open-${name.replace(/\W+/g, '-')}-error`);
         }
       };
-      /* Claude Code opens a conversation clicked in its list where it last opened one; an earlier step can leave that the
-         sidebar. */
-      const tabsFirst = () => call("await vscode.workspace.getConfiguration('claudeCode').update('preferredLocation', undefined, vscode.ConfigurationTarget.Global); return true;");
+      /* Claude Code opens a conversation clicked in its list where it last opened one, and opening it in the sidebar
+         makes that the sidebar; the step puts back the setting and the sidebar it found. */
+      const whereNow = () => call("return vscode.workspace.getConfiguration('claudeCode').inspect('preferredLocation').globalValue ?? null;");
+      const whereTo = (v) => call("await vscode.workspace.getConfiguration('claudeCode').update('preferredLocation', arg === null ? undefined : arg, vscode.ConfigurationTarget.Global); return true;", v);
+      const found = { where: await whereNow(), sidebar: await auxiliaryVisible() };
 
-      await tabsFirst();
-      await exec('workbench.action.closeAllEditors');
-      await exec('workbench.action.closeAuxiliaryBar');
-      await openNotes();
-      if (!await openList()) throw new Error('the session list did not open');
-      if (!await until(async () => (await rowLooks()).filter((r) => r.where === 'list').length >= threads.length, 30000, 500)) {
-        throw new Error('the list did not draw its rows');
-      }
-      /* A selection an earlier step left: Escape in the list ends it, as it does for a person. */
-      await clickEmpty();
-      await list.locator('[class*="root_"][tabindex]').first().focus().catch(() => {});
-      await page.keyboard.press('Escape');
-
-      await way('a row clicked', async () => {
-        await mainRow(A).click();
-        await opened(A, 'a click on its row');
-        await after('a row clicked', [A], A);
-        await closeTab(A);
-        await after('a row clicked and its tab closed in front', [], null);
-      });
-      await way('two opened', async () => {
-        await mainRow(A).click();
-        await opened(A, 'a click on its row');
-        await mainRow(B).click();
-        await opened(B, 'a click on its row');
-        await closeTab(A);
-        await after('two opened from the list and the first closed behind the second', [B], B);
-      });
-      await way('from OPEN SESSIONS', async () => {
-        await mainRow(A).click();
-        await opened(A, 'a click on its row');
-        await list.locator(`[id="cce-open-${B.id}"]`).first().click();
-        await opened(B, 'a click on its row in OPEN SESSIONS');
-        await closeTab(B);
-        await after('one brought forward from OPEN SESSIONS and closed in front', [A], A);
-        await closeTab(A);
-        await after('the last tab closed', [], null);
-      });
-      await way('the sidebar', async () => {
-        await exec('claude-vscode.sidebar.open');
-        await tabsFirst();
-        const side = await frameWhere(() => !!document.querySelector('[aria-label="Session history"]') && !!document.querySelector('[contenteditable][role="textbox"]'), 60000);
-        if (!side) throw new Error('Claude Code did not open in the sidebar');
-        await side.locator('[aria-label="Session history"]').first().click();
-        await mainRow(C, side).click({ timeout: 15000 });
-        if (!await until(() => side.evaluate((ask) => document.body.innerText.includes(ask), C.turns[0][0]), 30000, 500)) throw new Error('the sidebar did not switch to the conversation');
-        /* Claude Code counts only a conversation in a tab as the one in front. */
-        await after('one opened in the sidebar from the list its page opens', [C], null);
-        await side.locator('[aria-label="New session"]').first().click();
-        if (!await until(() => side.evaluate((ask) => !document.body.innerText.includes(ask), C.turns[0][0]), 30000, 500)) throw new Error('the sidebar did not start a new conversation');
-        /* The sidebar keeps the conversation it showed before running, so Claude Code still counts it open there. */
-        await after('the sidebar then started a new conversation', [C], null);
+      try {
+        await whereTo(null);
+        await exec('workbench.action.closeAllEditors');
         await exec('workbench.action.closeAuxiliaryBar');
-      });
-      await way('the arrow keys', async () => {
-        const rowsNow = async () => (await rowLooks()).filter((r) => r.where === 'list');
-        await clickEmpty();
-        await list.locator('[class*="root_"][tabindex]').first().focus().catch(() => {});
-        await page.keyboard.press('ArrowDown');
-        for (let i = 0; i < 12; i++) {
-          const rows = await rowsNow(), at = rows.findIndex((r) => r.highlighted), to = rows.findIndex((r) => r.id === A.id);
-          if (at === to) break;
-          if (at < 0 || to < 0) throw new Error(`no row ${at < 0 ? 'is highlighted by the arrow keys' : 'shows the conversation'}`);
-          await page.keyboard.press(at < to ? 'ArrowDown' : 'ArrowUp');
-          await until(async () => (await rowsNow()).findIndex((r) => r.highlighted) !== at, 3000, 100);
+        await openNotes();
+        if (!await openList()) throw new Error('the session list did not open');
+        if (!await until(async () => (await rowLooks()).filter((r) => r.where === 'list').length >= threads.length, 30000, 500)) {
+          throw new Error('the list did not draw its rows');
         }
-        await page.keyboard.press('Enter');
-        await opened(A, 'Enter on its row');
-        await after('one opened with the arrow keys and Enter', [A], A);
-        await closeTab(A);
-        await after('one opened with the arrow keys and Enter, its tab closed in front', [], null);
-      });
-      await way('a modifier click', async () => {
-        await mainRow(B).click({ modifiers: [MOD] });
-        if (!await until(async () => (await rowLooks()).some((r) => r.id === B.id && r.selected), 5000, 200)) note(`a ${MOD} click did not pick a row of the session list here`);
-        await mainRow(A).click();
-        await opened(A, 'a click on its row');
-        await after('a row picked with a modifier click, then another clicked', [A], A);
-        await closeTab(A);
-        await after('a row picked with a modifier click, then another clicked and its tab closed', [], null);
-      });
-      await way('a menu closed', async () => {
-        await mainRow(B).click();
-        await opened(B, 'a click on its row');
-        await mainRow(B).click({ button: 'right' });
-        if (!await until(async () => (await menus()).length, 5000, 100)) throw new Error('no menu opened');
+        /* A selection an earlier step left: Escape in the list ends it, as it does for a person. */
+        await focusList();
         await page.keyboard.press('Escape');
-        if (!await until(async () => !(await menus()).length, 5000, 100)) throw new Error('the menu did not close');
-        await after('a row\'s menu closed with nothing picked', [B], B);
-        await closeTab(B);
-        await after('a row\'s menu closed with nothing picked, then its tab closed in front', [], null);
-      });
-      await way('the menu', async () => {
-        retried(await pick(A, ['Resume in tab']), 'Resume in tab');
-        await opened(A, 'Resume in tab');
-        await after('one opened from its menu', [A], A);
-        await closeTab(A);
-        await after('one opened from its menu, its tab closed in front', [], null);
-      });
-      /* The list lets a row be dragged only while it is not archived, and an earlier step can leave one archived. */
-      await way('a drag', async () => {
-        let dragged = null;
-        for (const t of [B, C, A]) {
-          const b = await mainRow(t).boundingBox();
-          if (!b) continue;
-          const x = b.x + b.width / 2, y = b.y + b.height / 2;
-          await page.mouse.move(x, y);
-          await page.mouse.down();
-          await page.mouse.move(x, y + 20, { steps: 5 });
-          await page.mouse.move(x, y + 120, { steps: 5 });
-          const during = await rowLooks();
-          await page.mouse.up();
-          if (during.some((r) => r.id === t.id && r.selected)) { dragged = t; break; }
-        }
-        if (!dragged) note('no drag started here: no dragged row was picked while the drag lasted');
-        await after(`a row dragged and let go over no group${dragged ? `, "${dragged.title}"` : ''}`, [], null);
-      });
-      fs.writeFileSync(path.join(out, 'rows-no-longer-open.json'), JSON.stringify(looked, null, 1));
-      await exec('workbench.action.closeAllEditors');
+
+        await way('a row clicked', async () => {
+          await mainRow(A).click();
+          await opened(A, 'a click on its row');
+          await after('a row clicked', [A], A);
+          await closeTab(A);
+          await after('a row clicked and its tab closed in front', [], null);
+        });
+        await way('two opened', async () => {
+          await mainRow(A).click();
+          await opened(A, 'a click on its row');
+          await mainRow(B).click();
+          await opened(B, 'a click on its row');
+          await closeTab(A);
+          await after('two opened from the list and the first closed behind the second', [B], B);
+        });
+        await way('from OPEN SESSIONS', async () => {
+          await mainRow(A).click();
+          await opened(A, 'a click on its row');
+          await list.locator(`[id="cce-open-${B.id}"]`).first().click();
+          await opened(B, 'a click on its row in OPEN SESSIONS');
+          await closeTab(B);
+          await after('one brought forward from OPEN SESSIONS and closed in front', [A], A);
+          await closeTab(A);
+          await after('the last tab closed', [], null);
+        });
+        await way('the sidebar', async () => {
+          let side = null;
+          const pastOpen = () => side.evaluate(() => !!document.querySelector('[role="dialog"][aria-label="Past conversations"]'));
+          /* The sidebar's page draws the conversation as its own message rows; the list it opens shows the same words as a
+             title. */
+          const shows = (t) => side.evaluate((ask) => [...document.querySelectorAll('[class*="userMessage_"]')].some((m) => m.innerText.includes(ask)), t.turns[0][0]);
+          try {
+            await exec('claude-vscode.sidebar.open');
+            await whereTo(null);
+            side = await frameWhere(() => !!document.querySelector('[aria-label="Session history"]') && !!document.querySelector('[contenteditable][role="textbox"]'), 60000);
+            if (!side) throw new Error('Claude Code did not open in the sidebar');
+            await side.locator('[aria-label="Session history"]').first().click();
+            /* On the row's title: in a narrow sidebar the middle of the row is its rename button. */
+            await mainRow(C, side).locator('span[class*="sessionName_"]').first().click({ timeout: 15000 });
+            if (!await until(async () => !(await pastOpen()) && await shows(C), 30000, 500)) throw new Error('the sidebar did not switch to the conversation');
+            /* Claude Code counts only a conversation in a tab as the one in front. */
+            await after('one opened in the sidebar from the list its page opens', [C], null);
+            await side.locator('[aria-label="New session"]').first().click();
+            if (!await until(async () => !(await shows(C)), 30000, 500)) throw new Error('the sidebar did not start a new conversation');
+            /* The sidebar keeps the conversation it showed before running, so Claude Code still counts it open there. */
+            await after('the sidebar then started a new conversation', [C], null);
+          } finally {
+            if (side && await pastOpen().catch(() => false)) await side.locator('[role="dialog"][aria-label="Past conversations"]').first().press('Escape').catch(() => {});
+            await exec('workbench.action.closeAuxiliaryBar');
+          }
+        });
+        await way('the arrow keys', async () => {
+          const rowsNow = async () => (await rowLooks()).filter((r) => r.where === 'list');
+          await focusList();
+          await page.keyboard.press('ArrowDown');
+          for (let i = 0; i < 40; i++) {
+            const rows = await rowsNow(), at = rows.findIndex((r) => r.highlighted), to = rows.findIndex((r) => r.id === A.id);
+            if (at === to) break;
+            if (at < 0 || to < 0) throw new Error(`no row ${at < 0 ? 'is highlighted by the arrow keys' : 'shows the conversation'}`);
+            await page.keyboard.press(at < to ? 'ArrowDown' : 'ArrowUp');
+            await until(async () => (await rowsNow()).findIndex((r) => r.highlighted) !== at, 3000, 100);
+          }
+          await page.keyboard.press('Enter');
+          await opened(A, 'Enter on its row');
+          await after('one opened with the arrow keys and Enter', [A], A);
+          await closeTab(A);
+          await after('one opened with the arrow keys and Enter, its tab closed in front', [], null);
+        });
+        await way('a modifier click', async () => {
+          await mainRow(B).click({ modifiers: [MOD] });
+          if (!await until(async () => (await rowLooks()).some((r) => r.id === B.id && r.selected), 5000, 200)) note(`a ${MOD} click did not pick a row of the session list here`);
+          await mainRow(A).click();
+          await opened(A, 'a click on its row');
+          await after('a row picked with a modifier click, then another clicked', [A], A);
+          await closeTab(A);
+          await after('a row picked with a modifier click, then another clicked and its tab closed', [], null);
+        });
+        await way('a menu closed', async () => {
+          await mainRow(B).click();
+          await opened(B, 'a click on its row');
+          await mainRow(B).click({ button: 'right' });
+          if (!await until(async () => (await menus()).length, 5000, 100)) throw new Error('no menu opened');
+          await page.keyboard.press('Escape');
+          if (!await until(async () => !(await menus()).length, 5000, 100)) throw new Error('the menu did not close');
+          await after('a row\'s menu closed with nothing picked', [B], B);
+          await closeTab(B);
+          await after('a row\'s menu closed with nothing picked, then its tab closed in front', [], null);
+        });
+        await way('the menu', async () => {
+          retried(await pick(A, ['Resume in tab']), 'Resume in tab');
+          await opened(A, 'Resume in tab');
+          await after('one opened from its menu', [A], A);
+          await closeTab(A);
+          await after('one opened from its menu, its tab closed in front', [], null);
+        });
+        /*
+         * The list lets a row be dragged only while it is not archived, and an earlier step can leave one archived. The
+         * drag is let go on another row of the list, which takes no drop, two rows away: let go outside the list's page,
+         * the page is never told the drag ended.
+         */
+        await way('a drag', async () => {
+          let dragged = null;
+          const box = await (await list.frameElement()).boundingBox();
+          for (const t of [B, C, A]) {
+            const b = await mainRow(t).boundingBox();
+            if (!b) continue;
+            const x = b.x + Math.min(60, b.width / 3), y = b.y + b.height / 2;
+            const to = await list.evaluate(({ x, y, h, id }) => {
+              for (const d of [2 * h, -2 * h, 3 * h, -3 * h]) {
+                const e = y + d > 4 && y + d < innerHeight - 4 ? document.elementFromPoint(x, y + d) : null;
+                const r = e && e.closest('[class*="sessionItem_"][id]');
+                if (r && !r.id.endsWith(id) && !e.closest('[class*="groupHeader_"]')) return y + d;
+              }
+              return null;
+            }, { x: x - box.x, y: y - box.y, h: b.height, id: t.id });
+            if (to === null) continue;
+            await page.mouse.move(x, y);
+            await page.mouse.down();
+            await page.mouse.move(x, y + Math.sign(to - (y - box.y)) * 6, { steps: 3 });
+            await page.mouse.move(x, box.y + to, { steps: 6 });
+            const during = await rowLooks();
+            await page.mouse.up();
+            if (during.some((r) => r.id === t.id && r.selected)) { dragged = t; break; }
+          }
+          if (!dragged) note('no drag started here: no dragged row was picked while the drag lasted');
+          await after(`a row dragged and let go over no group${dragged ? `, "${dragged.title}"` : ''}`, [], null);
+        });
+        fs.writeFileSync(path.join(out, 'rows-no-longer-open.json'), JSON.stringify(looked, null, 1));
+      } finally {
+        await whereTo(found.where);
+        if (found.sidebar !== await auxiliaryVisible()) await exec(found.sidebar ? 'workbench.action.focusAuxiliaryBar' : 'workbench.action.closeAuxiliaryBar');
+        await exec('workbench.action.closeAllEditors');
+      }
     });
 
     /* Last, since every step before needs the patch. Remove from Claude Code restores both files, and after a reload the
