@@ -368,6 +368,13 @@ function start(context, log, renamed, handing = false) {
   });
   const uninstalling = () => standing() === 'uninstalling';
   const replaced = () => standing() === 'replaced';
+  /* Whether this window keeps what every window shares about running work: which conversation started which
+     background session, what runs now, and the ends of detached commands and background sessions with their notices.
+     A window running the installed build does, and, like the stewards table, so does one whose build was installed
+     over while no window runs the installed one (src/steward-view.js writesTable). Otherwise, while every window runs
+     an earlier build, a conversation hears of an end only once a window is reloaded, which can be hours later. */
+  let keepsShared = () => false;
+  const keepsWork = () => !uninstalling() && !removed() && (!replaced() || keepsShared());
 
   const knownDirs = perTick(() => taskDirs(background.liveRecords()));
 
@@ -434,13 +441,13 @@ function start(context, log, renamed, handing = false) {
   };
   /* Where Claude Code's own command line can be found: its binary ships inside each install. */
   const claudeFolders = () => Array.from(new Set(ADAPTERS.flatMap((adapter) => installs(adapter))));
-  /* A replaced window (running an older build than the installed one) still scans, without writing, so its own tabs
-     keep their green dots. */
+  /* A replaced window (running an older build than the installed one) still scans so its own tabs keep their green
+     dots, and writes what it found only by the rule of keepsWork. */
   const scanBackground = () => {
     if (removed() || !enabled() || uninstalling() || switchedOff().includes('backgroundSessions')) return;
     const id = activeChat();
     if (!id) return;
-    const write = !replaced();
+    const write = keepsWork();
     background.scan(id, { write })
       .then((r) => { if (r && r.added && write) writeLiveNow(); })
       .catch((e) => log.appendLine('background sessions: ' + e.message));
@@ -969,6 +976,7 @@ function start(context, log, renamed, handing = false) {
     windowName: () => vscode.workspace.name || '', windowFolders: () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath),
   });
   context.subscriptions.push(steward);
+  keepsShared = () => steward.keepsShared();
   openAnywhere = (sessionId) => steward.open(sessionId);
   otherChanged = () => steward.refresh();
   /*
@@ -1245,11 +1253,6 @@ function start(context, log, renamed, handing = false) {
      decides whether it is sent. */
   const DETACHED_NOTICES = PREFIX + 'detachedEndNotices';
   const endNoticesOn = () => !!runs(DETACHED_NOTICES);
-  /* The ends of detached commands and background sessions are noted and told by a window running the installed build,
-     and, like the stewards table, by one whose build was installed over while no window runs the installed one
-     (src/steward-view.js writesTable). Otherwise, while every window runs an earlier build, a conversation hears of
-     an end only once a window is reloaded, which can be hours later. */
-  const tracksEnds = () => !uninstalling() && !removed() && (!replaced() || steward.keepsShared());
   /* A `claude -p` worker is left out: it would take the notice for its next task. So is a process in `avoid`. */
   const inboxOf = (id, avoid = []) => {
     const rec = background.liveRecords().find((r) => r && r.sessionId === id && typeof r.messagingSocketPath === 'string'
@@ -1305,12 +1308,12 @@ function start(context, log, renamed, handing = false) {
     const began = Date.now();
     let next;
     try {
-      next = removed() || !enabled() ? new Set() : await background.workingNow({ write: !replaced() && !uninstalling() });
+      next = removed() || !enabled() ? new Set() : await background.workingNow({ write: keepsWork() });
       readDuplicates();
     } finally { bgReading = false; }
     if (Date.now() - began > SLOW_SCAN_MS) log.appendLine(`work running: a scan took ${Math.round((Date.now() - began) / 1000)} s`);
-    if (!replaced() && !uninstalling() && !removed()) shareWorking(next);
-    if (tracksEnds()) noteDetached();
+    if (keepsWork()) shareWorking(next);
+    if (keepsWork()) noteDetached();
     if (next.size === bgWorking.size && [...next].every((id) => bgWorking.has(id))) return;
     log.appendLine('work running: ' + ([...next].map((id) => id.slice(0, 8)).join(', ') || 'none'));
     bgWorking = next;

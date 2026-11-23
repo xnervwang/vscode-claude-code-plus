@@ -6725,7 +6725,7 @@ console.log('\na window whose install was replaced by a rebuild of the same vers
     ['patching or restoring', /async function sync\([^)]*\) \{\s*if \(replaced\(\)\) \{/],
     ['the timed refresh', /if \(removed\(\) \|\| !enabled\(\) \|\| uninstalling\(\) \|\| replaced\(\)\) \{\s*if \(replaced\(\)\) scanBackground\(\);\s*unwatchEffort\(\);\s*return;\s*\}\s*scanBackground\(\);/],
     ['the efforts beside the panel', /if \(!r \|\| !r\.css \|\| removed\(\) \|\| uninstalling\(\) \|\| replaced\(\)\) return;\s*for \(const dir of installs\(webview\)\) webview\.writeEffort/],
-    ['the record of background sessions', /const write = !replaced\(\);\s*background\.scan\(id, \{ write \}\)\s*\.then\(\(r\) => \{ if \(r && r\.added && write\) writeLiveNow\(\); \}\)/],
+    ['the record of background sessions, but by the rule of keepsWork', /const write = keepsWork\(\);\s*background\.scan\(id, \{ write \}\)\s*\.then\(\(r\) => \{ if \(r && r\.added && write\) writeLiveNow\(\); \}\)/],
   ];
   const missing = guarded.filter(([, re]) => !re.test(ext)).map(([what]) => what);
   if (!missing.length) ok('a replaced window writes nothing shared: ' + guarded.map(([what]) => what).join(', '));
@@ -9500,8 +9500,8 @@ console.log('\nconversations whose background sessions are busy');
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   if (/i && i\.state === 'idle' && bgWorking\.has\(i\.sessionId\) \? Object\.assign\(\{\}, i, \{ state: 'running' \}\)/.test(ext)
       && /globalThis\.__cceRefreshTabIcons\(\)/.test(ext) && /globalThis\.__cceSendSessionStates\(\)/.test(ext)
-      && /await background\.workingNow\(\{ write: !replaced\(\) && !uninstalling\(\) \}\)/.test(ext)) {
-    ok('an idle conversation with work still running is reported as running, and a replaced window writes no link file');
+      && /await background\.workingNow\(\{ write: keepsWork\(\) \}\)/.test(ext)) {
+    ok('an idle conversation with work still running is reported as running, and a replaced window writes link files only by the rule of keepsWork');
   } else bad('extension.js does not mark conversations whose background sessions are busy');
   if (/log\.appendLine\('work running: ' \+ \(\[\.\.\.next\]\.map/.test(ext) && /work running: a scan took/.test(ext)) {
     ok('each change of the conversations with work running is logged, and a slow scan');
@@ -9904,14 +9904,19 @@ console.log('\nthe Steward panel');
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`], { encoding: 'utf8', timeout: 30000 }));
       if (out2.error) bad('the replaced window\'s panel threw: ' + out2.error);
       else {
-        /* The same rule decides whether the window notes and tells the ends of detached commands and background sessions:
-           otherwise, with every window on an earlier build, a conversation hears of them only once a window is reloaded. */
+        /* The same rule decides whether the window keeps what every window shares about running work: which conversation
+           started which background session, what runs now, and the ends with their notices. Otherwise, with every window
+           on an earlier build, a conversation hears of an end only once a window is reloaded. */
         const extEnds = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-        const gate = (/const tracksEnds = \(\) => ([^;]*);/.exec(extEnds) || [])[1] || '';
-        if (JSON.stringify(out2.keeps) === JSON.stringify([true, false, true]) && /steward\.keepsShared\(\)/.test(gate) && /!replaced\(\) \|\|/.test(gate)
-            && /if \(tracksEnds\(\)\) noteDetached\(\);/.test(extEnds) && !/if \(!replaced\(\)[^\n]*\) noteDetached\(\);/.test(extEnds)) {
-          ok('a window whose build was installed over keeps noting and telling the ends of background work while no window runs the installed build, and leaves them once one does');
-        } else bad(`ends of background work in a replaced window: keepsShared gave ${JSON.stringify(out2.keeps)}, the gate is "${gate}"`);
+        const gate = (/const keepsWork = \(\) => ([^;]*);/.exec(extEnds) || [])[1] || '';
+        const uses = ['const write = keepsWork();\n    background.scan(id, { write })', 'background.workingNow({ write: keepsWork() })',
+          'if (keepsWork()) shareWorking(next);', 'if (keepsWork()) noteDetached();', 'keepsShared = () => steward.keepsShared();'];
+        const missing = uses.filter((u) => !extEnds.includes(u));
+        if (JSON.stringify(out2.keeps) === JSON.stringify([true, false, true]) && /keepsShared\(\)/.test(gate) && /!replaced\(\) \|\|/.test(gate)
+            && !missing.length && !/if \(!replaced\(\)[^\n]*\) (noteDetached|shareWorking)\(/.test(extEnds)) {
+          ok('a window whose build was installed over keeps noting the background sessions a conversation starts, what runs, and the ends with their notices, '
+            + 'while no window runs the installed build, and leaves them once one does');
+        } else bad(`shared records of running work in a replaced window: keepsShared gave ${JSON.stringify(out2.keeps)}, the gate is "${gate}", missing ${JSON.stringify(missing)}`);
         if (JSON.stringify(out2.alone) === JSON.stringify([S(2), S(9)].sort()) && out2.own.build === 'old' && out2.own.installed === false
             && !/earlier build/.test(out2.quiet)) {
           ok('a window whose build was installed over, with no window running the installed build, adds to its steward of all conversations one that a window\'s entry lists, '
@@ -11173,7 +11178,7 @@ console.log('\nthe Steward panel');
     } else bad(`with background work the list said ${JSON.stringify([c7, c8])}`);
     const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
     if (/const WORKING_FILE = 'working\.json';/.test(ext) && /WORKING_FILE = "working\.json"/.test(fs.readFileSync(path.join(hooks, 'steward.py'), 'utf8'))
-        && /if \(!replaced\(\) && !uninstalling\(\) && !removed\(\)\) shareWorking\(next\);/.test(ext)) {
+        && /if \(keepsWork\(\)\) shareWorking\(next\);/.test(ext)) {
       ok('every scan of the windows shares that set under the name the hook reads');
     } else bad('extension.js does not share the background-work set where steward.py reads it');
     fs.mkdirSync(path.join(conf, 'projects', '-w'), { recursive: true });
