@@ -65,6 +65,26 @@ const off = (key) => ({
   undo: async (d) => { await setting(d, key, undefined); await d.sleep(1500); },
 });
 
+/* The demo conversation in front, its last reply naming the conversation `t` by its title and by its title in corner
+   brackets (lib/fake-model.js), and the links the page made of them on screen. A conversation is linked while it runs,
+   so one that no longer does is opened in its tab first. */
+const mentionLinks = (d, t) => d.conv.locator(`[data-testid="assistant-message"] a[href^="vscode://xnervwang.claude-code-plus/open?session=${t.id}&source="]`);
+async function toMentions(d, t, ask) {
+  await d.exec('claude-vscode.editor.open', d.sid);
+  await d.sleep(800);
+  if (ask) await send(d, d.conv, `Name the conversation ${t.id} titled ${t.title}.`);
+  if (!await d.until(async () => (await mentionLinks(d, t).count()) >= 2, 20000, 500)) {
+    await thread(d, t);
+    await d.exec('claude-vscode.editor.open', d.sid);
+    await d.sleep(800);
+  }
+  if (!await d.until(async () => (await mentionLinks(d, t).count()) >= 2, 60000, 500)) {
+    throw new Error(`the reply naming "${t.title}" has ${await mentionLinks(d, t).count()} links to it after 60 s`);
+  }
+  await toBottom(d.conv);
+  await d.sleep(800);
+}
+
 /* The demo conversation in front, scrolled so that your message containing `text` is at the top. */
 async function demoAt(d, text, { focus = false } = {}) {
   await d.exec('claude-vscode.editor.open', d.sid);
@@ -1555,6 +1575,35 @@ const STEPS = [
     },
   ]),
   {
+    name: 'conversation-links', features: ['conversation-links'],
+    expect: 'The last reply in the demo conversation names the conversation "Add a dry-run flag to the cleanup script" twice: once '
+      + 'on its own at the start of the reply, and once inside corner brackets. Both are drawn as links, in the same colour and '
+      + 'style as the other links Claude Code draws in replies, and the brackets themselves are not part of the link. The 8 '
+      + 'characters after "By its short id:" are a link to it too while no other running conversation\'s id starts with them, and '
+      + 'plain text otherwise; the demo\'s conversations share their first 8 characters, so either is right. The rest of the reply '
+      + 'is plain text. Where the machine has no CJK font the corner brackets show as empty boxes; that is the font, not the links.',
+    unchanged: null,
+    act: async (d) => { await toMentions(d, d.threads[2], true); await d.away(); return d.editor(); },
+  },
+  {
+    name: 'conversation-links-hover', features: ['conversation-links'],
+    expect: 'The mouse rests on the first link in the last reply, and a label floats next to it: the first line is the title "Add a '
+      + 'dry-run flag to the cleanup script", the second says "Claude Code conversation 7d1f3c2a, active" and how long ago. The '
+      + 'label is wholly inside the panel, readable, and does not hide the link itself.',
+    unchanged: 'The conversation is as in the picture before, scrolled to the same place.',
+    act: async (d) => {
+      await toMentions(d, d.threads[2], false);
+      await rest(d, d.conv);
+      await mentionLinks(d, d.threads[2]).first().hover();
+      if (!await d.until(() => d.conv.evaluate(() => { const b = document.querySelector('[data-cce-label="1"]'); return !!b && !!b.innerText.trim(); }), 3000, 100)) {
+        throw new Error('no hover label appeared over the link');
+      }
+      await d.sleep(300);
+      return d.editor();
+    },
+    undo: (d) => rest(d, d.conv),
+  },
+  {
     name: 'session-twice', features: ['session-twice'],
     expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once: the one its '
       + 'tab started, and a second one started later as the panel starts one. In the session list in the side bar, each of its rows ends with "2 '
@@ -2507,6 +2556,14 @@ const STEPS = [
       return d.body();
     },
     undo: async (d) => { d.model.release(); await d.exec('claude-vscode.editor.open', d.threads[0].id); await d.exec('notifications.clearAll'); await d.sleep(2000); },
+  },
+  {
+    name: 'light-conversation-links', features: ['light-theme', 'conversation-links'],
+    expect: 'The light theme. The last reply in the demo conversation names "Add a dry-run flag to the cleanup script" twice, on its '
+      + 'own and inside corner brackets, and both are drawn as links in the light theme\'s link colour, readable against the light '
+      + 'background, like any other link Claude Code draws in a reply.',
+    unchanged: 'Still the light theme.',
+    act: async (d) => { await toMentions(d, d.threads[2], false); await d.away(); return d.editor(); },
   },
   {
     name: 'light-work-plan', features: ['light-theme', 'work-plan-view'],

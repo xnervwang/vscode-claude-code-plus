@@ -96,8 +96,10 @@ const EDITS = [
    * session list, a text color chosen for conversations there, archived conversations to delete, whether an answer
    * from the Conversations tab was sent (src/page/91-answer.js), the info box asking for its conversation's
    * process id (src/page/80-session-info.js), the panel's page getting focus (src/page/92-focus.js), the page
-   * saying it is still there (src/page/99-sweep.js, for src/duplicates.js), and the state a panel reports for its
-   * conversation with whether a turn runs beside it (src/webview.js, for src/activity.js).
+   * saying it is still there (src/page/99-sweep.js, for src/duplicates.js), a conversation link clicked and a panel
+   * asking for the conversations it can link (src/page/93-steward-links.js and 95-conversation-links.js, for
+   * src/conversation-links.js), and the state a panel reports for its conversation with whether a turn runs beside it
+   * (src/webview.js, for src/activity.js).
    *
    * Every message a panel sends passes through the one function that logs it, before anything decides what the message
    * is, and Claude Code itself ignores all of these types. A global is how each reaches this extension - both run in one
@@ -127,6 +129,9 @@ const EDITS = [
       + `globalThis.__cceFocusHook&&globalThis.__cceFocusHook(${msg}.sessionId)}`
       + `else if(${msg}&&${msg}.type==="cce_open_session"&&typeof ${msg}.sessionId==="string"){`
       + `globalThis.__cceOpenSessionHook&&globalThis.__cceOpenSessionHook(${msg}.sessionId)}`
+      + `else if(${msg}&&${msg}.type==="cce_open_conversation"&&typeof ${msg}.sessionId==="string"&&typeof ${msg}.sourceId==="string"){`
+      + `globalThis.__cceOpenConversationHook&&globalThis.__cceOpenConversationHook(${msg}.sourceId,${msg}.sessionId)}`
+      + `else if(${msg}&&${msg}.type==="cce_conversations_ask"){globalThis.__cceConversationsAskHook&&globalThis.__cceConversationsAskHook()}`
       + `else if(${msg}&&${msg}.type==="cce_image"&&typeof ${msg}.id==="string"&&typeof ${msg}.src==="string"&&typeof ${msg}.sessionId==="string"){`
       + `globalThis.__cceImageHook&&globalThis.__cceImageHook(${msg}.sessionId,${msg}.id,${msg}.src)}`
       + `else if(${msg}&&${msg}.type==="cce_alive"){globalThis.__cceAliveHook&&globalThis.__cceAliveHook()}`

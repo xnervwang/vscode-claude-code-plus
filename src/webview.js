@@ -292,6 +292,7 @@ const SWITCHES = [
   'sessionHoverDetails', // a session list row's group and session ID on hover
   'sessionIdSearch',  // the session list's search also matching part of a session ID
   'sessionColors',    // a conversation's text color in the session list, and Text color in its menu
+  'conversationLinks', // another conversation's title or session id in a reply drawn as a link that opens it
 ];
 
 /** The live stylesheet for one set of settings. */
@@ -752,6 +753,23 @@ const EDITS = [
     name: 'image sources reach the link check on Windows',
     re: /function ([\w$]+)\(([\w$]+),([\w$]+)\)\{if\(\3==="href"&&([\w$]+)\(\2\)!==null\)return \2;return ([\w$]+)\(\2\)\}/g,
     to: (m, fn, url, key, local, check) => `function ${fn}(${url},${key}){if(${key}==="href"&&${local}(${url})!==null)return ${url};return ${check}(${url},${key})}`,
+  },
+  {
+    /* src/page/95-conversation-links.js adds a rehype plugin that puts a link where a reply names another
+       conversation; `links` is "text" where Claude Code draws links as plain text, and gets none. */
+    name: 'conversation links in replies',
+    re: /(\{source:([\w$]+),fileOpener:[\w$]+,platform:[\w$]+,links:([\w$]+),[^{}]*\}\)\{let\{remarkPlugins:[\w$]+,urlTransform:[\w$]+\}=[\s\S]{0,1600}?)rehypePlugins:([\w$]+)\.rehypePlugins,/g,
+    to: (m, head, source, links, f) => `${head}rehypePlugins:(typeof window.__cceMentionPlugins==="function"`
+      + `?window.__cceMentionPlugins(${f}.rehypePlugins,${links}):${f}.rehypePlugins),`,
+  },
+  {
+    /* A reply's blocks are memoized, so the plugin above would run again only when a block's text changed. Each block is
+       also handed the revision the page moves when the conversations it can link, this panel's conversation or the
+       switch change (95-conversation-links.js), read in the reply's own render. */
+    name: 'conversation links redraw the reply',
+    re: /([\w$]+)\.map\(\(([\w$]+),([\w$]+)\)=>([\w$]+)\(([\w$]+),\{source:\2,fileOpener:([\w$]+)\?\.fileOpener,/g,
+    to: (m, list, block, i, h, comp, ctx) => `${list}.map((${block},${i})=>${h}(${comp},{cceMentions:(typeof window.__cceMentionsRev==="function"`
+      + `?window.__cceMentionsRev():0),source:${block},fileOpener:${ctx}?.fileOpener,`,
   },
   {
     /* src/page/94-reply-images.js draws a reply's markdown images; when it returns null, Claude Code's own code below

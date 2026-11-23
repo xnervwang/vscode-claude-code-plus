@@ -43,6 +43,13 @@
  *                  Dismiss, Open bringing the conversation forward, the count, and no notice with each of the
  *                  agentPlus.notifications settings off; a question put while the turn runs: no notice, no count and a
  *                  green dot until the turn ends, then all three
+ *   conversation links
+ *                  another conversation named in a reply by its title, in corner brackets and by its short id: a link for
+ *                  each, drawn by Claude Code's own link component, its hover label, a click bringing its tab forward,
+ *                  and none while claudeCodePlus.show.conversationLinks is off; with a source registered with Agent Plus
+ *                  from the helper as another agent: a full id in prose linked, none in a code block and only the id in
+ *                  inline code, not the conversation's own title or id, not a placeholder title, a reply linked once the
+ *                  conversation it names is listed, a panel opened later linking too, and that agent's own open on a click
  *   the steward    the Steward panel, a steward's crown on its tab, on every session list row and in the panel's
  *                  header, the bell an older build stored left out, renames through both of Claude Code's rename
  *                  boxes with marks typed anywhere, a managed conversation's dot and envelope in the panel while it
@@ -59,7 +66,8 @@
  *                  than Claude Code's notice that it was not reopened
  *   two windows    a second window of the same VS Code on a folder of its own: a conversation open there comes to
  *                  the front, in that window, from the first window's Steward panel and from a steward's link, and no
- *                  copy of it opens; a link to one open nowhere says so; once that window has reloaded with the
+ *                  copy of it opens; a link to one open nowhere says so; its title in a reply in the first window, linked
+ *                  and clicked, does the same; once that window has reloaded with the
  *                  conversation's tab restored behind another and not loaded, deleting it from the first window is
  *                  refused and names the second
  *   one steward    two stewards in two windows: a steward's box is greyed in the other's panel, one that becomes a
@@ -105,6 +113,7 @@ const { folderName } = fakeHome;
 const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_TO_BACKGROUND_LONG, BG_LONG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB,
   ASK_FOR_WORKER, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_CHOICE, CHOICE } = require('./lib/fake-model');
 const { ASK_FOR_BG_SESSION, BG_SESSION_NAME, BG_SESSION_SCRIPT } = require('./lib/fake-model');
+const { ECHO_REQUEST } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
 const tabdot = require('../../src/tabdot');
@@ -3087,6 +3096,25 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           check(said === 'That conversation is not open in any VS Code window on this machine.' && !(await tabOf(profile.folder, Y)) && !(await tabOf(folderB, Y)),
             'a link to a conversation open in no window says so, and opens it nowhere', { said, toasts: await toasts() });
           await shot('two-windows-open-nowhere');
+          /* A reply in window A that names X, which runs in window B: the page links its title, and the click goes the
+             same way. */
+          check(!!await backToA(), 'window A is in front again before a reply names X', { front: await frontTitle(both), titleA: await page.title() });
+          const mention = `vscode://xnervwang.claude-code-plus/open?session=${X.id}&source=claude-code`;
+          await own.locator('[contenteditable][role="textbox"]').first().click();
+          await page.keyboard.type(`Name the conversation ${X.id} titled ${X.title}.`);
+          await page.keyboard.press('Enter');
+          const named = await until(() => own.evaluate((href) => {
+            const last = [...document.querySelectorAll('[data-testid="assistant-message"]')].pop();
+            return !!last && /By its short id/.test(last.textContent) && [...last.querySelectorAll('a')].some((a) => a.getAttribute('href') === href);
+          }, mention), 60000, 500);
+          check(!!named, 'a reply in window A naming X by its title links it, though X is open only in window B');
+          if (named) {
+            check(!!await backToA(), 'window A is in front before the link is clicked', { front: await frontTitle(both), titleA: await page.title() });
+            await exec('notifications.clearAll');
+            await own.locator(`[data-testid="assistant-message"] a[href="${mention}"]`).last().click({ timeout: 15000 }).catch(() => {});
+            await jumped('X\'s title in a reply, clicked in window A');
+            await shotB('two-windows-mention-jump');
+          }
         } else note('window A\'s own conversation did not load, so the link was not clicked');
 
         /* B reloaded with X's tab restored behind another: what each window knows, then a delete from window A. */
@@ -4162,6 +4190,60 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       if (d) check(await answerDialog('Cancel'), 'and Cancel closes the question');
     });
 
+    /* Another conversation named in a reply, by its title, by its title in corner brackets and by the first 8 characters
+       of its id: a link for each, drawn by Claude Code's own link component; hovering names the conversation and its
+       agent; a click brings its tab forward; with claudeCodePlus.show.conversationLinks off, no links. The conversation
+       is one of this window's, open in a tab behind, with an id no other conversation here starts with. Near the end, since
+       it opens tabs the steps before arrange. */
+    await step('conversation links in replies', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const L = { id: 'c0ffee12-4b5e-4f60-8a71-92b3c4d5e6a1', title: 'Map the retry settings of the export job', days: 0,
+        turns: [['Map the retry settings of the export job.', 'They are in config/export.yml, under retry.']] };
+      fakeHome.writeThreads(profile.home, profile.folder, [L]);
+      await exec('claude-vscode.editor.open', L.id);
+      const behind = await until(async () => (await claudeTabs()).find((x) => titled(x.label, L.title)), 30000, 500);
+      await exec('claude-vscode.editor.open', tab0.id);
+      const inFront = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 15000, 300);
+      check(!!behind && !!inFront, 'the conversation to name is open in a tab behind the one in front', await claudeTabs());
+      const panel = await conversation(tab0).catch(() => null) || conv;
+      const MENTION = `vscode://xnervwang.claude-code-plus/open?session=${L.id}&source=claude-code`;
+      const linksNow = () => panel.evaluate((href) => {
+        const last = [...document.querySelectorAll('[data-testid="assistant-message"]')].pop();
+        if (!last || !/By its short id/.test(last.textContent)) return null;
+        return [...last.querySelectorAll('a')].filter((a) => a.getAttribute('href') === href)
+          .map((a) => ({ text: a.textContent, own: a.getAttribute('target') === '_blank' && /noopener/.test(a.getAttribute('rel') || '') }));
+      }, MENTION);
+      await panel.locator('[contenteditable][role="textbox"]').first().click();
+      await page.keyboard.type(`Name the conversation ${L.id} titled ${L.title}.`);
+      await page.keyboard.press('Enter');
+      const drawn = await until(async () => { const l = await linksNow(); return l && l.length === 3 ? l : null; }, 60000, 500);
+      check(!!drawn && drawn.map((x) => x.text).join('|') === `${L.title}|${L.title}|${L.id.slice(0, 8)}` && drawn.every((x) => x.own),
+        'a reply naming another conversation by its title, by its title in corner brackets and by its short id has a link for each, drawn by Claude Code\'s own link component',
+        drawn || await linksNow());
+      const link = panel.locator(`[data-testid="assistant-message"] a[href="${MENTION}"]`).first();
+      await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+      await link.hover({ timeout: 10000 }).catch(() => {});
+      const tip = await until(() => panel.evaluate(() => { const b = document.querySelector('[data-cce-label]'); return b ? b.textContent : ''; }), 5000, 200);
+      check(typeof tip === 'string' && tip.startsWith(`${L.title}\nClaude Code conversation ${L.id.slice(0, 8)}`),
+        'hovering over one names the conversation and its agent', tip);
+      await shot('conversation-links-hover');
+      let clickError = '';
+      await link.click({ timeout: 15000 }).catch((e) => { clickError = String((e && e.message) || e).slice(0, 800); });
+      const jumped = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, L.title)), 15000, 300);
+      check(!!jumped, 'clicked, it brings that conversation\'s tab to the front in this window', { clickError, tabs: await claudeTabs(), toasts: await toasts() });
+      await exec('claude-vscode.editor.open', tab0.id);
+      await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 15000, 300);
+      const setLinks = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('show.conversationLinks', arg, vscode.ConfigurationTarget.Global); return true;`, v);
+      await setLinks(false);
+      const gone = await until(async () => { const l = await linksNow(); return l && !l.length ? l : null; }, 20000, 500);
+      check(!!gone, 'with claudeCodePlus.show.conversationLinks off the reply has no such links, without a reload', await linksNow());
+      await setLinks(true);
+      const back = await until(async () => { const l = await linksNow(); return l && l.length === 3 ? l : null; }, 20000, 500);
+      check(!!back, 'and turned on again they are back', await linksNow());
+      await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
+        && x.label && arg.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, L.title);
+    });
+
     /*
      * The session list's rows as each way of opening and closing conversations leaves them, read as a person sees them:
      * no row of a conversation open nowhere is drawn picked, as the row the arrow keys are on or as the one in front, or
@@ -4376,6 +4458,105 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await whereTo(found.where);
         if (found.sidebar !== await auxiliaryVisible()) await exec(found.sidebar ? 'workbench.action.focusAuxiliaryBar' : 'workbench.action.closeAuxiliaryBar');
         await exec('workbench.action.closeAllEditors');
+      }
+    });
+
+    /* More of the links to other conversations, with a conversation source registered with Agent Plus from the test
+       helper and used by nothing else: it lists what the step puts in its list, tells Agent Plus when that changes, and
+       records what Agent Plus asks it to open. Its conversations are kept outside the window's folders, so Agent Plus's
+       views do not show them. Registered here, it stands for another agent such as Codex. */
+    await step('conversation links: ids, code, own and placeholder titles, late and another agent', async () => {
+      const AGENT = 'cce-test-agent', elsewhere = path.join(path.dirname(profile.folder), 'test-agent-elsewhere');
+      const Z = { sessionId: 'feedf00d-1111-4222-8333-444444444444', title: 'Tune the cache of the pricing service', cwd: elsewhere,
+        state: 'idle', activity: 'stopped', running: true, lastActiveAt: Date.now() };
+      const Q = { sessionId: 'decafbad-1111-4222-8333-444444444444', title: '(untitled)', cwd: elsewhere, state: 'idle', activity: 'stopped',
+        running: true, lastActiveAt: Date.now() };
+      const listAs = (list) => call('const st = globalThis.__cceTestAgent; st.list = arg; st.changed.fire(); return st.list.length;', list);
+      const reg = await call(`const ap = vscode.extensions.getExtension('xnervwang.agent-plus').exports.agentPlus;
+        const changed = new vscode.EventEmitter();
+        const st = globalThis.__cceTestAgent = { list: arg.list, opened: [], changed };
+        const r = ap.registerSource({ protocol: 1, id: arg.id, label: 'Test agent', onDidChangeConversations: changed.event,
+          listConversations: async () => st.list.map((c) => Object.assign({}, c)),
+          open: async (sessionId, row) => { st.opened.push({ sessionId, title: row && row.title, cwd: row && row.cwd }); return 'here'; } });
+        st.registration = r.registration;
+        return { accepted: r.accepted, code: r.code, features: ap.features };`, { id: AGENT, list: [Q] });
+      check(!!reg && reg.accepted && (reg.features || []).includes('allConversations'),
+        'a source standing for another agent registers with Agent Plus, which offers every agent\'s conversations', reg);
+      try {
+        await exec('claude-vscode.editor.open', tab0.id);
+        const panel = await conversation(tab0);
+        if (!panel) throw new Error('the conversation did not open');
+        const say = async (text, marker) => {
+          await panel.locator('[contenteditable][role="textbox"]').first().click();
+          await page.keyboard.type(ECHO_REQUEST(text));
+          await page.keyboard.press('Enter');
+          return until(() => panel.evaluate((m) => [...document.querySelectorAll('[data-testid="assistant-message"]')].some((r) => r.textContent.includes(m)), marker), 30000, 300);
+        };
+        /* The links in the reply that holds `marker`: each with its text, its conversation and agent, and whether it is in
+           a code block or in inline code. */
+        const linksIn = (marker) => panel.evaluate((m) => {
+          const r = [...document.querySelectorAll('[data-testid="assistant-message"]')].filter((x) => x.textContent.includes(m)).pop();
+          if (!r) return null;
+          return [...r.querySelectorAll('a[href^="vscode://xnervwang.claude-code-plus/open?session="]')].map((a) => {
+            const q = new URLSearchParams(a.getAttribute('href').split('?')[1]);
+            return { text: a.textContent, session: q.get('session'), source: q.get('source'), pre: !!a.closest('pre'), code: !!a.closest('code') };
+          });
+        }, marker);
+        const ofZ = (l) => (l || []).filter((x) => x.session === Z.sessionId && x.source === AGENT);
+
+        /* A reply drawn while the conversation it names is not known yet. */
+        const LATE = 'not in the list yet';
+        check(!!await say(`${Z.title} is ${LATE}.`, LATE), 'the fake model gave the reply naming a conversation no agent lists yet');
+        await sleep(4000);
+        const before = await linksIn(LATE);
+        await listAs([Q, Z]);
+        const after = await until(async () => { const l = ofZ(await linksIn(LATE)); return l.length ? l : null; }, 45000, 500);
+        check(!!before && !ofZ(before).length && !!after && after[0].text === Z.title,
+          'a reply naming a conversation not listed yet has no link to it, and gets one once its agent lists it, without a reload', { before, after });
+
+        /* Ids in prose and in code, the conversation's own title and id, and a placeholder title. */
+        const RULES = 'Placeholder:';
+        const text = `Its full id is ${Z.sessionId} here. Own: ${tab0.title}, \u300c${tab0.title}\u300d and ${tab0.id}. `
+          + `${RULES} \u300c(untitled)\u300d and (untitled), but ${Q.sessionId} by its id.\n\n\`\`\`\n${Z.title}\n${Z.sessionId}\n\`\`\`\n\n`
+          + `In inline code: \`${Z.title}\` and \`${Z.sessionId}\`.`;
+        check(!!await say(text, RULES), 'the fake model gave the reply with ids, code, the conversation\'s own name and a placeholder');
+        const l = await until(async () => { const x = await linksIn(RULES); return x && x.some((y) => y.session === Q.sessionId) ? x : null; }, 30000, 500) || await linksIn(RULES) || [];
+        const prose = ofZ(l).filter((x) => !x.code && !x.pre && x.text === Z.sessionId);
+        check(prose.length === 1, 'a full session id in the prose of a reply is a link to its conversation', l);
+        check(!l.some((x) => x.pre) && !ofZ(l).some((x) => x.code && x.text === Z.title) && ofZ(l).filter((x) => x.code && !x.pre && x.text === Z.sessionId).length === 1,
+          'in a code block neither the title nor the id is linked, and in inline code only the id is', l);
+        check(!l.some((x) => x.session === tab0.id) && prose.length === 1, 'the conversation\'s own title and id are not linked, in the same reply where another\'s id is', l);
+        check(!l.some((x) => /^\(untitled\)$/.test(x.text)) && l.filter((x) => x.session === Q.sessionId && x.text === Q.sessionId).length === 1,
+          'a conversation titled (untitled) is not linked by that title, and is by its id', l);
+
+        /* The other agent's conversation: its label and its open. */
+        const link = panel.locator(`[data-testid="assistant-message"] a[href="vscode://xnervwang.claude-code-plus/open?session=${Z.sessionId}&source=${AGENT}"]`).first();
+        await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+        await link.hover({ timeout: 10000 }).catch(() => {});
+        const tip = await until(() => panel.evaluate(() => { const b = document.querySelector('[data-cce-label]'); return b ? b.textContent : ''; }), 5000, 200);
+        check(typeof tip === 'string' && tip.startsWith(`${Z.title}\nTest agent conversation ${Z.sessionId.slice(0, 8)}`),
+          'hovering over another agent\'s conversation names that agent', tip);
+        const tabsBefore = (await claudeTabs()).length;
+        await link.click({ timeout: 15000 }).catch(() => {});
+        const opened = await until(async () => { const o = await call('return globalThis.__cceTestAgent.opened;'); return o && o.length ? o : null; }, 15000, 300);
+        check(!!opened && opened.length === 1 && opened[0].sessionId === Z.sessionId && opened[0].title === Z.title && opened[0].cwd === elsewhere
+          && (await claudeTabs()).length === tabsBefore,
+          'clicked, it goes through agentPlus.openConversation to that agent\'s own open, with its title and folder, and opens no Claude Code tab', { opened, tabs: await claudeTabs() });
+        await shot('conversation-links-another-agent');
+
+        /* A panel opened after the list was sent, showing a conversation whose earlier reply names Z. */
+        const P = { id: 'c0ffee12-4b5e-4f60-8a71-92b3c4d5e6a2', title: 'Ask who tunes the pricing cache', days: 0,
+          turns: [['Who tunes the pricing cache?', `That is ${Z.title}, the other agent's conversation.`]] };
+        fakeHome.writeThreads(profile.home, profile.folder, [P]);
+        await exec('claude-vscode.editor.open', P.id);
+        const late = await conversation(P).catch(() => null);
+        const inP = late ? await until(() => late.evaluate((h) => !!document.querySelector(`[data-testid="assistant-message"] a[href="${h}"]`),
+          `vscode://xnervwang.claude-code-plus/open?session=${Z.sessionId}&source=${AGENT}`), 30000, 500) : false;
+        check(!!inP, 'a panel opened after the list was sent links the conversation its earlier reply names');
+        await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
+          && x.label && arg.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, P.title);
+      } finally {
+        await call('const st = globalThis.__cceTestAgent; if (st && st.registration) st.registration.dispose(); delete globalThis.__cceTestAgent; return true;').catch(() => {});
       }
     });
 
