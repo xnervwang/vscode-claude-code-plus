@@ -43,6 +43,11 @@
  *                  Dismiss, Open bringing the conversation forward, the count, and no notice with each of the
  *                  agentPlus.notifications settings off; a question put while the turn runs: no notice, no count and a
  *                  green dot until the turn ends, then all three
+ *   a question answered in its turn
+ *                  a question the plan puts to the user during a turn, the turn ending behind another editor: with
+ *                  nothing more from the user, a red dot on the tab and both its session list rows and Agent Plus
+ *                  counting it; answered on a question card later in the turn, or typed while the turn runs and taken
+ *                  into it, no red dot, and for the card no wait in Agent Plus
  *   conversation links
  *                  another conversation named in a reply by its title, in corner brackets and by its short id: a link for
  *                  each, drawn by Claude Code's own link component, its hover label, a click bringing its tab forward,
@@ -120,7 +125,7 @@ const { folderName } = fakeHome;
 const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_TO_BACKGROUND_LONG, BG_LONG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB,
   ASK_FOR_WORKER, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_CHOICE, CHOICE } = require('./lib/fake-model');
 const { ASK_FOR_BG_SESSION, BG_SESSION_NAME, BG_SESSION_SCRIPT } = require('./lib/fake-model');
-const { ECHO_REQUEST } = require('./lib/fake-model');
+const { ECHO_REQUEST, ASK_TO_PAUSE, PAUSE_RUN } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
 const tabdot = require('../../src/tabdot');
@@ -1904,6 +1909,185 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await until(async () => !(await open()), 10000, 300);
         }
         for (const k of ['waiting', 'enabled', 'finished']) await setNotify(k, null).catch(() => {});
+        if (had !== null) fs.writeFileSync(plan, had); else fs.rmSync(plan, { force: true });
+        await exec('notifications.clearAll');
+        await show();
+      }
+    });
+
+    /* A question the plan puts to the user during a turn, after the message that started it, and how the turn ends:
+       with nothing more from the user the conversation waits for them; with the answer given on a question card later
+       in the turn, or typed while the turn runs and taken into it, it does not. Each turn ends with the tab behind
+       another editor, where Agent Plus counts a conversation that waits. */
+    await step('a question answered in its turn', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t = (await claudeTabs()).find((x) => titled(x.label.replace(ENVELOPE, ''), tab0.title));
+      if (!t) throw new Error('the conversation\'s tab is gone');
+      const tab = () => page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first();
+      const inFront = async () => !!(await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), tab0.title));
+      const hide = async () => { await openNotes(t.column); return until(async () => !(await inFront()), 5000, 200); };
+      const show = async () => { await tab().click(); return until(inFront, 10000, 200); };
+      const plan = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${tab0.id}.json`);
+      const had = fs.existsSync(plan) ? fs.readFileSync(plan, 'utf8') : null;
+      const question = (open) => {
+        const now = new Date().toISOString();
+        fs.mkdirSync(path.dirname(plan), { recursive: true });
+        fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick the config to change', state: open ? 'waiting' : 'done', waitingOn: 'user',
+          question: 'Staging or production?', asked: now, opened: now, since: now }] }, null, 2));
+      };
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      /* The conversation's status in its session record: 'busy' while a turn runs, 'idle' once it has ended. */
+      const status = () => {
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+        for (const n of names) {
+          try { const d = JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); if (d.sessionId === tab0.id) return d.status || null; } catch (_) { /* being written */ }
+        }
+        return null;
+      };
+      const send = async (text) => {
+        await conv.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(text);
+        await page.keyboard.press('Enter');
+      };
+      const rows = async () => [await listDotState(tab0), await listDotState(tab0, true)];
+      const redDot = (d) => !!d && d.waiting >= 6 && d.running === 0;
+      /* The question card on screen. A card answered earlier leaves its question and options in the transcript, so a
+         match that takes in one of the user's messages is the transcript, not the card. */
+      const choiceBox = () => conv.evaluate((c) => {
+        for (const label of [...document.querySelectorAll('div, span, label')].filter((e) => e.offsetParent && e.textContent.trim() === c.options[0])) {
+          let b = label;
+          while (b && !b.querySelector('[class*="userMessage_"]') && !(b.innerText.includes(c.question) && /\bSubmit\b/.test(b.innerText))) b = b.parentElement;
+          if (b && !b.querySelector('[class*="userMessage_"]')) return b.innerText.replace(/\s+/g, ' ').trim().slice(0, 300);
+        }
+        return null;
+      }, CHOICE).catch(() => null);
+      /* A turn started with `text`, its reply held back by the fake model, and the plan's question put once the model has
+         the turn, so after the message that started it. Returns how many requests the model had been sent before. */
+      const begin = async (text) => {
+        const from = model.seen.length, turns = model.turns();
+        model.hold();
+        await send(text);
+        if (!await until(() => model.turns() > turns, 30000, 300)) throw new Error(`the fake model was not sent "${text}"`);
+        question(true);
+        return from;
+      };
+      /* The rest of the turn let go with the tab behind another editor, until the turn ends. Should Claude Code ask before
+         running `command`, the tab comes forward to allow it and goes behind again. */
+      const finish = async (command) => {
+        const running = await until(() => status() === 'busy', 10000, 300);
+        const hidden = await hide();
+        model.release();
+        let asked = false;
+        const over = await until(async () => {
+          if (status() === 'idle') return true;
+          if (command && !asked && await conv.evaluate((cmd) => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes(cmd), command).catch(() => false)) {
+            asked = true;
+            note(`Claude Code asked before running ${command}, so the tab came to the front to allow it and went behind again`);
+            await show();
+            await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+            await hide();
+          }
+          return false;
+        }, 60000, 500);
+        return { running: !!running, hidden: !!hidden, over: !!over, asked, status: status() };
+      };
+      /* After a turn that ended out of sight: the envelope, which says the window has taken the end in, then `ms` of the
+         tab's dot and both rows watched for red. The host works the dots out again every 10 s (extension.js). */
+      const watchRed = async (ms = 20000) => {
+        const envelope = !!await until(async () => (await claudeTabs()).find((y) => y.label.endsWith(ENVELOPE) && titled(y.label.replace(ENVELOPE, ''), tab0.title)), 30000, 500);
+        const reds = [], t0 = Date.now();
+        while (Date.now() - t0 < ms) {
+          const d = await dotsOn(t.label), r = await rows();
+          if (redDot(d) || r.some((x) => x && x.state === 'waiting')) reds.push({ after: Date.now() - t0, dot: d, rows: r });
+          await sleep(500);
+        }
+        return { envelope, reds: reds.slice(0, 5), redCount: reds.length, last: { dot: await dotsOn(t.label), rows: await rows() } };
+      };
+      /* The tab in front with its reply read, the question done, and nothing counted, as the step found it. */
+      const reset = async () => {
+        model.release();
+        await show();
+        question(false);
+        await until(async () => { const d = await dotsOn(t.label); return d && d.waiting === 0 && d.running === 0; }, 30000, 500);
+        await until(async () => (await needCount()) === null, 15000, 300);
+        await exec('notifications.clearAll');
+      };
+      try {
+        check(await focusWindow(), 'the window has the focus, which Agent Plus needs before it counts a conversation', { focused: await focused() });
+        await exec('notifications.clearAll');
+
+        /* Not answered: the turn ends with nothing more from the user. */
+        await begin('One more turn, please.');
+        const plain = await finish();
+        const red1 = await until(async () => { const d = await dotsOn(t.label); return redDot(d) && d; }, 30000, 500);
+        check(plain.running && plain.hidden && plain.over && !!red1,
+          'a question the plan put during a turn, after the message that started it, makes the tab\'s dot red once the turn ends with nothing more from the user',
+          { turn: plain, dot: red1 || await dotsOn(t.label) });
+        const rows1 = await until(async () => { const s = await rows(); return s.every((x) => x && x.state === 'waiting') && s; }, 15000, 500);
+        check(!!rows1, 'and both its rows in the session list', rows1 || await rows());
+        const counted1 = await until(async () => { const c = await needCount(), a = attentionOf(tab0.id); return c && c.n === 1 && a && a.activity === 'waiting' && { c, a }; }, SEEN_MS, 300);
+        check(!!counted1, 'and Agent Plus counts it as waiting for the user', counted1 || { count: await needCount(), agentPlus: attentionFiles() });
+        await shot('question-not-answered');
+        await reset();
+
+        /* Answered on a question card: the model asks it later in the same turn and the user picks an option. */
+        const fromCard = await begin(`Please ${ASK_FOR_CHOICE}.`);
+        model.release();
+        const card = await until(choiceBox, 30000, 500);
+        check(!!card && CHOICE.options.every((o) => card.includes(o)), 'later in the turn the model asks on a question card', card || model.seen.slice(fromCard));
+        if (!card) throw new Error('no question card');
+        model.hold();
+        const sent = model.seen.length;
+        await exec('notifications.clearAll');
+        await conv.getByText(CHOICE.options[0], { exact: true }).last().click({ timeout: 5000 });
+        /* The row that sends the answers reads "1 Submit answers", its key first. */
+        if (!await until(async () => !(await choiceBox()), 2000, 300)) await conv.getByText(/Submit answers\s*$/).last().click({ timeout: 5000 });
+        const back = await until(() => model.seen.slice(sent).some((x) => x.stream && (x.parts || []).includes('tool_result')), 20000, 300);
+        check(!!back && !await choiceBox(), 'the user answers the card, and the answer goes back to the model in the same turn', model.seen.slice(sent).map((x) => x.parts));
+        /* Once Agent Plus has the turn running again, a wait it notes is one after the answer. */
+        const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working' && a; }, SEEN_MS, 300);
+        const timeline = attentionTimeline(tab0.id);
+        try {
+          const cardTurn = await finish();
+          const calm = await watchRed();
+          check(cardTurn.running && cardTurn.hidden && cardTurn.over && calm.envelope && !calm.redCount,
+            'a question the plan put during a turn and answered on a question card later in it leaves no red dot on the tab or its session list rows once the turn ends',
+            { turn: cardTurn, ...calm });
+          const end = await until(() => { const a = attentionOf(tab0.id); return a && a.activity && a.activity !== 'working' && a; }, SEEN_MS, 300);
+          if (end) await sleep(noticeDelay.waiting + 3000);
+          const states = timeline();
+          check(!!working && !!end && !states.some(([, a]) => a && a.activity === 'waiting'),
+            'and Agent Plus, once it has seen the turn end, does not count the conversation as waiting', { working: !!working, end, states, count: await needCount() });
+        } finally { timeline(); }
+        await shot('question-answered-on-card');
+        await reset();
+
+        /* Answered by typing: the user types the answer while the turn runs, and Claude Code takes it into the turn after
+           the result of the command the model runs. */
+        const fromTyped = await begin(`Please ${ASK_TO_PAUSE}.`);
+        const answer = 'Staging, please.';
+        await send(answer);
+        const typedTurn = await finish(PAUSE_RUN);
+        const asks = model.seen.slice(fromTyped).filter((x) => x.stream);
+        const taken = asks.find((x) => (x.parts || []).includes('tool_result') && `${x.ask}\n${x.typed}`.includes(answer));
+        check(!!taken, 'the answer typed while the turn ran goes to the model with the command\'s result, in the same turn',
+          asks.map((x) => ({ parts: x.parts, ask: x.ask.slice(-160), typed: x.typed.slice(-80) })));
+        const calm3 = await watchRed();
+        check(typedTurn.running && typedTurn.hidden && typedTurn.over && calm3.envelope && !calm3.redCount,
+          'a question the plan put during a turn and answered by a message typed while the turn ran leaves no red dot on the tab or its session list rows once the turn ends',
+          { turn: typedTurn, ...calm3 });
+        await shot('question-answered-by-typing');
+        await reset();
+      } finally {
+        model.release();
+        /* A choice box left open would hold every later step's message back. */
+        const open = () => conv.evaluate((q) => document.body.innerText.includes(q) && /Esc to cancel/.test(document.body.innerText), CHOICE.question).catch(() => false);
+        if (await open()) {
+          await conv.locator('[contenteditable], button').first().focus().catch(() => {});
+          await page.keyboard.press('Escape');
+          await until(async () => !(await open()), 10000, 300);
+        }
         if (had !== null) fs.writeFileSync(plan, had); else fs.rmSync(plan, { force: true });
         await exec('notifications.clearAll');
         await show();
