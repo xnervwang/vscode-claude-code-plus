@@ -38,12 +38,11 @@ work is closed only with --confirmed. --open starts a new conversation in the VS
 Claude Code keeps the conversation under (Claude Code finds a window's stored conversations only there), and then sends it
 the message, if one is given. It is not done while a window
 shows the conversation or another process runs it; it says which. A conversation opened with --open or --resume is
-then ticked for this steward in the Steward panel, unless it manages all conversations.
+then ticked for this steward in the Steward panel, and the answer says so.
 
 --handoff is run from a conversation a steward manages, not from the steward: it gives a steward something the
-conversation thinks belongs elsewhere, as a notice that is not the user's message. Of the stewards that manage the
-conversation, it goes to the one the user last typed to, or, if that one cannot be reached, the next; the answer names
-the steward it reached.
+conversation thinks belongs elsewhere, as a notice that is not the user's message. It goes to the steward that has the
+conversation on its list, or, when none has, to the steward with All on; the answer names the steward it reached.
 
 Prints what happened and exits 0 when it was done, 1 otherwise.
 """
@@ -62,6 +61,7 @@ from plan_path import SESSION_NAME, listed, write_atomic  # noqa: E402
 from plan_common import open_tail  # noqa: E402
 import plan_agent as A  # noqa: E402
 from proc_alive import alive  # noqa: E402
+import steward_table  # noqa: E402
 
 RELAY_DIR = "relay"
 # Claude Code Plus stops taking a request after 60 seconds; the answer panel waits up to 15 seconds for a send.
@@ -92,7 +92,6 @@ DONE = {
 HANDED = ("Handed off to the steward %s: it was told, in a notice that is not the user's message. Say so in one sentence in "
           "your reply and leave it to the steward.")
 NOT_HANDED = " Say in your reply where it seems to belong, so the user decides."
-STEWARDS_FILE = "stewards.json"
 HEAD_BYTES = 64 * 1024
 CWD = re.compile(r'"cwd":"((?:[^"\\]|\\.)*)"')
 
@@ -185,23 +184,8 @@ def shows(w, sid):
     return sid in [str(s).lower() for s in listed(w.get("sessions"))]
 
 
-def stewards_table(directory):
-    try:
-        with open(os.path.join(directory, STEWARDS_FILE), encoding="utf-8") as fh:
-            table = json.load(fh)
-    except (OSError, ValueError):
-        return {}
-    found = table.get("stewards") if isinstance(table, dict) else None
-    return {k.lower(): v for k, v in found.items() if isinstance(v, dict)} if isinstance(found, dict) else {}
-
-
-def manages(table, steward, sid):
-    """Whether `steward` manages `sid`, as the windows decide it (src/relay.js)."""
-    t = table.get(steward)
-    if not t:
-        return False
-    ids = [str(m).lower() for m in listed(t.get("manages"))]
-    return sid in ids or (t.get("all") is True and sid != steward and sid not in table)
+stewards_table = steward_table.read
+manages = steward_table.manages
 
 
 def resume_check(data, sid):

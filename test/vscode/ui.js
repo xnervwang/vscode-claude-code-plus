@@ -62,6 +62,9 @@
  *                  copy of it opens; a link to one open nowhere says so; once that window has reloaded with the
  *                  conversation's tab restored behind another and not loaded, deleting it from the first window is
  *                  refused and names the second
+ *   one steward    two stewards in two windows: a steward's box is greyed in the other's panel, one that becomes a
+ *                  steward leaves the other's list, one a steward ticked is greyed for the other, and All is on for one
+ *                  steward only and takes only what the other has not ticked; each greyed control's hover label says why
  *   closed, sidebar, archived
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
@@ -75,6 +78,11 @@
  *   token mode     each of Agent Plus's token modes in turn: Show Status, the status bar, the information box, the hooks'
  *                  settings, Claude Code's list of plugins, the notice for a feature's own setting, what the fake model
  *                  receives, a detached command's end, and the four settings in the Settings editor
+ *   installed again
+ *                  the same version rebuilt with one file changed, installed over the running copy with a second window
+ *                  open: a steward of all conversations still gains the one it opens, in stewards.json and its panel;
+ *                  after a reload that window keeps the table, and the other, still on the earlier build, saves no tick
+ *                  and says so with a Reload Window button
  *   commands       Show Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
  *   rows no longer open
  *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
@@ -139,7 +147,7 @@ const FOLDER_THREADS = [
     turns: [['Draft the migration notes for the other project.', 'Drafted them in docs/migration.md.']] },
 ];
 
-async function run({ exe, profile, env, playwright, model, threads, background = [], out, check, note }) {
+async function run({ exe, vsix, profile, env, playwright, model, threads, background = [], out, check, note }) {
   const shotsDir = path.join(out, 'shots');
   fs.mkdirSync(shotsDir, { recursive: true });
   const base = baselines({ out, check, note });
@@ -2178,7 +2186,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
              and a green ring while only work it put in the background runs. */
           const GREEN = `rgb(${DOTS.running.join(', ')})`, RED = `rgb(${DOTS.waiting.join(', ')})`;
           const panelRow = (id) => frame.evaluate((id) => {
-            const a = document.querySelector(`li.row [data-open="${id}"]`), li = a && a.closest('li.row');
+            const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row');
             if (!li) return null;
             const dot = li.querySelector('.dot'), env = li.querySelector('.env'), cs = dot ? getComputedStyle(dot) : null;
             return { dot: dot ? [...dot.classList].filter((c) => c !== 'dot').join(' ') : null, env: env ? env.textContent : null,
@@ -2427,15 +2435,23 @@ async function run({ exe, profile, env, playwright, model, threads, background =
             }
           }
           await shot('steward-actions');
-          /* A second steward: the managed conversation ticks the steward in its own panel. In the first steward's panel its
-             row then shows one crown, and the other rows none. */
+          /* A second steward: the managed conversation ticks another conversation in its own panel, where the first
+             steward's box is greyed, since a steward is managed by none. Becoming a steward takes it off the first steward's
+             list, and in the first steward's panel its row then shows one crown, and the other rows none. */
           await exec('claude-vscode.editor.open', target.id);
           const box2 = frame.locator(`input[data-id="${front.id}"]`).first();
-          const ticked2 = await until(async () => { const h = await header(); return h && h.includes(target.title.slice(0, 20)) && await box2.isVisible().catch(() => false); }, 45000, 500);
-          if (ticked2 && !await box2.isChecked()) await box2.click();
-          const isSteward2 = await until(() => { try { const t2 = JSON.parse(fs.readFileSync(file, 'utf8')).stewards[target.id]; return t2 && t2.manages.includes(front.id); } catch (_) { return false; } }, 10000, 300);
+          const other2 = frame.locator(`input[data-id]:not([disabled]):not([data-id="${front.id}"])`).first();
+          const ticked2 = await until(async () => { const h = await header(); return h && h.includes(target.title.slice(0, 20)) && await box2.isVisible().catch(() => false)
+            && await other2.isVisible().catch(() => false); }, 45000, 500);
+          const frontGreyed = !!ticked2 && await box2.isDisabled().catch(() => false);
+          if (ticked2 && !await other2.isChecked()) await other2.click();
+          const isSteward2 = await until(() => {
+            try { const all = JSON.parse(fs.readFileSync(file, 'utf8')).stewards; return all[target.id] && all[target.id].manages.length && !(all[front.id] || { manages: [] }).manages.includes(target.id); } catch (_) { return false; }
+          }, 10000, 300);
+          check(frontGreyed && !!isSteward2, 'in the managed conversation\'s panel the steward\'s box is greyed; ticking another makes it a steward, which takes it off the first steward\'s list',
+            { ticked2: !!ticked2, frontGreyed, table: (() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards; } catch (_) { return null; } })() });
           await exec('claude-vscode.editor.open', front.id);
-          const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row [data-open]')].map((a) => [a.dataset.open, a.textContent])));
+          const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row a.name[data-open]')].map((a) => [a.dataset.open, a.textContent])));
           const shown2 = await until(async () => {
             const n = await names(), others = Object.entries(n).filter(([id]) => id !== target.id);
             return n[target.id] === `${CROWN} ${target.title}` && others.length && others.every(([, t]) => !t.includes(CROWN)) && n;
@@ -2554,7 +2570,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await exec('workbench.view.extension.claudeCodePlusSteward');
         const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         const rowNow = () => panel.evaluate((id) => {
-          const a = document.querySelector(`li.row [data-open="${id}"]`), li = a && a.closest('li.row');
+          const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row');
           const tw = li && li.querySelector('.twice'), stop = li && li.querySelector('[data-stop-old]');
           return li ? { twice: tw ? tw.textContent : null, stop: stop ? stop.textContent : null, title: stop ? stop.title : null } : null;
         }, t.id);
@@ -3040,10 +3056,10 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         check(!!readyA, 'window A is in front before the jump', { front: await frontTitle(both), titleA: await page.title() });
         await exec('workbench.view.extension.claudeCodePlusSteward');
         const steward = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
-        const rowLink = steward ? await until(() => steward.evaluate((id) => !!document.querySelector(`[data-open="${id}"]`), X.id), 45000, 1000) : false;
+        const rowLink = steward ? await until(() => steward.evaluate((id) => !!document.querySelector(`a.name[data-open="${id}"]`), X.id), 45000, 1000) : false;
         check(!!rowLink, 'the Steward panel in window A lists X, open in window B', steward ? await steward.evaluate(() => document.body.innerText.slice(0, 400)) : 'no Steward panel');
         if (rowLink) {
-          await steward.locator(`[data-open="${X.id}"]`).first().click();
+          await steward.locator(`a.name[data-open="${X.id}"]`).first().click();
           await jumped('clicking X\'s row in the Steward panel');
           await shotB('two-windows-row-jump');
         }
@@ -3235,6 +3251,175 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       async function shotB() { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-reopen-in-window-b.png`) }).catch(() => {}); }
     });
 
+    /* Two stewards in two windows, one conversation for each steward at most: a steward cannot be ticked by another (1),
+       one that becomes a steward leaves the other's list (2), one a steward ticked is greyed in the other's panel (3), and
+       All is on for one steward only, which takes only what the other has not ticked (4). Each greyed control says why
+       in a hover label. */
+    await step('one steward for each conversation', async () => {
+      const SA = threads[0], X = threads[1];
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const file = path.join(dataDir, 'stewards.json');
+      const table = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards || {}; } catch (_) { return {}; } };
+      const has = (s, id) => !!table()[s] && table()[s].manages.includes(id);
+      const stewardIn = (p) => until(async () => {
+        for (const f of p.frames()) { try { if (await f.evaluate(() => /Managed by/.test(document.body ? document.body.innerText : ''))) return f; } catch (_) { /* gone */ } }
+        return null;
+      }, 30000, 500);
+      /* A box in a panel: whether it is ticked and greyed, and the reason its wrapper gives. */
+      const boxIn = (f, id) => f.evaluate((id) => {
+        const b = document.querySelector(`input[data-id="${id}"]`);
+        const w = b && b.closest('[data-why]');
+        return b ? { checked: b.checked, disabled: b.disabled, why: w ? w.dataset.why : '' } : null;
+      }, id).catch(() => null);
+      const everyIn = (f) => f.evaluate(() => {
+        const b = document.querySelector('input[data-every]'), l = b && b.closest('label');
+        return b ? { checked: b.checked, disabled: b.disabled, why: (l && l.dataset.why) || '' } : null;
+      }).catch(() => null);
+      const header = (f) => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; }).catch(() => '');
+      /* What a row says of the steward that manages it, and where its link leads. */
+      const byIn = (f, id) => f.evaluate((id) => {
+        const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'), by = li && li.querySelector('.by');
+        const link = by && by.querySelector('a[data-open]');
+        return by ? { text: by.textContent.replace(/\s+/g, ' ').trim(), to: link ? link.dataset.open : '' } : null;
+      }, id).catch(() => null);
+      const everyByIn = (f) => f.evaluate(() => {
+        const e = document.querySelector('.everyby'), link = e && e.querySelector('a[data-open]');
+        return e ? { text: e.textContent.replace(/\s+/g, ' ').trim(), to: link ? link.dataset.open : '' } : null;
+      }).catch(() => null);
+      /* Renames a conversation of window A through Claude Code's own Rename Session Tab. */
+      const renameInA = async (t, title) => {
+        await exec('claude-vscode.editor.open', t.id);
+        await sleep(500);
+        const asked = exec('claude-vscode.renameSessionTab').catch((e) => String(e));
+        const input = page.locator('.quick-input-widget input').first();
+        if (!await until(() => input.isVisible().catch(() => false), 10000, 300)) throw new Error('Rename Session Tab did not open its box');
+        await input.fill(title);
+        await page.keyboard.press('Enter');
+        await asked;
+      };
+      let renamed = false;
+      /* The hover label the panel draws for a greyed control. */
+      const hovered = async (p, f, sel) => {
+        const loc = f.locator(sel).first();
+        await loc.hover().catch(() => {});
+        return until(() => f.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return l && l.getBoundingClientRect().width > 0 && l.textContent; }).catch(() => ''), 3000, 200);
+      };
+
+      /* Window B on a folder of its own: Q1 will be the second steward, Q2 a conversation it ticks. */
+      const folderT = fs.realpathSync.native((() => { const d = path.join(path.dirname(profile.folder), 'ws-t'); fs.mkdirSync(d, { recursive: true }); return d; })());
+      const Q1 = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e700', title: 'Watch over the reports work', days: 0,
+        turns: [['Watch over the reports work.', 'I will keep an eye on it.']] };
+      const Q2 = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e701', title: 'Add totals to the monthly report', days: 0,
+        turns: [['Add totals to the monthly report.', 'Added a totals row to report/monthly.sql.']] };
+      fakeHome.writeThreads(profile.home, folderT, [Q1, Q2]);
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderT);
+      const pageB = await w.pageOf(path.basename(folderT), 90000);
+      const hostB = pageB ? await w.hostUp(before, folderT).catch(() => null) : null;
+      check(!!pageB && !!hostB, 'a second window, B, opens on a folder of its own', { pageB: !!pageB });
+      if (!pageB || !hostB) {
+        if (pageB) await pageB.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        return;
+      }
+      w.pin(profile.folder);
+      const inB = (body, arg) => call(body, arg, 60000, folderT);
+      const shotB = (name) => pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-${name}.png`) }).catch(() => {});
+      let panelA = null, panelB = null;
+      try {
+        await until(() => inB(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`), 60000, 1000);
+        await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', Q2.id);
+        await sleep(800);
+        await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); await vscode.commands.executeCommand("workbench.view.extension.claudeCodePlusSteward"); return true;', Q1.id);
+        /* Window A: X loaded in a tab, SA in front with the Steward panel. */
+        await exec('claude-vscode.editor.open', X.id);
+        await sleep(800);
+        await exec('claude-vscode.editor.open', SA.id);
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        panelA = await stewardIn(page);
+        panelB = await stewardIn(pageB);
+        const listed = panelA && panelB && await until(async () => (await boxIn(panelA, X.id)) && (await boxIn(panelA, Q1.id)) && (await boxIn(panelB, SA.id))
+          && (await boxIn(panelB, X.id)) && (await boxIn(panelB, Q2.id)) && (await header(panelB)).includes(Q1.title.slice(0, 20))
+          && (await header(panelA)).includes(SA.title.slice(0, 20)), 60000, 1000);
+        check(!!listed, 'each window\'s Steward panel lists the conversations of both', { a: panelA && await panelA.evaluate(() => document.body.innerText.slice(0, 400)), b: panelB && await panelB.evaluate(() => document.body.innerText.slice(0, 400)) });
+        if (!listed) return;
+
+        /* SA ticks X and Q1 in A's panel. */
+        for (const id of [X.id, Q1.id]) await panelA.locator(`input[data-id="${id}"]`).first().click();
+        const ticked = await until(() => has(SA.id, X.id) && has(SA.id, Q1.id), 10000, 300);
+        check(!!ticked, 'in window A, the conversation in front ticks one of its own and one of B\'s, and is a steward', table()[SA.id] || null);
+
+        /* 1 and 3, in B's panel: SA's box and X's box are greyed, and say why. */
+        const sa = await until(async () => { const b = await boxIn(panelB, SA.id); return b && b.disabled && b; }, 20000, 500);
+        const x = await until(async () => { const b = await boxIn(panelB, X.id); return b && b.disabled && b; }, 20000, 500);
+        check(!!sa && sa.why === 'This conversation is a steward, and a steward is not managed by another',
+          'in B\'s panel the steward\'s box is greyed, and says on hover that a steward is not managed by another', sa || await boxIn(panelB, SA.id));
+        const xLabel = x ? await hovered(pageB, panelB, `.box:has(input[data-id="${X.id}"])`) : '';
+        check(!!x && x.why === `Managed by ${SA.title}` && xLabel === `Managed by ${SA.title}`,
+          'and so is the box of the conversation that steward ticked, whose hover label names that steward', { box: x || await boxIn(panelB, X.id), label: xLabel });
+        await shotB('one-steward-greyed-in-b');
+
+        /* The rows say it too: X's names its steward, a link that brings that steward's conversation up in window A. */
+        const xBy = await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${SA.title}` && b; }, 20000, 500);
+        const saBy = await byIn(panelB, SA.id);
+        check(!!xBy && xBy.to === SA.id && !!saBy && saBy.text === 'a steward',
+          'in B\'s panel the row of the conversation that steward ticked names the steward that manages it, with a link to it, and the steward\'s own row says it is a steward',
+          { x: xBy || await byIn(panelB, X.id), sa: saBy });
+        await exec('claude-vscode.editor.open', X.id);
+        await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
+        if (xBy) await panelB.locator(`li.row:has(a.name[data-open="${X.id}"]) .by a[data-open="${SA.id}"]`).first().click();
+        const upInA = xBy && await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label.replace(/^\S+ /u, ''), SA.title)), 20000, 300);
+        const copyInB = (await inB(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)}).map((t) => t.label);`))
+          .some((l) => titled(l.replace(/^\S+ /u, ''), SA.title));
+        check(!!upInA && !copyInB, 'clicked, the steward\'s name brings that steward\'s conversation to the front in window A, which shows it, and opens no copy in B',
+          { tabsA: await claudeTabs(), copyInB });
+        /* The name follows a rename. */
+        const NEW = 'Look after the inventory sync work';
+        await renameInA(SA, NEW);
+        renamed = true;
+        const followed = await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${NEW}` && b; }, 60000, 1000);
+        check(!!followed, 'and once that steward is renamed, the row names it by its new name', await byIn(panelB, X.id));
+        await shotB('one-steward-names-in-b');
+        await exec('claude-vscode.editor.open', SA.id);
+        await renameInA(SA, SA.title);
+        renamed = false;
+        await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${SA.title}`; }, 60000, 1000);
+
+        /* 2: Q1 ticks Q2 in B's panel, becomes a steward and leaves SA's list; in A's panel its box is greyed. */
+        await panelB.locator(`input[data-id="${Q2.id}"]`).first().click();
+        const left = await until(() => has(Q1.id, Q2.id) && !has(SA.id, Q1.id), 10000, 300);
+        const q1InA = await until(async () => { const b = await boxIn(panelA, Q1.id); return b && b.disabled && !b.checked && b; }, 20000, 500);
+        check(!!left && !!q1InA && q1InA.why === 'This conversation is a steward, and a steward is not managed by another',
+          'once the conversation in front of B ticks one, it is a steward: it leaves the first steward\'s list, and its box in A\'s panel is greyed', { table: table(), box: q1InA || await boxIn(panelA, Q1.id) });
+
+        /* 4: All for SA, which leaves Q2 to Q1; in B's panel the All switch is greyed and names SA. */
+        await panelA.locator('input[data-every]').click();
+        const allOn = await until(() => table()[SA.id] && table()[SA.id].all === true && table()[SA.id], 10000, 300);
+        const q2InA = await until(async () => { const b = await boxIn(panelA, Q2.id); return b && b.disabled && !b.checked && b; }, 20000, 500);
+        check(!!allOn && !allOn.manages.includes(Q2.id) && !!q2InA && q2InA.why === `Managed by ${Q1.title}`,
+          'turned to All, the first steward takes only conversations the other has not ticked: the other\'s is greyed in its panel and names that steward', { all: allOn, box: q2InA || await boxIn(panelA, Q2.id) });
+        await shot('one-steward-all-in-a');
+        const sw = await until(async () => { const e = await everyIn(panelB); return e && e.disabled && e.why === `${SA.title} has All on` && e; }, 60000, 500);
+        const swLabel = sw ? await hovered(pageB, panelB, 'label.every') : '';
+        const swBy = await until(async () => { const e = await everyByIn(panelB); return e && e.text === `on for ${SA.title}` && e; }, 60000, 500);
+        check(!!sw && !sw.checked && sw.why === `${SA.title} has All on` && swLabel === `${SA.title} has All on` && !!swBy && swBy.to === SA.id,
+          'and in B\'s panel the All switch is greyed, names beside it the steward that has All on with a link to it, and its hover label says so',
+          { every: sw || await everyIn(panelB), label: swLabel, by: swBy || await everyByIn(panelB) });
+        await shotB('one-steward-all-greyed-in-b');
+      } finally {
+        if (renamed) await renameInA(SA, SA.title).catch(() => {});
+        if (panelA) {
+          if (await panelA.locator('input[data-every]').isChecked().catch(() => false)) await panelA.locator('input[data-every]').click().catch(() => {});
+          await panelA.locator('button[data-act="none"]').click().catch(() => {});
+        }
+        if (panelB) await panelB.locator('button[data-act="none"]').click().catch(() => {});
+        await until(() => !table()[SA.id] && !table()[Q1.id], 10000, 300);
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderT).catch(() => {});
+        await until(async () => !(await w.pageOf(path.basename(folderT), 1000)), 20000, 500);
+        w.pin(undefined);
+        await exec('workbench.action.closePanel').catch(() => {});
+      }
+    });
+
     /* In a light theme a colour emoji font draws the envelope white, so the tab title, the session list and the Steward
        panel draw its one-colour text form there (src/envelope.js); a dark theme brings the colour form back without a
        reload. */
@@ -3251,7 +3436,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       let steward = null;
       /* The envelope on the conversation's row in the Steward panel, '' for a row without one. */
       const panelForm = () => steward.evaluate((id) => {
-        const a = document.querySelector(`[data-open="${id}"]`), row = a && a.closest('li'), e = row && row.querySelector('.env');
+        const a = document.querySelector(`a.name[data-open="${id}"]`), row = a && a.closest('li'), e = row && row.querySelector('.env');
         return e ? e.textContent : row ? '' : null;
       }, tab0.id).catch(() => null);
       await exec('workbench.action.closeAllEditors');
@@ -3774,6 +3959,178 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         'the Settings editor shows the four settings, each description ending that it is used only while the token mode (a link) is Custom', items);
       await shot('token-mode-settings');
       await exec('workbench.action.closeActiveEditor');
+    });
+
+    /* The same version of this extension, a build that differs in one file, installed over the running copy, as
+       installing a build locally does: every open window then runs a build that is no longer the installed one until it
+       reloads. A steward of all conversations in window A still gains the conversation it opens; once A has reloaded it
+       keeps the stewards table, and window B, still on the earlier build, leaves it alone and says so. */
+    await step('a steward of all after its extension is installed again', async () => {
+      const front = threads[0];
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const file = path.join(dataDir, 'stewards.json');
+      const table = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards || {}; } catch (_) { return {}; } };
+      const manages = (id) => { const t = table()[front.id]; return !!t && Array.isArray(t.manages) && t.manages.includes(id); };
+      const entries = () => {
+        const dir = path.join(dataDir, 'windows');
+        let names = [];
+        try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+        return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } }).filter(Boolean);
+      };
+      const sameFolder = (a, b) => (process.platform === 'win32' ? path.resolve(String(a)).toLowerCase() === path.resolve(String(b)).toLowerCase() : a === b);
+      const entryOf = (folder) => entries().find((e) => Array.isArray(e.folders) && e.folders.some((f) => sameFolder(f, folder)));
+      const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
+      let calls = 0;
+      const act = (args, input) => {
+        const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
+        const answered = fakeHome.appendToolCall(transcriptOf(front), { sessionId: front.id, cwd: profile.folder,
+          uuid: `${front.id.slice(0, 24)}${String(990000 + calls++).padStart(12, '0')}`, toolId: `toolu_again_${calls}`, command: line, description: 'Act for the user' });
+        return new Promise((resolve) => {
+          const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
+            { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: front.id }) });
+          let said = '';
+          kid.stdout.on('data', (d) => { said += d; });
+          kid.stderr.on('data', (d) => { said += d; });
+          kid.on('error', (e) => resolve('could not run the script: ' + e.message));
+          kid.on('exit', () => resolve(said.trim()));
+          kid.stdin.end(input || '');
+        }).then((said) => { answered(said); return said; });
+      };
+      const stewardIn = (p) => until(async () => {
+        for (const f of p.frames()) { try { if (await f.evaluate(() => /Managed by/.test(document.body ? document.body.innerText : ''))) return f; } catch (_) { /* gone */ } }
+        return null;
+      }, 30000, 500);
+      const staleLine = (f) => f.evaluate(() => { const p = document.querySelector('p.stale'); return p ? { text: p.innerText.replace(/\s+/g, ' ').trim(), button: !!p.querySelector('button[data-act="reload"]') } : null; });
+
+      /* Window A: the conversation in front set to All in the Steward panel, once the panel is about that conversation:
+         it follows the tab in front at its next pass, and a click before then is for the one in front before. */
+      const headed = (f, t) => until(() => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; })
+        .then((h) => h.includes(t.title.slice(0, 30))).catch(() => false), 20000, 300);
+      for (const t of threads.slice(1, 3)) { await exec('claude-vscode.editor.open', t.id); await sleep(800); }
+      await exec('claude-vscode.editor.open', front.id);
+      await exec('workbench.view.extension.claudeCodePlusSteward');
+      let panel = await stewardIn(page);
+      const forFront = panel && await headed(panel, front);
+      if (forFront && !await panel.locator('input[data-every]').isChecked()) await panel.locator('input[data-every]').click();
+      const every = await until(() => table()[front.id] && table()[front.id].all === true, 10000, 300);
+      check(!!panel && !!forFront && !!every, 'window A has a steward of all conversations in front', { front: front.id, forFront: !!forFront, table: table() });
+      if (!panel || !every) return;
+
+      /* Window B on a folder of its own, opened before the install so that it runs the earlier build too. */
+      const folderS = fs.realpathSync.native((() => { const d = path.join(path.dirname(profile.folder), 'ws-s'); fs.mkdirSync(d, { recursive: true }); return d; })());
+      const P = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fe', title: 'Sort out the logging levels of the importer', days: 0,
+        turns: [['Sort out the logging levels of the importer.', 'Set the noisy ones to debug.']] };
+      fakeHome.writeThreads(profile.home, folderS, [P]);
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderS);
+      const pageB = await w.pageOf(path.basename(folderS), 90000);
+      const hostB = pageB ? await w.hostUp(before, folderS).catch(() => null) : null;
+      check(!!pageB && !!hostB, 'a second window, B, opens on a folder of its own', { pageB: !!pageB });
+      if (!pageB || !hostB) {
+        if (pageB) await pageB.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        return;
+      }
+      w.pin(profile.folder);
+      const inB = (body, arg) => call(body, arg, 60000, folderS);
+      let newId = '';
+      try {
+        await until(() => inB(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`), 60000, 1000);
+        await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', P.id);
+        const listedB = await until(() => { const e = entryOf(folderS); return e && e.sessions.includes(P.id) && e; }, 30000, 500);
+        check(!!listedB, 'B shows a conversation of its own, which its entry lists', entryOf(folderS) || null);
+
+        /* The install, as run.js installs the extension, of the same package with one line added to its README. */
+        const extDir = path.join(profile.exts, fs.readdirSync(profile.exts).find((n) => /^xnervwang\.claude-code-plus-\d/.test(n)));
+        const stamp = () => { try { return JSON.parse(fs.readFileSync(path.join(extDir, 'package.json'), 'utf8')).__metadata.installedTimestamp || 0; } catch (_) { return 0; } };
+        const was = stamp();
+        const rebuilt = path.join(out, 'rebuilt.vsix');
+        const zipped = require('child_process').spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-I', '-c', [
+          'import sys, zipfile',
+          'src, dst = sys.argv[1], sys.argv[2]',
+          'with zipfile.ZipFile(src) as a, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as b:',
+          '    for i in a.infolist():',
+          '        data = a.read(i.filename)',
+          '        if i.filename == "extension/README.md": data += b"\\n"',
+          '        b.writestr(i, data)',
+        ].join('\n'), vsix, rebuilt], { encoding: 'utf8' });
+        const [tool] = require('@vscode/test-electron').resolveCliArgsFromVSCodeExecutablePath(exe, { reuseMachineInstall: true });
+        const cliEnv = Object.assign({}, env);
+        delete cliEnv.VSCODE_IPC_HOOK_CLI;
+        const shell = process.platform === 'win32';
+        const argv = ['--install-extension', rebuilt, '--force', `--extensions-dir=${profile.exts}`, `--user-data-dir=${profile.user}`];
+        const r = zipped.status === 0 ? require('child_process').spawnSync(shell ? `"${tool}"` : tool, shell ? argv.map((a) => `"${a}"`) : argv,
+          { env: cliEnv, encoding: 'utf8', shell, timeout: 180000 }) : null;
+        const installed = r && r.status === 0 && await until(() => stamp() && stamp() !== was, 30000, 500);
+        check(!!installed, 'the same version, rebuilt with one file changed, is installed over the running copy, as a local install does',
+          { zipped: zipped.status === 0 ? 'ok' : (zipped.stderr || '').slice(0, 300), install: r ? `${r.status} ${(r.stdout || '').trim()} ${(r.stderr || '').trim()}`.slice(0, 600) : null });
+        if (!installed) return;
+        await sleep(3000);
+        await shot('steward-installed-again');
+
+        /* The steward opens a new conversation in A's folder. Running conversations reach the panel from `claude agents
+           --json`, asked at most every 30 s. */
+        const opened = await act(['--open', profile.folder], 'Start on the changelog, please.');
+        newId = (/Session id: ([0-9a-f-]{36})/.exec(opened) || [])[1] || '';
+        const gained = newId && await until(() => manages(newId), 15000, 300);
+        const boxOf = (f, id) => f.evaluate((id) => { const b = document.querySelector(`input[data-id="${id}"]`); return b ? { checked: b.checked, disabled: b.disabled } : null; }, id);
+        await exec('claude-vscode.editor.open', front.id);
+        const rowOn = newId && await until(async () => { const b = await boxOf(panel, newId); return b && b.checked && b; }, 60000, 1000);
+        const quietA = await staleLine(panel);
+        const eA = entryOf(profile.folder), eB = entryOf(folderS);
+        check(/^Opened: /.test(opened) && /It is now ticked for you in the Steward panel\./.test(opened) && !!gained && !!rowOn && !quietA,
+          'with every window on the build installed over, the steward of all gains the conversation it opened at once: the script says it is ticked, stewards.json has it, and its panel shows it ticked, with no word of a reload',
+          { opened, gained: !!gained, row: rowOn || (newId && await boxOf(panel, newId)), line: quietA, manages: (table()[front.id] || {}).manages });
+        check(!!eA && eA.installed === false && !!eB && eB.installed === false && typeof eA.build === 'string' && eA.build.length > 0 && eA.build === eB.build,
+          'both windows\' entries say they run the same build, and not the installed one', { a: eA && [eA.build, eA.installed], b: eB && [eB.build, eB.installed] });
+        await shot('steward-replaced-gains');
+
+        /* A reloads and runs the installed build. */
+        await w.reload();
+        await until(() => call(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`), 60000, 1000);
+        const eA2 = await until(() => { const e = entryOf(profile.folder); return e && e.installed === true && e; }, 30000, 500);
+        check(!!eA2 && eA2.build !== (entryOf(folderS) || {}).build, 'after its reload A\'s entry says it runs the installed build, another than B\'s', { a: entryOf(profile.folder), b: entryOf(folderS) });
+
+        /* B, still on the earlier build, leaves the table to A: a tick in its panel is not saved, and it says so. The tick is
+           for a conversation of A's that the steward has through All, which runs again once its tab is in front. */
+        await exec('claude-vscode.editor.open', threads[1].id);
+        await conversation(threads[1], 60000).catch(() => null);
+        await exec('claude-vscode.editor.open', front.id);
+        await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); await vscode.commands.executeCommand("workbench.view.extension.claudeCodePlusSteward"); return true;', P.id);
+        const panelB = await stewardIn(pageB);
+        const firstB = panelB && await until(async () => { const b = panelB.locator(`input[data-id="${threads[1].id}"]:not([disabled])`).first(); return (await b.isVisible().catch(() => false)) && b; }, 60000, 1000);
+        if (firstB) await firstB.click();
+        await sleep(6000);
+        const lineB = panelB ? await staleLine(panelB) : null;
+        const toastB = await until(() => pageB.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].map((e) => e.innerText)
+          .find((t) => /^The tick is not saved: /.test(t)) || ''), 10000, 500);
+        const reloadButton = toastB && await pageB.evaluate(() => [...document.querySelectorAll('.notification-list-item')].filter((n) => /The tick is not saved/.test(n.innerText))
+          .some((n) => [...n.querySelectorAll('.monaco-button')].some((b) => b.innerText.trim() === 'Reload Window')));
+        check(!!firstB && !table()[P.id] && !!lineB && /^This window runs an earlier build of Claude Code Plus than the one now installed, so ticks made here are not saved\./.test(lineB.text)
+          && lineB.button && !!toastB && !!reloadButton,
+          'window B, still on the earlier build, saves no tick once A runs the installed one, and says so in one line of its Steward panel and in a notice, each with a Reload Window button',
+          { clicked: !!firstB, saved: table()[P.id] || null, line: lineB, toast: toastB, reloadButton });
+        await (async () => { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-replaced-window-b.png`) }).catch(() => {}); })();
+
+        /* A keeps the table: turning All off there is saved. */
+        await exec('claude-vscode.editor.open', front.id);
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        panel = await stewardIn(page);
+        if (panel && await headed(panel, front)) await panel.locator('input[data-every]').click();
+        const offA = panel && await until(() => table()[front.id] && table()[front.id].all !== true, 10000, 300);
+        check(!!offA, 'and A, reloaded, keeps the table: turning All off there is saved', table()[front.id] || null);
+      } finally {
+        if (newId) await act(['--close', '--confirmed', newId]).catch(() => '');
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderS).catch(() => {});
+        await until(async () => !(await w.pageOf(path.basename(folderS), 1000)), 20000, 500);
+        w.pin(undefined);
+        await exec('claude-vscode.editor.open', front.id).catch(() => {});
+        await exec('workbench.view.extension.claudeCodePlusSteward').catch(() => {});
+        const p = await stewardIn(page);
+        if (p && await p.locator('input[data-every]').isChecked().catch(() => false)) await p.locator('input[data-every]').click();
+        if (p) await p.locator('button[data-act="none"]').click().catch(() => {});
+        await until(async () => (await claudeTabs()).some((x) => titled(x.label, front.title)), 10000, 300);
+        await exec('workbench.action.closePanel').catch(() => {});
+      }
     });
 
     await step('commands', async () => {

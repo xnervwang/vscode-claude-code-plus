@@ -63,6 +63,9 @@ const MAX_ASKS = 3;
 const MAX_ASK = 300;
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+/* Agent Plus's page helpers (src/page/03-kit.js), whose hover label the page draws for a control that says why it is
+   greyed: VS Code draws a webview's own title tooltips outside the page, slowly and not over a disabled control. */
+const KIT = fs.readFileSync(path.join(__dirname, 'page', '03-kit.js'), 'utf8');
 
 /* The titles of a plan's rows in progress, depth first. */
 function doingRows(nodes, out = []) {
@@ -176,6 +179,20 @@ function alive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
 }
 
+/*
+ * Whether this window writes the stewards table. A window running the installed build does, as it writes every shared
+ * file. One whose build was installed over (mine.replaced) leaves shared files to the windows running the installed
+ * build, but until one of them is open nobody else keeps the table: a steward set to All would gain nothing and no tick
+ * would be saved. So it writes the table while no live window's entry (`others`, src/window-entries.js) says it runs the
+ * installed build. An entry naming this window's own build (mine.build) is not believed: that build is no longer the
+ * installed one, and an entry says so only at its window's next pass after an install. A window of a build older than
+ * this rule says nothing, and does not write the table either.
+ */
+function writesTable(mine, others) {
+  if (mine.canWrite) return true;
+  return !!mine.replaced && !(others || []).some((w) => w && w.installed === true && !(mine.build && w.build === mine.build));
+}
+
 /* The window name without the " [SSH: host]" suffix VS Code adds for a remote window. */
 const windowLabel = (w) => String(w.name || '').replace(/\s*\[[^\]]*\]\s*$/, '')
   || (w.folders[0] ? path.basename(w.folders[0]) : 'Window with no folder');
@@ -207,9 +224,11 @@ function body(model) {
   const now = Date.now();
   const row = (c) => `
     <li class="row ${c.managed ? 'managed' : ''}">
-      <input type="checkbox" data-id="${esc(c.sessionId)}" ${c.managed ? 'checked' : ''} ${model.every ? 'disabled' : ''} title="Managed by this conversation">
+      ${c.why ? `<span class="box" data-why="${esc(c.why)}">` : ''}<input type="checkbox" data-id="${esc(c.sessionId)}" ${c.managed ? 'checked' : ''} ${model.every || c.lock ? 'disabled' : ''}
+        ${c.why ? `aria-label="${esc(c.why)}"` : 'title="Managed by this conversation"'}>${c.why ? '</span>' : ''}
       <span class="dot ${esc(c.dot || '')}" ${c.dot ? `title="${esc(DOT_TEXT[c.dot] || c.dot)}"` : ''}></span>
       <a href="#" class="name" data-open="${esc(c.sessionId)}" title="${esc(c.cwd)}">${esc(titleMarks.withMarks(c.title, { steward: !!c.steward }))}</a>
+      ${c.by ? `<span class="by" data-why="${esc(c.why)}">${c.byId ? `managed by <a href="#" data-open="${esc(c.byId)}">${esc(c.by)}</a>${c.byAll ? ' through All' : ''}` : esc(c.by)}</span>` : ''}
       ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${htmlChars(model.envelope || envelope.COLOUR)}</span>` : ''}
       ${c.processes.length > 1 ? `<span class="twice" title="${esc(twiceText(c.processes))}">${c.processes.length} processes</span>
       <button class="stop-old" data-stop-old="${esc(c.sessionId)}" title="${esc(stopText(c.processes))}">Stop the old process</button>` : ''}
@@ -218,15 +237,19 @@ function body(model) {
       <span class="when">${esc(ago(c.lastActiveAt, now))}</span>` : `<span class="when">${esc(ago(c.lastActiveAt, now))}</span>`}
     </li>`;
   const group = (g) => {
-    const on = g.rows.filter((c) => c.managed).length;
+    const on = g.rows.filter((c) => c.managed).length, free = g.rows.filter((c) => !c.lock).length;
     return `
     <div class="group">
-      <label class="ghead"><input type="checkbox" data-group="${esc(g.key)}" ${on && on === g.rows.length ? 'checked' : ''} ${model.every ? 'disabled' : ''}
-        ${on && on < g.rows.length ? 'data-mixed="1"' : ''} title="Every conversation in ${esc(g.name)}">
+      <label class="ghead" ${free ? '' : 'data-why="Every conversation here is a steward or ticked by another steward"'}><input type="checkbox" data-group="${esc(g.key)}"
+        ${on && on === free ? 'checked' : ''} ${model.every || !free ? 'disabled' : ''} ${on && on < free ? 'data-mixed="1"' : ''}
+        ${free ? `title="Every conversation in ${esc(g.name)} that no other steward has ticked"` : ''}>
         <span class="gname">${esc(g.name)}</span><span class="count">${on}/${g.rows.length}</span></label>
       <ul>${g.rows.map(row).join('')}</ul>
     </div>`;
   };
+  const stale = model.stale ? `<p class="stale">This window runs an earlier build of Claude Code Plus than the one now installed, so
+      ticks made here are not saved${model.every ? ' and new conversations are not added to this steward' : ''}.
+      <button data-act="reload">Reload Window</button></p>` : '';
   const away = model.hidden ? `<p class="away">${model.hidden} ticked conversation${model.hidden === 1 ? ' is' : 's are'} not open in any
       VS Code window, so the steward cannot send ${model.hidden === 1 ? 'it' : 'them'} anything; not listed.
       <button data-act="drop-hidden">Untick ${model.hidden === 1 ? 'it' : 'them'}</button></p>` : '';
@@ -237,9 +260,10 @@ function body(model) {
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
     : `<div class="head"><span>Managed by <b>${esc(titleMarks.withMarks(model.front.title, { steward: !!(model.managed || model.every) }))}</b>: ${model.managed}</span>
-         <label class="every" title="Also ticks conversations opened later. Other stewards are never ticked.">
-           <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''}> All, including new ones</label>
-         <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${away}
+         <label class="every" ${model.everyBy ? `data-why="${esc(model.everyBy)} has All on"` : 'title="Also ticks conversations opened later that no other steward has ticked. Other stewards are never ticked."'}>
+           <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''} ${model.everyBy ? 'disabled' : ''}> All, including new ones</label>
+         ${model.everyBy ? `<span class="everyby" data-why="${esc(model.everyBy)} has All on">on for <a href="#" data-open="${esc(model.everyById)}">${esc(model.everyBy)}</a></span>` : ''}
+         <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${stale}${away}
        ${model.groups.length ? model.groups.map(group).join('') : '<p class="empty">No other Claude Code conversation is open in a VS Code window.</p>'}`;
 }
 
@@ -252,12 +276,21 @@ function shell(list, nonce) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 <style nonce="${nonce}">
   body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); padding: 4px 8px; }
-  .head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .head span { flex: 1 1 auto; opacity: 0.85; }
+  .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 6px; }
+  .head > span:first-child { flex: 1 1 14em; min-width: 0; opacity: 0.85; }
+  .head button { flex: 0 0 auto; white-space: nowrap; }
   button { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 2px 8px; cursor: pointer; }
   button:hover { background: var(--vscode-button-secondaryHoverBackground); }
   button:disabled { opacity: 0.5; cursor: default; }
   .every { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .every:has(input:disabled) { opacity: 0.6; }
+  input:disabled { pointer-events: none; }
+  .box { display: inline-flex; }
+  .by, .everyby { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.8; }
+  .by { max-width: 35%; }
+  .everyby { max-width: 40%; min-width: 6em; }
+  .by a, .everyby a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+  .box input:disabled, .ghead[data-why] input:disabled { opacity: 0.4; }
   ul { list-style: none; margin: 0; padding: 0; }
   .row { display: flex; align-items: center; gap: 6px; padding: 2px 0; white-space: nowrap; }
   .row:not(.managed) { opacity: 0.7; }
@@ -270,20 +303,35 @@ function shell(list, nonce) {
   .dot { box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
   .dot.working { background: ${GREEN}; } .dot.background { border: 2px solid ${GREEN}; } .dot.waiting { background: ${RED}; }
   .env { flex: 0 0 auto; line-height: 1; }
-  .empty, .away { opacity: 0.7; }
-  .away button { margin-left: 6px; }
+  .empty, .away, .stale { opacity: 0.7; }
+  .away button, .stale button { margin-left: 6px; }
   .group { margin-bottom: 6px; }
   .ghead { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-weight: 600; }
   .ghead .count { opacity: 0.6; font-weight: normal; }
   .group ul { padding-left: 18px; }
 </style></head><body><div id="root">${list}</div>
+<script nonce="${nonce}">${KIT}</script>
 <script nonce="${nonce}">
   const vscode = acquireVsCodeApi();
+  const tips = agentPlusKit.labels({ mark: ['data-steward-why', '1'], css: 'z-index:10;padding:6px 8px;border-radius:4px;font-size:.92em;'
+    + 'background:var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));'
+    + 'border:1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #454545));'
+    + 'color:var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground, #ccc));' });
+  let under = null;
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target && e.target.closest ? e.target.closest('[data-why]') : null;
+    if (t === under) return;
+    under = t;
+    if (t) tips.show(t, t.dataset.why); else tips.hide();
+  });
+  const away = () => { under = null; tips.hide(); };
+  document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) away(); });
+  window.addEventListener('blur', away);
   // A group's box shows a part of its conversations ticked as neither ticked nor clear, which only a property can say.
   const mixed = () => { for (const b of document.querySelectorAll('input[data-mixed]')) b.indeterminate = true; };
   window.addEventListener('message', (e) => {
     const m = e.data;
-    if (m && m.type === 'body' && typeof m.html === 'string') { document.getElementById('root').innerHTML = m.html; mixed(); }
+    if (m && m.type === 'body' && typeof m.html === 'string') { under = null; tips.hide(); document.getElementById('root').innerHTML = m.html; mixed(); }
   });
   mixed();
   vscode.postMessage({ type: 'ready' });
@@ -304,7 +352,10 @@ function shell(list, nonce) {
  * optionally activity(id) and question(id) for a conversation's dot (src/activity.js),
  * shownHere(id) -> whether this window shows that conversation's panel, canWrite() -> whether this window may write
  * shared files, canShare() -> whether it may still publish its own entry and take relay requests (true also in a window
- * whose build has been replaced, which keeps showing its conversations until it is reloaded), enabled(), log(message),
+ * whose build has been replaced, which keeps showing its conversations until it is reloaded), replaced() -> whether
+ * that, and nothing else, is what keeps it from writing them (see writesTable), build() -> { code, installed } for its
+ * entry: the digest of the code it runs (src/build-digest.js) and whether that is the installed build, offerReload(text)
+ * to say what it cannot do with a Reload Window button, reload() to reload the window, enabled(), log(message),
  * home, dir (the plan directory), windowName(), windowFolders() and shownList()
  * for this window's name, folders and the conversations it shows, and optionally isBackground(id, cwd), records() ->
  * the live session records, alive(pid), post(address, text) in place of stewards.post, changed(), called once the
@@ -319,7 +370,8 @@ function shell(list, nonce) {
 function create(vscode, deps) {
   deps = Object.assign({ isBackground: bgSessions.isBackground, records: () => liveRecords(), post: stewards.post, alive, readState,
     windowName: () => '', windowFolders: () => [], shownList: () => [], changed: () => {}, focusWindow: () => {}, transcriptOf,
-    canShare: () => deps.canWrite(), otherFront: () => null,
+    canShare: () => deps.canWrite(), otherFront: () => null, replaced: () => false, build: () => null, offerReload: () => {},
+    reload: () => vscode.commands.executeCommand('workbench.action.reloadWindow'),
     deliver: () => Promise.resolve({ outcome: 'notReceived', reason: 'this window cannot type into a conversation' }) }, deps);
   let view = null, timer = 0, busy = false, last = new Map(), lastFront = '', shown = null;
   const frontKey = () => { const o = deps.otherFront(); return o ? 'other:' + o.agent + ':' + o.title : deps.activeChat(); };
@@ -349,7 +401,7 @@ function create(vscode, deps) {
     const open = (id) => wins.some((w) => w.sessions.includes(id));
     const steward = (id) => { const t = table[id] || table[String(id).toLowerCase()]; return !!(t && (t.all || (t.manages || []).length)); };
     const rows = [...all.values()].filter((c) => c.sessionId !== front && (open(c.sessionId) || hostWindow(c, wins)))
-      .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c));
+      .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c, lockOf(table, c.sessionId, front, all)));
     rows.sort((a, b) => (b.managed - a.managed) || (b.lastActiveAt - a.lastActiveAt));
     const groups = grouped(rows, wins, front);
     const hidden = [...mine].filter((id) => !open(id) && !rows.some((c) => c.sessionId === id));
@@ -357,8 +409,25 @@ function create(vscode, deps) {
     // The conversation in front may not be in the list yet: `claude agents --json` is read at most every half minute.
     const title = self ? self.title : front ? titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: front, name: '', cwd: '' },
       deps.titles({ sessionId: front }), () => deps.readPlan(front))) : '';
+    const everyBy = front ? stewards.everyOf(table, front) : '';
     return { front: front ? { id: front, title } : null, other, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
-      every, envelope: envelope.envelope(vscode) };
+      every, everyBy: everyBy ? nameOf(everyBy, all) : '', everyById: everyBy, envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
+  };
+  /* A conversation's title for the panel's words about it. */
+  const nameOf = (id, all = last) => (all.get(id) && all.get(id).title)
+    || titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: id, name: '', cwd: '' }, deps.titles({ sessionId: id }), () => deps.readPlan(id))) || id;
+  /*
+   * Why the box of conversation `id` in the panel of `front` cannot be ticked, as { lock: true, why }, or a word about
+   * it that does not stop a tick: a steward is managed by none (lock), one another steward ticked stays with it (lock),
+   * and one another steward has only through All goes to the steward that ticks it.
+   */
+  const lockOf = (table, id, front, all) => {
+    if (table[id]) return { lock: true, why: 'This conversation is a steward, and a steward is not managed by another', by: 'a steward', byId: '' };
+    const h = stewards.holderOf(table, id, front);
+    if (!h) return { lock: false, why: '', by: '', byId: '' };
+    const name = nameOf(h.steward, all);
+    return h.ticked ? { lock: true, why: `Managed by ${name}`, by: name, byId: h.steward }
+      : { lock: false, why: `Managed by ${name} through All; ticking it here moves it to this conversation`, by: name, byId: h.steward, byAll: true };
   };
 
   /* This window's entry in the windows folder, written when what it shows changes and once a minute besides. */
@@ -368,6 +437,8 @@ function create(vscode, deps) {
     // Omitted until the first heartbeat, so a host with no heartbeat counts as having its window (src/duplicates.js).
     const heard = deps.pageAt ? deps.pageAt() : 0;
     if (heard) entry.pageAt = heard;
+    const b = deps.build();
+    if (b) { entry.build = b.code || ''; entry.installed = b.installed === true; }
     return entry;
   }, { log: (m) => deps.log('steward panel: ' + m) });
   const publish = (now = Date.now()) => {
@@ -376,11 +447,23 @@ function create(vscode, deps) {
   /* The windows on this machine, this one included, from their entries. */
   const windows = (now = Date.now()) => [{ pid: process.pid, name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() }]
     .concat(windowEntries.others(deps.dir, { now, alive: deps.alive }).map((w) => ({ pid: w.pid, name: w.name, folders: w.folders, sessions: w.sessions })));
+  const writes = () => writesTable({ canWrite: deps.canWrite(), replaced: deps.replaced(), build: (deps.build() || {}).code || '' },
+    windowEntries.others(deps.dir, { alive: deps.alive }));
+  /* Said once per window when a change made in the panel is not saved; the panel's own line says it all along. */
+  let toldStale = false;
+  const tellStale = () => {
+    if (toldStale) return;
+    toldStale = true;
+    deps.offerReload('The tick is not saved: this window is running an earlier build of Claude Code Plus than the one now '
+      + 'installed, and a window running that one keeps the stewards list. Reload the window to change what a steward manages.');
+  };
 
-  /* The list for a steward with "all" set: every conversation open in a window, except itself and other stewards. */
+  /* The list for a steward with "all" set: every conversation open in a window, except itself, other stewards, and
+     ones another steward has. */
   const everyIds = (steward, table) => {
     const wins = windows();
-    return [...last.keys()].filter((id) => id !== steward && !table[id] && wins.some((w) => w.sessions.includes(id)));
+    return [...last.keys()].filter((id) => id !== steward && !table[id] && !stewards.holderOf(table, id, steward)
+      && wins.some((w) => w.sessions.includes(id)));
   };
   const titlesOf = (list) => {
     const names = {};
@@ -403,7 +486,7 @@ function create(vscode, deps) {
       const kept = t.manages.filter((id) => {
         const k = steward + ' ' + id;
         if (open.has(id)) { absentSince.delete(k); return true; }
-        if (table[id]) return false;
+        if (table[id] || stewards.holderOf(table, id, steward)) return false;
         if (!absentSince.has(k)) absentSince.set(k, now);
         return now - absentSince.get(k) < GONE_MS;
       });
@@ -417,15 +500,16 @@ function create(vscode, deps) {
     if (changed) deps.changed();
   };
 
-  /* `shown` is the list the page has, or null when it needs the whole page. */
-  const render = () => {
+  /* `shown` is the list the page has, or null when it needs the whole page. `again` sends it even when unchanged, to
+     put back a box the reader clicked that was not saved. */
+  const render = (again = false) => {
     if (!view || !view.visible) return;
     const other = deps.otherFront();
     const list = body(model(last, other ? '' : deps.activeChat(), other));
     if (shown === null) {
       view.webview.html = shell(list, Math.random().toString(36).slice(2) + Date.now().toString(36));
       shown = list;
-    } else if (list !== shown) {
+    } else if (list !== shown || again) {
       shown = list;
       view.webview.postMessage({ type: 'body', html: list });
     }
@@ -601,11 +685,14 @@ function create(vscode, deps) {
         resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsFresh || deps.freshAgents,
         records: deps.records, post: deps.post, titleOf,
         manage: (steward, id) => {
+          if (!writes()) return false;
           const t = stewards.read(deps.dir)[steward];
-          if (t && !t.manages.includes(id)) {
-            stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: titleOf(id) }), { dir: deps.dir });
-          }
+          if (!t) return false;
+          const after = t.manages.includes(id) ? stewards.read(deps.dir)
+            : stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: titleOf(id) }),
+              { dir: deps.dir, ticked: t.ticked.concat(id) });
           deps.changed();
+          return !!(after[steward] && after[steward].manages.includes(id));
         },
         pid: process.pid })) {
         deps.log(`steward ${r.action === 'send' ? 'relay' : r.action} to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`);
@@ -637,7 +724,8 @@ function create(vscode, deps) {
       const r = await deps.freshAgents();
       if (planSeen.size > 1000) planSeen.clear();
       last = gather(r && r.records, cached);
-      if (deps.canWrite()) {
+      if (writes()) {
+        if (stewards.migrate(deps.dir)) deps.log('steward panel: rewrote stewards.json so that each conversation has one steward at most');
         const names = {};
         for (const [id, c] of last) names[id] = c.title;
         stewards.rename(names, { dir: deps.dir });
@@ -663,29 +751,36 @@ function create(vscode, deps) {
       if (await open(m.id) === 'nowhere') vscode.window.showInformationMessage('That conversation is not open in any VS Code window on this machine.');
       return;
     }
-    if (!m || !front || !deps.canWrite()) return;
+    if (m && m.type === 'reload') { await deps.reload(); return; }
+    if (!m || !front) return;
+    if (!writes()) {
+      if (deps.replaced()) { tellStale(); render(true); }
+      return;
+    }
     const table = stewards.read(deps.dir);
     const mine = new Set(table[front] ? table[front].manages : []);
     if (m.type === 'every') {
+      if (m.on === true && stewards.everyOf(table, front)) { render(true); return; }
       const list = m.on ? everyIds(front, table) : [...mine];
-      stewards.setManaged(front, list, titlesOf(list), { dir: deps.dir, every: m.on === true });
-      render();
+      stewards.setManaged(front, list, titlesOf(list), { dir: deps.dir, every: m.on === true, ticked: [...mine] });
+      render(true);
       deps.changed();
       return;
     }
     // While it manages all, nothing can be unticked or ticked by hand.
     if (table[front] && table[front].all) return;
-    if (m.type === 'toggle' && typeof m.id === 'string') { if (m.on) mine.add(m.id); else mine.delete(m.id); }
+    const free = (id) => !lockOf(table, id, front, last).lock;
+    if (m.type === 'toggle' && typeof m.id === 'string') { if (!m.on) mine.delete(m.id); else if (free(m.id)) mine.add(m.id); }
     else if (m.type === 'group' && typeof m.key === 'string') {
       const g = model(last, front).groups.find((x) => x.key === m.key);
-      for (const c of g ? g.rows : []) { if (m.on) mine.add(c.sessionId); else mine.delete(c.sessionId); }
+      for (const c of g ? g.rows : []) { if (!m.on) mine.delete(c.sessionId); else if (!c.lock) mine.add(c.sessionId); }
     }
-    else if (m.type === 'all') for (const c of model(last, front).rows) mine.add(c.sessionId);
+    else if (m.type === 'all') for (const c of model(last, front).rows) { if (!c.lock) mine.add(c.sessionId); }
     else if (m.type === 'none') mine.clear();
     else if (m.type === 'drop-hidden') for (const id of model(last, front).hiddenIds) mine.delete(id);
     else return;
     stewards.setManaged(front, [...mine], titlesOf(mine), { dir: deps.dir });
-    render();
+    render(true);
     deps.changed();
   };
 
@@ -720,8 +815,8 @@ function create(vscode, deps) {
     refresh() { render(); },
     open,
     _gather: gather, _model: model, _notify: notify, _pass: pass, _onMessage: onMessage, _takeRequest: takeRequest, _syncEvery: syncEvery,
-    _takeRelays: takeRelays,
+    _takeRelays: takeRelays, _writes: writes, _last: () => last,
   };
 }
 
-module.exports = { create, gather, grouped, doingRows, waitedOn, body, shell, VIEW, REFRESH_MS, NOTICE_GAP_MS, WORK_CHECK_MS, WINDOWS_DIR };
+module.exports = { create, gather, grouped, doingRows, waitedOn, body, shell, writesTable, VIEW, REFRESH_MS, NOTICE_GAP_MS, WORK_CHECK_MS, WINDOWS_DIR };

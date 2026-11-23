@@ -9683,7 +9683,7 @@ console.log('\nthe Steward panel');
         records = records.concat([{ sessionId: ${JSON.stringify(S(8))}, kind: 'interactive', cwd: '/w/h', name: 'Eight', status: 'idle' }]);
         require('fs').writeFileSync(wdir + '/4242.json', JSON.stringify({ pid: 4242, at: Date.now(), name: 'proj-b', folders: ['/w/c'],
           sessions: [${JSON.stringify(S(3))}, ${JSON.stringify(S(8))}] }));
-        st.setManaged(${JSON.stringify(S(3))}, [${JSON.stringify(S(2))}], {}, { dir: D2 });
+        st.setManaged(${JSON.stringify(S(3))}, [${JSON.stringify(S(7))}], {}, { dir: D2 });
         await v._pass();
         const grown = st.read(D2)[S1].manages.slice().sort();
         // Eight leaves every window: it stays on the list for a while, as a window waking up publishes late.
@@ -9704,7 +9704,7 @@ console.log('\nthe Steward panel');
     const out = JSON.parse(cp.execFileSync(process.execPath, ['-e', PANEL_SCRIPT], { encoding: 'utf8', timeout: 30000 }));
     if (out.error) bad('the panel threw: ' + out.error);
     else {
-      const names = (h) => [...h.matchAll(/data-open="([^"]+)"/g)].map((m) => m[1]);
+      const names = (h) => [...h.matchAll(/class="name" data-open="([^"]+)"/g)].map((m) => m[1]);
       if (JSON.stringify(names(out.first).sort()) === JSON.stringify([S(2), S(3), S(6)].sort()) && !/type="checkbox"[^>]*\bchecked\b/.test(out.first)
           && out.first.includes('Managed by <b>steward-ab</b>: 0')) {
         ok('the panel lists the other conversations open in a window, none ticked, leaving out the one in front, bg sessions, claude -p workers and any open in no window');
@@ -9759,12 +9759,249 @@ console.log('\nthe Steward panel');
       } else bad(`turning All on gave ${JSON.stringify([e.on, e.locked, rowBoxes(e.lockedPage)])}`);
       if (JSON.stringify(e.grown) === JSON.stringify([S(2), S(6), S(8)].sort()) && e.off && e.off.all === false
           && JSON.stringify(e.off.manages.slice().sort()) === JSON.stringify([S(2), S(6)].sort())
-          && !/data-every="1" checked/.test(e.freedPage) && rowBoxes(e.freedPage).every((b) => !/\bdisabled\b/.test(b))) {
-        ok('then a conversation opened later is added and one that became a steward is dropped; turning All off keeps the ticks and frees the boxes');
+          && !/data-every="1" checked/.test(e.freedPage) && rowBoxes(e.freedPage).every((b) => /\bdisabled\b/.test(b) === b.includes(S(3)))) {
+        ok('then a conversation opened later is added and one that became a steward is dropped; turning All off keeps the ticks and frees the boxes, but for the steward\'s');
       } else bad(`with All on, later: ${JSON.stringify([e.grown, e.off])}`);
       if (e.keptAway === true && e.goneLater === true) {
         ok('with All on, a conversation out of every window stays on the list for ten minutes before it goes');
       } else bad(`a conversation leaving every window: ${JSON.stringify([e.keptAway, e.goneLater])}`);
+    }
+
+    /* Which window writes the stewards table (writesTable in src/steward-view.js): one running the installed build
+       does; one whose build was installed over does only while no live window says it runs the installed build. */
+    {
+      const sv = require('../src/steward-view');
+      const E = (installed, build = 'new') => (installed === undefined ? { pid: 1 } : { pid: 1, installed, build });
+      const cases = [
+        ['a window running the installed build', { canWrite: true, replaced: false }, [E(false)], true],
+        ['a replaced window with no other window open', { canWrite: false, replaced: true }, [], true],
+        ['a replaced window beside other replaced ones', { canWrite: false, replaced: true }, [E(false), E(false)], true],
+        ['a replaced window beside a window of an older build, whose entry says nothing', { canWrite: false, replaced: true }, [E()], true],
+        ['a replaced window once another window runs the installed build', { canWrite: false, replaced: true, build: 'old' }, [E(false), E(true)], false],
+        ['a replaced window beside one whose entry, not yet rewritten since the install, still says its build, which is this one\'s, is installed',
+          { canWrite: false, replaced: true, build: 'old' }, [E(true, 'old')], true],
+        ['the replaced window itself after a reload, which runs the installed build', { canWrite: true, replaced: false }, [E(false)], true],
+        ['a window being uninstalled, or after Remove', { canWrite: false, replaced: false }, [], false],
+      ];
+      const wrong = typeof sv.writesTable !== 'function' ? cases.map((c) => c[0])
+        : cases.filter(([, mine, others, want]) => sv.writesTable(mine, others) !== want).map((c) => c[0]);
+      if (!wrong.length) {
+        ok('the stewards table is written by a window running the installed build, and by one whose build was installed over only while no live window runs the installed build');
+      } else bad(`which window writes the stewards table came out wrong for: ${wrong.join('; ')}`);
+
+      /* A replaced window that shows a steward of all conversations: a conversation a window's entry lists is added
+         within one pass while no window runs the installed build, and not once one does, when the panel says why. */
+      const rdir = path.join(root, 'plans-replaced');
+      const wdir = path.join(rdir, 'windows');
+      fs.mkdirSync(wdir, { recursive: true });
+      st.setManaged(S(1), [S(2)], { [S(2)]: 'Two' }, { dir: rdir, every: true });
+      const out2 = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const fs = require('fs');
+        const sv = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'steward-view.js'))});
+        const st = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'stewards.js'))});
+        const S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, dir = ${JSON.stringify(rdir)}, wdir = ${JSON.stringify(wdir)};
+        const rec = (n, name) => ({ sessionId: S(n), kind: 'interactive', cwd: '/w/' + n, name, status: 'idle' });
+        const records = [rec(1, 'All of them'), rec(2, 'Two'), rec(8, 'Eight'), rec(9, 'Nine')];
+        const entry = (pid, sessions, more) => fs.writeFileSync(wdir + '/' + pid + '.json', JSON.stringify(Object.assign({ pid, at: Date.now(), name: 'w' + pid, folders: [], sessions }, more)));
+        entry(5151, [S(9)], { build: 'old', installed: false });
+        let canWrite = false, replaced = true, reloads = 0;
+        const offered = [];
+        const v = sv.create({ window: { registerWebviewViewProvider: (id, p) => ({ dispose() {} }), showInformationMessage() {} } }, {
+          activeChat: () => S(1), freshAgents: async () => ({ records }), readPlan: () => null, titles: () => ({ custom: '', ai: '' }),
+          since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true, shownHere: (id) => id === S(1),
+          canWrite: () => canWrite, canShare: () => true, replaced: () => replaced, build: () => ({ code: 'old', installed: canWrite }),
+          offerReload: (t) => offered.push(t), reload: async () => { reloads++; }, enabled: () => true, log: () => {}, home: '/', dir,
+          records: () => [], post: async () => true, windowName: () => 'here', windowFolders: () => [], shownList: () => [S(1), S(2)],
+          alive: (pid) => pid === 5151 || pid === 5252 });
+        const manages = () => (st.read(dir)[S(1)] || { manages: [] }).manages.slice().sort();
+        (async () => {
+          await v._pass();
+          const alone = manages();
+          const own = JSON.parse(fs.readFileSync(wdir + '/' + process.pid + '.json', 'utf8'));
+          const quiet = sv.body(v._model(new Map(), S(1)));
+          entry(5252, [], { build: 'new', installed: true });
+          entry(5151, [S(9), S(8)], { build: 'old', installed: false });
+          await v._pass();
+          const beside = manages();
+          const said = sv.body(v._model(new Map(), S(1)));
+          await v._onMessage({ type: 'every', on: false });
+          await v._onMessage({ type: 'every', on: false });
+          const refused = st.read(dir)[S(1)];
+          await v._onMessage({ type: 'reload' });
+          fs.unlinkSync(wdir + '/5252.json');
+          await v._pass();
+          const after = manages();
+          canWrite = true; replaced = false;
+          entry(5252, [], { build: 'new', installed: true });
+          const reloaded = typeof v._writes === 'function' ? v._writes() : null;
+          process.stdout.write(JSON.stringify({ alone, own, quiet, beside, said, refused, offered, reloads, after, reloaded }));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`], { encoding: 'utf8', timeout: 30000 }));
+      if (out2.error) bad('the replaced window\'s panel threw: ' + out2.error);
+      else {
+        if (JSON.stringify(out2.alone) === JSON.stringify([S(2), S(9)].sort()) && out2.own.build === 'old' && out2.own.installed === false
+            && !/earlier build/.test(out2.quiet)) {
+          ok('a window whose build was installed over, with no window running the installed build, adds to its steward of all conversations one that a window\'s entry lists, '
+            + 'and its own entry says which build it runs and that it is not the installed one');
+        } else bad(`a replaced window alone gave ${JSON.stringify({ alone: out2.alone, own: out2.own, quiet: /earlier build/.test(out2.quiet) })}`);
+        const line = (h) => (/<p class="stale">([\s\S]*?)<\/p>/.exec(h) || [])[1] || '';
+        if (JSON.stringify(out2.beside) === JSON.stringify([S(2), S(9)].sort())
+            && /This window runs an earlier build of Claude Code Plus than the one now installed, so\s+ticks made here are not saved and new conversations are not added to this steward\./.test(line(out2.said))
+            && /<button data-act="reload">Reload Window<\/button>/.test(line(out2.said))
+            && out2.refused && out2.refused.all === true && out2.offered.length === 1 && /^The tick is not saved: /.test(out2.offered[0]) && out2.reloads === 1) {
+          ok('once another window runs the installed build, it adds nothing more, keeps every tick as it was, and says why in one line of the panel with a Reload Window button, '
+            + 'and once in a notice with one');
+        } else bad(`a replaced window beside one running the installed build gave ${JSON.stringify({ beside: out2.beside, line: line(out2.said), refused: out2.refused, offered: out2.offered, reloads: out2.reloads })}`);
+        if (JSON.stringify(out2.after) === JSON.stringify([S(2), S(8), S(9)].sort()) && out2.reloaded === true) {
+          ok('when that window has gone it takes the table back within one pass, and after its own reload it writes it whoever else is open');
+        } else bad(`after the window running the installed build closed: ${JSON.stringify({ after: out2.after, reloaded: out2.reloaded })}`);
+      }
+    }
+
+    /* One conversation, one steward (src/stewards.js): what a write keeps, what reading an older table makes of it, and
+       the same reading in the plugin's hooks (hooks/steward_table.py). */
+    {
+      const C = (n) => `5e5e5e5e-0000-4000-8000-0000000001${String(n).padStart(2, '0')}`;
+      const fresh = (name) => { const d = path.join(root, 'one-steward', name); fs.mkdirSync(d, { recursive: true }); return d; };
+      const list = (t, s) => (t[s] ? t[s].manages.slice().sort() : null);
+      const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      const has = typeof st.settle === 'function';
+
+      // 1: a steward cannot be ticked by another.
+      const d1 = fresh('steward-ticked');
+      st.setManaged(C(1), [C(2)], {}, { dir: d1, now: 1 });
+      const t1 = st.setManaged(C(3), [C(1), C(4)], {}, { dir: d1, now: 2 });
+      if (same(list(t1, C(1)), [C(2)]) && same(list(t1, C(3)), [C(4)])) ok('a steward cannot be ticked for another steward');
+      else bad(`ticking a steward for another gave ${JSON.stringify(t1)}`);
+      // 2: one that becomes a steward leaves every list.
+      const d2 = fresh('becomes-steward');
+      st.setManaged(C(1), [C(2), C(3)], {}, { dir: d2, now: 1 });
+      const t2 = st.setManaged(C(3), [C(4)], {}, { dir: d2, now: 2 });
+      if (same(list(t2, C(1)), [C(2)]) && same(list(t2, C(3)), [C(4)])) ok('a conversation that becomes a steward leaves the list of the steward that had it');
+      else bad(`a managed conversation becoming a steward gave ${JSON.stringify(t2)}`);
+      // 3: one ticked by a steward cannot be ticked by another.
+      const d3 = fresh('ticked-elsewhere');
+      st.setManaged(C(1), [C(2)], {}, { dir: d3, now: 1 });
+      const t3 = st.setManaged(C(5), [C(2), C(6)], {}, { dir: d3, now: 2 });
+      if (same(list(t3, C(1)), [C(2)]) && same(list(t3, C(5)), [C(6)])) ok('a conversation one steward ticked is not ticked for another');
+      else bad(`ticking one another steward has gave ${JSON.stringify(t3)}`);
+      // 4: one steward with All; it takes only what nobody ticked, and a tick takes from it what it has through All.
+      const d4 = fresh('one-all');
+      st.setManaged(C(1), [C(8), C(10)], {}, { dir: d4, now: 1, every: true, ticked: [C(10)] });
+      const t4a = st.setManaged(C(7), [C(11)], {}, { dir: d4, now: 2, every: true });
+      const t4b = st.setManaged(C(9), [C(8), C(10)], {}, { dir: d4, now: 3 });
+      const t4c = st.setManaged(C(1), [C(8), C(9), C(10), C(12)], {}, { dir: d4, now: 4, every: true });
+      if (t4a[C(7)] && t4a[C(7)].all === false && t4a[C(1)].all === true && same(list(t4b, C(9)), [C(8)]) && same(list(t4b, C(1)), [C(10)])
+          && same(list(t4c, C(1)), [C(10), C(12)]) && same(t4c[C(1)].ticked, [C(10)])) {
+        ok('All stays with the steward that has it while another asks for it; a tick takes from it a conversation it has through All but not one it ticked, and it does not take back one another steward has');
+      } else bad(`one steward with All gave ${JSON.stringify([t4a, t4b, t4c])}`);
+
+      /* Reading a table an older build wrote. */
+      const raw = (stw) => ({ version: 1, stewards: stw });
+      const nineteen = Array.from({ length: 19 }, (_, i) => C(20 + i));
+      const fixtures = {
+        // The user's: one steward of all with 19 conversations, and one of them also on another steward's list.
+        user: raw({ [C(1)]: { manages: nineteen, names: {}, at: 100, all: true }, [C(2)]: { manages: [C(25)], names: {}, at: 50 } }),
+        stewardListed: raw({ [C(1)]: { manages: [C(2), C(4)], names: {}, at: 10 }, [C(2)]: { manages: [C(3)], names: {}, at: 20 } }),
+        twoAll: raw({ [C(1)]: { manages: [C(4)], names: {}, at: 10, all: true }, [C(2)]: { manages: [C(5)], names: {}, at: 20, all: true } }),
+        twoLists: raw({ [C(1)]: { manages: [C(4)], names: {}, at: 10 }, [C(2)]: { manages: [C(4)], names: {}, at: 20 } }),
+        tickBeatsAll: raw({ [C(1)]: { manages: [C(6), C(7)], ticked: [C(6)], names: {}, at: 30, all: true }, [C(2)]: { manages: [C(6), C(7)], names: {}, at: 10 } }),
+        mutual: raw({ [C(1)]: { manages: [C(2)], names: {}, at: 1 }, [C(2)]: { manages: [C(1)], names: {}, at: 2 } }),
+      };
+      const settled = {};
+      if (has) for (const [k, d] of Object.entries(fixtures)) settled[k] = st.settle(st.entriesOf(d));
+      const u = settled.user || {};
+      const wantUser = nineteen.filter((c) => c !== C(25)).sort();
+      if (has && same(list(u, C(1)), wantUser) && u[C(1)].all === true && same(u[C(1)].ticked, []) && same(list(u, C(2)), [C(25)])
+          && same(list(settled.stewardListed, C(1)), [C(4)]) && same(list(settled.stewardListed, C(2)), [C(3)])
+          && settled.twoAll[C(2)].all === true && settled.twoAll[C(1)].all === false && same(list(settled.twoAll, C(1)), [C(4)])
+          && !settled.twoLists[C(1)] && same(list(settled.twoLists, C(2)), [C(4)])
+          && same(list(settled.tickBeatsAll, C(1)), [C(6)]) && same(list(settled.tickBeatsAll, C(2)), [C(7)])
+          && same(Object.keys(settled.mutual), [C(1)])) {
+        ok('reading an older table: the steward of all keeps 18 of its 19 and the one also ticked elsewhere stays there; a steward leaves every list; All stays with the steward that changed last; '
+          + 'of two ticks the later wins, a tick wins over All, and of two stewards that tick each other the earlier stays one');
+      } else bad(`reading older tables gave ${JSON.stringify(settled)}`);
+      const dm = fresh('migrate');
+      fs.writeFileSync(path.join(dm, st.FILE), JSON.stringify(fixtures.user));
+      const wrote = has && st.migrate(dm), again = has && st.migrate(dm);
+      const after = JSON.parse(fs.readFileSync(path.join(dm, st.FILE), 'utf8')).stewards;
+      if (wrote === true && again === false && after[C(1)] && same(after[C(1)].ticked, []) && after[C(1)].manages.length === 18 && same(after[C(2)].manages, [C(25)])) {
+        ok('the window that may write the table writes the settled one back once, with what the steward of all ticked itself, which is nothing');
+      } else bad(`migrating the user's table gave ${JSON.stringify({ wrote, again, after })}`);
+      /* The hooks read the same. */
+      const hooksDir = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
+      const py = cp.spawnSync('python3', ['-c', 'import json, sys; sys.path.insert(0, sys.argv[1]); import steward_table as t; '
+        + 'print(json.dumps({k: t.settle(t.entries_of(v)) for k, v in json.load(sys.stdin).items()}))', hooksDir],
+      { input: JSON.stringify(fixtures), encoding: 'utf8' });
+      const canon = (all) => JSON.stringify(Object.keys(all).sort().map((k) => [k, Object.keys(all[k]).sort().map((s) => {
+        const v = all[k][s];
+        return [s, v.manages, v.ticked, Object.keys(v.names).sort(), v.at, v.all];
+      })]));
+      let fromPy = null;
+      try { fromPy = JSON.parse(py.stdout); } catch (_) { /* reported below */ }
+      if (has && fromPy && canon(fromPy) === canon(settled)) ok('and the plugin\'s hooks read every one of those tables exactly as the extension does');
+      else bad(`the hooks read the tables as ${(py.stdout || py.stderr || '').slice(0, 600)}`);
+
+      /* The panel: greyed boxes and switch, each saying why. */
+      const pdir = fresh('panel');
+      const table0 = { [C(2)]: { manages: [C(3)], names: {}, at: 1 }, [C(4)]: { manages: [C(5)], names: {}, at: 2, all: true } };
+      fs.writeFileSync(path.join(pdir, st.FILE), JSON.stringify(raw(table0)));
+      const panel = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const sv = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'steward-view.js'))});
+        const st = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'stewards.js'))});
+        const C = (n) => '5e5e5e5e-0000-4000-8000-0000000001' + String(n).padStart(2, '0'), dir = ${JSON.stringify(pdir)};
+        const names = { 1: 'Front', 2: 'Docs steward', 3: 'Docs work', 4: 'Night steward', 5: 'Release notes' };
+        let records = Object.keys(names).map((n) => ({ sessionId: C(n), kind: 'interactive', cwd: '/w/' + n, name: names[n], status: 'idle' }));
+        const v = sv.create({ window: { registerWebviewViewProvider: () => ({ dispose() {} }), showInformationMessage() {} } }, {
+          activeChat: () => C(1), freshAgents: async () => ({ records }), readPlan: () => null, titles: () => ({ custom: '', ai: '' }),
+          since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true, shownHere: (id) => id === C(2),
+          canWrite: () => true, canShare: () => true, enabled: () => true, log: () => {}, home: '/', dir, records: () => [],
+          post: async () => true, windowName: () => 'here', windowFolders: () => [], shownList: () => records.map((r) => r.sessionId), alive: () => false });
+        (async () => {
+          await v._pass();
+          const page = sv.body(v._model(v._last ? v._last() : new Map(), C(1)));
+          records = records.map((r) => (r.sessionId === C(2) ? Object.assign({}, r, { name: 'Docs and site steward' }) : r));
+          await v._pass();
+          const renamed = sv.body(v._model(v._last ? v._last() : new Map(), C(1)));
+          await v._onMessage({ type: 'toggle', id: C(3), on: true });
+          await v._onMessage({ type: 'toggle', id: C(2), on: true });
+          await v._onMessage({ type: 'every', on: true });
+          const refused = st.read(dir);
+          await v._onMessage({ type: 'toggle', id: C(5), on: true });
+          const took = st.read(dir);
+          process.stdout.write(JSON.stringify({ page, renamed, refused, took }));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`], { encoding: 'utf8', timeout: 30000 }));
+      /* A row's box with the wrapper that carries its hover label, if it has one. */
+      const boxOf = (h, id) => (new RegExp(`(<span class="box" data-why="[^"]*">)?<input type="checkbox" data-id="${id}"[^>]*>`).exec(h || '') || [''])[0];
+      const every = (h) => (/<label class="every"[^>]*>\s*<input type="checkbox" data-every="1"[^>]*>/.exec(h || '') || [''])[0];
+      const why = (h, text) => h.includes(`data-why="${text}"`) && h.includes(`aria-label="${text}"`);
+      if (panel.error) bad('the panel with other stewards threw: ' + panel.error);
+      else {
+        const p = panel.page;
+        if (/\bdisabled\b/.test(boxOf(p, C(2))) && why(boxOf(p, C(2)), 'This conversation is a steward, and a steward is not managed by another')
+            && /\bdisabled\b/.test(boxOf(p, C(3))) && why(boxOf(p, C(3)), 'Managed by Docs steward')
+            && !/\bdisabled\b/.test(boxOf(p, C(5))) && why(boxOf(p, C(5)), 'Managed by Night steward through All; ticking it here moves it to this conversation')
+            && /data-why="Night steward has All on"/.test(every(p)) && /\bdisabled\b/.test(every(p)) && !/<label class="every"[^>]*title=/.test(every(p))) {
+          ok('in another steward\'s panel a steward\'s box is greyed, so is one another steward ticked, and the All switch while another steward has All on, each saying why on hover');
+        } else bad(`the panel beside other stewards drew ${JSON.stringify({ two: boxOf(p, C(2)), three: boxOf(p, C(3)), five: boxOf(p, C(5)), every: every(p) })}`);
+        /* The row itself says who manages it, the steward's name a link to its conversation; so does the All switch. */
+        const by = (h, id) => {
+          const row = (new RegExp(`<li class="row[^"]*">((?:(?!</li>)[\\s\\S])*data-open="${id}" title[\\s\\S]*?)</li>`).exec(h || '') || [])[1] || '';
+          return (/<span class="by"[^>]*>([\s\S]*?)<\/span>/.exec(row) || [])[1] || '';
+        };
+        const everyBy = (h) => (/<span class="everyby"[^>]*>([\s\S]*?)<\/span>/.exec(h || '') || [])[1] || '';
+        const r = panel.renamed;
+        if (by(p, C(2)) === 'a steward' && by(p, C(3)) === `managed by <a href="#" data-open="${C(2)}">Docs steward</a>`
+            && by(p, C(5)) === `managed by <a href="#" data-open="${C(4)}">Night steward</a> through All`
+            && everyBy(p) === `on for <a href="#" data-open="${C(4)}">Night steward</a>`
+            && by(r, C(3)) === `managed by <a href="#" data-open="${C(2)}">Docs and site steward</a>`) {
+          ok('each such row names, on the row itself, the steward that manages it or that it is a steward, the All switch names the steward that has All on, '
+            + 'each name a link to that steward\'s conversation, and a renamed steward\'s new name shows at the next pass');
+        } else bad(`the rows named their stewards as ${JSON.stringify({ two: by(p, C(2)), three: by(p, C(3)), five: by(p, C(5)), every: everyBy(p), renamed: by(r, C(3)) })}`);
+        if (!panel.refused[C(1)] && same(list(panel.took, C(1)), [C(5)]) && same(list(panel.took, C(4)), []) && panel.took[C(4)].all === true
+            && same(list(panel.took, C(2)), [C(3)])) {
+          ok('and those clicks change nothing, while ticking one the steward of all has only through All moves it to this one');
+        } else bad(`clicking in the panel beside other stewards gave ${JSON.stringify({ refused: panel.refused, took: panel.took })}`);
+      }
     }
 
     /* Which managed conversations a steward's plan is waiting on: named in an open row, by title or by id. */
@@ -9917,6 +10154,7 @@ console.log('\nthe Steward panel');
         call('a1', 'toolu_1', now - 60000, cmd(S(2), restarted)),
         call('a2', 'toolu_side', now - 30000, cmd(S(3), 'from a subagent'), { isSidechain: true }),
         call('a3', 'toolu_crlf', now - 20000, cmd(S(3), lines2).replace(/\n/g, '\r\n')),
+        call('a5', 'toolu_all', now - 15000, cmd(S(8), restarted)),
         { type: 'user', uuid: 'u1', timestamp: iso(now - 10000), origin: { kind: 'human' },
           message: { role: 'user', content: [{ type: 'text', text: cmd(S(2), 'typed, not run') + ' "tool_use"' }] } },
       ].map((r) => JSON.stringify(r)).join('\n') + '\n');
@@ -9947,8 +10185,9 @@ console.log('\nthe Steward panel');
         put(R(5), { to: S(5), text: restarted });
         put(R(7), { to: S(3), text: lines2 });
         put(R(8), { to: S(3), text: 'late call' });
-        put(R('a'), { steward: S(6), to: S(2), text: restarted });
+        put(R('a'), { steward: S(6), to: S(8), text: restarted });
         put(R('b'), { steward: S(6), to: S(1), text: restarted });
+        put(R('c'), { steward: S(6), to: S(2), text: restarted });
         const typed = [];
         let waits = 0, late = false;
         const deps = { shownHere: (id) => id !== S(5), stewards: () => table,
@@ -9964,7 +10203,7 @@ console.log('\nthe Steward panel');
           process.stdout.write(JSON.stringify({ typed, results, again, left, waits }));
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
       const { typed, results, again, left } = relayed;
-      if (typed && JSON.stringify(typed) === JSON.stringify([[S(2), restarted], [S(3), lines2], [S(3), 'late call'], [S(2), restarted]])
+      if (typed && JSON.stringify(typed) === JSON.stringify([[S(2), restarted], [S(3), lines2], [S(3), 'late call'], [S(8), restarted]])
           && results[R(1)] === 'submitted' && results[R(7)] === 'submitted' && results[R(2)] === 'refused' && results[R(3)] === 'refused'
           && again.length === 1 && again[0].outcome === 'refused' && /already/.test(again[0].reason)
           && left.includes(R(5) + '.json') && !left.includes(R(4) + '.json') && !left.some((n) => n.includes('.taken-'))) {
@@ -9973,8 +10212,8 @@ console.log('\nthe Steward panel');
       if (results && results[R(8)] === 'submitted' && relayed.waits > 0 && relayed.waits <= relay.RAN_WAITS_MS.length * 2) {
         ok('a steward\'s call that reaches its transcript a moment after the request is found by reading the transcript again, not refused');
       } else bad(`a call written late: ${JSON.stringify(relayed)}`);
-      if (results && results[R('a')] === 'submitted' && results[R('b')] === 'refused') {
-        ok('a steward of all conversations reaches one its list does not hold at the moment, but not another steward');
+      if (results && results[R('a')] === 'submitted' && results[R('b')] === 'refused' && results[R('c')] === 'refused') {
+        ok('a steward of all conversations reaches one no list holds at the moment, but not another steward nor one another steward has');
       } else bad(`a steward of all: ${JSON.stringify(results)}`);
       /* The script the steward runs: it leaves the request and prints the answer a window writes back. */
       const script = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
@@ -10067,13 +10306,13 @@ console.log('\nthe Steward panel');
       const R = (n) => `bbbbbbbb-0000-4000-8000-00000000000${n}`;
       const { did, results, left } = acted;
       const want = [['rename', S(2), 'Parser rewrite'], ['close', S(3), false], ['open', '/w/proj', 'Start on the parser'], ['manage', S(1), S(7)],
-        ['send', S(2), 'use --close here'], ['open', '/w/proj', 'Start on the parser'], ['open', '/w/proj', 'Never mind']];
+        ['send', S(2), 'use --close here'], ['open', '/w/proj', 'Start on the parser'], ['manage', S('c'), S(7)], ['open', '/w/proj', 'Never mind']];
       if (did && JSON.stringify(did) === JSON.stringify(want) && results[R(3)][1] === 'refused' && results[R(7)][1] === 'refused'
           && results[R(8)][1] === 'refused' && results[R(9)][1] === 'refused' && results[R(4)][2] === S(7) && results[R(4)][3] === true
-          && results[R('a')][1] === 'submitted' && results[R('a')][3] === false && results[R('b')][1] === 'notReceived' && results[R('b')][3] === false
+          && results[R('a')][1] === 'submitted' && results[R('a')][3] === true && results[R('b')][1] === 'notReceived' && results[R('b')][3] === false
           && left.includes(R(5) + '.json') && left.includes(R('c') + '.json') && !left.includes(R(4) + '.json')) {
         ok('a window renames, closes and opens for the steward that ran the script so, gives the new conversation\'s id back and ticks it for that steward, '
-          + 'though not for a steward of all conversations nor after an open that failed, '
+          + 'a steward of all conversations too, though not after an open that failed, '
           + 'leaves an open for a folder that is not its first folder (Claude Code starts a new conversation there) to another window, and refuses a close not confirmed in the command, a title the steward did not send, '
           + 'an open from a conversation that is no steward and an action there is none of');
       } else bad(`steward actions gave ${JSON.stringify(acted)}`);
@@ -10305,7 +10544,8 @@ console.log('\nthe Steward panel');
           resume: async (id, text) => { did.push(['resume', id, text]);
             return id === S(0) ? { outcome: 'uncertain', reason: 'no panel here was ready for it' } : { outcome: 'submitted', reason: '', opened: true }; },
           deliver: async (id, text) => { did.push(['send', id, text]); return { outcome: 'submitted' }; },
-          manage: (steward, id) => did.push(['manage', steward, id]) };
+          // A window that may not write the stewards table says so with false (writesTable in src/steward-view.js).
+          manage: (steward, id) => { did.push(['manage', steward, id]); return id !== S(6); } };
         (async () => {
           const first = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, r]));
           put(R(9), { action: 'resume', to: S(4), text: words });
@@ -10316,10 +10556,10 @@ console.log('\nthe Steward panel');
           process.stdout.write(JSON.stringify({ first, again, did, left }));
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
       const f = took.first || {}, g = took.again || {}, why = (r) => (r ? r.outcome + ': ' + (r.reason || '') : 'not taken');
-      if (took.did && JSON.stringify(took.did) === JSON.stringify([['resume', S(4), words], ['resume', S(4), words], ['manage', S(1), S(4)],
+      if (took.did && JSON.stringify(took.did) === JSON.stringify([['resume', S(4), words], ['manage', S('c'), S(4)], ['resume', S(4), words], ['manage', S(1), S(4)],
         ['resume', S(6), ''], ['manage', S(1), S(6)], ['resume', S(0), '']])
           && f[R(1)] && f[R(1)].outcome === 'submitted' && f[R(1)].opened === true && f[R(1)].ticked === true && f[R(1)].window === 79
-          && f[R(0)] && f[R(0)].outcome === 'submitted' && !f[R(0)].ticked
+          && f[R(0)] && f[R(0)].outcome === 'submitted' && f[R(0)].ticked === true && f[R(8)] && !f[R(8)].ticked
           && f[R('f')] && f[R('f')].outcome === 'uncertain' && !f[R('f')].opened && !f[R('f')].ticked
           && !f[R(2)] && took.left.includes(R(2) + '.json')
           && /^refused: process 4242 runs it, and opening it here as well would run it twice$/.test(why(f[R(3)]))
@@ -10328,7 +10568,7 @@ console.log('\nthe Steward panel');
           && /^refused: the claude --bg job abcd1234 holds it \(blocked\)/.test(why(f[R(7)])) && f[R(8)] && f[R(8)].outcome === 'submitted'
           && /^refused: that call has already been carried out/.test(why(g[R(9)])) && /^refused: it could not be checked that no other process runs it: claude was not found/.test(why(g[R('e')]))) {
         ok('a window opens a conversation for any steward that ran --resume for it, with no tick needed, and then ticks it for that steward, '
-          + 'but not for a steward of all conversations nor when it did not open; it leaves one started in another folder to another window, '
+          + 'a steward of all conversations too, but not when it did not open nor when this window may not write the table; it leaves one started in another folder to another window, '
           + 'and refuses one another process or window runs, one asked by no steward, one asked without that call, the same call twice, '
           + 'and any while it cannot ask claude agents');
       } else bad(`resume requests gave ${JSON.stringify({ did: took.did, first: Object.fromEntries(Object.entries(f).map(([k, v]) => [k, why(v) + (v.ticked ? ' ticked' : '')])), again: g, left: took.left, error: took.error })}`);
@@ -10387,10 +10627,41 @@ console.log('\nthe Steward panel');
           && first.endsWith('What it wrote:\n' + moved)
           && !hr[D(5)] && gave.left.includes(D(5) + '.json')
           && /^refused: the conversation asking has not run steward-relay\.py --handoff with this text/.test(hr[D(6)] ? hr[D(6)].outcome + ': ' + hr[D(6)].reason : '')) {
-        ok('a handoff goes to one steward only: with one, that one; with two, the one the user typed to last; when that one\'s inbox refuses, '
+        ok('a handoff goes to one steward only: with one, that one; with two on a table not settled, the one the user typed to last; when that one\'s inbox refuses, '
           + 'the next; when none can be reached, nowhere, and the answer says so; one from a conversation no steward manages is left, and one '
           + 'without its call refused');
       } else bad(`handoffs gave ${JSON.stringify({ lastAt, results: Object.fromEntries(Object.entries(hr).map(([k, v]) => [k, `${v.outcome} ${v.steward || ''} ${v.reason || ''}`])), tried, left: gave.left, error: gave.error })}`);
+      /* With a steward of all as well, whom the user typed to last: a conversation on another steward's list hands off to
+         that one; one on no list, to the steward of all. */
+      const adir = path.join(root, 'relay-handoff-all');
+      fs.mkdirSync(path.join(adir, relay.RELAY_DIR), { recursive: true });
+      fs.writeFileSync(HT(H('a')), lines([typed(now - 200, 'Look after everything')]));
+      fs.writeFileSync(HT(H(9)), lines([call('h-' + H(9), 'toolu_h_all', `${py} --handoff <<'EOF'\n${moved}\nEOF`)]));
+      const routed = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const fs = require('fs'), path = require('path');
+        const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
+        const st = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'stewards.js'))});
+        const dir = ${JSON.stringify(adir)}, S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, now = ${now};
+        const H = (n) => 'abababab-0000-4000-8000-00000000000' + n, D = (n) => 'dddddddd-0000-4000-8000-0000000000a' + n;
+        const HT = (id) => path.join(${JSON.stringify(htdir)}, id + '.jsonl');
+        st.setManaged(S(1), [H(2)], {}, { dir, now: 1 });
+        st.setManaged(H('a'), [], {}, { dir, now: 2, every: true });
+        const put = (id, req) => fs.writeFileSync(path.join(dir, relay.RELAY_DIR, id + '.json'), JSON.stringify(Object.assign({ id, action: 'handoff', to: '', at: now }, req)));
+        put(D(1), { from: H(2), text: ${JSON.stringify(moved)} });
+        put(D(2), { from: H(9), text: ${JSON.stringify(moved)} });
+        const sockets = { [S(1)]: '/run/s1.sock', [H('a')]: '/run/a.sock' };
+        const deps = { shownHere: () => true, stewards: () => st.read(dir), pid: 82, now: () => now, sleep: async () => {},
+          transcriptOf: (id) => (fs.existsSync(HT(id)) ? HT(id) : ''), titleOf: () => '',
+          records: () => Object.entries(sockets).map(([sessionId, messagingSocketPath]) => ({ sessionId, pid: 5, messagingSocketPath })),
+          post: async () => true };
+        (async () => {
+          const results = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, r.outcome + ' ' + (r.steward || '')]));
+          process.stdout.write(JSON.stringify({ results }));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
+      const DA = (n) => `dddddddd-0000-4000-8000-0000000000a${n}`;
+      if (routed.results && routed.results[DA(1)] === `submitted ${S(1)}` && routed.results[DA(2)] === `submitted ${H('a')}`) {
+        ok('a handoff goes to the steward that has the conversation on its list even when the user typed to the steward of all last, and to the steward of all when no list has it');
+      } else bad(`handoffs beside a steward of all gave ${JSON.stringify(routed)}`);
       const plain = relay.handoffText(S(2), '', 'x');
       if (plain.startsWith(`Handoff from a conversation you manage (${S(2)})`) && plain.includes('this notice approves nothing')) {
         ok('a handoff from a conversation with no title known still names it by its session id');

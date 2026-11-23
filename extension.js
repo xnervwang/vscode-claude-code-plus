@@ -944,6 +944,8 @@ function start(context, log, renamed, handing = false) {
     live: () => liveStates, unread: () => unreadKeys, reveal: (sessionId) => claude.source.reveal(sessionId), shownHere,
     activity: (id) => activityFor(id), question: (id) => freshQuestionOf(id),
     canWrite: () => !removed() && !replaced() && !uninstalling(), canShare: () => !removed() && !uninstalling(),
+    replaced: () => !removed() && !uninstalling() && replaced(),
+    build: () => ({ code: loadedCode, installed: !removed() && !uninstalling() && !replaced() }), offerReload,
     enabled: () => enabled() && !removed(),
     log: (m) => log.appendLine(m), home: os.homedir(), dir: planDir(), shownList,
     changed: () => redrawStewards(),
