@@ -3442,7 +3442,12 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         check(!!ok, `${what}: no row is drawn for a conversation open nowhere, and only ${front ? `"${front.title}"` : 'no conversation'} is drawn as the one in front`,
           misdrawn(looks, ids, f).map((r) => ({ ...r, open: ids.includes(r.id) })));
       };
-      const way = async (name, fn) => { try { await fn(); } catch (e) { check(false, `${name}: ran to its end`, String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')); } };
+      const way = async (name, fn) => {
+        try { await fn(); } catch (e) {
+          check(false, `${name}: ran to its end`, String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));
+          await shot(`rows-no-longer-open-${name.replace(/\W+/g, '-')}-error`);
+        }
+      };
       /* Claude Code opens a conversation clicked in its list where it last opened one; an earlier step can leave that the
          sidebar. */
       const tabsFirst = () => call("await vscode.workspace.getConfiguration('claudeCode').update('preferredLocation', undefined, vscode.ConfigurationTarget.Global); return true;");
@@ -3540,25 +3545,29 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await after('a row\'s menu closed with nothing picked, then its tab closed in front', [], null);
       });
       await way('the menu', async () => {
-        await mainRow(A).click({ button: 'right' });
-        if (!await until(async () => (await menus()).length, 5000, 100)) throw new Error('no menu opened');
-        await list.locator('[role="menu"] [role="menuitem"]').filter({ hasText: 'Resume in tab' }).first().click({ timeout: 5000 });
+        retried(await pick(A, ['Resume in tab']), 'Resume in tab');
         await opened(A, 'Resume in tab');
         await after('one opened from its menu', [A], A);
         await closeTab(A);
         await after('one opened from its menu, its tab closed in front', [], null);
       });
+      /* The list lets a row be dragged only while it is not archived, and an earlier step can leave one archived. */
       await way('a drag', async () => {
-        const b = await mainRow(B).boundingBox();
-        const x = b.x + b.width / 2, y = b.y + b.height / 2;
-        await page.mouse.move(x, y);
-        await page.mouse.down();
-        await page.mouse.move(x, y + 20, { steps: 5 });
-        await page.mouse.move(x, y + 120, { steps: 5 });
-        const during = await rowLooks();
-        await page.mouse.up();
-        if (!during.some((r) => r.id === B.id && r.selected)) note('the drag did not start here: its row was not picked while it lasted');
-        await after('a row dragged and let go over no group', [], null);
+        let dragged = null;
+        for (const t of [B, C, A]) {
+          const b = await mainRow(t).boundingBox();
+          if (!b) continue;
+          const x = b.x + b.width / 2, y = b.y + b.height / 2;
+          await page.mouse.move(x, y);
+          await page.mouse.down();
+          await page.mouse.move(x, y + 20, { steps: 5 });
+          await page.mouse.move(x, y + 120, { steps: 5 });
+          const during = await rowLooks();
+          await page.mouse.up();
+          if (during.some((r) => r.id === t.id && r.selected)) { dragged = t; break; }
+        }
+        if (!dragged) note('no drag started here: no dragged row was picked while the drag lasted');
+        await after(`a row dragged and let go over no group${dragged ? `, "${dragged.title}"` : ''}`, [], null);
       });
       fs.writeFileSync(path.join(out, 'rows-no-longer-open.json'), JSON.stringify(looked, null, 1));
       await exec('workbench.action.closeAllEditors');
