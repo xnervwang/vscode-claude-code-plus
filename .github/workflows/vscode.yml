@@ -61,6 +61,8 @@ jobs:
 
   run:
     needs: package
+    env:
+      CLAUDE_CODE_PLUS_UI_CLAUDE_CODE: '2.1.330'
     strategy:
       fail-fast: false
       matrix:
