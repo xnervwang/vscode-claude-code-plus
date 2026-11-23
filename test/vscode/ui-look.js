@@ -347,10 +347,11 @@ const noOtherWindow = (d) => { try { fs.unlinkSync(path.join(attentionDir(d), OT
 /* Says to Agent Plus whether this window has the focus: lib/window.js starts it with AGENT_PLUS_TEST_FOCUS=1. null gives
    the word back to VS Code. */
 const testFocus = (d, on) => d.call('if (arg === null) delete globalThis.__agentPlusTestFocused; else globalThis.__agentPlusTestFocused = arg; return true;', on);
-/* The notice toasts, padded, once `want` is among them. */
+/* The notice toasts, padded, once `want` (a text, or a list of them) are all among them. */
 async function noticeArea(d, want) {
-  if (!await d.until(async () => ((await needToasts(d)) || []).includes(want), 20000, 300)) {
-    throw new Error(`Agent Plus showed no notice "${want}" in 20 s: ${JSON.stringify(await needToasts(d))}`);
+  const wanted = [].concat(want);
+  if (!await d.until(async () => { const t = (await needToasts(d)) || []; return wanted.every((w) => t.includes(w)); }, 20000, 300)) {
+    throw new Error(`Agent Plus showed no notices ${JSON.stringify(wanted)} in 20 s: ${JSON.stringify(await needToasts(d))}`);
   }
   await d.sleep(600);
   await d.away();
@@ -374,8 +375,8 @@ const waitNotice = (sessionId, title, waitingFor, said) => ({
   },
   undo: async (d) => { noOtherWindow(d); await d.exec('notifications.clearAll'); await testFocus(d, null); await d.sleep(1500); },
 });
-/* Two conversations of another window that start to wait while no window has the focus, and the notice once this one
-   has it again. */
+/* Two conversations of another window that start to wait while no window has the focus, and the notices once this one
+   has it again, which `said` lists. */
 const replayNotice = (a, b, said) => ({
   act: async (d) => {
     await d.exec('notifications.clearAll');
@@ -1925,13 +1926,13 @@ const STEPS = [
   {
     name: 'wait-notice-replay', features: ['wait-notices'],
     expect: 'Two conversations of another window started to wait while no VS Code window had the focus; this window got it back. '
-      + 'At the bottom right, one notification from Agent Plus, not two: 2 conversations need you (2 waiting for you): "Rotate the '
-      + 'signing keys" (approve Edit), "Choose the import config" (a question)., with a Show them and a Dismiss button, wholly inside '
-      + 'the window and readable.',
+      + 'At the bottom right, two notifications from Agent Plus, one above the other, one for each conversation: "Rotate the signing '
+      + 'keys" is waiting for you to approve Edit. and "Choose the import config" has a question for you., each with its own Open '
+      + 'and Dismiss button, both wholly inside the window and readable, neither covering the other. No notification naming both.',
     unchanged: 'The editor and the side bar are as before.',
     ...replayNotice({ sessionId: LOOK_ID(3), title: 'Rotate the signing keys', waitingFor: { kind: 'permission', tool: 'Edit' } },
       { sessionId: LOOK_ID(4), title: 'Choose the import config', waitingFor: { kind: 'question' } },
-      '2 conversations need you (2 waiting for you): "Rotate the signing keys" (approve Edit), "Choose the import config" (a question).'),
+      ['"Rotate the signing keys" is waiting for you to approve Edit.', '"Choose the import config" has a question for you.']),
   },
   {
     name: 'renamed-unread', features: ['rename-without-marks', 'long-title-envelope', 'unread-envelope'],
@@ -2669,13 +2670,14 @@ const STEPS = [
   },
   {
     name: 'light-wait-notice-replay', features: ['wait-notices', 'light-theme'],
-    expect: 'In the light theme, after the window got the focus back: at the bottom right, one notification from Agent Plus, not two: '
-      + '2 conversations need you (2 waiting for you): "Rotate the signing keys" (approve Edit), "Choose the import config" (a question)., '
-      + 'with Show them and Dismiss, readable against the light background and wholly inside the window.',
+    expect: 'In the light theme, after the window got the focus back: at the bottom right, two notifications from Agent Plus, one '
+      + 'above the other: "Rotate the signing keys" is waiting for you to approve Edit. and "Choose the import config" has a question '
+      + 'for you., each with its own Open and Dismiss, readable against the light background, wholly inside the window and neither '
+      + 'covering the other. No notification naming both.',
     unchanged: 'The editor and the side bar are as before.',
     ...replayNotice({ sessionId: LOOK_ID(13), title: 'Rotate the signing keys', waitingFor: { kind: 'permission', tool: 'Edit' } },
       { sessionId: LOOK_ID(14), title: 'Choose the import config', waitingFor: { kind: 'question' } },
-      '2 conversations need you (2 waiting for you): "Rotate the signing keys" (approve Edit), "Choose the import config" (a question).'),
+      ['"Rotate the signing keys" is waiting for you to approve Edit.', '"Choose the import config" has a question for you.']),
   },
   {
     name: 'light-conversation-links', features: ['light-theme', 'conversation-links'],
