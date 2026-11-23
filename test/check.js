@@ -9267,6 +9267,54 @@ console.log('\nloading restored tabs');
   if (decl && decl.default === false && /cfg\(\)\.get\(LOAD_TABS_SETTING, false\) !== true\) return;/.test(ext)) {
     ok('it runs only with claudeCodePlus.loadRestoredTabs on, which is off by default');
   } else bad('claudeCodePlus.loadRestoredTabs is not declared off by default, or extension.js does not check it before loading tabs');
+
+  /* The panel's wait before it counts the open of a conversation as finished, as 2.1.330 writes it, run against a clock
+     this check moves by hand: `frameEvery` ms between animation frames until `framesUntil`, or none at all, as in a
+     background tab. */
+  const WAIT = 'function aUn(e){let t,n,i=()=>{t=void 0,n=setTimeout(e,sUn)};if(document.visibilityState==="hidden")i();'
+    + 'else t=requestAnimationFrame(()=>{t=requestAnimationFrame(i)});return()=>{if(t!==void 0)cancelAnimationFrame(t);clearTimeout(n)}}';
+  const rule = webview.EDITS.find((e) => e.name === 'open counted finished without frames');
+  const runWait = (src, { frameEvery = 0, framesUntil = Infinity, hidden = false, cancelAt = -1, until = 10000 } = {}) => {
+    let now = 0, id = 0, fired = [];
+    const timers = new Map(), frames = new Map();
+    const box = {
+      document: { visibilityState: hidden ? 'hidden' : 'visible' }, out: {},
+      setTimeout: (f, ms) => { timers.set(++id, { at: now + ms, f }); return id; }, clearTimeout: (k) => { timers.delete(k); },
+      requestAnimationFrame: (f) => { frames.set(++id, f); return id; }, cancelAnimationFrame: (k) => { frames.delete(k); },
+    };
+    new vm.Script(`var sUn=3000;${src};out.wait=aUn;`).runInNewContext(box);
+    const stop = box.out.wait(() => { fired.push(now); });
+    for (now = 1; now <= until; now++) {
+      if (now === cancelAt) stop();
+      if (frameEvery && now <= framesUntil && now % frameEvery === 0) { const due = [...frames.values()]; frames.clear(); due.forEach((f) => f(now)); }
+      for (const [k, t] of [...timers]) if (t.at <= now) { timers.delete(k); t.f(); }
+    }
+    return { fired, left: timers.size + frames.size };
+  };
+  const unpatched = runWait(WAIT);
+  if (!unpatched.fired.length) {
+    ok('as Claude Code writes it, the wait never ends in a page that gets no animation frames, which is the bug being fixed');
+  } else bad(`the unpatched wait ended at ${unpatched.fired} ms with no frames, so the edit may be fixing nothing`);
+  const patched = rule ? WAIT.replace(rule.re, rule.to) : null;
+  if (rule) rule.re.lastIndex = 0;
+  if (!patched || patched === WAIT) {
+    bad('no panel edit lets the open of a conversation count as finished in a page that gets no animation frames');
+  } else {
+    const cases = [
+      ['no frames at all, as in a background tab', {}, [4000]],
+      ['frames every 16 ms', { frameEvery: 16 }, [3032]],
+      ['one frame, then none', { frameEvery: 16, framesUntil: 16 }, [4000]],
+      ['a hidden page', { hidden: true }, [3000]],
+      ['cancelled before the wait is over', { cancelAt: 500 }, []],
+      ['cancelled during the 3 s after the frames', { frameEvery: 16, cancelAt: 2000 }, []],
+    ];
+    for (const [what, opts, want] of cases) {
+      const got = runWait(patched, opts);
+      if (JSON.stringify(got.fired) === JSON.stringify(want) && got.left === 0) {
+        ok(`${what}: ${want.length ? `it ends once, at ${want[0]} ms` : 'it never ends'}, and leaves no timer or frame request behind`);
+      } else bad(`${what}: ended at ${JSON.stringify(got.fired)} with ${got.left} timer(s) or frame(s) left, expected ${JSON.stringify(want)} and none`);
+    }
+  }
 }
 
 /* ── the Steward panel ──
