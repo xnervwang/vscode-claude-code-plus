@@ -35,7 +35,8 @@
  *                  done and grey, and the setting that leaves it out
  *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
  *                  Dismiss, Open bringing the conversation forward, the count, and no notice with each of the
- *                  agentPlus.notifications settings off
+ *                  agentPlus.notifications settings off; a question put while the turn runs: no notice, no count and a
+ *                  green dot until the turn ends, then all three
  *   the steward    the Steward panel, a steward's crown on its tab, on every session list row and in the panel's
  *                  header, the bell an older build stored left out, renames through both of Claude Code's rename
  *                  boxes with marks typed anywhere, a managed conversation's dot and envelope in the panel while it
@@ -1468,6 +1469,45 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         check(!!(await dotsOn(t.label) || {}).waiting, 'while the dot stays red, the question being still open', await dotsOn(t.label));
         question(false);
         check(!!await clear(), 'the question answered in the plan, the dot goes', await dotsOn(t.label));
+        await exec('notifications.clearAll');
+
+        /* A question the plan puts while the turn still runs reaches the user in the reply that turn ends with, so until
+           the turn ends the conversation is not waiting for them: no notice, no count, and the dot stays green. Asked
+           once Agent Plus's Conversations entry counts the question, so Agent Plus has read it. */
+        model.hold();
+        const turnsAsk = model.turns();
+        const timeline = attentionTimeline(tab0.id);
+        try {
+          try {
+            await conv.locator('[contenteditable][role="textbox"]').first().click();
+            await page.keyboard.type('One more turn, please.');
+            await page.keyboard.press('Enter');
+            await until(() => model.turns() > turnsAsk, 30000, 300);
+            const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working' && a; }, SEEN_MS, 300);
+            await hide();
+            await exec('notifications.clearAll');
+            question(true);
+            const read = await until(async () => { const s = await toDecide(); return s && /\b1 to decide\b/.test(s) && s; }, 30000, 500);
+            const quiet = read ? await noticesWithin(tab0) : null;
+            const midTurn = { working: !!working, conversations: read || await toDecide(), notices: quiet, count: await needCount(),
+              dot: await dotsOn(t.label), agentPlus: attentionOf(tab0.id) };
+            check(!!working && !!read && !quiet.length && midTurn.count === null && !!midTurn.dot && midTurn.dot.waiting === 0 && midTurn.dot.running >= 6,
+              'a question the plan puts after the user\'s last message while the turn still runs gives no notice and no count, and the tab\'s dot stays green',
+              midTurn);
+          } finally { model.release(); }
+          const ended = await red();
+          check(!!ended, 'once the turn ends, the tab\'s dot turns red', ended || await dotsOn(t.label));
+          const waitingText = `"${tab0.title}" is waiting for you.`;
+          const toldAfter = await until(async () => (await needNotices()).find((n) => n.text === waitingText), 30000, 250)
+            || (await listedNotices()).find((n) => n.text === waitingText);
+          const countedAfter = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 10000, 300);
+          check(!!toldAfter && !!countedAfter, 'and Agent Plus then says the conversation is waiting for you and counts it as 1',
+            { notice: toldAfter || { toasts: await needNotices(), listed: await listedNotices() }, count: countedAfter || await needCount(), agentPlus: timeline() });
+        } finally { timeline(); }
+        await show();
+        question(false);
+        await clear();
+        await uncounted();
         await exec('notifications.clearAll');
 
         /* With agentPlus.notifications.waiting off: counted, and no notice. */
@@ -3210,90 +3250,6 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       }
     });
 
-    /* Skill suggestions: a skill kept in this run's ~/.claude/skills that a message asks for reaches the model before the
-       turn, by its name and with its whole description, from the plugin's route-skills.py. With claudeCodePlus.skillRouting
-       off in Custom, and in Essential features, it does not. The skill is written first and a turn is sent until the
-       plugin has rebuilt its index since then, as read from the log the search keeps beside it. */
-    await step('skill suggestions', async () => {
-      const pi = require('../../src/plugin-install');
-      const { ROUTE_MARK } = require('./lib/fake-model');
-      const claudeDir = path.join(profile.home, '.claude');
-      const dataDir = path.join(claudeDir, 'plugins', 'data', pi.DATA_DIR);
-      const NAME = 'zebra-ledger-reconcile';
-      const DESC = ['Reconcile the zebra ledger against the quarterly striped invoices before the books close.',
-        'Read every invoice in the striped folder, match each to its ledger line by its stripe code, and list the lines no',
-        'invoice matches, the invoices no line matches, and the pairs whose amounts differ by more than a cent.',
-        'Never edit the ledger itself; write the findings to a new file beside it, named for the quarter, and say how many',
-        'of each kind there were. Use when someone asks to reconcile, balance or check the zebra ledger, when the striped',
-        'invoices do not add up, when a quarter is about to close, or when an auditor asks which invoices are missing.',
-        'This description runs past the few words a long list of skills leaves room for, so a turn that gets all of it',
-        'got it from the search and not from that list.'].join(' ');
-      fs.mkdirSync(path.join(claudeDir, 'skills', NAME), { recursive: true });
-      fs.writeFileSync(path.join(claudeDir, 'skills', NAME, 'SKILL.md'), `---\nname: ${NAME}\ndescription: ${DESC}\n---\n\n# Zebra ledger\n\nSteps.\n`);
-      const written = Date.now() / 1000;
-      const setMode = (m) => call(`await vscode.workspace.getConfiguration('agentPlus').update('tokenMode', arg === null ? undefined : arg, vscode.ConfigurationTarget.Global); return true;`, m);
-      const setOwn = (k, v) => call(`await vscode.workspace.getConfiguration().update(arg[0], arg[1] === null ? undefined : arg[1], vscode.ConfigurationTarget.Global); return true;`, [k, v]);
-      const routeNow = () => { try { return JSON.parse(fs.readFileSync(path.join(dataDir, 'config.json'), 'utf8')).skillRoute; } catch (_) { return undefined; } };
-      const logged = () => {
-        try {
-          return fs.readFileSync(path.join(dataDir, 'skill-route', 'route.log'), 'utf8').split('\n').filter(Boolean)
-            .map((l) => { try { return JSON.parse(l); } catch (_) { return {}; } });
-        } catch (_) { return []; }
-      };
-      const rebuilt = () => logged().some((r) => r.ev === 'build' && r.t - (r.ms || 0) / 1000 >= written);
-      const transcript = transcriptOf(tab0);
-      const answered = (text) => {
-        let lines = [];
-        try { lines = fs.readFileSync(transcript, 'utf8').split('\n'); } catch (_) { return false; }
-        const at = lines.map((l) => l.includes(JSON.stringify(text).slice(1, -1)) && l.includes('"user"')).lastIndexOf(true);
-        return at >= 0 && lines.slice(at + 1).some((l) => l.includes('"type":"assistant"') && l.includes('"text"'));
-      };
-      /* The fake model's record of the turn's own request, once Claude Code has written the reply. */
-      const turn = async (frame, text) => {
-        const before = model.seen.length;
-        await frame.locator('[contenteditable][role="textbox"]').first().click();
-        await page.keyboard.type(text);
-        await page.keyboard.press('Enter');
-        const got = await until(() => model.seen.slice(before).find((x) => x.stream && (x.typed || '').includes(text) && x.context && x.context.tools > 0), 60000, 300);
-        await until(() => answered(text), 60000, 300);
-        return got || null;
-      };
-
-      await exec('workbench.action.closeAllEditors');
-      await exec('workbench.action.closeAuxiliaryBar');
-      await exec('claude-vscode.editor.open', tab0.id);
-      const frame = await conversation(tab0, 60000);
-      if (!frame) throw new Error('the conversation did not open');
-      for (let i = 1; i <= 4 && !rebuilt(); i++) {
-        await turn(frame, `Skill suggestions check: getting ready, ${i}.`);
-        await until(rebuilt, 40000, 500);
-      }
-      check(rebuilt(), 'the plugin rebuilds its index of skills after a skill is added', logged().slice(-6));
-
-      const ask = 'Please reconcile the zebra ledger against the striped invoices.';
-      const on = await turn(frame, ask);
-      check(!!on && on.route.startsWith(ROUTE_MARK) && on.route.includes(`\n- ${NAME}: ${DESC}`),
-        'a message that asks for a skill reaches the model with that skill by name and with its whole description',
-        on ? on.route.slice(0, 600) : model.seen.slice(-3));
-
-      await setMode('custom');
-      await setOwn('claudeCodePlus.skillRouting', false);
-      await until(() => routeNow() === false, 10000, 300);
-      const off = await turn(frame, `${ask} With the setting off.`);
-      check(!!off && off.route === '' && routeNow() === false, 'with claudeCodePlus.skillRouting off in Custom no skill is suggested',
-        off ? off.route.slice(0, 300) : model.seen.slice(-3));
-
-      await setOwn('claudeCodePlus.skillRouting', null);
-      await setMode('essential');
-      await until(() => routeNow() === false, 10000, 300);
-      const essential = await turn(frame, `${ask} In Essential features.`);
-      check(!!essential && essential.route === '' && routeNow() === false, 'in Essential features no skill is suggested',
-        essential ? essential.route.slice(0, 300) : model.seen.slice(-3));
-
-      await setMode(null);
-      check(!!await until(() => routeNow() === true, 10000, 300), 'back in All features the hooks are told to suggest skills again', routeNow());
-    });
-
     /* Agent Plus's agentPlus.tokenMode in each mode in turn, without a reload: All, Essential, Interface, Custom with
        two features off, and All again. Each mode is checked in Show Status, Agent Plus's status bar entry, the information
        box, the config.json the hooks read, Claude Code's own list of plugins, the notice for a change of a feature's own
@@ -3582,7 +3538,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       await exec('notifications.clearAll');
       await exec('claudeCodePlus.status');
       const status = await until(async () => (await toasts()).find((x) => x.startsWith('Claude Code Plus — ')) || '', 10000, 300);
-      check(/^Claude Code Plus — Claude Code panel anthropic\.claude-code-\S+: patched \| Claude Code host anthropic\.claude-code-\S+: patched \| Token mode: All features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief on, skill suggestions on, notices when a detached command stops on$/.test(status),
+      check(/^Claude Code Plus — Claude Code panel anthropic\.claude-code-\S+: patched \| Claude Code host anthropic\.claude-code-\S+: patched \| Token mode: All features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief on, notices when a detached command stops on$/.test(status),
         'Show Status says both of Claude Code\'s files are patched, and the token mode', status);
       await shot('command-status');
       await exec('notifications.clearAll');

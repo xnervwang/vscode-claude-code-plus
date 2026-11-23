@@ -87,7 +87,6 @@ Verified against Claude Code 2.1.328, 2.1.329 and 2.1.330.
 | --- | --- |
 | Timestamps | Times from the transcript on every message and reply block, and `start→result` on tool calls. Claude Code's own message times are hidden while these are on. |
 | Your time zone for Claude | When Claude runs on a machine in another time zone, as with Remote SSH, it is told yours, so it gives you times in your zone. |
-| Skill suggestions | Before each turn, Claude is given the skills it can call that best fit your message, from your personal skills, the project's skills and the skills of enabled plugins, by the names to call them with and with their full descriptions. Claude Code's own list of skills leaves most descriptions out once many skills are installed. A skill given in full earlier in the conversation is only named. |
 | Images in replies | An image Claude gives by absolute path or `file://` address (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) and a `data:` image are drawn in the reply, at most 640 by 480 pixels; click one drawn smaller than its own size to see it as large as the panel allows. An image at a web address stays a link. Claude is told how to give one: save it in the conversation's own folder, and download an image from the web there first. `claudeCodePlus.show.replyImages` turns both off. |
 | Reply figures | `2m10s · ctx 33% · cost $0.42 · opus-5 high` on each reply shows turn duration, how much of the context window is in use, the conversation's cost so far, model and effort. |
 | Sub-agent tags and filters | Each sub-agent's messages are tagged with its task, such as `#look up tomorrow's weather`. A filter in the footer shows only the main thread or one sub-agent. |
@@ -96,7 +95,7 @@ Verified against Claude Code 2.1.328, 2.1.329 and 2.1.330.
 | Context meter | The panel's context meter stays visible and gets an outline when 15% of the window remains. Rest the pointer on it for two seconds for a breakdown by category, memory files and custom agents, with what the work plan has added to the context. |
 | Chimes | A short sound when a turn finishes, permission is requested or Claude asks a question, played on the machine showing the panel. Mute it in the footer. |
 | Session information | A footer button that shows the session ID, Claude's process ID, starting directory, transcript location and size, and the token mode. Click a value to copy it. |
-| Token mode | Agent Plus's `agentPlus.tokenMode`, set from its entry in the status bar, decides which of the work plan, the time-zone note, the conversation brief (a summary, and a status saying where the conversation stands; see [Settings](#settings)), skill suggestions and the detached-command notices are added to Claude's context. Each one's own setting applies only in Custom. See [What it costs in tokens](#what-it-costs-in-tokens). |
+| Token mode | Agent Plus's `agentPlus.tokenMode`, set from its entry in the status bar, decides which of the work plan, the time-zone note, the conversation brief (a summary, and a status saying where the conversation stands; see [Settings](#settings)) and the detached-command notices are added to Claude's context. Each one's own setting applies only in Custom. See [What it costs in tokens](#what-it-costs-in-tokens). |
 
 ![Times on messages and tool calls, with each reply's duration, model and effort](images/shots/reply-figures.png)
 
@@ -204,14 +203,13 @@ Measured on 2026-11-15 on one machine, with the brief on.
 | Work plan | Off, plugin not loaded | On | On | `claudeCodePlus.workPlan` |
 | Time zone | Off | On | On | `claudeCodePlus.tellClaudeYourTimeZone` |
 | Conversation brief | Off | Off | On | `claudeCodePlus.conversationBrief` |
-| Skill suggestions | Off | Off | On | `claudeCodePlus.skillRouting` |
 | Detached-command notices | Off | Off | On | `claudeCodePlus.detachedEndNotices` |
 
 Claude Code Plus follows Agent Plus's `agentPlus.tokenMode` setting, which defaults to All features. Outside Custom, the settings in the table's Custom column have no effect, and changing modes leaves their values as they are. Changing one of those settings outside Custom shows a notice with a Switch to Custom button.
 
 In Interface features, Claude Code does not load the work plan plugin, just as when you run `Claude Code Plus: Stop Loading the Work Plan Plugin`. Choosing another mode loads it again unless you stopped loading it yourself. Changes to plugin loading and the work plan skill in Claude Code's list of skills apply only to conversations started after the mode change.
 
-In a running conversation, a mode change applies from the next message to work plan injection and reminders, conversation brief requests, skill suggestions, and the time zone. `Claude Code Plus: Show Status` shows the mode and which of these features run. The information button in the footer of a Claude Code conversation names the mode.
+In a running conversation, a mode change applies from the next message to work plan injection and reminders, conversation brief requests, and the time zone. `Claude Code Plus: Show Status` shows the mode and which of these features run. The information button in the footer of a Claude Code conversation names the mode.
 
 ### Added to every message
 
@@ -220,7 +218,6 @@ In a running conversation, a mode change applies from the next message to work p
 | The work plan | Each message, while the conversation's plan has a row that is not `done` or `dropped`. The whole block, with what the states mean and how to change a row, on the conversation's first message and the first after each compaction; a short head in its place otherwise; one line when no row has changed since the message before. While the brief is on, each ends by asking for the status before the final reply of a turn that moves a row | 6,000 characters, the brief included; the one line is about 240 characters and the plan's path | `claudeCodePlus.workPlan` |
 | The steward's list | Each message in a conversation that manages others in the Steward panel: one line per conversation, and what changed since its previous message. One sentence in its place when nothing in it changed since the previous message; the whole list again after a compaction | About 150 characters, and about 170 more per conversation it manages with a 40-character title, at most 30 of them; the one sentence is about 200 characters | Unticking them in the Steward panel |
 | A steward is watching | Each message in a conversation a steward manages | About 690 characters and the path of the steward's script | Unticking it in the Steward panel |
-| Skill suggestions | Each message of six characters or more whose words some skill shares: the `claudeCodePlus.skillRoutingCount` skills (5 by default) that best fit it, each by name with its full description. A skill given in full earlier in the conversation, and not since a compaction, is only named. The first message after installing gets nothing while the index is built; the first in a new folder is searched with another folder's index, without that folder's project skills | About 4,300 characters for five skills, 5,900 at most, over 20 sample messages and 330 installed skills; descriptions are kept whole up to 4,096 characters and the block under 40,000 bytes | `claudeCodePlus.skillRouting` |
 
 ### Added now and then
 
@@ -258,7 +255,7 @@ In a running conversation, a mode change applies from the next message to work p
 
 ## Settings
 
-Open `Claude Code Plus: Settings` for all 44 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
+Open `Claude Code Plus: Settings` for all 41 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
 
 **Work plan settings**
 
@@ -270,14 +267,6 @@ Open `Claude Code Plus: Settings` for all 44 settings. Most take effect without 
 | `claudeCodePlus.workPlanQuietWhenReplyMatches` | empty | A regular expression tested on the latest reply. If it matches, the prompts before and after compaction are not sent. Use it for conversations that relay another model's replies word for word. When empty, it never matches. |
 | `claudeCodePlus.conversationBrief` | on | In Custom, each conversation is asked to keep a brief: a summary, and where it stands now. Clicking the conversation in Agent Plus's Conversations panel then shows the brief instead of going to the conversation. |
 
-**Skill suggestion settings**
-
-| Setting | Default | What it does |
-| --- | --- | --- |
-| `claudeCodePlus.skillRouting` | on | In Custom, gives each turn the skills that best fit your message. The search runs on this machine, by keywords, with no network or credentials. |
-| `claudeCodePlus.skillRoutingCount` | 5 | How many skills each turn is given, from 1 to 10. |
-| `claudeCodePlus.skillRoutingVectorSearch` | off | Searches by meaning instead, through `cohere.embed-v4` on Amazon Bedrock, while Claude Code itself runs on Bedrock. The first 1,500 characters of each message are sent to the region Claude Code uses, with the credentials Claude Code is configured with. A failure or a slow answer falls back to keywords. |
-
 **To turn off**
 
 | What | How |
@@ -285,7 +274,6 @@ Open `Claude Code Plus: Settings` for all 44 settings. Most take effect without 
 | Timestamps, reply figures and sub-agent tags | Set `claudeCodePlus.enabled` to off. Every other addition has its own `claudeCodePlus.show.*` setting. The patch stays and its scripts keep running. |
 | Everything added to Claude's context | Choose Interface features in Agent Plus's token mode entry in the status bar. |
 | Your time zone in Claude's context | Choose a token mode without it, or in Custom set `claudeCodePlus.tellClaudeYourTimeZone` to off. |
-| Skill suggestions | Choose a token mode without them, or in Custom set `claudeCodePlus.skillRouting` to off. |
 | Work plan plugin, skill description included | Run `Claude Code Plus: Stop Loading the Work Plan Plugin`. |
 | Reopening Claude Code tabs VS Code did not restore | Set `claudeCodePlus.reopenDroppedTabs` to off. |
 | Pins on the session list | Set `claudeCodePlus.sessionPins` to off. Pinned conversations are then cleaned up and archived as usual. |
