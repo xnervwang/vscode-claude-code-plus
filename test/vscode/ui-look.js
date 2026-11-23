@@ -1338,7 +1338,8 @@ const STEPS = [
     expect: 'The last reply in the demo conversation names the conversation "Add a dry-run flag to the cleanup script" twice: once '
       + 'on its own at the start of the reply, and once inside corner brackets. Both are drawn as links, in the same colour and '
       + 'style as the other links Claude Code draws in replies, and the brackets themselves are not part of the link. "By its '
-      + 'short id:" is followed by 8 characters in plain text, not a link. The rest of the reply is plain text.',
+      + 'short id:" is followed by 8 characters in plain text, not a link. The rest of the reply is plain text. Where the machine has '
+      + 'no CJK font the corner brackets show as empty boxes; that is the font, not the links.',
     unchanged: null,
     act: async (d) => { await toMentions(d, d.threads[2], true); await d.away(); return d.editor(); },
   },
