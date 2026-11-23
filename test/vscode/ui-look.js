@@ -896,6 +896,47 @@ const STEPS = [
     },
   },
   {
+    name: 'session-menu-closed', features: ['session-selection'],
+    expect: 'The session list after the right-click menu of the row "Add a dry-run flag to the cleanup script", whose conversation '
+      + 'is not open, was closed with Escape and nothing picked, and the editor then took the keyboard focus. That row looks like '
+      + 'the other rows of conversations that are not open: no tint, no outline, no lighter background and no pencil or archive '
+      + 'buttons on it. Only the open conversation\'s two copies (under OPEN SESSIONS and among the rows) are highlighted.',
+    unchanged: 'The rows are the same and in the same order as before, and the title made green stays green.',
+    act: async (d) => {
+      const list = await sessionList(d);
+      await rowMenu(d, list, d.threads[2].id);
+      await d.page.keyboard.press('Escape');
+      if (!await d.until(async () => !(await menus(list)), 5000, 200)) throw new Error('Escape did not close the menu');
+      await d.exec('workbench.action.focusActiveEditorGroup');
+      if (!await d.until(() => list.evaluate(() => !document.hasFocus()), 5000, 200)) throw new Error('the list kept the keyboard focus');
+      await rest(d, list, 'bottom');
+      await d.away();
+      return d.sidebar();
+    },
+  },
+  {
+    name: 'session-drag-let-go', features: ['session-selection'],
+    expect: 'The session list after the row "Why does the nightly export skip archived rows?" was dragged down a little and let go '
+      + 'over the empty space below the rows, on no group. The row is back in its place and looks like the other rows of '
+      + 'conversations that are not open: no tint and no outline. Only the open conversation\'s two copies are highlighted.',
+    unchanged: 'The rows are the same and in the same order as before.',
+    act: async (d) => {
+      const list = await sessionList(d);
+      const b = await listRow(list, d.threads[1].id).boundingBox();
+      if (!b) throw new Error('the row to drag is not on screen');
+      const x = b.x + b.width / 2, y = b.y + b.height / 2;
+      await d.page.mouse.move(x, y);
+      await d.page.mouse.down();
+      await d.page.mouse.move(x, y + 20, { steps: 5 });
+      await d.page.mouse.move(x, y + 160, { steps: 5 });
+      await d.page.mouse.up();
+      await d.exec('workbench.action.focusActiveEditorGroup');
+      await rest(d, list, 'bottom');
+      await d.away();
+      return d.sidebar();
+    },
+  },
+  {
     name: 'session-search-id', features: ['session-id-search'],
     expect: 'The session list\'s search box holds "e6f2", four characters of one conversation\'s session id. The list shows that '
       + 'one conversation, "Why does the nightly export skip archived rows?", and none of the others.',
