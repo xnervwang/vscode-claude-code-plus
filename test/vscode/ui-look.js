@@ -1337,9 +1337,10 @@ const STEPS = [
     name: 'conversation-links', features: ['conversation-links'],
     expect: 'The last reply in the demo conversation names the conversation "Add a dry-run flag to the cleanup script" twice: once '
       + 'on its own at the start of the reply, and once inside corner brackets. Both are drawn as links, in the same colour and '
-      + 'style as the other links Claude Code draws in replies, and the brackets themselves are not part of the link. "By its '
-      + 'short id:" is followed by 8 characters in plain text, not a link. The rest of the reply is plain text. Where the machine has '
-      + 'no CJK font the corner brackets show as empty boxes; that is the font, not the links.',
+      + 'style as the other links Claude Code draws in replies, and the brackets themselves are not part of the link. The 8 '
+      + 'characters after "By its short id:" are a link to it too while no other running conversation\'s id starts with them, and '
+      + 'plain text otherwise; the demo\'s conversations share their first 8 characters, so either is right. The rest of the reply '
+      + 'is plain text. Where the machine has no CJK font the corner brackets show as empty boxes; that is the font, not the links.',
     unchanged: null,
     act: async (d) => { await toMentions(d, d.threads[2], true); await d.away(); return d.editor(); },
   },
