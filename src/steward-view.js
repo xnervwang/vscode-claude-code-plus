@@ -228,6 +228,7 @@ function body(model) {
         ${c.why ? `aria-label="${esc(c.why)}"` : 'title="Managed by this conversation"'}>${c.why ? '</span>' : ''}
       <span class="dot ${esc(c.dot || '')}" ${c.dot ? `title="${esc(DOT_TEXT[c.dot] || c.dot)}"` : ''}></span>
       <a href="#" class="name" data-open="${esc(c.sessionId)}" title="${esc(c.cwd)}">${esc(titleMarks.withMarks(c.title, { steward: !!c.steward }))}</a>
+      ${c.by ? `<span class="by" data-why="${esc(c.why)}">${c.byId ? `managed by <a href="#" data-open="${esc(c.byId)}">${esc(c.by)}</a>${c.byAll ? ' through All' : ''}` : esc(c.by)}</span>` : ''}
       ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${htmlChars(model.envelope || envelope.COLOUR)}</span>` : ''}
       ${c.processes.length > 1 ? `<span class="twice" title="${esc(twiceText(c.processes))}">${c.processes.length} processes</span>
       <button class="stop-old" data-stop-old="${esc(c.sessionId)}" title="${esc(stopText(c.processes))}">Stop the old process</button>` : ''}
@@ -261,6 +262,7 @@ function body(model) {
     : `<div class="head"><span>Managed by <b>${esc(titleMarks.withMarks(model.front.title, { steward: !!(model.managed || model.every) }))}</b>: ${model.managed}</span>
          <label class="every" ${model.everyBy ? `data-why="${esc(model.everyBy)} has All on"` : 'title="Also ticks conversations opened later that no other steward has ticked. Other stewards are never ticked."'}>
            <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''} ${model.everyBy ? 'disabled' : ''}> All, including new ones</label>
+         ${model.everyBy ? `<span class="everyby" data-why="${esc(model.everyBy)} has All on">on for <a href="#" data-open="${esc(model.everyById)}">${esc(model.everyBy)}</a></span>` : ''}
          <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${stale}${away}
        ${model.groups.length ? model.groups.map(group).join('') : '<p class="empty">No other Claude Code conversation is open in a VS Code window.</p>'}`;
 }
@@ -274,8 +276,9 @@ function shell(list, nonce) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 <style nonce="${nonce}">
   body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); padding: 4px 8px; }
-  .head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .head span { flex: 1 1 auto; opacity: 0.85; }
+  .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 6px; }
+  .head > span:first-child { flex: 1 1 14em; min-width: 0; opacity: 0.85; }
+  .head button { flex: 0 0 auto; white-space: nowrap; }
   button { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 2px 8px; cursor: pointer; }
   button:hover { background: var(--vscode-button-secondaryHoverBackground); }
   button:disabled { opacity: 0.5; cursor: default; }
@@ -283,6 +286,10 @@ function shell(list, nonce) {
   .every:has(input:disabled) { opacity: 0.6; }
   input:disabled { pointer-events: none; }
   .box { display: inline-flex; }
+  .by, .everyby { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.8; }
+  .by { max-width: 35%; }
+  .everyby { max-width: 40%; min-width: 6em; }
+  .by a, .everyby a { color: var(--vscode-textLink-foreground); text-decoration: none; }
   .box input:disabled, .ghead[data-why] input:disabled { opacity: 0.4; }
   ul { list-style: none; margin: 0; padding: 0; }
   .row { display: flex; align-items: center; gap: 6px; padding: 2px 0; white-space: nowrap; }
@@ -317,7 +324,9 @@ function shell(list, nonce) {
     under = t;
     if (t) tips.show(t, t.dataset.why); else tips.hide();
   });
-  document.addEventListener('mouseleave', () => { under = null; tips.hide(); });
+  const away = () => { under = null; tips.hide(); };
+  document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) away(); });
+  window.addEventListener('blur', away);
   // A group's box shows a part of its conversations ticked as neither ticked nor clear, which only a property can say.
   const mixed = () => { for (const b of document.querySelectorAll('input[data-mixed]')) b.indeterminate = true; };
   window.addEventListener('message', (e) => {
@@ -402,7 +411,7 @@ function create(vscode, deps) {
       deps.titles({ sessionId: front }), () => deps.readPlan(front))) : '';
     const everyBy = front ? stewards.everyOf(table, front) : '';
     return { front: front ? { id: front, title } : null, other, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
-      every, everyBy: everyBy ? nameOf(everyBy, all) : '', envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
+      every, everyBy: everyBy ? nameOf(everyBy, all) : '', everyById: everyBy, envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
   };
   /* A conversation's title for the panel's words about it. */
   const nameOf = (id, all = last) => (all.get(id) && all.get(id).title)
@@ -413,11 +422,12 @@ function create(vscode, deps) {
    * and one another steward has only through All goes to the steward that ticks it.
    */
   const lockOf = (table, id, front, all) => {
-    if (table[id]) return { lock: true, why: 'This conversation is a steward, and a steward is not managed by another' };
+    if (table[id]) return { lock: true, why: 'This conversation is a steward, and a steward is not managed by another', by: 'a steward', byId: '' };
     const h = stewards.holderOf(table, id, front);
-    if (!h) return { lock: false, why: '' };
-    return h.ticked ? { lock: true, why: `Managed by ${nameOf(h.steward, all)}` }
-      : { lock: false, why: `Managed by ${nameOf(h.steward, all)} through All; ticking it here moves it to this conversation` };
+    if (!h) return { lock: false, why: '', by: '', byId: '' };
+    const name = nameOf(h.steward, all);
+    return h.ticked ? { lock: true, why: `Managed by ${name}`, by: name, byId: h.steward }
+      : { lock: false, why: `Managed by ${name} through All; ticking it here moves it to this conversation`, by: name, byId: h.steward, byAll: true };
   };
 
   /* This window's entry in the windows folder, written when what it shows changes and once a minute besides. */

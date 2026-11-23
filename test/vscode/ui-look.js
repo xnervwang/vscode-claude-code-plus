@@ -1375,8 +1375,50 @@ const STEPS = [
         await d.sleep(300);
         return d.part('workbench.parts.panel');
       },
+    },
+    {
+      name: `steward-managed-by${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
+      expect: `The same Steward panel in the ${tone} theme, with the mouse away. Each greyed row says on the row itself why: after its title, the row of `
+        + '"Add a dry-run flag to the cleanup script" reads "managed by Why does the nightly export skip archived rows?", the name in link colour, and '
+        + 'the row of "Why does the nightly export skip archived rows?" reads "a steward". Beside the greyed "All, including new ones" switch, "on for '
+        + 'Why does the nightly export skip archived rows?" with the name in link colour, cut short with an ellipsis if it does not fit. All of it readable, nothing overlapping.',
+      unchanged: 'The rows and their boxes are as in the step before.',
+      act: async (d) => {
+        const frame = d.greyed || await greyedPanel(d);
+        if (!await d.until(() => frame.evaluate(() => document.querySelectorAll('.by').length >= 2 && !!document.querySelector('.everyby')), 20000, 500)) {
+          throw new Error('the rows do not name their stewards');
+        }
+        await rest(d, frame, 'bottom');
+        await d.away();
+        await d.sleep(500);
+        return d.part('workbench.parts.panel');
+      },
+    },
+    {
+      name: `steward-managed-by-narrow${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
+      expect: `The panel area moved to the right side of the window, in the ${tone} theme, so the Steward panel is narrow. The rows' titles and the `
+        + 'steward names after them are cut short with an ellipsis where they do not fit, and nothing wraps onto a second line or overlaps. The mouse '
+        + 'rests on the cut steward name of "Add a dry-run flag to the cleanup script"\'s row, and a hover label shows the whole of it: "Managed by Why '
+        + 'does the nightly export skip archived rows?".',
+      unchanged: null,
+      act: async (d) => {
+        const frame = d.greyed || await greyedPanel(d);
+        await d.exec('workbench.action.positionPanelRight');
+        await d.sleep(2000);
+        const t2 = d.threads[2];
+        const by = frame.locator(`li.row:has(a.name[data-open="${t2.id}"]) .by`).first();
+        if (!await d.until(() => by.evaluate((e) => e.scrollWidth > e.clientWidth), 10000, 500)) throw new Error('the steward name on the row is not cut short');
+        await rest(d, frame);
+        await by.hover();
+        if (!await d.until(() => frame.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return !!l && /^Managed by /.test(l.textContent); }), 3000, 100)) {
+          throw new Error('no hover label appeared for the cut steward name');
+        }
+        await d.sleep(300);
+        return d.part('workbench.parts.panel');
+      },
       undo: async (d) => {
         await d.away();
+        await d.exec('workbench.action.positionPanelBottom').catch(() => {});
         if (tone === 'light') { await theme(d, 'Default Dark Modern'); await d.sleep(2000); }
         try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ }
         for (const t of d.threads.slice(1)) await closeTab(d, t);
@@ -1406,7 +1448,7 @@ const STEPS = [
           DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' } });
       if (!await d.until(() => liveOf(d, t.id).some((r) => r.pid === d.twicePid) && liveOf(d, t.id).length === 2, 30000, 500)) throw new Error('the second process did not start');
       const frame = await stewardOf(d, []);
-      if (!await d.until(() => frame.evaluate((id) => { const a = document.querySelector(`li.row [data-open="${id}"]`), li = a && a.closest('li.row'); return !!li && !!li.querySelector('[data-stop-old]'); }, t.id), 45000, 1000)) {
+      if (!await d.until(() => frame.evaluate((id) => { const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'); return !!li && !!li.querySelector('[data-stop-old]'); }, t.id), 45000, 1000)) {
         throw new Error('the Steward panel does not mark it as run twice');
       }
       d.twiceFrame = frame;

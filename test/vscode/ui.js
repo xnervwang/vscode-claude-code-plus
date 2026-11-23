@@ -1943,7 +1943,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
              and a green ring while only work it put in the background runs. */
           const GREEN = `rgb(${DOTS.running.join(', ')})`, RED = `rgb(${DOTS.waiting.join(', ')})`;
           const panelRow = (id) => frame.evaluate((id) => {
-            const a = document.querySelector(`li.row [data-open="${id}"]`), li = a && a.closest('li.row');
+            const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row');
             if (!li) return null;
             const dot = li.querySelector('.dot'), env = li.querySelector('.env'), cs = dot ? getComputedStyle(dot) : null;
             return { dot: dot ? [...dot.classList].filter((c) => c !== 'dot').join(' ') : null, env: env ? env.textContent : null,
@@ -2208,7 +2208,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           check(frontGreyed && !!isSteward2, 'in the managed conversation\'s panel the steward\'s box is greyed; ticking another makes it a steward, which takes it off the first steward\'s list',
             { ticked2: !!ticked2, frontGreyed, table: (() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards; } catch (_) { return null; } })() });
           await exec('claude-vscode.editor.open', front.id);
-          const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row [data-open]')].map((a) => [a.dataset.open, a.textContent])));
+          const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row a.name[data-open]')].map((a) => [a.dataset.open, a.textContent])));
           const shown2 = await until(async () => {
             const n = await names(), others = Object.entries(n).filter(([id]) => id !== target.id);
             return n[target.id] === `${CROWN} ${target.title}` && others.length && others.every(([, t]) => !t.includes(CROWN)) && n;
@@ -2327,7 +2327,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('workbench.view.extension.claudeCodePlusSteward');
         const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         const rowNow = () => panel.evaluate((id) => {
-          const a = document.querySelector(`li.row [data-open="${id}"]`), li = a && a.closest('li.row');
+          const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row');
           const tw = li && li.querySelector('.twice'), stop = li && li.querySelector('[data-stop-old]');
           return li ? { twice: tw ? tw.textContent : null, stop: stop ? stop.textContent : null, title: stop ? stop.title : null } : null;
         }, t.id);
@@ -2774,10 +2774,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!readyA, 'window A is in front before the jump', { front: await frontTitle(both), titleA: await page.title() });
         await exec('workbench.view.extension.claudeCodePlusSteward');
         const steward = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
-        const rowLink = steward ? await until(() => steward.evaluate((id) => !!document.querySelector(`[data-open="${id}"]`), X.id), 45000, 1000) : false;
+        const rowLink = steward ? await until(() => steward.evaluate((id) => !!document.querySelector(`a.name[data-open="${id}"]`), X.id), 45000, 1000) : false;
         check(!!rowLink, 'the Steward panel in window A lists X, open in window B', steward ? await steward.evaluate(() => document.body.innerText.slice(0, 400)) : 'no Steward panel');
         if (rowLink) {
-          await steward.locator(`[data-open="${X.id}"]`).first().click();
+          await steward.locator(`a.name[data-open="${X.id}"]`).first().click();
           await jumped('clicking X\'s row in the Steward panel');
           await shotB('two-windows-row-jump');
         }
@@ -2994,6 +2994,28 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         return b ? { checked: b.checked, disabled: b.disabled, why: (l && l.dataset.why) || '' } : null;
       }).catch(() => null);
       const header = (f) => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; }).catch(() => '');
+      /* What a row says of the steward that manages it, and where its link leads. */
+      const byIn = (f, id) => f.evaluate((id) => {
+        const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'), by = li && li.querySelector('.by');
+        const link = by && by.querySelector('a[data-open]');
+        return by ? { text: by.textContent.replace(/\s+/g, ' ').trim(), to: link ? link.dataset.open : '' } : null;
+      }, id).catch(() => null);
+      const everyByIn = (f) => f.evaluate(() => {
+        const e = document.querySelector('.everyby'), link = e && e.querySelector('a[data-open]');
+        return e ? { text: e.textContent.replace(/\s+/g, ' ').trim(), to: link ? link.dataset.open : '' } : null;
+      }).catch(() => null);
+      /* Renames a conversation of window A through Claude Code's own Rename Session Tab. */
+      const renameInA = async (t, title) => {
+        await exec('claude-vscode.editor.open', t.id);
+        await sleep(500);
+        const asked = exec('claude-vscode.renameSessionTab').catch((e) => String(e));
+        const input = page.locator('.quick-input-widget input').first();
+        if (!await until(() => input.isVisible().catch(() => false), 10000, 300)) throw new Error('Rename Session Tab did not open its box');
+        await input.fill(title);
+        await page.keyboard.press('Enter');
+        await asked;
+      };
+      let renamed = false;
       /* The hover label the panel draws for a greyed control. */
       const hovered = async (p, f, sel) => {
         const loc = f.locator(sel).first();
@@ -3054,6 +3076,32 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'and so is the box of the conversation that steward ticked, whose hover label names that steward', { box: x || await boxIn(panelB, X.id), label: xLabel });
         await shotB('one-steward-greyed-in-b');
 
+        /* The rows say it too: X's names its steward, a link that brings that steward's conversation up in window A. */
+        const xBy = await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${SA.title}` && b; }, 20000, 500);
+        const saBy = await byIn(panelB, SA.id);
+        check(!!xBy && xBy.to === SA.id && !!saBy && saBy.text === 'a steward',
+          'in B\'s panel the row of the conversation that steward ticked names the steward that manages it, with a link to it, and the steward\'s own row says it is a steward',
+          { x: xBy || await byIn(panelB, X.id), sa: saBy });
+        await exec('claude-vscode.editor.open', X.id);
+        await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
+        if (xBy) await panelB.locator(`li.row:has(a.name[data-open="${X.id}"]) .by a[data-open="${SA.id}"]`).first().click();
+        const upInA = xBy && await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label.replace(/^\S+ /u, ''), SA.title)), 20000, 300);
+        const copyInB = (await inB(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)}).map((t) => t.label);`))
+          .some((l) => titled(l.replace(/^\S+ /u, ''), SA.title));
+        check(!!upInA && !copyInB, 'clicked, the steward\'s name brings that steward\'s conversation to the front in window A, which shows it, and opens no copy in B',
+          { tabsA: await claudeTabs(), copyInB });
+        /* The name follows a rename. */
+        const NEW = 'Look after the inventory sync work';
+        await renameInA(SA, NEW);
+        renamed = true;
+        const followed = await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${NEW}` && b; }, 60000, 1000);
+        check(!!followed, 'and once that steward is renamed, the row names it by its new name', await byIn(panelB, X.id));
+        await shotB('one-steward-names-in-b');
+        await exec('claude-vscode.editor.open', SA.id);
+        await renameInA(SA, SA.title);
+        renamed = false;
+        await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${SA.title}`; }, 60000, 1000);
+
         /* 2: Q1 ticks Q2 in B's panel, becomes a steward and leaves SA's list; in A's panel its box is greyed. */
         await panelB.locator(`input[data-id="${Q2.id}"]`).first().click();
         const left = await until(() => has(Q1.id, Q2.id) && !has(SA.id, Q1.id), 10000, 300);
@@ -3068,12 +3116,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!allOn && !allOn.manages.includes(Q2.id) && !!q2InA && q2InA.why === `Managed by ${Q1.title}`,
           'turned to All, the first steward takes only conversations the other has not ticked: the other\'s is greyed in its panel and names that steward', { all: allOn, box: q2InA || await boxIn(panelA, Q2.id) });
         await shot('one-steward-all-in-a');
-        const sw = await until(async () => { const e = await everyIn(panelB); return e && e.disabled && e; }, 20000, 500);
+        const sw = await until(async () => { const e = await everyIn(panelB); return e && e.disabled && e.why === `${SA.title} has All on` && e; }, 60000, 500);
         const swLabel = sw ? await hovered(pageB, panelB, 'label.every') : '';
-        check(!!sw && !sw.checked && sw.why === `${SA.title} has All on` && swLabel === `${SA.title} has All on`,
-          'and in B\'s panel the All switch is greyed, its hover label naming the steward that has All on', { every: sw || await everyIn(panelB), label: swLabel });
+        const swBy = await until(async () => { const e = await everyByIn(panelB); return e && e.text === `on for ${SA.title}` && e; }, 60000, 500);
+        check(!!sw && !sw.checked && sw.why === `${SA.title} has All on` && swLabel === `${SA.title} has All on` && !!swBy && swBy.to === SA.id,
+          'and in B\'s panel the All switch is greyed, names beside it the steward that has All on with a link to it, and its hover label says so',
+          { every: sw || await everyIn(panelB), label: swLabel, by: swBy || await everyByIn(panelB) });
         await shotB('one-steward-all-greyed-in-b');
       } finally {
+        if (renamed) await renameInA(SA, SA.title).catch(() => {});
         if (panelA) {
           if (await panelA.locator('input[data-every]').isChecked().catch(() => false)) await panelA.locator('input[data-every]').click().catch(() => {});
           await panelA.locator('button[data-act="none"]').click().catch(() => {});
@@ -3103,7 +3154,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       let steward = null;
       /* The envelope on the conversation's row in the Steward panel, '' for a row without one. */
       const panelForm = () => steward.evaluate((id) => {
-        const a = document.querySelector(`[data-open="${id}"]`), row = a && a.closest('li'), e = row && row.querySelector('.env');
+        const a = document.querySelector(`a.name[data-open="${id}"]`), row = a && a.closest('li'), e = row && row.querySelector('.env');
         return e ? e.textContent : row ? '' : null;
       }, tab0.id).catch(() => null);
       await exec('workbench.action.closeAllEditors');

@@ -65,7 +65,7 @@
     { "id": "steward-panel", "what": "The Steward panel at the bottom of the window: the conversations open in windows, with ticks.",
       "views": ["claudeCodePlus.steward"], "window": ["the steward panel"] },
     { "id": "steward-marks", "what": "A steward's tab title and session list rows show one crown before its title.", "window": ["the steward panel"] },
-    { "id": "steward-one-each", "what": "One conversation has one steward at most and a steward has none: in a steward's panel the box of another steward, the box of a conversation another steward ticked, and the All switch while another steward has All on are greyed, each with a hover label saying why.",
+    { "id": "steward-one-each", "what": "One conversation has one steward at most and a steward has none: in a steward's panel the box of another steward, the box of a conversation another steward ticked, and the All switch while another steward has All on are greyed, each with a hover label saying why; each such row, and the All switch, also names on the panel itself the steward that manages it (or says it is a steward), the name a link to that steward's conversation.",
       "window": ["one steward for each conversation"] },
     { "id": "steward-rename", "what": "Renaming a steward through Claude Code's own rename: the box holds no mark, whatever is typed the name is stored without crown, envelope or bell, and the tab and the list still show exactly one crown, first.",
       "window": ["the steward panel"] },

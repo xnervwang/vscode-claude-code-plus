@@ -9500,7 +9500,7 @@ console.log('\nthe Steward panel');
     const out = JSON.parse(cp.execFileSync(process.execPath, ['-e', PANEL_SCRIPT], { encoding: 'utf8', timeout: 30000 }));
     if (out.error) bad('the panel threw: ' + out.error);
     else {
-      const names = (h) => [...h.matchAll(/data-open="([^"]+)"/g)].map((m) => m[1]);
+      const names = (h) => [...h.matchAll(/class="name" data-open="([^"]+)"/g)].map((m) => m[1]);
       if (JSON.stringify(names(out.first).sort()) === JSON.stringify([S(2), S(3), S(6)].sort()) && !/type="checkbox"[^>]*\bchecked\b/.test(out.first)
           && out.first.includes('Managed by <b>steward-ab</b>: 0')) {
         ok('the panel lists the other conversations open in a window, none ticked, leaving out the one in front, bg sessions, claude -p workers and any open in no window');
@@ -9746,7 +9746,7 @@ console.log('\nthe Steward panel');
         const st = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'stewards.js'))});
         const C = (n) => '5e5e5e5e-0000-4000-8000-0000000001' + String(n).padStart(2, '0'), dir = ${JSON.stringify(pdir)};
         const names = { 1: 'Front', 2: 'Docs steward', 3: 'Docs work', 4: 'Night steward', 5: 'Release notes' };
-        const records = Object.keys(names).map((n) => ({ sessionId: C(n), kind: 'interactive', cwd: '/w/' + n, name: names[n], status: 'idle' }));
+        let records = Object.keys(names).map((n) => ({ sessionId: C(n), kind: 'interactive', cwd: '/w/' + n, name: names[n], status: 'idle' }));
         const v = sv.create({ window: { registerWebviewViewProvider: () => ({ dispose() {} }), showInformationMessage() {} } }, {
           activeChat: () => C(1), freshAgents: async () => ({ records }), readPlan: () => null, titles: () => ({ custom: '', ai: '' }),
           since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true, shownHere: (id) => id === C(2),
@@ -9755,13 +9755,16 @@ console.log('\nthe Steward panel');
         (async () => {
           await v._pass();
           const page = sv.body(v._model(v._last ? v._last() : new Map(), C(1)));
+          records = records.map((r) => (r.sessionId === C(2) ? Object.assign({}, r, { name: 'Docs and site steward' }) : r));
+          await v._pass();
+          const renamed = sv.body(v._model(v._last ? v._last() : new Map(), C(1)));
           await v._onMessage({ type: 'toggle', id: C(3), on: true });
           await v._onMessage({ type: 'toggle', id: C(2), on: true });
           await v._onMessage({ type: 'every', on: true });
           const refused = st.read(dir);
           await v._onMessage({ type: 'toggle', id: C(5), on: true });
           const took = st.read(dir);
-          process.stdout.write(JSON.stringify({ page, refused, took }));
+          process.stdout.write(JSON.stringify({ page, renamed, refused, took }));
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`], { encoding: 'utf8', timeout: 30000 }));
       /* A row's box with the wrapper that carries its hover label, if it has one. */
       const boxOf = (h, id) => (new RegExp(`(<span class="box" data-why="[^"]*">)?<input type="checkbox" data-id="${id}"[^>]*>`).exec(h || '') || [''])[0];
@@ -9776,6 +9779,20 @@ console.log('\nthe Steward panel');
             && /data-why="Night steward has All on"/.test(every(p)) && /\bdisabled\b/.test(every(p)) && !/<label class="every"[^>]*title=/.test(every(p))) {
           ok('in another steward\'s panel a steward\'s box is greyed, so is one another steward ticked, and the All switch while another steward has All on, each saying why on hover');
         } else bad(`the panel beside other stewards drew ${JSON.stringify({ two: boxOf(p, C(2)), three: boxOf(p, C(3)), five: boxOf(p, C(5)), every: every(p) })}`);
+        /* The row itself says who manages it, the steward's name a link to its conversation; so does the All switch. */
+        const by = (h, id) => {
+          const row = (new RegExp(`<li class="row[^"]*">((?:(?!</li>)[\\s\\S])*data-open="${id}" title[\\s\\S]*?)</li>`).exec(h || '') || [])[1] || '';
+          return (/<span class="by"[^>]*>([\s\S]*?)<\/span>/.exec(row) || [])[1] || '';
+        };
+        const everyBy = (h) => (/<span class="everyby"[^>]*>([\s\S]*?)<\/span>/.exec(h || '') || [])[1] || '';
+        const r = panel.renamed;
+        if (by(p, C(2)) === 'a steward' && by(p, C(3)) === `managed by <a href="#" data-open="${C(2)}">Docs steward</a>`
+            && by(p, C(5)) === `managed by <a href="#" data-open="${C(4)}">Night steward</a> through All`
+            && everyBy(p) === `on for <a href="#" data-open="${C(4)}">Night steward</a>`
+            && by(r, C(3)) === `managed by <a href="#" data-open="${C(2)}">Docs and site steward</a>`) {
+          ok('each such row names, on the row itself, the steward that manages it or that it is a steward, the All switch names the steward that has All on, '
+            + 'each name a link to that steward\'s conversation, and a renamed steward\'s new name shows at the next pass');
+        } else bad(`the rows named their stewards as ${JSON.stringify({ two: by(p, C(2)), three: by(p, C(3)), five: by(p, C(5)), every: everyBy(p), renamed: by(r, C(3)) })}`);
         if (!panel.refused[C(1)] && same(list(panel.took, C(1)), [C(5)]) && same(list(panel.took, C(4)), []) && panel.took[C(4)].all === true
             && same(list(panel.took, C(2)), [C(3)])) {
           ok('and those clicks change nothing, while ticking one the steward of all has only through All moves it to this one');
