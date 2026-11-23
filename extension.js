@@ -58,6 +58,7 @@ const sessionColors = require('./src/sessioncolors');
 const bgSessions = require('./src/bgsessions');
 const droppedTabs = require('./src/droppedtabs');
 const loadTabs = require('./src/load-tabs');
+const loadMarks = require('./src/load-marks');
 const duplicates = require('./src/duplicates');
 const deleteSession = require('./src/deletesession');
 const recentClosed = require('./src/recentclosed');
@@ -1577,7 +1578,15 @@ function start(context, log, renamed, handing = false) {
     }, DROPPED_RECHECK_MS);
   }, 5000);
   /* claudeCodePlus.loadRestoredTabs (src/load-tabs.js): run once per window start, a few seconds after the check for
-     dropped tabs above. */
+     dropped tabs above. The unread marks the host clears while a tab is in front are set again afterwards
+     (src/load-marks.js). */
+  const hostMarks = () => {
+    if (!['__cceSendSessionStates', '__cceShownVisibly', '__cceSetUnread'].every((n) => typeof globalThis[n] === 'function')) return null;
+    globalThis.__cceSendSessionStates();
+    return [...unreadKeys];
+  };
+  const onScreen = (k) => { try { return globalThis.__cceShownVisibly(k) === true; } catch (_) { return true; } };
+  const markAgain = (k) => { try { globalThis.__cceSetUnread(k, true); } catch (e) { log.appendLine(`marking ${k} unread again: ${e && e.message}`); } };
   let loadTries = 0, loadTimer = setTimeout(function loadRestored() {
     loadTimer = undefined;
     if (!Array.isArray(globalThis.__cceTabsAtStart)) {
@@ -1585,10 +1594,13 @@ function start(context, log, renamed, handing = false) {
       return;
     }
     if (!enabled() || removed() || cfg().get(LOAD_TABS_SETTING, false) !== true) return;
-    loadTabs.loadAll({ groups: vscode.window.tabGroups.all, front: vscode.window.tabGroups.activeTabGroup, isTab: isClaudeTab,
-      exec: (...a) => vscode.commands.executeCommand(...a), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) })
-      .then((n) => { if (n) log.appendLine(`Loaded ${n} Claude Code tab(s) VS Code restored without loading them`); },
-        (e) => log.appendLine('loading restored Claude Code tabs: ' + (e && e.message)));
+    loadMarks.keepMarks(() => loadTabs.loadAll({ groups: vscode.window.tabGroups.all, front: vscode.window.tabGroups.activeTabGroup, isTab: isClaudeTab,
+      exec: (...a) => vscode.commands.executeCommand(...a), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) }),
+    { held: hostMarks, onScreen, set: markAgain })
+      .then(({ result: n, back }) => {
+        if (n) log.appendLine(`Loaded ${n} Claude Code tab(s) VS Code restored without loading them`);
+        if (back.length) log.appendLine(`Marked ${back.length} conversation(s) unread again that loading their tabs had marked read: ${back.join(', ')}`);
+      }, (e) => log.appendLine('loading restored Claude Code tabs: ' + (e && e.message)));
   }, 8000);
   context.subscriptions.push({ dispose: () => {
     if (loadTimer) clearTimeout(loadTimer);

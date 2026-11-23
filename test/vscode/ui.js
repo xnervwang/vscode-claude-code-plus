@@ -2709,7 +2709,39 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       const timer = setInterval(() => { if (wrap()) clearInterval(timer); }, 20);
       return true;`);
     const watched = () => call('const w = globalThis.__cceTestWatch; return w ? { tabs: w.tabs.map((x) => [x.ms, x.v]), unread: w.unread.map((x) => [x.ms, x.v]),'
-      + ' states: w.states.map((x) => [x.ms, x.v]) } : null;');
+      + ' states: w.states.map((x) => [x.ms, x.v]), holds: w.holds || null, loaded: w.loaded === undefined ? null : w.loaded } : null;');
+    /*
+     * Whether a background tab's unread mark survives the moment claudeCodePlus.loadRestoredTabs shows it depends on
+     * whether its page reports its conversation within that moment, which differs from machine to machine. Called right
+     * after a reload, with watchHost(): in the new extension host Claude Code Plus's loader then keeps each tab in front
+     * until Claude Code has dropped a mark, up to 15 s, so the clear always happens. Each hold, and when the loader
+     * finished, go into watchHost()'s record. Nothing else in the window is changed, and the next reload undoes it.
+     */
+    const holdInFront = () => call(`
+      const path = require('path'), fs = require('fs');
+      const w = globalThis.__cceTestWatch;
+      const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus');
+      if (!w || !mine) throw new Error('no record kept, or Claude Code Plus is not installed');
+      const file = path.join(mine.extensionPath, 'src', 'load-tabs.js');
+      const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+      const marks = () => (w.unread.length ? w.unread[w.unread.length - 1].v.length : 0);
+      w.holds = [];
+      const wrap = () => {
+        let real = file;
+        try { real = fs.realpathSync(file); } catch (_) { /* not there */ }
+        const key = Object.keys(require.cache).find((k) => same(k, file) || same(k, real));
+        if (!key) return false;
+        const mod = require.cache[key].exports, own = mod.loadAll;
+        mod.loadAll = (o) => own({ ...o, sleep: async (ms) => {
+          const t0 = Date.now(), had = marks();
+          await o.sleep(ms);
+          while (marks() >= had && Date.now() - t0 < 15000) await o.sleep(20);
+          w.holds.push({ ms: t0 - w.t0, held: Date.now() - t0, cleared: marks() < had });
+        } }).finally(() => { w.loaded = Date.now() - w.t0; });
+        return true;
+      };
+      const timer = setInterval(() => { if (wrap()) clearInterval(timer); }, 20);
+      return true;`);
     /* The tabs in front in each entry of the tab record, by label without the envelope. */
     const frontsIn = (rec) => rec.map(([, v]) => v.split(/ \|{1,2} /).filter((s) => s.startsWith('*')).map((s) => s.slice(1).replace(ENVELOPE, '')));
     /* Whether the tab record shows each of `behind` in front at some point, and `front` in front after the last of them. */
@@ -2742,8 +2774,8 @@ async function run({ exe, profile, env, playwright, model, threads, background =
     /*
      * Claude Code clears a conversation's unread mark when its page reports the conversation while its tab is in front,
      * and claudeCodePlus.loadRestoredTabs shows each background tab for a moment. A conversation whose reply was not read
-     * when the window reloaded must keep its envelope on its tab, on its session list rows and in the host's marks after
-     * the tabs have been loaded.
+     * when the window reloaded must have its envelope on its tab, on its session list rows and in the host's marks once
+     * the tabs have been loaded, even when each page reported while its tab was in front (holdInFront).
      */
     await step('restored tabs keep their envelopes', async () => {
       const [front, ...behind] = threads;
@@ -2777,23 +2809,30 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         kept || await envelopesNow(behind));
 
       await setLoad(true);
-      await reloadAndWait(front, watchHost);
-      const ran = await until(async () => { const r = await watched(); return r && eachShownThenBack(r.tabs, behind, front) && r; }, 90000, 500);
+      await reloadAndWait(front, async () => { await watchHost(); await holdInFront(); });
+      const ran = await until(async () => {
+        const r = await watched();
+        return r && r.loaded !== null && eachShownThenBack(r.tabs, behind, front) && r;
+      }, 90000, 500);
       const pages = ran ? await until(async () => (await Promise.all(behind.map(loaded))).every(Boolean), 60000, 1000) : false;
-      check(!!ran && !!pages, 'with claudeCodePlus.loadRestoredTabs on, the reload brings each background tab to the front once, then the front tab back, and both pages load',
+      check(!!ran && !!pages && ran.holds.length === behind.length,
+        'with claudeCodePlus.loadRestoredTabs on, the reload brings each background tab to the front once, held there, then the front tab back, and both pages load',
         { pages, record: (await watched()) || 'no record' });
+      if (ran && ran.holds.some((h) => !h.cleared)) note(`a tab held in front lost no mark in 15 s, so this run does not show what the loading clears: ${JSON.stringify(ran.holds)}`);
       await openList();
-      /* A mark the loading clears is cleared once a page reports its conversation to the host, which it does as it loads,
-         so the marks are watched for a while after both pages have drawn. */
-      const lost = pages ? await until(async () => { const e = await envelopesNow(behind); return e.some((x) => !everywhere(x)) && e; }, 15000, 500) : null;
-      const after = lost || await envelopesNow(behind);
+      /* The marks have to come back once the loader has finished, and then stay, while the pages go on reporting. */
+      const back = pages ? await until(async () => { const e = await envelopesNow(behind); return e.every(everywhere) && e; }, 10000, 500) : null;
+      const lost = back ? await until(async () => { const e = await envelopesNow(behind); return e.some((x) => !everywhere(x)) && e; }, 15000, 500) : null;
+      const after = lost || back || await envelopesNow(behind);
       const inFront = (await claudeTabs()).find((t) => t.active);
       const rec = await watched();
-      check(!!pages && !lost, 'and after it each background tab, its rows and the host\'s marks still have the envelope', { after, record: rec });
-      /* Kept in the output either way: when each tab was in front, and the host's marks over the same time. */
+      check(!!back && !lost, 'and once it has finished, each background tab, its rows and the host\'s marks have the envelope, and keep it', { after, record: rec });
+      /* Kept in the output either way: when each tab was in front, the host's marks over the same time, each hold and
+         when the loader finished. */
       if (rec) console.log(`        fronts: ${JSON.stringify(rec.tabs.map(([ms], i) => [ms, frontsIn(rec.tabs)[i].map((l) => l.slice(0, 12))]))}`
         + `\n        unread: ${JSON.stringify(rec.unread.map(([ms, ids]) => [ms, ids.map((id) => id.slice(-2))]))}`
-        + `\n        states: ${JSON.stringify(rec.states.map(([ms, ids]) => [ms, ids.map((id) => id.slice(-2))]))}`);
+        + `\n        states: ${JSON.stringify(rec.states.map(([ms, ids]) => [ms, ids.map((id) => id.slice(-2))]))}`
+        + `\n        holds: ${JSON.stringify(rec.holds)}, loader finished at ${rec.loaded} ms`);
       check(!!inFront && titled(inFront.label.replace(ENVELOPE, ''), front.title), 'and the tab in front at the reload is in front again', await claudeTabs());
       await shot('restored-tabs-envelopes');
       for (const t of behind) await call('return globalThis.__cceSetUnread(arg, false);', t.id);
