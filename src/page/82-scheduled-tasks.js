@@ -246,7 +246,8 @@
     return h('div', hinted({ className: 'cce-map-head', 'data-cce-map-head': (cmd ? cmd + ' ' : '') + label, children: kids }, note));
   };
   /* A card: dot is one of Claude Code's dot states (running, waiting, idle, failed). A card with a body opens it below
-     on a click, and has an arrow that says so. */
+     on a click, and has an arrow that says so. Its hover text ends with its second line, which a narrow side bar cuts
+     short. */
   var mapCard = function(h, o){
     var line = [h('span', { className: 'cce-map-dot', 'data-cce-map-dot': o.dot, children: [] }),
       h('span', { className: 'cce-map-text', children: [o.title] })];
@@ -254,7 +255,7 @@
     var card = hinted({ className: 'cce-map-card', 'data-cce-map-card': o.kind, children: [
       h('span', { className: 'cce-map-title', children: line }),
       h('span', { className: 'cce-map-meta', children: [o.meta] }),
-    ] }, o.note);
+    ] }, o.note ? o.note + '\n' + o.meta : o.meta);
     if (!o.body) return h('div', card);
     return h('details', { className: 'cce-map-item', children: [h('summary', card), h('div', { className: 'cce-map-body', children: o.body })] });
   };

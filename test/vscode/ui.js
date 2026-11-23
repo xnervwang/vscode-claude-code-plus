@@ -1366,7 +1366,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           const sec = mapSection(await mapLook(), 'Detached commands');
           return sec && sec.head.count === '1' && sec.cards.length === 1 && sec.cards[0].title === 'sleep 45' && /^pid \d+ · started \d\d:\d\d · /.test(sec.cards[0].meta) && sec;
         }, 10000, 500);
-        check(!!listed && cardsInForm({ cards: listed.cards }) && listed.cards[0].dot === 'running' && listed.cards[0].hint === 'sleep 45',
+        check(!!listed && cardsInForm({ cards: listed.cards }) && listed.cards[0].dot === 'running' && listed.cards[0].hint === `sleep 45\n${listed.cards[0].meta}`,
           'the agent map lists the command under DETACHED COMMANDS 1, a card titled by its program with its pid, start and running time, and the whole command line on hover',
           listed || await mapLook());
         await shot('agent-map-detached');
@@ -1430,7 +1430,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         const listed = await until(async () => { const m = await mapState(), look = await mapLook(), sec = mapSection(look, 'claude -p sessions');
           return sec && sec.cards.some((c) => c.title === WORKER_NAME) && { m, look, sec }; }, 10000, 500);
         const card = listed && listed.sec.cards.find((c) => c.title === WORKER_NAME);
-        check(!!card && listed.sec.head.count === '1' && card.dot === 'running' && /^pid \d+ · started /.test(card.meta) && card.hint === `claude -p session ${WORKER} · running`
+        check(!!card && listed.sec.head.count === '1' && card.dot === 'running' && /^pid \d+ · started /.test(card.meta) && card.hint === `claude -p session ${WORKER} · running\n${card.meta}`
           && cardsInForm({ cards: listed.sec.cards }) && !mapSection(listed.look, 'Detached commands'),
           'the agent map lists the worker under claude -p SESSIONS 1 by name, with its pid and start, its session id and state on hover, and not the shell that holds it',
           listed ? listed.sec : await mapLook());

@@ -2450,7 +2450,8 @@ const STEPS = [
       + 'DETACHED COMMANDS, count badge "1", comes right after BACKGROUND TASKS. Its card has a green dot, a title naming '
       + 'the program and the argument that tells what it is ("perl -e ... cache-relay:demo"), not the whole command line, and '
       + 'a second line with its process id, when it started and how long it has run.',
-    unchanged: 'The conversation behind the map is as before.',
+    unchanged: 'The conversation behind the map is as before, but for one more reply at its end, with no message of yours before it: '
+      + 'the answer to the notice Claude Code Plus sends when the first claude --bg session has finished.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
       const sock = path.join(d.profile.folder, '.relay', 'cache.sock');
@@ -2466,7 +2467,8 @@ const STEPS = [
       + '"2", after DETACHED COMMANDS where there is one. Each card has a grey dot (a scheduled prompt runs nothing until it '
       + 'is due), the start of its prompt as its title, cut with an ellipsis, and a second line saying when it fires and when '
       + 'it last fired: "every 20 min . last fired 7 min ago" and "daily at 9:30 . never fired".',
-    unchanged: 'The conversation behind the map is as before.',
+    unchanged: 'The conversation behind the map is as before, but it may have one more reply at its end, with no message of yours '
+      + 'before it: the answer to the notice Claude Code Plus sends when the first claude --bg session has finished.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
       addSchedules(d, mapThread(d).id);
@@ -2516,8 +2518,8 @@ const STEPS = [
   {
     name: 'map-opened', features: ['agent-map', 'background-sessions'],
     expect: 'The same map with the finished nightly-report card clicked open and scrolled into view: under the card its result '
-      + 'in a box ("The nightly report is written: 2 failed tests, both in the export job."), and two buttons, claude attach and '
-      + 'claude logs, each with the job id; the arrow at the end of that card\'s title line now points down. The other cards '
+      + 'in a box ("The nightly report is written: 2 failed tests, both in the export job."), a folded row "Task" with the task it was '
+      + 'given, and two buttons, claude attach and claude logs, each with the job id; the arrow at the end of that card\'s title line now points down. The other cards '
       + 'are as before, closed.',
     unchanged: 'The map is as in the picture before, but for the opened card and where the map is scrolled to.',
     act: async (d) => {
@@ -2577,7 +2579,8 @@ const STEPS = [
     name: 'map-sidebar-light', features: ['agent-map', 'light-theme', 'narrow-panel'],
     expect: 'The same conversation reopened in the secondary side bar (narrow, on the right), with a helper and a command '
       + 'in the background started there again, and its agent map open, in the light theme. The same sections as in '
-      + 'map-busy-light, in the narrow width: cards no wider than the side bar or the map scrolls sideways; headings, badges '
+      + 'map-busy-light, but SUBAGENTS 2: besides the new helper, the one started while the conversation was in a tab, stopped '
+      + 'when that tab closed, with a red dot. In the narrow width the cards\' second lines may end in an ellipsis (each card\'s hover text holds the whole line); cards no wider than the side bar or the map scrolls sideways; headings, badges '
       + 'and dividers readable; nothing overlaps.',
     unchanged: 'The tab of that conversation is gone from the editor.',
     act: async (d) => {

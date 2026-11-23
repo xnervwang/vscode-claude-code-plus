@@ -2369,7 +2369,7 @@ console.log('\ndetached commands in the agent map');
   /* Just after midnight these start times fall on the previous day, and a row then shows the date as well. */
   const started = (pid, ago) => new RegExp(`^pid ${pid} · started (?:[A-Z][a-z]{2} \\d{1,2} )?\\d\\d:\\d\\d · ${ago}$`);
   same([started(4343, '2 min').test(lines[0] || ''), started(4242, '25 min').test(lines[1] || ''),
-    calls.some((c) => c.props && c.props['aria-label'] === long)], [true, true, true], 'each card gives the pid, when it started and how long it has run, with the whole command on hover');
+    calls.some((c) => c.props && c.props['aria-label'] === `${long}\n${lines[0]}`)], [true, true, true], 'each card gives the pid, when it started and how long it has run, with the whole command on hover');
   const bare = calls.filter((c) => c.props && 'children' in c.props && !Array.isArray(c.props.children));
   same([bare.length, api.__cceAgentsLabel('3 agents', 3), api.__cceAgentsLabel('0 agents', 0), api.__cceScheduleCount()],
     [0, '3 agents · 2 detached', '2 detached', 2], 'the Agents button counts them first and opens for them alone');
@@ -2408,7 +2408,7 @@ console.log('\ndetached commands in the agent map');
       make(SID).__cceSchedule(h);
       const text = calls.find((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-text');
       const card = calls.find((c) => c.props && c.props.className === 'cce-map-card');
-      return [text && text.props.children[0], card && card.props['aria-label']];
+      return [text && text.props.children[0], card && card.props['aria-label'].split('\n')[0]];
     };
     const got = [titled(packedOne), titled(older)];
     props['--cce-detached'] = saved;
@@ -2479,8 +2479,8 @@ console.log('\nworkers in the agent map, and the dots that follow background wor
   const hovers = calls.filter((c) => c.props && c.props.className === 'cce-map-card').map((c) => c.props['aria-label'] || '');
   const dotsOf = calls.filter((c) => c.props && c.props.className === 'cce-map-dot').map((c) => c.props['data-cce-map-dot']);
   same([calls.some((c) => c.props && c.props['data-cce-map-head'] === 'claude -p sessions'), shown.includes('joinwin-1b'), shown.includes('inner-check'),
-    shown.some((t) => /^pid 7001 · started (?:[A-Z][a-z]{2} \d{1,2} )?\d\d:\d\d · 2h$/.test(t)), hovers.includes(`claude -p session ${W} · running`),
-    hovers.includes(`claude -p session ${INNER} · idle`), dotsOf.filter((d) => d === 'running').length >= 2, dotsOf.includes('idle'),
+    shown.some((t) => /^pid 7001 · started (?:[A-Z][a-z]{2} \d{1,2} )?\d\d:\d\d · 2h$/.test(t)), hovers.some((x) => x.startsWith(`claude -p session ${W} · running\npid 7001 · `)),
+    hovers.some((x) => x.startsWith(`claude -p session ${INNER} · idle\npid 7002 · `)), dotsOf.filter((d) => d === 'running').length >= 2, dotsOf.includes('idle'),
     calls.some((c) => c.props && c.props['data-cce-map-head'] === 'Detached commands'), shown.includes('sleep 999'),
     JSON.stringify(calls).includes('setsid nohup claude -p go'), JSON.stringify(calls).includes('theirs')],
   [true, true, true, true, true, true, true, true, true, true, false, false],
@@ -2648,8 +2648,8 @@ console.log('\nthe agent map: headings, sections and cards');
   const hover = (kind) => (cards.find((c) => c.props['data-cce-map-card'] === kind) || { props: {} }).props['aria-label'];
   const bg = cards.filter((c) => c.props['data-cce-map-card'] === 'background').map((c) => form[cards.indexOf(c)]);
   same([at('detached').dot, at('detached').title, new RegExp(`^pid 4242 · ${started('25 min')}$`).test(at('detached').meta),
-    hover('detached')],
-  ['running', 'perl -e \u2026 cache-relay:demo:', true, jobs[0].command],
+    hover('detached') === jobs[0].command + '\n' + at('detached').meta],
+  ['running', 'perl -e \u2026 cache-relay:demo:', true, true],
   'a detached command\'s card: a green dot, the host\'s title, its pid, start and running time, and the whole command line on hover');
   const sched = cards.filter((c) => c.props['data-cce-map-card'] === 'schedule').map((c) => form[cards.indexOf(c)]);
   same(sched.map((f) => [f.dot, f.title, f.meta]), [['idle', 'Check the build.', 'every 20 min · last fired 7 min ago'],
