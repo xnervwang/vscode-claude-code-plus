@@ -130,7 +130,7 @@ To open a new conversation:
    EOF
    ```
 
-The message counts as the user's own, so write the task as the user gave it and add nothing the user did not ask for. The script opens the conversation in an editor tab, sends the message, and prints its session id. The new conversation is ticked for you in the Steward panel, unless you manage all conversations.
+The message counts as the user's own, so write the task as the user gave it and add nothing the user did not ask for. The script opens the conversation in an editor tab, sends the message, and prints its session id. The new conversation is ticked for you in the Steward panel.
 
 To open a conversation that no window shows, so that you can pass something to it, use `--resume` with its session id,
 and the message, if there is one, in a here-document:
