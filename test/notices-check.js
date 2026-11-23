@@ -265,7 +265,14 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     '  host(six(1), "normal"); }, 16900);',
     'setTimeout(function(){ host([], "normal"); host(six(1), "normal"); }, 17300);',
     'setTimeout(function(){ got.padBack = pad(); }, 17800);',
-  ].join('\n'), [], 18000);
+    /* The pointer on the last card as its x takes it away: the stack is gone from under the pointer, which never leaves it. */
+    'setTimeout(function(){ fire(stack(), "pointerenter"); fire(Q("[data-ap-card]")[0], "pointerenter"); Q("[data-ap-card]")[0].querySelector("[data-ap-dismiss]").click(); }, 18000);',
+    'var G = card("g", "waiting", "G", 0);',
+    'setTimeout(function(){ host([], "folded"); }, 18100);',
+    'setTimeout(function(){ host([G], "folded"); }, 18200);',
+    'setTimeout(function(){ got.gShown = cards(); }, 18500);',
+    'setTimeout(function(){ got.gGone = cards(); }, 23700);',
+  ].join('\n'), [], 24000);
   if (modes.error) bad(modes.error);
   else {
     eq([modes.normal, modes.foldedStart], [['C', 'B', 'A'], [[], '']], 'in Normal every card is drawn; switched to Folded, the cards already there go and so does the room they took');
@@ -280,6 +287,7 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     eq([modes.keyBar, modes.keyStill, modes.afterQuiet], [['6 notices', 'Fold', 'Do not disturb', 'Dismiss all'], [true, ['6 notices', 'Fold', 'Do not disturb', 'Dismiss all']], [[], 'textbox']],
       'from the keyboard the bar opens with a card\'s focus and keeps its buttons while one of them has it; Do not disturb takes the stack away and the focus back to the message box');
     eq(modes.posted, ['mode-folded', 'mode-quiet'], 'and each button tells Agent Plus the mode it picked');
+    eq([modes.gShown, modes.gGone], [['G'], []], 'a folded card goes after its 5 seconds though the stack was emptied from under the pointer before it came');
     eq(modes.padBack, '128px', 'room asked for again while it is still going, as a folded card soon after another asks, is the same room, not added to what is left');
   }
   const calm = run('calm', [

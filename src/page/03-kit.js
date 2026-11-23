@@ -490,6 +490,11 @@ var agentPlusKit = (function () {
       for (var r = order.length - 1; r >= 0; r--) root.insertBefore(els[order[r]], r + 1 < order.length ? els[order[r + 1]] : head);
       if (pulled >= order.length) pulled = -1;
       if (hovered >= order.length) hovered = -1;
+      /* A stack taken away from under the pointer or the focus hears no leaving, so it lets go here. */
+      if (!order.length) {
+        inside = false; hovered = -1;
+        if (!(doc.activeElement && root.contains(doc.activeElement))) { within = false; focused = -1; }
+      }
       root.style.display = order.length ? '' : 'none';
       lay(true);
       paintHead();
