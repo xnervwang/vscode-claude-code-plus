@@ -11811,11 +11811,11 @@ const eqWait = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.str
         { sessionId: id('b'), cwd: '/w/b', status: 'waiting', waitingFor: 'permission prompt' },
         { sessionId: id('c'), cwd: '/w/c', status: 'waiting', waitingFor: 'input needed' },
         { sessionId: id('d'), cwd: '/w/d', status: 'busy' }];
-      const panel = { [id('a')]: { tool: 'Bash' }, [id('d')]: { tool: 'Bash' } };
-      const acts = { [id('a')]: 'waiting', [id('b')]: 'waiting', [id('c')]: 'waiting', [id('d')]: 'working' };
+      const panel = { [id('a')]: { tool: 'Bash' }, [id('d')]: { tool: 'Bash' }, [id('e')]: { tool: 'Edit' } };
+      const acts = { [id('a')]: 'waiting', [id('b')]: 'waiting', [id('c')]: 'waiting', [id('d')]: 'working', [id('e')]: 'waiting', [id('f')]: 'waiting' };
       const c = C.createClaudeSource({ planDir: () => '/plans', enabled: () => false, listAgents: async () => ({ records, error: '' }), folders: () => ['/w'],
-        readPlan: () => null, titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
-        activeChat: () => '', logo: () => null, canDeliver: (sid) => sid === id('a'), hand: () => false, reveal: async () => false,
+        readPlan: () => null, titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map([[id('e'), 'waiting'], [id('f'), 'waiting']]), unread: () => new Set(),
+        activeChat: () => '', logo: () => null, canDeliver: (sid) => sid === id('a') || sid === id('e'), hand: () => false, reveal: async () => false,
         activity: (sid) => acts[sid], waitingFor: (sid) => panel[sid] || null });
       (async () => {
         const all = (await c.source.listAllConversations()).map((x) => [x.sessionId.slice(0, 1), x.waitingFor === undefined ? '-' : x.waitingFor]).sort();
@@ -11825,9 +11825,10 @@ const eqWait = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.str
     const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
     let o = {};
     try { o = JSON.parse(r.stdout); } catch (_) { o = { threw: r.stdout + r.stderr }; }
-    eqWait(o, { all: [['a', { kind: 'permission', tool: 'Bash' }], ['b', { kind: 'permission' }], ['c', { kind: 'question' }], ['d', '-']],
+    eqWait(o, { all: [['a', { kind: 'permission', tool: 'Bash' }], ['b', { kind: 'permission' }], ['c', { kind: 'question' }], ['d', '-'], ['e', { kind: 'permission', tool: 'Edit' }]],
       shows: [true, false, false, false], features: ['shows'] },
-    'a waiting conversation carries waitingFor, from this window\'s panel with the tool or else from claude agents, and shows() answers for a panel of this window');
+    'a waiting conversation carries waitingFor, from this window\'s panel with the tool or else from claude agents, one a panel here shows is listed before claude agents has it, '
+      + 'and shows() answers for a panel of this window');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   if (/const next = waitingFor\.leftToAgentPlus\(\{ core: agentCore, on: enabled\(\) && !removed\(\), announcesWaits: coreLink\.announcesWaits \}\);/.test(ext)

@@ -266,6 +266,14 @@ function createClaudeSource(deps) {
       const { records, error } = await freshAgents();
       if (!records) { const none = []; none.problem = error; return none; }
       const all = waiting.foreground(waiting.merge(records), deps.isBackground ? { isBackground: deps.isBackground } : undefined);
+      /* `claude agents` is read at most every half minute, and a conversation opened since is missing from it. A panel of
+         this window that shows one stands in for it until then: it is this window that knows what it waits for. */
+      for (const [id] of deps.live()) {
+        if (all.has(id) || !SESSION.test(String(id))) continue;
+        let here = false;
+        try { here = deps.canDeliver(id) === true; } catch (_) { here = false; }
+        if (here) all.set(id, { sessionId: id, id: '', kind: '', cwd: (deps.folders() || [])[0] || '', name: '', waitingFor: '', busy: false, processes: 1 });
+      }
       let mine = null;
       try { mine = typeof deps.shown === 'function' ? new Set(deps.shown()) : null; } catch (_) { mine = null; }
       const unread = new Set([...deps.unread()].filter((id) => !mine || mine.has(id)));
