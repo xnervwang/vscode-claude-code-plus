@@ -6936,6 +6936,61 @@ console.log('\na conversation opened while its deletion is being confirmed');
   } else bad(`delete after confirming: opened meanwhile kept ${opened.extra} (told ${told}), still closed kept ${left.extra}`);
 }
 
+/* Links to other conversations, wired up in extension.js (src/conversation-links.js): against an Agent Plus that offers
+   allConversations, what every panel is sent, what a panel asking gets, where a click and the URI handler go, and the
+   switch stopping the subscription. */
+console.log('\nconversation links, wired up at activation');
+{
+  const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+  const CX = '0199a213-81c0-7800-8aa1-bbab2a035a53';
+  const r = activateStub({ after: 1500, preamble: `
+    const sent = [], cfg = {}, cfgListeners = [], agent = { subs: 0, disposed: 0, listeners: [] };
+    globalThis.__cceToAllPanels = (m) => { sent.push(JSON.parse(JSON.stringify(m))); return 1; };
+    const list = [{ sourceId: 'codex', label: 'Codex', sessionId: '${CX}', title: 'Fix the login redirect', cwd: '/w', lastActiveAt: 5, steward: false }];
+    const core = { family: 'agent-plus', version: '1.3.0', protocol: 1, accepts: [1], features: ['allConversations'],
+      registerSource: () => ({ accepted: true, code: '', reason: '', registration: { dispose() {} } }),
+      allConversations: () => list,
+      onDidChangeAllConversations: (fn) => { agent.subs++; agent.listeners.push(fn); return { dispose() { agent.disposed++; } }; } };
+    const realGet = vs.extensions.getExtension;
+    vs.extensions.getExtension = (id) => (id === 'xnervwang.agent-plus' ? { isActive: true, exports: { agentPlus: core } } : realGet(id));
+    const realCfg = vs.workspace.getConfiguration;
+    vs.workspace.getConfiguration = (section) => { const base = realCfg(section);
+      return Object.assign({}, base, { get: (k, d) => { const key = section ? section + '.' + k : k; return key in cfg ? cfg[key] : base.get(k, d); } }); };
+    vs.workspace.onDidChangeConfiguration = (fn) => { cfgListeners.push(fn); return { dispose() {} }; };
+    let uri = null;
+    vs.window.registerUriHandler = (h) => { uri = h; return { dispose() {} }; };
+    const flip = (on) => { cfg['claudeCodePlus.show.conversationLinks'] = on;
+      for (const fn of cfgListeners) fn({ affectsConfiguration: (k) => k === 'claudeCodePlus.show.conversationLinks' }); };
+    globalThis.__linksOut = {};
+    const o = globalThis.__linksOut;
+    setTimeout(() => {
+      o.first = sent.map((m) => [m.type, m.rev, m.list.map((c) => [c.sourceId, c.sessionId, c.title, c.cwd, c.label])]);
+      o.subs = agent.subs;
+      globalThis.__cceConversationsAskHook();
+      o.asked = sent.slice(o.first.length).map((m) => m.rev);
+      globalThis.__cceOpenConversationHook('codex', '${CX.toUpperCase()}');
+      if (uri) uri.handleUri({ path: '/open', query: 'session=${CX}&source=codex' });
+      flip(false);
+      o.disposedOff = agent.disposed;
+      const n = sent.length;
+      globalThis.__cceConversationsAskHook();
+      agent.listeners.forEach((fn) => fn());
+      o.sentOff = sent.length - n;
+      list.push({ sourceId: 'claude-code', label: 'Claude Code', sessionId: 'S2', title: 'Started while off', cwd: '/v', lastActiveAt: 6 });
+      flip(true);
+      o.subsOn = agent.subs;
+      o.sentOn = sent.slice(n).map((m) => [m.rev, m.list.length]);
+    }, 700);`, report: 'globalThis.__linksOut' });
+  const o = r.extra || {};
+  const opens = (r.executed || []).filter((a) => a[0] === 'agentPlus.openConversation').map((a) => a[1]);
+  const target = { sourceId: 'codex', sessionId: CX, title: 'Fix the login redirect', cwd: '/w' };
+  same([r.threw || '', o.first, o.subs, o.asked], ['', [['cce_conversations', 1, [['codex', CX, 'Fix the login redirect', '/w', 'Codex']]]], 1, [1]],
+    'once registered with an Agent Plus that offers every agent\'s conversations, the extension listens for them and sends them to every panel, and again to a panel that asks');
+  same(opens, [target, target], 'a link clicked in a panel, and the same address through the URI handler, open through agentPlus.openConversation with the conversation\'s title and folder');
+  same([o.disposedOff, o.sentOff, o.subsOn, o.sentOn], [1, 0, 2, [[2, 2]]],
+    'claudeCodePlus.show.conversationLinks off stops listening and sends nothing, a panel\'s question included; on again it listens and sends what changed meanwhile');
+}
+
 /* ── 24. a panel whose bundle never arrives says so ──
    The watch runs inline in the panel's HTML, ahead of the panel's stylesheet (src/panel-load-watch.js says why). Two
    things are checked against a fake page whose clock the test drives. It must never break the panel it watches: the
@@ -11334,6 +11389,23 @@ console.log('\nanswering from the Conversations tab');
       stamps.push(9000); q.env.out.ask();
       same(q.sent.filter((m) => m.type === 'cce_conversations_ask').length, 5,
         'a panel with no list asks for it at most once a second and five times, and not once it has it');
+      const off = {}, sw = make(off);
+      sw.env.window.__cceMentionsRev();
+      sw.env.out.wire();
+      sw.env.out.follow();
+      sw.tell(known, 1);
+      const s0 = sw.tick();
+      off.conversationLinks = true;
+      sw.env.out.follow();
+      const s1 = sw.tick(), plain = sw.env.window.__cceMentionPlugins(['math'], 'live');
+      off.conversationLinks = false;
+      sw.env.out.follow();
+      same([s1 - s0, plain, sw.tick() - s1, sw.env.window.__cceMentionPlugins(['math'], 'live').length], [1, ['math'], 1, 2],
+        'switching the links off and on again draws the reply again each time, without its links while off');
+      const quiet = make({ conversationLinks: true });
+      quiet.env.out.wire();
+      quiet.env.out.ask();
+      same(quiet.sent.length, 0, 'a panel with the links switched off does not ask for the list');
     } catch (e) { bad(`conversation links in a panel threw: ${(e && e.stack) || e}`); }
   }
 
@@ -13119,6 +13191,15 @@ const repo = path.join(__dirname, '..');
       eq([sent.slice(n).map((m) => m.list.map((x) => [x.sourceId, x.sessionId])), ownOpened],
         [[[['claude-code', 's-own']], [['claude-code', 's-own']], [['claude-code', 's-own']]], ['s-own']],
         'an Agent Plus without that list leaves this extension\'s own Claude Code conversations, and with no Agent Plus a click opens one directly');
+      const listed = links.entries([{ sessionId: '' }, { title: 'no id' }, null, { sessionId: 'a'.repeat(201) },
+        { sessionId: 'S1', sourceId: 'codex', label: 'Codex', title: 't'.repeat(400), cwd: '/w', lastActiveAt: '2026-11-22T10:00:00Z' },
+        { sessionId: 'S1', sourceId: 'codex', title: 'again' }, { sessionId: 'S1', sourceId: 'claude-code', title: 'other agent' },
+        { sessionId: 'S2', title: 'given none', lastActiveAt: 'never' }], 'claude-code', 'Claude Code');
+      eq([listed.map((x) => [x.sourceId, x.label, x.sessionId, x.title.length, x.cwd, x.lastActiveAt]),
+        links.entries(Array.from({ length: links.MAX_LISTED + 5 }, (_, i) => ({ sessionId: `s-${i}` }))).length],
+      [[['codex', 'Codex', 'S1', 300, '/w', Date.parse('2026-11-22T10:00:00Z')], ['claude-code', 'Claude Code', 'S1', 11, '', 0],
+        ['claude-code', 'Claude Code', 'S2', 10, '', 0]], links.MAX_LISTED],
+      'what a panel is sent: a conversation without a usable id is left out, each is listed once per agent, a title is cut at 300 characters, a date string is read as a time, an agent and its label come from the list or else are this extension\'s own, and at most 2000 are sent');
       const polls = [], polled = [];
       let running = [{ sessionId: 's-a', title: 'First one', lastActiveAt: 1 }];
       const later = links.create({ on: () => true, own: async () => running, send: (m) => polled.push(m.list.map((x) => x.sessionId)),

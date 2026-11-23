@@ -46,7 +46,10 @@
  *   conversation links
  *                  another conversation named in a reply by its title, in corner brackets and by its short id: a link for
  *                  each, drawn by Claude Code's own link component, its hover label, a click bringing its tab forward,
- *                  and none while claudeCodePlus.show.conversationLinks is off
+ *                  and none while claudeCodePlus.show.conversationLinks is off; with a source registered with Agent Plus
+ *                  from the helper as another agent: a full id in prose linked, none in a code block and only the id in
+ *                  inline code, not the conversation's own title or id, not a placeholder title, a reply linked once the
+ *                  conversation it names is listed, a panel opened later linking too, and that agent's own open on a click
  *   the steward    the Steward panel, a steward's crown on its tab, on every session list row and in the panel's
  *                  header, the bell an older build stored left out, renames through both of Claude Code's rename
  *                  boxes with marks typed anywhere, a managed conversation's dot and envelope in the panel while it
@@ -102,6 +105,7 @@ const { folderName } = fakeHome;
 const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_TO_BACKGROUND_LONG, BG_LONG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB,
   ASK_FOR_WORKER, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_CHOICE, CHOICE } = require('./lib/fake-model');
 const { ASK_FOR_BG_SESSION, BG_SESSION_NAME, BG_SESSION_SCRIPT } = require('./lib/fake-model');
+const { ECHO_REQUEST } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
 const tabdot = require('../../src/tabdot');
@@ -4097,6 +4101,105 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await whereTo(found.where);
         if (found.sidebar !== await auxiliaryVisible()) await exec(found.sidebar ? 'workbench.action.focusAuxiliaryBar' : 'workbench.action.closeAuxiliaryBar');
         await exec('workbench.action.closeAllEditors');
+      }
+    });
+
+    /* More of the links to other conversations, with a conversation source registered with Agent Plus from the test
+       helper and used by nothing else: it lists what the step puts in its list, tells Agent Plus when that changes, and
+       records what Agent Plus asks it to open. Its conversations are kept outside the window's folders, so Agent Plus's
+       views do not show them. Registered here, it stands for another agent such as Codex. */
+    await step('conversation links: ids, code, own and placeholder titles, late and another agent', async () => {
+      const AGENT = 'cce-test-agent', elsewhere = path.join(path.dirname(profile.folder), 'test-agent-elsewhere');
+      const Z = { sessionId: 'feedf00d-1111-4222-8333-444444444444', title: 'Tune the cache of the pricing service', cwd: elsewhere,
+        state: 'idle', activity: 'stopped', running: true, lastActiveAt: Date.now() };
+      const Q = { sessionId: 'decafbad-1111-4222-8333-444444444444', title: '(untitled)', cwd: elsewhere, state: 'idle', activity: 'stopped',
+        running: true, lastActiveAt: Date.now() };
+      const listAs = (list) => call('const st = globalThis.__cceTestAgent; st.list = arg; st.changed.fire(); return st.list.length;', list);
+      const reg = await call(`const ap = vscode.extensions.getExtension('xnervwang.agent-plus').exports.agentPlus;
+        const changed = new vscode.EventEmitter();
+        const st = globalThis.__cceTestAgent = { list: arg.list, opened: [], changed };
+        const r = ap.registerSource({ protocol: 1, id: arg.id, label: 'Test agent', onDidChangeConversations: changed.event,
+          listConversations: async () => st.list.map((c) => Object.assign({}, c)),
+          open: async (sessionId, row) => { st.opened.push({ sessionId, title: row && row.title, cwd: row && row.cwd }); return 'here'; } });
+        st.registration = r.registration;
+        return { accepted: r.accepted, code: r.code, features: ap.features };`, { id: AGENT, list: [Q] });
+      check(!!reg && reg.accepted && (reg.features || []).includes('allConversations'),
+        'a source standing for another agent registers with Agent Plus, which offers every agent\'s conversations', reg);
+      try {
+        await exec('claude-vscode.editor.open', tab0.id);
+        const panel = await conversation(tab0);
+        if (!panel) throw new Error('the conversation did not open');
+        const say = async (text, marker) => {
+          await panel.locator('[contenteditable][role="textbox"]').first().click();
+          await page.keyboard.type(ECHO_REQUEST(text));
+          await page.keyboard.press('Enter');
+          return until(() => panel.evaluate((m) => [...document.querySelectorAll('[data-testid="assistant-message"]')].some((r) => r.textContent.includes(m)), marker), 30000, 300);
+        };
+        /* The links in the reply that holds `marker`: each with its text, its conversation and agent, and whether it is in
+           a code block or in inline code. */
+        const linksIn = (marker) => panel.evaluate((m) => {
+          const r = [...document.querySelectorAll('[data-testid="assistant-message"]')].filter((x) => x.textContent.includes(m)).pop();
+          if (!r) return null;
+          return [...r.querySelectorAll('a[href^="vscode://xnervwang.claude-code-plus/open?session="]')].map((a) => {
+            const q = new URLSearchParams(a.getAttribute('href').split('?')[1]);
+            return { text: a.textContent, session: q.get('session'), source: q.get('source'), pre: !!a.closest('pre'), code: !!a.closest('code') };
+          });
+        }, marker);
+        const ofZ = (l) => (l || []).filter((x) => x.session === Z.sessionId && x.source === AGENT);
+
+        /* A reply drawn while the conversation it names is not known yet. */
+        const LATE = 'not in the list yet';
+        check(!!await say(`${Z.title} is ${LATE}.`, LATE), 'the fake model gave the reply naming a conversation no agent lists yet');
+        await sleep(4000);
+        const before = await linksIn(LATE);
+        await listAs([Q, Z]);
+        const after = await until(async () => { const l = ofZ(await linksIn(LATE)); return l.length ? l : null; }, 45000, 500);
+        check(!!before && !ofZ(before).length && !!after && after[0].text === Z.title,
+          'a reply naming a conversation not listed yet has no link to it, and gets one once its agent lists it, without a reload', { before, after });
+
+        /* Ids in prose and in code, the conversation's own title and id, and a placeholder title. */
+        const RULES = 'Placeholder:';
+        const text = `Its full id is ${Z.sessionId} here. Own: ${tab0.title}, \u300c${tab0.title}\u300d and ${tab0.id}. `
+          + `${RULES} \u300c(untitled)\u300d and (untitled), but ${Q.sessionId} by its id.\n\n\`\`\`\n${Z.title}\n${Z.sessionId}\n\`\`\`\n\n`
+          + `In inline code: \`${Z.title}\` and \`${Z.sessionId}\`.`;
+        check(!!await say(text, RULES), 'the fake model gave the reply with ids, code, the conversation\'s own name and a placeholder');
+        const l = await until(async () => { const x = await linksIn(RULES); return x && x.some((y) => y.session === Q.sessionId) ? x : null; }, 30000, 500) || await linksIn(RULES) || [];
+        const prose = ofZ(l).filter((x) => !x.code && !x.pre && x.text === Z.sessionId);
+        check(prose.length === 1, 'a full session id in the prose of a reply is a link to its conversation', l);
+        check(!l.some((x) => x.pre) && !ofZ(l).some((x) => x.code && x.text === Z.title) && ofZ(l).filter((x) => x.code && !x.pre && x.text === Z.sessionId).length === 1,
+          'in a code block neither the title nor the id is linked, and in inline code only the id is', l);
+        check(!l.some((x) => x.session === tab0.id) && prose.length === 1, 'the conversation\'s own title and id are not linked, in the same reply where another\'s id is', l);
+        check(!l.some((x) => /^\(untitled\)$/.test(x.text)) && l.filter((x) => x.session === Q.sessionId && x.text === Q.sessionId).length === 1,
+          'a conversation titled (untitled) is not linked by that title, and is by its id', l);
+
+        /* The other agent's conversation: its label and its open. */
+        const link = panel.locator(`[data-testid="assistant-message"] a[href="vscode://xnervwang.claude-code-plus/open?session=${Z.sessionId}&source=${AGENT}"]`).first();
+        await link.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+        await link.hover({ timeout: 10000 }).catch(() => {});
+        const tip = await until(() => panel.evaluate(() => { const b = document.querySelector('[data-cce-label]'); return b ? b.textContent : ''; }), 5000, 200);
+        check(typeof tip === 'string' && tip.startsWith(`${Z.title}\nTest agent conversation ${Z.sessionId.slice(0, 8)}`),
+          'hovering over another agent\'s conversation names that agent', tip);
+        const tabsBefore = (await claudeTabs()).length;
+        await link.click({ timeout: 15000 }).catch(() => {});
+        const opened = await until(async () => { const o = await call('return globalThis.__cceTestAgent.opened;'); return o && o.length ? o : null; }, 15000, 300);
+        check(!!opened && opened.length === 1 && opened[0].sessionId === Z.sessionId && opened[0].title === Z.title && opened[0].cwd === elsewhere
+          && (await claudeTabs()).length === tabsBefore,
+          'clicked, it goes through agentPlus.openConversation to that agent\'s own open, with its title and folder, and opens no Claude Code tab', { opened, tabs: await claudeTabs() });
+        await shot('conversation-links-another-agent');
+
+        /* A panel opened after the list was sent, showing a conversation whose earlier reply names Z. */
+        const P = { id: 'c0ffee12-4b5e-4f60-8a71-92b3c4d5e6a2', title: 'Ask who tunes the pricing cache', days: 0,
+          turns: [['Who tunes the pricing cache?', `That is ${Z.title}, the other agent's conversation.`]] };
+        fakeHome.writeThreads(profile.home, profile.folder, [P]);
+        await exec('claude-vscode.editor.open', P.id);
+        const late = await conversation(P).catch(() => null);
+        const inP = late ? await until(() => late.evaluate((h) => !!document.querySelector(`[data-testid="assistant-message"] a[href="${h}"]`),
+          `vscode://xnervwang.claude-code-plus/open?session=${Z.sessionId}&source=${AGENT}`), 30000, 500) : false;
+        check(!!inP, 'a panel opened after the list was sent links the conversation its earlier reply names');
+        await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
+          && x.label && arg.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, P.title);
+      } finally {
+        await call('const st = globalThis.__cceTestAgent; if (st && st.registration) st.registration.dispose(); delete globalThis.__cceTestAgent; return true;').catch(() => {});
       }
     });
 
