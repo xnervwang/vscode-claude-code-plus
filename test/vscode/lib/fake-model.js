@@ -12,7 +12,8 @@
  * A turn whose message contains ASK_TO_RUN is answered with a Bash tool call of RUN instead of text, so that Claude Code
  * stops to ask for permission to run it; the turn that carries the tool's result is answered with text again. One whose
  * message contains ASK_TO_BACKGROUND gets a Bash call of BG_RUN with run_in_background, so the turn can end while the
- * command still runs. One whose message contains ASK_TO_DETACH gets a Bash call of DETACH_RUN, which leaves a program
+ * command still runs, and ASK_TO_BACKGROUND_LONG the same with BG_LONG_RUN, which runs for a quarter of an hour. One
+ * whose message contains ASK_TO_DETACH gets a Bash call of DETACH_RUN, which leaves a program
  * running in a session of its own, outside Claude Code's account of its background work; ASK_TO_DETACH_SHORT the same with
  * DETACH_SHORT_RUN, which ends sooner. One whose message contains ASK_FOR_HELPER gets an Agent call run in the background, whose prompt is
  * HELPER_TASK; the helper's own turns are held until releaseHelper(), so it keeps running for as long as a test needs.
@@ -34,6 +35,8 @@ const ASK_TO_RUN = 'run the test suite';
 const RUN = 'npm test';
 const ASK_TO_BACKGROUND = 'start the long job in the background';
 const BG_RUN = 'sleep 40';
+const ASK_TO_BACKGROUND_LONG = 'start the nightly build in the background';
+const BG_LONG_RUN = 'sleep 900';
 const ASK_FOR_HELPER = 'ask a helper in the background';
 const ASK_TO_DETACH = 'start the long job detached';
 const DETACH_RUN = 'setsid nohup sleep 45 > /dev/null 2>&1 &';
@@ -113,6 +116,14 @@ function sse(res, type, payload) {
 
 const LINK_ASK = /link to conversation ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 const LINK_TEXT = 'that conversation';
+/* A reply naming another conversation three ways, for the links the page makes of them: by its title as it stands, by
+   its title in corner brackets, and by the first 8 characters of its id. */
+const NAME_ASK = /name the conversation ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) titled (.+?)\.?\s*$/i;
+const NAMED_REPLY = (id, title) => `${title} is the one. In brackets: \u300c${title}\u300d. By its short id: ${id.slice(0, 8)}.`;
+/* A reply given word for word, base64 in the message so that the message box takes it as typed: code fences, corner
+   brackets and new lines included. */
+const ECHO_ASK = /reply with the base64 text ([A-Za-z0-9+/=]+)/i;
+const ECHO_REQUEST = (text) => `Reply with the base64 text ${Buffer.from(String(text), 'utf8').toString('base64')}.`;
 const IMAGE_ASK = /show me the picture at (\S+)/i;
 const IMAGE_ALT = 'a red square';
 const IMAGE_WEB = 'https://example.com/square.png';
@@ -143,6 +154,7 @@ function resultText(ask) {
 }
 const asksToRun = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_RUN); };
 const asksToBackground = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_BACKGROUND); };
+const asksToBackgroundLong = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_BACKGROUND_LONG); };
 const asksForHelper = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_HELPER); };
 const asksToDetach = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH); };
 const asksToDetachShort = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH_SHORT); };
@@ -152,6 +164,8 @@ const asksForChoice = (ask) => { const t = lastAsk(ask); return t !== null && t.
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
+const nameAsked = (ask) => { const m = NAME_ASK.exec(typedText(ask)); return m ? NAMED_REPLY(m[1].toLowerCase(), m[2]) : null; };
+const echoAsked = (ask) => { const m = ECHO_ASK.exec(typedText(ask)); return m ? Buffer.from(m[1], 'base64').toString('utf8') : null; };
 const imageAsked = (ask) => { const m = IMAGE_ASK.exec(lastAsk(ask) || ''); return m ? m[1] : null; };
 /* Which of the texts the work plan plugin's hooks and this extension add to Claude's context this turn's input carries:
    the messages after the last reply, since Claude Code 2.1.330 sends the hooks' text and its list of skills in a system
@@ -185,16 +199,16 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const url = req.url.replace(/\?.*/, '');
       let ask = {};
       try { ask = JSON.parse(body || '{}'); } catch (_) { ask = {}; }
-      const background = asksToBackground(ask);
+      const background = asksToBackground(ask), backgroundLong = asksToBackgroundLong(ask);
       const helper = asksForHelper(ask);
       const helping = !helper && isHelper(ask);
       const detach = asksToDetach(ask), detachShort = asksToDetachShort(ask);
       const worker = asksForWorker(ask), bgSession = asksForBgSession(ask);
       const choice = asksForChoice(ask);
-      const tool = background || helper || detach || detachShort || worker || bgSession || choice || asksToRun(ask);
-      const linked = linkAsked(ask), picture = imageAsked(ask);
-      const reply = linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
-        : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain;
+      const tool = background || backgroundLong || helper || detach || detachShort || worker || bgSession || choice || asksToRun(ask);
+      const linked = linkAsked(ask), picture = imageAsked(ask), named = nameAsked(ask) || echoAsked(ask);
+      const reply = named || (linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
+        : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain);
       seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping, choice,
         parts: lastParts(ask).map((p) => (p && p.type) || typeof p), result: resultText(ask), ask: (lastAsk(ask) || '').slice(0, 400),
         typed: typedText(ask).slice(0, 400),
@@ -214,6 +228,7 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const usage = { input_tokens: 1200, cache_creation_input_tokens: 0, cache_read_input_tokens: 40000, output_tokens: 40 };
       const input = helper ? { description: 'Look through the notes', prompt: HELPER_TASK, subagent_type: 'general-purpose', run_in_background: true }
         : background ? { command: BG_RUN, description: 'Start the long job', run_in_background: true }
+        : backgroundLong ? { command: BG_LONG_RUN, description: 'Start the nightly build', run_in_background: true }
           : detach ? { command: DETACH_RUN, description: 'Start the long job detached' }
           : detachShort ? { command: DETACH_SHORT_RUN, description: 'Start the short job detached' }
           : worker ? { command: WORKER_RUN, description: 'Start a worker detached' }
@@ -256,7 +271,7 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
     turns: () => seen.filter((s) => s.method === 'POST' && s.stream && /\/v1\/messages(\?|$)/.test(s.url)).length };
 }
 
-module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
-  DETACH_SHORT_RUN, LINK_TEXT,
+module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_TO_BACKGROUND_LONG, BG_LONG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
+  DETACH_SHORT_RUN, LINK_TEXT, NAMED_REPLY, ECHO_REQUEST,
   IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_BG_SESSION, BG_SESSION_RUN, BG_SESSION_NAME,
   BG_SESSION_SCRIPT, ASK_FOR_CHOICE, CHOICE };

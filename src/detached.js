@@ -184,15 +184,56 @@ const argvOf = (args) => {
 };
 const oneLine = (a) => a.join(' ').replace(/\s+/g, ' ').trim().slice(0, MAX_COMMAND);
 const commandOf = (args) => oneLine(argvOf(args));
-/* With perl -e, python -c or node -e, the program text fills the start of the command line, and the arguments after it
-   are what tell one such command from another. The agent map shows those, with the program left to
-   the full command line on hover. A shell's -c string is the command to run, so a shell keeps its whole line. */
+/*
+ * The title of a command's card in the agent map: the program and the one argument that tells what it is running, with
+ * the whole command line left to the card's hover text.
+ *
+ * - A Bash tool shell runs Claude Code's shell snapshot and then the command it was given, inside `eval '...'`: that
+ *   command is the title, since the shell around it is the same for every one.
+ * - Another shell's -c string is the command it runs, so it follows the shell's name.
+ * - With perl -e, python -c or node -e, the program text says nothing at a glance and fills the line; the last argument
+ *   after it that is not an option is named instead, which for a relay or a server is usually its own name.
+ * - `timeout` is named with the command it limits.
+ * - Otherwise the first argument that is not an option, which for an interpreter is its script.
+ *
+ * A path is named by its last part, and each part is cut to TITLE_PART characters.
+ */
 const INLINE = new Set(['-e', '-E', '-c', '--eval']);
-const labelOf = (args) => {
-  const a = argvOf(args);
-  if (a.length < 4 || !INLINE.has(a[1]) || STARTERS.has(path.basename(a[0]))) return '';
-  return oneLine([path.basename(a[0]), a[1], '\u2026', ...a.slice(3)]);
+const TITLE_PART = 60;
+const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '\u2026' : s);
+const firstLine = (s) => cut(String(s).split('\n').map((l) => l.trim()).filter(Boolean)[0] || '', TITLE_PART);
+const pathPart = (s) => (/[\\/]/.test(s) && !/\s/.test(s) ? path.basename(s.replace(/[\\/]+$/, '')) || s : s);
+const argPart = (s) => cut(pathPart(s), TITLE_PART);
+/* The command a Bash tool shell was given, from its -c string; null when the string is not one of those. */
+const evaled = (c) => {
+  if (!SNAPSHOT.test(c)) return null;
+  const e = /\beval '((?:[^']|'\\'')*)'/.exec(c);
+  if (e) return e[1].replace(/'\\''/g, "'");
+  const after = /shell-snapshots[\\/]\S+(?:\s+2>\/dev\/null\s+\|\|\s+true)?\s+&&\s+([\s\S]+)$/.exec(c);
+  return after ? after[1] : null;
 };
+const titleOfArgv = (a) => {
+  if (!a.length) return '';
+  const prog = path.basename(a[0]), rest = a.slice(1);
+  if (prog === 'timeout') {
+    const at = rest.findIndex((x) => !x.startsWith('-'));
+    return at >= 0 && at + 1 < rest.length ? titleOfArgv(rest.slice(at + 1)) : prog;
+  }
+  if (STARTERS.has(prog)) {
+    const c = rest.findIndex((x) => /^-[a-z]*c$/.test(x));
+    if (c >= 0 && typeof rest[c + 1] === 'string') {
+      const ran = evaled(rest[c + 1]);
+      return ran !== null ? firstLine(ran) : `${prog} -c ${firstLine(rest[c + 1])}`;
+    }
+  }
+  if (rest.length >= 2 && INLINE.has(rest[0])) {
+    const after = rest.slice(2), named = after.filter((x) => !x.startsWith('-')).pop();
+    return named ? `${prog} ${rest[0]} \u2026 ${argPart(named)}` : `${prog} ${rest[0]} ${firstLine(rest[1])}`;
+  }
+  const first = rest.find((x) => !x.startsWith('-'));
+  return first ? `${prog} ${argPart(first)}` : prog;
+};
+const titleOf = (args) => titleOfArgv(argvOf(args));
 /* Clock ticks per second in /proc/<pid>/stat: USER_HZ, which is 100 on every architecture Linux runs VS Code on. */
 const TICKS = 100;
 /* The boot time of each /proc root, in ms, from the btime line of its stat file. */
@@ -226,7 +267,7 @@ async function snapshot({ proc = '/proc', records = [] } = {}) {
         const args = (await read(path.join(proc, String(pid), 'cmdline'), 'latin1')) || '';
         const shell = STARTERS.has(path.basename(args.split('\0')[0]));
         const kind = shell && (!below || SNAPSHOT.test(args)) ? 'shell' : !shell && !below && p.session === pid ? 'leader' : '';
-        if (kind) found = { id: sid.toLowerCase(), kind, command: commandOf(args), label: labelOf(args) };
+        if (kind) found = { id: sid.toLowerCase(), kind, command: commandOf(args), title: titleOf(args) };
       }
     }
     keep.set(key, found);
@@ -251,7 +292,7 @@ async function snapshot({ proc = '/proc', records = [] } = {}) {
     if (!top) continue;
     const start = procs.get(pid).start;
     jobs.push({ session: f.id, pid, start: String(start), startedAt: boot === null ? null : boot + Math.round(Number(start) * 1000 / TICKS),
-      kind: f.kind, command: f.command, ...(f.label ? { label: f.label } : {}) });
+      kind: f.kind, command: f.command, ...(f.title ? { title: f.title } : {}) });
   }
   jobs.sort((a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : a.pid - b.pid));
   const byPid = new Map(records.map((r) => [r.pid, r]));
@@ -298,4 +339,4 @@ async function snapshot({ proc = '/proc', records = [] } = {}) {
   return { shells, launchers, jobs, workers };
 }
 
-module.exports = { snapshot, processes, labelOf, isWorkerRecord, STARTERS, SNAPSHOT };
+module.exports = { snapshot, processes, titleOf, isWorkerRecord, STARTERS, SNAPSHOT };

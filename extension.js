@@ -36,6 +36,7 @@ const detachedEnds = require('./src/detachedends');
 const bgEnds = require('./src/bgends');
 const stoppedWork = require('./src/stoppedwork');
 const replyImages = require('./src/reply-images');
+const conversationLinks = require('./src/conversation-links');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
 const { transcriptOf, projectsDir, writeAtomic } = require('./src/claude-files');
@@ -58,6 +59,7 @@ const sessionColors = require('./src/sessioncolors');
 const bgSessions = require('./src/bgsessions');
 const droppedTabs = require('./src/droppedtabs');
 const loadTabs = require('./src/load-tabs');
+const loadMarks = require('./src/load-marks');
 const duplicates = require('./src/duplicates');
 const deleteSession = require('./src/deletesession');
 const recentClosed = require('./src/recentclosed');
@@ -399,13 +401,18 @@ function start(context, log, renamed, handing = false) {
   };
   /* Never after Remove, which has just taken these files out of Claude Code's folder: a scan finishing afterwards would
      put them back. */
+  /* A failed write is tried again a second later, up to five times, rather than waiting for the next change: what it
+     could not put out is owed (src/webview.js) and goes with the next try. */
+  let liveAgain = 0, liveFails = 0;
   const writeLiveNow = () => {
     if (removed() || uninstalling() || replaced()) return;
     try {
       const opts = options();
       for (const dir of installs(webview)) webview.writeLive(dir, opts);
+      liveFails = 0;
     } catch (e) {
       log.appendLine('live refresh failed: ' + e.message);
+      if (!liveAgain && ++liveFails <= 5) liveAgain = setTimeout(() => { liveAgain = 0; writeLiveNow(); }, 1000);
     }
   };
   /* Reads what the conversation in front of the reader has added to its transcript since last time - the only one, since
@@ -950,6 +957,8 @@ function start(context, log, renamed, handing = false) {
     live: () => liveStates, unread: () => unreadKeys, reveal: (sessionId) => claude.source.reveal(sessionId), shownHere,
     activity: (id) => activityFor(id), question: (id) => freshQuestionOf(id),
     canWrite: () => !removed() && !replaced() && !uninstalling(), canShare: () => !removed() && !uninstalling(),
+    replaced: () => !removed() && !uninstalling() && replaced(),
+    build: () => ({ code: loadedCode, installed: !removed() && !uninstalling() && !replaced() }), offerReload,
     enabled: () => enabled() && !removed(),
     log: (m) => log.appendLine(m), home: os.homedir(), dir: planDir(), shownList,
     changed: () => redrawStewards(),
@@ -996,14 +1005,36 @@ function start(context, log, renamed, handing = false) {
     }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceOpenSessionHook) delete globalThis.__cceOpenSessionHook; } });
-  /* vscode://xnervwang.claude-code-plus/open?session=<id>, the link a steward gives for a conversation it names. */
+  /* Other conversations named in replies, drawn as links by the panels' page (src/conversation-links.js). */
+  const openOwnConversation = (id) => steward.open(id).then((r) => {
+    if (r === 'nowhere') vscode.window.showInformationMessage('That conversation is not open in any VS Code window on this machine.');
+  }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
+  const links = conversationLinks.create({
+    on: () => !removed() && !uninstalling() && !switchedOff().includes('conversationLinks'),
+    own: async () => {
+      const all = await Promise.resolve(claude.source.listAllConversations()).catch(() => []);
+      const here = await Promise.resolve(claude.source.listConversations()).catch(() => []);
+      return [].concat(Array.isArray(all) ? all : [], Array.isArray(here) ? here : []);
+    },
+    send: (m) => { if (typeof globalThis.__cceToAllPanels === 'function') globalThis.__cceToAllPanels(m); },
+    open: (target) => Promise.resolve(vscode.commands.executeCommand('agentPlus.openConversation', target))
+      .catch((e) => log.appendLine('conversation links: ' + ((e && e.message) || e))),
+    openOwn: openOwnConversation,
+    log: (m) => log.appendLine(m),
+  });
+  context.subscriptions.push(links);
+  globalThis.__cceOpenConversationHook = (sourceId, id) => { links.open(sourceId, id).catch((e) => log.appendLine('conversation links: ' + ((e && e.message) || e))); };
+  globalThis.__cceConversationsAskHook = () => { links.ask(); };
+  context.subscriptions.push({ dispose: () => { delete globalThis.__cceOpenConversationHook; delete globalThis.__cceConversationsAskHook; } });
+  context.subscriptions.push(claude.source.onDidChangeConversations(() => links.refresh()));
+  /* vscode://xnervwang.claude-code-plus/open?session=<id>, the link a steward gives for a conversation it names; a link
+     the page made for another agent's conversation also says which (&source=). */
   context.subscriptions.push(vscode.window.registerUriHandler({
     handleUri(uri) {
       if (uri.path !== '/open') return;
-      const id = new URLSearchParams(uri.query).get('session') || '';
-      steward.open(id).then((r) => {
-        if (r === 'nowhere') vscode.window.showInformationMessage('That conversation is not open in any VS Code window on this machine.');
-      }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
+      const q = new URLSearchParams(uri.query), id = q.get('session') || '', source = q.get('source') || '';
+      if (source && source !== conversationLinks.OWN_SOURCE) { links.open(source, id).catch((e) => log.appendLine('conversation links: ' + ((e && e.message) || e))); return; }
+      openOwnConversation(id);
     },
   }));
   /* Tab titles and the session list are redrawn when stewards.json changes, whichever window changed it
@@ -1061,7 +1092,7 @@ function start(context, log, renamed, handing = false) {
   if (typeof vscode.workspace.onDidGrantWorkspaceTrust === 'function') context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(decideWaits));
   context.subscriptions.push({ dispose: () => { delete globalThis[host.WAITS_LEFT_ON]; } });
   coreLink.link(vscode, claude.source, { name: 'the Claude Code source', log: (m) => log.appendLine(m) }).then((r) => {
-    if (!r.registered) return;
+    if (!r.registered) { links.attach(null); return; }
     const { registration } = r;
     log.appendLine(`registered with Agent Plus ${r.core.version || ''}`.trim());
     if (closing) { registration.dispose(); return; }
@@ -1070,6 +1101,7 @@ function start(context, log, renamed, handing = false) {
     agentCore = r.core;
     decideWaits();
     claude.refocus();
+    links.attach(r.core);
   }).catch((e) => log.appendLine('registering with Agent Plus: ' + ((e && e.message) || e)));
   /*
    * Following the conversation has to be immediate, so the patched field calls this the moment it is written. Waiting
@@ -1581,7 +1613,15 @@ function start(context, log, renamed, handing = false) {
     }, DROPPED_RECHECK_MS);
   }, 5000);
   /* claudeCodePlus.loadRestoredTabs (src/load-tabs.js): run once per window start, a few seconds after the check for
-     dropped tabs above. */
+     dropped tabs above. The unread marks the host clears while a tab is in front are set again afterwards
+     (src/load-marks.js). */
+  const hostMarks = () => {
+    if (!['__cceSendSessionStates', '__cceShownVisibly', '__cceSetUnread'].every((n) => typeof globalThis[n] === 'function')) return null;
+    globalThis.__cceSendSessionStates();
+    return [...unreadKeys];
+  };
+  const onScreen = (k) => { try { return globalThis.__cceShownVisibly(k) === true; } catch (_) { return true; } };
+  const markAgain = (k) => { try { globalThis.__cceSetUnread(k, true); } catch (e) { log.appendLine(`marking ${k} unread again: ${e && e.message}`); } };
   let loadTries = 0, loadTimer = setTimeout(function loadRestored() {
     loadTimer = undefined;
     if (!Array.isArray(globalThis.__cceTabsAtStart)) {
@@ -1589,10 +1629,13 @@ function start(context, log, renamed, handing = false) {
       return;
     }
     if (!enabled() || removed() || cfg().get(LOAD_TABS_SETTING, false) !== true) return;
-    loadTabs.loadAll({ groups: vscode.window.tabGroups.all, front: vscode.window.tabGroups.activeTabGroup, isTab: isClaudeTab,
-      exec: (...a) => vscode.commands.executeCommand(...a), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) })
-      .then((n) => { if (n) log.appendLine(`Loaded ${n} Claude Code tab(s) VS Code restored without loading them`); },
-        (e) => log.appendLine('loading restored Claude Code tabs: ' + (e && e.message)));
+    loadMarks.keepMarks(() => loadTabs.loadAll({ groups: vscode.window.tabGroups.all, front: vscode.window.tabGroups.activeTabGroup, isTab: isClaudeTab,
+      exec: (...a) => vscode.commands.executeCommand(...a), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) }),
+    { held: hostMarks, onScreen, set: markAgain })
+      .then(({ result: n, back }) => {
+        if (n) log.appendLine(`Loaded ${n} Claude Code tab(s) VS Code restored without loading them`);
+        if (back.length) log.appendLine(`Marked ${back.length} conversation(s) unread again that loading their tabs had marked read: ${back.join(', ')}`);
+      }, (e) => log.appendLine('loading restored Claude Code tabs: ' + (e && e.message)));
   }, 8000);
   context.subscriptions.push({ dispose: () => {
     if (loadTimer) clearTimeout(loadTimer);
@@ -1936,6 +1979,7 @@ function start(context, log, renamed, handing = false) {
       if (!removed() && enabled()) for (const id of shownList()) sendPlan(id);
     } else if (e.affectsConfiguration(BRIEF_SETTING)) claude.changed();
     if (modeChanged) followTokenMode();
+    if (e.affectsConfiguration(PREFIX + 'show.conversationLinks')) links.settingChanged();
     if (e.affectsConfiguration(HIDE_BG_SETTING)) {
       try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the list catches up on its next read */ }
     }

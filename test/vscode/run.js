@@ -96,7 +96,7 @@ async function fetchStage() {
   const listed = code(['--list-extensions', '--show-versions', ...profile], env);
   console.log('installed:\n' + listed.out);
 
-  const argv = [process.execPath, __filename, '--stage', 'test', '--root', root, '--exe', exe, '--out', out];
+  const argv = [process.execPath, __filename, '--stage', 'test', '--root', root, '--exe', exe, '--out', out, '--vsix', vsix];
   const off = offlineWrapper(argv);
   let prog = process.execPath, rest = argv.slice(1), offline = 'namespace';
   if (off.prog) { prog = off.prog; rest = off.args; } else {
@@ -138,7 +138,7 @@ function writeSettings(user, model, key) {
 
 /* ── the test stage, in the child ── */
 async function testStage() {
-  const root = flag('--root'), exe = flag('--exe'), out = OUT;
+  const root = flag('--root'), exe = flag('--exe'), vsix = flag('--vsix'), out = OUT;
   const p = profileOf(root);
   const te = require('@vscode/test-electron');
   const playwright = require('playwright-core');
@@ -167,7 +167,7 @@ async function testStage() {
   writeSettings(p.user, model, fakeHome.KEY);
 
   try {
-    await require('./ui').run({ exe, profile: p, env, playwright, model, threads: made.threads, background: made.background, out, check, note });
+    await require('./ui').run({ exe, vsix, profile: p, env, playwright, model, threads: made.threads, background: made.background, out, check, note });
   } catch (e) {
     check(false, 'the window stage ran to its end', (e && e.stack) || String(e));
   }

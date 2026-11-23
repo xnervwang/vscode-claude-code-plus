@@ -83,6 +83,7 @@
     if (found && found !== sessionRef) useSession(found);
     viewFilterOff();
     try { imgFollowSwitch(); } catch (e) {}
+    try { wireStewardLinks(); wireConversationLinks(); mentionsFollow(); askConversations(); } catch (e) {}
     marksFollowSwitches();
     if (!isOn()) { sweep(); return; }
     if (sessionRef) indexTitles(sessionRef);

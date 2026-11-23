@@ -188,7 +188,7 @@ function backgroundProperty(list) {
 function detachedProperty(list) {
   if (!Array.isArray(list) || !list.length) return '';
   const rows = list.map((j) => ({ session: j.session, pid: j.pid, startedAt: j.startedAt, command: j.command,
-    ...(typeof j.label === 'string' && j.label ? { label: j.label } : {}),
+    ...(typeof j.title === 'string' && j.title ? { title: j.title } : {}),
     ...(Array.isArray(j.workers) && j.workers.length ? { workers: j.workers } : {}) }));
   return `:root{--cce-detached:"${Buffer.from(JSON.stringify(rows), 'utf8').toString('base64')}";}\n`;
 }
@@ -295,6 +295,7 @@ const SWITCHES = [
   'sessionHoverDetails', // a session list row's group and session ID on hover
   'sessionIdSearch',  // the session list's search also matching part of a session ID
   'sessionColors',    // a conversation's text color in the session list, and Text color in its menu
+  'conversationLinks', // another conversation's title or session id in a reply drawn as a link that opens it
 ];
 
 /** The live stylesheet for one set of settings. */
@@ -703,11 +704,11 @@ const EDITS = [
   },
   {
     /*
-     * A section for this session's scheduled prompts, at the top of the agent map.
+     * This extension's part of the agent map, as the first child of the dialog's content: the heading over the
+     * conversation's own row and a section for each kind of work Claude Code does not list (src/page/82-scheduled-tasks.js).
      *
-     * The page is handed the element factory from this scope, so it returns a real element tree rather than a string -
-     * the section has a heading and one collapsible row per prompt. Returning null when there is nothing to show is how
-     * a child opts out, so an unpatched-looking panel is the normal case.
+     * The page is handed the element factory from this scope, so it returns a real element tree rather than a string.
+     * Where the page is missing or fails, the child is null, which leaves the dialog as Claude Code draws it.
      *
      * The anchor is the panel's own title and its children array, with whatever props sit between them skipped: the
      * dialog's size and scrolling have been reshaped upstream before, and none of that changes where a child goes.
@@ -779,6 +780,23 @@ const EDITS = [
     name: 'image sources reach the link check on Windows',
     re: /function ([\w$]+)\(([\w$]+),([\w$]+)\)\{if\(\3==="href"&&([\w$]+)\(\2\)!==null\)return \2;return ([\w$]+)\(\2\)\}/g,
     to: (m, fn, url, key, local, check) => `function ${fn}(${url},${key}){if(${key}==="href"&&${local}(${url})!==null)return ${url};return ${check}(${url},${key})}`,
+  },
+  {
+    /* src/page/95-conversation-links.js adds a rehype plugin that puts a link where a reply names another
+       conversation; `links` is "text" where Claude Code draws links as plain text, and gets none. */
+    name: 'conversation links in replies',
+    re: /(\{source:([\w$]+),fileOpener:[\w$]+,platform:[\w$]+,links:([\w$]+),[^{}]*\}\)\{let\{remarkPlugins:[\w$]+,urlTransform:[\w$]+\}=[\s\S]{0,1600}?)rehypePlugins:([\w$]+)\.rehypePlugins,/g,
+    to: (m, head, source, links, f) => `${head}rehypePlugins:(typeof window.__cceMentionPlugins==="function"`
+      + `?window.__cceMentionPlugins(${f}.rehypePlugins,${links}):${f}.rehypePlugins),`,
+  },
+  {
+    /* A reply's blocks are memoized, so the plugin above would run again only when a block's text changed. Each block is
+       also handed the revision the page moves when the conversations it can link, this panel's conversation or the
+       switch change (95-conversation-links.js), read in the reply's own render. */
+    name: 'conversation links redraw the reply',
+    re: /([\w$]+)\.map\(\(([\w$]+),([\w$]+)\)=>([\w$]+)\(([\w$]+),\{source:\2,fileOpener:([\w$]+)\?\.fileOpener,/g,
+    to: (m, list, block, i, h, comp, ctx) => `${list}.map((${block},${i})=>${h}(${comp},{cceMentions:(typeof window.__cceMentionsRev==="function"`
+      + `?window.__cceMentionsRev():0),source:${block},fileOpener:${ctx}?.fileOpener,`,
   },
   {
     /* src/page/94-reply-images.js draws a reply's markdown images; when it returns null, Claude Code's own code below
@@ -875,12 +893,26 @@ function readRev(rev) {
   const num = (re) => Number((text.match(re) || [])[1]) || 0;
   return { w: num(/width="(\d+)"/), h: num(/height="(\d+)"/) };
 }
-/** Move one of the two counters, `w` or `h`, keeping the other as it stands. */
+/*
+ * Counters that could not be moved, by image. The file the counter announces was written first, so the next write of the
+ * same content finds nothing to do, and without this the panel would never load it. Windows refuses to rename over a
+ * file another process holds open, and the panel fetches this image every few seconds.
+ */
+const owedRev = new Map();
+/** Move one of the two counters, `w` or `h`, and any that a failed write still owes, keeping the other as it stands. */
 function bumpRev(rev, which) {
+  const owed = new Set(owedRev.get(rev) || []);
+  if (which) owed.add(which);
   const r = readRev(rev);
   const next = (n) => (n % 60000) + 1;
-  const w = which === 'w' ? next(r.w) : r.w || 1, h = which === 'h' ? next(r.h) : r.h || 1;
-  writeAtomic(rev, `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"></svg>`);
+  const w = owed.has('w') ? next(r.w) : r.w || 1, h = owed.has('h') ? next(r.h) : r.h || 1;
+  try {
+    writeAtomic(rev, `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"></svg>`);
+  } catch (e) {
+    owedRev.set(rev, owed);
+    throw e;
+  }
+  owedRev.delete(rev);
 }
 
 /** Write the live settings. Bumps the revision only when the stylesheet actually changed. Returns true if changed. */
@@ -890,7 +922,11 @@ function writeLive(claudeExtensionPath, opts = {}) {
   const next = liveCss(opts);
   let current = null;
   try { current = fs.readFileSync(css, 'utf8'); } catch (_) {}
-  if (current === next && fs.existsSync(rev)) return false;
+  if (current === next && fs.existsSync(rev)) {
+    if (!owedRev.has(rev)) return false;
+    bumpRev(rev);
+    return true;
+  }
   /*
    * Leave alone what a newer build of this extension wrote.
    *
@@ -929,9 +965,14 @@ function writeEffort(claudeExtensionPath, session, text) {
   const file = path.join(dir, EFFORT_PREFIX + session + '.css');
   let current = null;
   try { current = fs.readFileSync(file, 'utf8'); } catch (_) {}
-  if (current === text) return false;
+  const { rev } = liveFiles(claudeExtensionPath);
+  if (current === text) {
+    if (!owedRev.has(rev)) return false;
+    bumpRev(rev);
+    return true;
+  }
   writeAtomic(file, text);
-  bumpRev(liveFiles(claudeExtensionPath).rev, 'h');
+  bumpRev(rev, 'h');
   return true;
 }
 

@@ -19,9 +19,9 @@
  * folder is `to`: Claude Code starts a new conversation in a window's first folder. It is refused while a window
  * shows the conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation
  * hands something it thinks belongs elsewhere to a steward that manages it (`from` is then the one asking, and `to` is
- * empty). A window showing one of its stewards takes it and posts it, as a notice and never as the user's message, to
- * the inbox of one steward only: of those that manage the conversation, the one the user last typed to, or the next
- * one that can be reached.
+ * empty). A window showing its steward takes it and posts it, as a notice and never as the user's message, to the inbox
+ * of the steward that has the conversation on its list, or, when none has, of the steward with "all" on; should a table
+ * still name several, of the one the user last typed to, or the next one that can be reached.
  *
  * Any process can write a request file. A window carries one out only if the conversation is one the steward manages
  * (for `open` and `resume`, only if the one asking is a steward; for `handoff`, only if a steward manages the one
@@ -29,8 +29,9 @@
  * with the action's flag, and at most once per call.
  *
  * A conversation a steward opened with `open` or `resume` is then ticked for it in stewards.json, as the user would
- * tick it in the Steward panel, unless the steward manages all of them; nothing else a steward asks for changes whom it
- * manages.
+ * tick it in the Steward panel, by the window that opened it if that window may write the table (writesTable in
+ * src/steward-view.js); a steward of all conversations too, which would otherwise wait for the next pass of the panel
+ * in its own window. Nothing else a steward asks for changes whom it manages.
  *
  *   <plan dir>/relay/<id>.json          { id, steward, from, action, to, text, confirmed, at }   written by steward-relay.py
  *   <plan dir>/relay/<id>.taken-<pid>   the request, claimed by window <pid> with a rename
@@ -44,6 +45,7 @@ const { SESSION, writeAtomic, filedUnder } = require('./claude-files');
 const { realPath } = require('./folders');
 const os = require('os');
 const sentCheck = require('./sent-check');
+const { holderOf } = require('./stewards');
 
 const RELAY_DIR = 'relay';
 const REQUEST = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i;
@@ -125,7 +127,8 @@ function readSent(dir, now) {
  * steward it shows. deps: shownHere(id), folders() -> this window's folders, first first, stewards() -> the stewards
  * table (src/stewards.js), transcriptOf(id), deliver(id, text), rename(id, title), close(id, confirmed),
  * open(folder, text) and resume(id, text) -> Promise<{ outcome, reason, sessionId, opened }> (open's sessionId is the
- * new conversation's, when known), manage(steward, id) to tick a conversation for the steward, windows() -> the
+ * new conversation's, when known), manage(steward, id) to tick a conversation for the steward, which returns false when
+ * this window may not, windows() -> the
  * windows' entries { pid, name, folders, sessions }, agents() -> Promise<{ records, error }> from `claude agents --json`,
  * records() -> the live session records and post(address, text) for a handoff, titleOf(id), pid, now(), and sleep(ms)
  * for tests. Returns the results it wrote.
@@ -307,11 +310,11 @@ function textFor(action, raw) {
   return text && text.length <= MAX_TEXT ? { text } : { why: `there is no text, or it is longer than ${MAX_TEXT} characters` };
 }
 
-/* Whether steward `steward` manages conversation `id`. A steward of all conversations manages all but other stewards,
-   even ones missing from its list for the moment. */
+/* Whether steward `steward` manages conversation `id`. A steward of all conversations manages all but other stewards
+   and those another steward has, even ones missing from its list for the moment. */
 const manages = (table, steward, id) => {
   const t = table[steward];
-  return !!t && (t.manages.includes(id) || (t.all && id !== steward && !table[id]));
+  return !!t && (t.manages.includes(id) || (t.all && id !== steward && !table[id] && !holderOf(table, id, steward)));
 };
 
 async function carryOut(req, action, to, dir, deps, now) {
@@ -365,13 +368,12 @@ async function carryOut(req, action, to, dir, deps, now) {
     try { writeAtomic(path.join(dir, SENT_FILE), JSON.stringify(sent) + '\n'); } catch (_) { /* a repeat is then not caught */ }
   }
   /* A conversation the steward has just opened, new or stored, is ticked for it as the user would tick it in the
-     Steward panel; a resumed one once it is open, also when its text was then not sent. A steward of all conversations
-     has it already. */
+     Steward panel; a resumed one once it is open, also when its text was then not sent. */
   const opened = action === 'open' ? (r && r.outcome === 'submitted' && typeof r.sessionId === 'string' && SESSION.test(r.sessionId) ? r.sessionId.toLowerCase() : '')
     : action === 'resume' && r && r.opened === true ? to : '';
   let ticked = false;
-  if (opened && !t.all && deps.manage) {
-    try { deps.manage(asker, opened); ticked = true; } catch (_) { /* the user ticks it in the panel */ }
+  if (opened && deps.manage) {
+    try { ticked = deps.manage(asker, opened) !== false; } catch (_) { /* the user ticks it in the panel */ }
   }
   const out = { outcome: (r && r.outcome) || 'uncertain', reason: (r && r.reason) || '' };
   if (r && typeof r.sessionId === 'string' && r.sessionId) out.sessionId = r.sessionId;
@@ -381,9 +383,11 @@ async function carryOut(req, action, to, dir, deps, now) {
   return out;
 }
 
-/* Gives a handoff to one of `stewards`: the one the user last typed to, or failing that the next by the same order. */
+/* Gives a handoff to one of `stewards`: the one with `from` on its list; if none has, the one the user last typed to,
+   or failing that the next by the same order. */
 async function handOff(stewards, from, text, table, deps) {
-  const order = stewards.map((s) => ({ s, at: lastUserAt(deps.transcriptOf(s)) })).sort((a, b) => b.at - a.at).map((x) => x.s);
+  const own = stewards.filter((s) => table[s].manages.includes(from));
+  const order = (own.length ? own : stewards).map((s) => ({ s, at: lastUserAt(deps.transcriptOf(s)) })).sort((a, b) => b.at - a.at).map((x) => x.s);
   const missed = [];
   for (const s of order) {
     const title = (table[s].names && table[s].names[from]) || (deps.titleOf && deps.titleOf(from)) || '';
