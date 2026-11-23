@@ -13281,6 +13281,44 @@ const repo = path.join(__dirname, '..');
 
   /* The stand-in for the model that the window test sends its turns to: the streamed events Claude Code's CLI reads, a
      Bash tool call for a message that asks for one, and text again once the tool's result comes back. */
+  /* src/load-marks.js: the unread marks that loading restored tabs cleared, put back once the loader has finished. */
+  console.log('\nunread marks through loading restored tabs');
+  {
+    let lm = null;
+    try { lm = require('../src/load-marks'); } catch (_) { /* reported below */ }
+    if (!lm) bad('nothing puts back the unread marks that loading restored tabs cleared (src/load-marks.js)');
+    else {
+      let host = ['k1', 'k2', 'k3', 'k4'], screen = new Set(['k3']), turnOver = false, oneTurn = true;
+      const reads = [], set = [];
+      const held = () => { reads.push(host.slice()); return host.slice(); };
+      const mark = (k) => {
+        if (!set.length) Promise.resolve().then(() => { turnOver = true; });
+        else if (turnOver) oneTurn = false;
+        set.push(k);
+        host.push(k);
+      };
+      const r = await lm.keepMarks(async () => { await null; host = ['k3']; screen = new Set(['k2']); return 2; },
+        { held, onScreen: (k) => screen.has(k), set: mark });
+      eq([r.result, r.back, set, oneTurn, reads[0]], [2, ['k1', 'k4'], ['k1', 'k4'], true, ['k1', 'k2', 'k3', 'k4']],
+        'a mark held before the loading and gone after it is set again if its conversation is not on screen then, and not if it is; a mark kept is left alone; all are set in one turn');
+      host = ['k5'];
+      set.length = 0;
+      turnOver = false;
+      const failed = await lm.keepMarks(async () => { host = []; throw new Error('no such group'); }, { held, onScreen: () => false, set: mark })
+        .then(() => null, (e) => e.message);
+      eq([failed, set], ['no such group', ['k5']], 'a loading that fails still gets its marks back, and the failure goes on to the caller');
+      set.length = 0;
+      let ran = false;
+      const none = await lm.keepMarks(async () => { ran = true; return 0; }, { held: () => null, onScreen: () => false, set: mark });
+      eq([none.result, none.back, set, ran], [0, [], [], true], 'with no marks to read from the host, the tabs are still loaded and no mark is set');
+    }
+    const ext = fs.readFileSync(path.join(repo, 'extension.js'), 'utf8');
+    if (/loadMarks\.keepMarks\(\(\) => loadTabs\.loadAll\(/.test(ext) && /globalThis\.__cceSendSessionStates\(\);\s*return \[\.\.\.unreadKeys\];/.test(ext)
+        && /globalThis\.__cceShownVisibly\(k\) === true/.test(ext) && /globalThis\.__cceSetUnread\(k, true\)/.test(ext)) {
+      ok('extension.js loads restored tabs between two readings of the host\'s marks, and sets the lost ones again through the host');
+    } else bad('extension.js does not load restored tabs through src/load-marks.js with the host\'s marks');
+  }
+
   console.log('\nthe fake model the window test talks to');
   const fakeModel = require('./vscode/lib/fake-model');
   const http = require('http');
