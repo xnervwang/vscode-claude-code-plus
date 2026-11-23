@@ -1952,11 +1952,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       };
       const rows = async () => [await listDotState(tab0), await listDotState(tab0, true)];
       const redDot = (d) => !!d && d.waiting >= 6 && d.running === 0;
+      /* The question card on screen. A card answered earlier leaves its question and options in the transcript, so a
+         match that takes in one of the user's messages is the transcript, not the card. */
       const choiceBox = () => conv.evaluate((c) => {
-        const label = [...document.querySelectorAll('div, span, label')].find((e) => e.offsetParent && e.textContent.trim() === c.options[0]);
-        let b = label;
-        while (b && !(b.innerText.includes(c.question) && /\bSubmit\b/.test(b.innerText))) b = b.parentElement;
-        return b ? b.innerText.replace(/\s+/g, ' ').trim().slice(0, 300) : null;
+        for (const label of [...document.querySelectorAll('div, span, label')].filter((e) => e.offsetParent && e.textContent.trim() === c.options[0])) {
+          let b = label;
+          while (b && !b.querySelector('[class*="userMessage_"]') && !(b.innerText.includes(c.question) && /\bSubmit\b/.test(b.innerText))) b = b.parentElement;
+          if (b && !b.querySelector('[class*="userMessage_"]')) return b.innerText.replace(/\s+/g, ' ').trim().slice(0, 300);
+        }
+        return null;
       }, CHOICE).catch(() => null);
       /* A turn started with `text`, its reply held back by the fake model, and the plan's question put once the model has
          the turn, so after the message that started it. Returns how many requests the model had been sent before. */
