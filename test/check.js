@@ -8642,6 +8642,53 @@ console.log('\ntext colors in the session list');
       ok('picking a text color from either list\'s menu ends the selection the right-click made');
     } else bad(`picking a text color left the selection calls ${JSON.stringify(senv.sel)}`);
   }
+  /* A right-click or a drag on a row the list has not picked makes that row the selection; it ends with that menu or that
+     drag, however they end, and a selection that was there before them stays. The source is the shape of the list's
+     handlers; the state is kept as React keeps it: a handler reads the last render's, and its updates land after it. */
+  {
+    const gestureEdits = ['row menu ends the selection it made', 'row menu close ends the selection it made',
+      'row drag remembers the selection it made', 'row drag end ends the selection it made'].map((n) => [n, webview.EDITS.find((x) => x.name === n)]);
+    const handlers = 'function se(he,Mt){if(!E||!I)return;let On=cr(Mt);if(!On)return;if(he.preventDefault(),he.stopPropagation(),Af(Mt)){'
+      + 'let $a=new Set(Wd),Mm=Qr.has(On)?[...Qr].filter((tV)=>$a.has(tV)):[On];if(!Qr.has(On))Ro(new Set([On])),Hn(On);Yi({items:["archived"]});return}'
+      + 'let xr=Upe(Qr,Nl,On);if(!Qr.has(On))Ro(new Set([On])),Hn(On);Yi({items:["live"]})}'
+      + 'function Kg(he,Mt){let On=cr(Mt);let xr=Upe(Qr,Nl,On);if(!Qr.has(On))Ro(new Set([On])),Hn(On);'
+      + 'let th=`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;he.dataTransfer.setData("x",th),Am.current={nonce:th,keys:xr,sourceKey:On}}'
+      + 'function Dm(){Am.current=null,bv(null)}'
+      + 'function menu(){return Ir&&eh&&m(SHt,{items:eh,x:Ir.x,y:Ir.y,onClose:()=>Yi(null)})}';
+    const missing = gestureEdits.filter(([, e]) => !e).map(([n]) => n);
+    const gr = missing.length ? { error: `no edit named ${missing.join(', ')}` } : applyEdits(handlers, gestureEdits.map(([, e]) => e));
+    if (gr.error) bad('the edits that end a selection a right-click or a drag made did not apply: ' + gr.error);
+    else {
+      const R1 = 'aaaaaaaa-0000-4000-8000-000000000001', R2 = 'aaaaaaaa-0000-4000-8000-000000000002', R3 = 'aaaaaaaa-0000-4000-8000-000000000003';
+      let sel = new Set(), menuState = null, queued = [];
+      const g = { window: {}, E: [], I() {}, Wd: [], Nl: [], Am: { current: null }, SHt: 'menu',
+        cr: (x) => x.key, Af: (x) => !!x.archived, Upe: (q, n, k) => (q.has(k) ? [...q] : [k]), Hn() {}, bv() {}, m: (c, props) => props,
+        Ro: (v) => queued.push(['sel', v]), Yi: (v) => queued.push(['menu', v]) };
+      const render = () => {
+        for (const [k, v] of queued) { if (k === 'sel') sel = typeof v === 'function' ? v(sel) : v; else menuState = v; }
+        queued = [];
+        Object.assign(g, { Qr: sel, Ir: menuState, eh: menuState && menuState.items });
+      };
+      vm.createContext(g);
+      vm.runInContext(gr.out, g);
+      const ev = { preventDefault() {}, stopPropagation() {}, dataTransfer: { setData() {} } };
+      const from = (keys) => { queued = [['sel', new Set(keys)], ['menu', null]]; g.window.__cceMenuSelection = void 0; g.Am.current = null; render(); };
+      const now = () => [...sel].sort();
+      const got = {};
+      from([]); vm.runInContext('se', g)(ev, { key: R1 }); render(); got.menuMade = now();
+      g.menu().onClose(); render(); got.menuClosed = now();
+      from([]); vm.runInContext('se', g)(ev, { key: R1, archived: true }); render(); g.menu().onClose(); render(); got.archivedClosed = now();
+      from([R1, R2]); vm.runInContext('se', g)(ev, { key: R1 }); render(); g.menu().onClose(); render(); got.pickedBefore = now();
+      from([]); vm.runInContext('se', g)(ev, { key: R1 }); render(); g.Ro(new Set([R1, R3])); render(); g.menu().onClose(); render(); got.changedSince = now();
+      from([]); vm.runInContext('Kg', g)(ev, { key: R2 }); render(); got.dragMade = now(); vm.runInContext('Dm', g)(); render(); got.dragEnded = now();
+      from([R1, R2]); vm.runInContext('Kg', g)(ev, { key: R2 }); render(); vm.runInContext('Dm', g)(); render(); got.dragPicked = now();
+      const want = { menuMade: [R1], menuClosed: [], archivedClosed: [], pickedBefore: [R1, R2], changedSince: [R1, R3], dragMade: [R2], dragEnded: [],
+        dragPicked: [R1, R2] };
+      if (JSON.stringify(got) === JSON.stringify(want)) {
+        ok('a row a right-click or a drag made the selection stays selected only until that menu closes or that drag ends, in the list and in Archived sessions; a selection there before them, or changed since, stays');
+      } else bad(`the selection a right-click or a drag made: ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+    }
+  }
   const me = host.EDITS.find((x) => x.name === 'panel messages');
   const hr = applyEdits('function eT($,J){let Q=`Received message from webview: ${bl0(J)}`;$.info(Q)}', [me]);
   const asked = [];
