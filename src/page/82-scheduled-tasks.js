@@ -2,9 +2,10 @@
 // Copyright (c) 2026, Xnerv Wang
 // All rights reserved.
 
-// Sections added to the official agent map: the `claude -p` workers this session started, the commands it left running
-// detached, its scheduled prompts, and the `claude --bg` sessions it started; and the dots of the map's own row and of
-// the footer button that opens the map.
+// Sections added to the official agent map: the commands this session left running detached, its scheduled prompts, the
+// `claude -p` workers and the `claude --bg` sessions it started; the map's layout, which puts the conversation's own row
+// first and gives every section, Claude Code's two among them, a heading of the same kind; and the dots of the map's own
+// row and of the footer button that opens the map.
 // Fragment of the in-page script - see README.md in this folder.
 
   // Everything here runs inside the panel's own render, so a throw would take the dialog - and on past evidence the
@@ -105,41 +106,187 @@
     return hrs < 36 ? hrs + 'h ago' : Math.round(hrs / 24) + 'd ago';
   };
 
-  // The panel's own secondary foreground, the same variable its agent and background-task headings use.
-  var DIM = 'var(--app-secondary-foreground, var(--vscode-descriptionForeground, #9aa))';
-  var scheduleRow = function(h, t){
-    return h('details', { style: { margin: '5px 0' }, children: [
-      h('summary', { style: { cursor: 'pointer', listStyle: 'revert' }, children: [
-        h('span', { children: [cronText(t.cron)] }),
-        h('span', { style: { color: DIM }, children: [' · last fired ' + agoText(t.lastFiredAt)] }),
-        h('span', { style: { color: DIM, opacity: '0.7', marginLeft: '6px' }, children: [t.id || ''] }),
-      ] }),
-      h('pre', {
-        style: {
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-          margin: '6px 0 0', padding: '8px', maxHeight: '240px', overflowY: 'auto',
-          fontSize: '0.92em', lineHeight: '1.5', borderRadius: '4px',
-          background: 'var(--vscode-textCodeBlock-background, rgba(255,255,255,0.05))',
-        },
-        children: [t.prompt || '(the prompt was not recorded)'],
-      }),
-    ] });
+  /*
+   * How the map looks. Claude Code's dialog draws the conversation's own row, its subagents as a tree beside that row,
+   * and the commands it put in the background, each group under a line of plain text the size of the rows. This page
+   * draws its sections the way Claude Code draws a row - a card with a dot, a title on one line and one line under it -
+   * under a heading that reads as one: a label in capitals and a count, smaller and bolder than the cards, behind a thin
+   * line. Claude Code's two headings get the same look from attributes and the stylesheet, its text left in place.
+   *
+   * The stylesheet then makes the conversation's own row the first thing in the map, under a heading of its own, and
+   * puts every section after it, Claude Code's first. It does that only while the dialog has the shape it was written
+   * against - its content holding the tree, the tree a node, the node the conversation's row - which :has() tells; any
+   * other shape keeps Claude Code's order, with this page's sections above it.
+   *
+   * An empty section is left out, as Claude Code leaves out its own background tasks when there are none; its "0 agents"
+   * is hidden for the same reason, since the conversation's row sits right under it.
+   *
+   * Nothing of ours goes inside Claude Code's nodes: the sections come back from __cceSchedule as part of the panel's own
+   * render, and its headings only get attributes and hover text.
+   */
+  var MAP_BOX = '[class*="content_"]:has(>[data-cce-map]>[data-cce-map-me]):has(>[class*="tree_"]>[class*="node_"]>[class*="rowMain_"])';
+  var MAP_TREE = MAP_BOX + '>[class*="tree_"]', MAP_NODE = MAP_TREE + '>[class*="node_"]', MAP_KIDS = MAP_NODE + '>[class*="children_"]';
+  var HEAD_SIZE = 'calc(var(--vscode-chat-font-size, 13px) - 2px)';
+  var MAP_CSS = [
+    MAP_BOX + '{display:flex;flex-direction:column;align-items:flex-start;box-sizing:border-box;padding-right:8px}',
+    MAP_TREE + ',' + MAP_NODE + ',' + MAP_BOX + '>[data-cce-map]{display:contents}',
+    // A column that scrolls would otherwise squeeze its items, down to nothing for one that clips what overflows.
+    MAP_BOX + '>*,' + MAP_NODE + '>*,' + MAP_BOX + '>[data-cce-map]>*{flex-shrink:0}',
+    MAP_BOX + '>[data-cce-map]>[data-cce-map-me]{display:block;order:1}',
+    MAP_NODE + '>[class*="rowMain_"]{order:2;position:relative;max-width:100%}',
+    MAP_NODE + '>[class*="rowMain_"]::after,' + MAP_KIDS + '::before,' + MAP_KIDS + '>[class*="child_"]::before,'
+      + MAP_KIDS + '>[class*="child_"]::after{display:none}',
+    MAP_BOX + '>[class*="subtitle_"]{order:3}',
+    MAP_KIDS + '{order:4;margin-left:0;max-width:100%}',
+    MAP_BOX + '>[class*="tasks_"]{order:5;align-self:stretch;margin-top:0;padding-right:0}',
+    MAP_BOX + '>[data-cce-map]>[data-cce-map-section]{order:6;padding-right:0}',
+    // A narrow side bar: the rows give up their fixed width rather than run past the edge.
+    MAP_BOX + '>[class*="tasks_"]>[class*="row_"],' + MAP_KIDS + '>[class*="child_"]>[class*="node_"]>[class*="row_"]{max-width:100%}',
+    '[data-cce-map-me]{display:none}',
+    '.cce-map-head,[data-cce-map-cc]{display:block;align-self:stretch;box-sizing:border-box;margin:12px 0 0;padding-top:8px;'
+      + 'border-top:1px solid var(--app-primary-border-color, rgba(128,128,128,.35));'
+      + 'color:var(--vscode-sideBarSectionHeader-foreground, var(--app-primary-foreground));font-weight:700;letter-spacing:.04em;'
+      + 'line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:' + HEAD_SIZE + '}',
+    '[data-cce-map-cc]{font-size:0 !important}',
+    '[class*="subtitle_"][data-cce-map-cc]{margin-bottom:8px}',
+    '[data-cce-map-cc]::before{content:attr(data-cce-map-cc);text-transform:uppercase;font-size:' + HEAD_SIZE + '}',
+    '[data-cce-map-cc]::after{content:attr(data-cce-map-count)}',
+    '[data-cce-map-cc][data-cce-map-count="0"]{display:none !important}',
+    '.cce-map-label{text-transform:uppercase}',
+    '.cce-map-cmd{font-family:var(--vscode-editor-font-family, monospace);font-weight:600;letter-spacing:0;margin-right:.4em}',
+    '.cce-map-count,[data-cce-map-cc]::after{display:inline-block;box-sizing:border-box;min-width:18px;margin-left:6px;padding:0 5px;'
+      + 'border-radius:9px;text-align:center;vertical-align:1px;line-height:16px;font-weight:600;letter-spacing:0;'
+      + 'font-size:calc(var(--vscode-chat-font-size, 13px) - 3px);'
+      + 'background:var(--vscode-badge-background, rgba(128,128,128,.35));color:var(--vscode-badge-foreground, inherit)}',
+    '.cce-map-me{border-top:0;margin:0 0 8px;padding-top:0}',
+    '.cce-map-section{display:flex;flex-direction:column;align-items:flex-start;gap:8px;align-self:stretch;padding:0 8px 8px 0}',
+    '.cce-map-card{box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:2px;width:300px;max-width:100%;'
+      + 'margin:0;padding:6px 10px;color:var(--app-primary-foreground);text-align:left;font-family:inherit;font-size:1em;list-style:none;'
+      + 'background-color:var(--app-input-secondary-background);border:1px solid var(--app-input-border);border-radius:4px}',
+    'summary.cce-map-card{cursor:pointer}',
+    'summary.cce-map-card::-webkit-details-marker{display:none}',
+    'summary.cce-map-card:hover{background-color:var(--app-list-hover-background)}',
+    '.cce-map-title{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap}',
+    '.cce-map-text{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}',
+    '.cce-map-more{margin-left:auto;padding-left:4px;color:var(--app-secondary-foreground);font-size:.8em;line-height:1}',
+    'details[open]>summary .cce-map-more{transform:rotate(90deg)}',
+    '.cce-map-meta{padding-left:14px;color:var(--app-secondary-foreground);font-size:.85em;white-space:nowrap;overflow:hidden;'
+      + 'text-overflow:ellipsis}',
+    '.cce-map-dot{display:inline-block;flex-shrink:0;box-sizing:border-box;width:8px;height:8px;border-radius:50%}',
+    '[data-cce-map-dot="running"]{background:var(--app-status-busy)}',
+    '[data-cce-map-dot="waiting"]{background:var(--app-status-pending)}',
+    '[data-cce-map-dot="idle"]{background:var(--app-secondary-foreground);opacity:.4}',
+    '[data-cce-map-dot="failed"]{background:var(--app-error-foreground)}',
+    '.cce-map-item{max-width:100%}',
+    '.cce-map-body{box-sizing:border-box;width:300px;max-width:100%;margin:6px 0 2px;padding-left:14px}',
+  ].join('\n');
+  var mapStyle = null;
+  var putMapStyle = function(){
+    if (mapStyle) return;
+    try {
+      var el = document.createElement('style');
+      el.setAttribute('data-cce-map-css', '1');
+      el.textContent = MAP_CSS;
+      (document.head || document.documentElement).appendChild(el);
+      mapStyle = el;
+    } catch (e) {}
   };
 
-  // The heading deliberately mirrors the dialog's other two - "N agents · click an agent for details" and the
-  // background-task one: same colour, same size, same weight, one line. Anything heavier reads as a title ABOVE those
-  // sections rather than a sibling of them, and then the agents and tasks below look like they belong to it.
+  /* Claude Code's two headings, known by their words. Worded any other way, a heading is left as Claude Code draws it. */
+  var CC_HEADS = [
+    { re: /^(\d+) agents? · (click an agent for details)$/, label: 'Subagents' },
+    { re: /^(\d+) background tasks? · (click a task for details)$/, label: 'Background tasks' },
+  ];
+  var ccHead = function(text){
+    var t = String(text || '').replace(/\s+/g, ' ').trim();
+    for (var i = 0; i < CC_HEADS.length; i++) {
+      var m = CC_HEADS[i].re.exec(t);
+      if (m) return { label: CC_HEADS[i].label, count: m[1], hint: m[2].charAt(0).toUpperCase() + m[2].slice(1) + '.' };
+    }
+    return null;
+  };
+  var CC_HEAD_SEL = '[role="dialog"] [class*="subtitle_"], [role="dialog"] [class*="tasksHeader_"]';
+  var setAttr = function(el, name, value){ if (el.getAttribute(name) !== value) el.setAttribute(name, value); };
+  var tagHeads = function(){
+    try {
+      var els = document.querySelectorAll(CC_HEAD_SEL);
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i], got = ccHead(el.textContent);
+        if (!got) {
+          if (el.getAttribute('data-cce-map-cc') !== null) { el.removeAttribute('data-cce-map-cc'); el.removeAttribute('data-cce-map-count'); }
+          continue;
+        }
+        setAttr(el, 'data-cce-map-cc', got.label);
+        setAttr(el, 'data-cce-map-count', got.count);
+        if (typeof setLabel === 'function') setLabel(el, got.hint);
+      }
+    } catch (e) {}
+  };
+  /* The map's render calls __cceSchedule before the panel has put its new nodes in, and their text changes in that same
+     render: the headings are read once it has, before the browser paints. */
+  var headsQueued = false;
+  var queueHeads = function(){
+    if (headsQueued) return;
+    headsQueued = true;
+    try { Promise.resolve().then(function(){ headsQueued = false; tagHeads(); }); } catch (e) { headsQueued = false; }
+  };
+
+  // The panel draws its own hover text, since the native one does not surface in it (05-page-setup.js).
+  var hintOn = function(ev){ try { if (typeof showLabel === 'function' && ev && ev.currentTarget) showLabel(ev.currentTarget); } catch (e) {} };
+  var hintOff = function(){ try { if (typeof hideLabel === 'function') hideLabel(); } catch (e) {} };
+  var hinted = function(props, text){
+    if (text) { props['aria-label'] = text; props.onMouseEnter = hintOn; props.onMouseLeave = hintOff; }
+    return props;
+  };
+  /* A heading: an optional command in a code font, which keeps its own case, the label and the count. */
+  var mapHead = function(h, label, count, note, cmd){
+    var kids = [];
+    if (cmd) kids.push(h('code', { className: 'cce-map-cmd', children: [cmd] }));
+    kids.push(h('span', { className: 'cce-map-label', children: [label] }), h('span', { className: 'cce-map-count', children: [String(count)] }));
+    return h('div', hinted({ className: 'cce-map-head', 'data-cce-map-head': (cmd ? cmd + ' ' : '') + label, children: kids }, note));
+  };
+  /* A card: dot is one of Claude Code's dot states (running, waiting, idle, failed). A card with a body opens it below
+     on a click, and has an arrow that says so. */
+  var mapCard = function(h, o){
+    var line = [h('span', { className: 'cce-map-dot', 'data-cce-map-dot': o.dot, children: [] }),
+      h('span', { className: 'cce-map-text', children: [o.title] })];
+    if (o.body) line.push(h('span', { className: 'cce-map-more', children: ['\u25b8'] }));
+    var card = hinted({ className: 'cce-map-card', 'data-cce-map-card': o.kind, children: [
+      h('span', { className: 'cce-map-title', children: line }),
+      h('span', { className: 'cce-map-meta', children: [o.meta] }),
+    ] }, o.note);
+    if (!o.body) return h('div', card);
+    return h('details', { className: 'cce-map-item', children: [h('summary', card), h('div', { className: 'cce-map-body', children: o.body })] });
+  };
+  var mapSection = function(h, kind, head, cards){
+    return h('div', { className: 'cce-map-section', 'data-cce-map-section': kind, children: [head].concat(cards) });
+  };
+  var firstLineOf = function(text){
+    var lines = String(text || '').split('\n');
+    for (var i = 0; i < lines.length; i++) if (lines[i].trim()) return lines[i].trim();
+    return '';
+  };
+  var BODY_PRE = {
+    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+    margin: '0', padding: '8px', maxHeight: '200px', overflowY: 'auto',
+    fontSize: '0.92em', lineHeight: '1.5', borderRadius: '4px',
+    background: 'var(--vscode-textCodeBlock-background, rgba(255,255,255,0.05))',
+  };
+  var DIM = 'var(--app-secondary-foreground, var(--vscode-descriptionForeground, #9aa))';
+
+  var scheduleRow = function(h, t){
+    var prompt = String(t.prompt || '');
+    var fired = typeof t.lastFiredAt === 'number' && isFinite(t.lastFiredAt) ? 'last fired ' + agoText(t.lastFiredAt) : 'never fired';
+    return mapCard(h, { kind: 'schedule', dot: 'idle', title: firstLineOf(prompt) || '(the prompt was not recorded)',
+      meta: cronText(t.cron) + ' · ' + fired, note: [String(t.cron || '').trim(), t.id || ''].filter(Boolean).join(' · '),
+      body: [h('pre', { style: BODY_PRE, children: [prompt || '(the prompt was not recorded)'] })] });
+  };
   var IDLE_NOTE = 'The interval is a floor on the wait, not a timetable: the prompt is delivered at the first idle '
-                + 'moment after it comes due, so a conversation that stays busy pushes it back indefinitely.';
+                + 'moment after it comes due, so a conversation that stays busy pushes it back indefinitely. Click one to read it.';
   var scheduleSection = function(h, list){
-    var kids = [h('div', {
-      style: { color: DIM, fontSize: '1em', marginBottom: '4px' },
-      title: IDLE_NOTE,
-      children: [list.length + (list.length === 1 ? ' scheduled prompt' : ' scheduled prompts')
-               + ' · delivered only while the conversation is idle'],
-    })];
-    for (var i = 0; i < list.length; i++) kids.push(scheduleRow(h, list[i]));
-    return h('div', { style: { marginBottom: '16px' }, children: kids });
+    var cards = [];
+    for (var i = 0; i < list.length; i++) cards.push(scheduleRow(h, list[i]));
+    return mapSection(h, 'scheduled', mapHead(h, 'Scheduled prompts', list.length, IDLE_NOTE), cards);
   };
 
   /*
@@ -166,26 +313,9 @@
   };
   var bgLive = function(b){ return b.state === 'working' || b.state === 'blocked'; };
   var BG_WARN = 'var(--vscode-editorWarning-foreground, #cca700)';
-  var BG_ERR = 'var(--vscode-errorForeground, #f48771)';
   var BG_STATE = { working: 'running', blocked: 'waiting for you', done: 'done', stopped: 'stopped', failed: 'failed' };
-  /* One colour per state, so a long list can be read for what is still going without reading every row. Theme colours,
-     which follow a light theme as well; stopped is the one left grey, since nothing is going on there and nothing went
-     wrong. The two live states are bold as well, being the ones worth finding. */
-  var BG_TONE = {
-    working: 'var(--vscode-charts-green, #89d185)', blocked: BG_WARN, failed: BG_ERR,
-    done: 'var(--vscode-charts-blue, #75beff)', stopped: DIM,
-  };
-  var BG_ORDER = ['working', 'blocked', 'failed', 'done', 'stopped'];
-  var bgStateSpan = function(h, state, text){
-    return h('span', { style: { color: BG_TONE[state] || DIM, fontWeight: bgLive({ state: state }) ? '600' : 'normal' },
-      children: [text] });
-  };
-  var SECTION_PRE = {
-    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-    margin: '6px 0 0', padding: '8px', maxHeight: '200px', overflowY: 'auto',
-    fontSize: '0.92em', lineHeight: '1.5', borderRadius: '4px',
-    background: 'var(--vscode-textCodeBlock-background, rgba(255,255,255,0.05))',
-  };
+  /* Claude Code's dot for an agent in the same state: running, waiting for permission, finished, and stopped or failed. */
+  var BG_DOT = { working: 'running', blocked: 'waiting', done: 'idle', stopped: 'failed', failed: 'failed' };
   var bgSpan = function(ms){
     if (!(ms > 0)) return '';
     var m = Math.round(ms / 60000);
@@ -224,55 +354,35 @@
   };
   var bgRow = function(h, b){
     var body = [];
-    if (b.state === 'blocked' && b.needs) {
-      body.push(h('div', { style: { color: BG_WARN, margin: '6px 0' }, children: ['Waiting for you: ' + b.needs] }));
-    }
-    if (b.state === 'working' && b.detail) {
-      var tk = bgTokens(b.tokens);
-      body.push(h('div', { style: { margin: '6px 0' }, children: [b.detail + (tk ? ' · ' + tk : '')] }));
-    }
-    if (!bgLive(b)) body.push(h('pre', { style: SECTION_PRE, children: [b.result || 'No result was recorded.'] }));
+    if (b.state === 'blocked' && b.needs) body.push(h('div', { style: { color: BG_WARN, marginBottom: '6px' }, children: ['Waiting for you: ' + b.needs] }));
+    if (b.state === 'working' && b.detail) body.push(h('div', { style: { marginBottom: '6px' }, children: [b.detail] }));
+    if (!bgLive(b)) body.push(h('pre', { style: BODY_PRE, children: [b.result || 'No result was recorded.'] }));
     if (b.task) {
       body.push(h('details', { style: { margin: '6px 0' }, children: [
         h('summary', { style: { cursor: 'pointer', listStyle: 'revert', color: DIM }, children: ['Task'] }),
-        h('pre', { style: SECTION_PRE, children: [b.task] }),
+        h('pre', { style: BODY_PRE, children: [b.task] }),
       ] }));
     }
     body.push(h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }, children: [
       bgButton(h, 'claude attach ' + b.id), bgButton(h, 'claude logs ' + b.id),
     ] }));
-    var at = bgWhen(b);
-    return h('details', { style: { margin: '5px 0' }, children: [
-      h('summary', { style: { cursor: 'pointer', listStyle: 'revert' }, children: [
-        h('span', { children: [b.name || b.id] }),
-        h('span', { style: { color: DIM }, children: [' · '] }),
-        bgStateSpan(h, b.state, BG_STATE[b.state] || b.state),
-        h('span', { style: { color: DIM }, children: [at ? ' · ' + at : ''] }),
-        h('span', { style: { color: DIM, opacity: '0.7', marginLeft: '6px' }, children: [b.id] }),
-      ] }),
-    ].concat(body) });
+    var meta = [BG_STATE[b.state] || b.state], at = bgWhen(b), tk = b.state === 'working' ? bgTokens(b.tokens) : '';
+    if (at) meta.push(at);
+    if (tk) meta.push(tk);
+    meta.push(b.id);
+    return mapCard(h, { kind: 'background', dot: BG_DOT[b.state] || 'idle', title: b.name || b.id, meta: meta.join(' · '), body: body });
   };
-  var BG_NOTE = 'Sessions this conversation started with claude --bg. Each runs in its own process; attach to one '
-              + 'from a terminal with the command under it.';
-  /* The heading counts each state in its own colour, so how many are still running is read off one line. */
+  var BG_NOTE = 'Sessions this conversation started with claude --bg. Each runs in its own process; click one for its '
+              + 'result and the commands that reach it from a terminal.';
+  var BG_ORDER = ['working', 'blocked', 'failed', 'done', 'stopped'];
+  /* The heading's hover text counts each state, which the dots alone tell apart only roughly. */
   var bgSection = function(h, list){
-    var by = {};
+    var by = {}, counts = [], cards = [];
     for (var i = 0; i < list.length; i++) by[list[i].state] = (by[list[i].state] || 0) + 1;
-    var head = [h('span', { children: [list.length + (list.length === 1 ? ' background session' : ' background sessions')] })];
-    for (var j = 0; j < BG_ORDER.length; j++) {
-      var st = BG_ORDER[j];
-      if (!by[st]) continue;
-      head.push(h('span', { children: [' · '] }), bgStateSpan(h, st, by[st] + ' ' + BG_STATE[st]));
-    }
-    head.push(h('span', { children: [' · started from this conversation'] }));
-    var kids = [h('div', {
-      style: { color: DIM, fontSize: '1em', marginBottom: '4px' },
-      title: BG_NOTE,
-      children: head,
-    })];
+    for (var j = 0; j < BG_ORDER.length; j++) if (by[BG_ORDER[j]]) counts.push(by[BG_ORDER[j]] + ' ' + BG_STATE[BG_ORDER[j]]);
     // Newest first: the one just launched is the one being looked for.
-    for (var k = list.length - 1; k >= 0; k--) kids.push(bgRow(h, list[k]));
-    return h('div', { style: { marginBottom: '16px' }, children: kids });
+    for (var k = list.length - 1; k >= 0; k--) cards.push(bgRow(h, list[k]));
+    return mapSection(h, 'background', mapHead(h, 'sessions', list.length, BG_NOTE + (counts.length ? ' Now ' + counts.join(', ') + '.' : ''), 'claude --bg'), cards);
   };
 
   /*
@@ -339,73 +449,63 @@
     var t = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
     return d.toDateString() === now.toDateString() ? t : MONTHS[d.getMonth()] + ' ' + d.getDate() + ' ' + t;
   };
-  var DETACHED_CUT = 120;
+  /* The title is the host's (titleOf in src/detached.js); a window still on an older build hands over only a label. */
   var detachedRow = function(h, j){
-    var cmd = String(j.command || ''), text = String(j.label || cmd);
-    var shown = text.length > DETACHED_CUT ? text.slice(0, DETACHED_CUT - 1) + '\u2026' : text;
-    var when = j.startedAt > 0 ? ' · started ' + startText(j.startedAt) + ' (' + bgSpan(Date.now() - j.startedAt) + ' ago)' : '';
-    return h('div', { style: { margin: '6px 0' }, title: cmd, children: [
-      h('code', { style: { wordBreak: 'break-all', fontSize: '0.92em' }, children: [shown || '(command line not read)'] }),
-      h('div', { style: { color: DIM }, children: ['pid ' + j.pid + when] }),
-    ] });
+    var cmd = String(j.command || ''), meta = ['pid ' + j.pid];
+    if (j.startedAt > 0) meta.push('started ' + startText(j.startedAt), bgSpan(Date.now() - j.startedAt));
+    return mapCard(h, { kind: 'detached', dot: 'running', title: String(j.title || j.label || cmd || '(command line not read)'),
+      meta: meta.join(' · '), note: cmd });
   };
   var DETACHED_NOTE = 'This conversation left these commands running outside Claude Code: a shell or script that outlasted '
                     + 'the command that started it, or a program started with setsid. They keep the conversation\'s dot green. '
-                    + 'Claude Code does not wake the conversation when one stops.';
+                    + 'Claude Code does not wake the conversation when one stops. A card\'s hover text is its whole command line.';
   var detachedSection = function(h, list){
-    var kids = [h('div', {
-      style: { color: DIM, fontSize: '1em', marginBottom: '4px' },
-      title: DETACHED_NOTE,
-      children: [list.length + (list.length === 1 ? ' detached command' : ' detached commands') + ' · running, started from this conversation'],
-    })];
-    for (var i = 0; i < list.length; i++) kids.push(detachedRow(h, list[i]));
-    return h('div', { style: { marginBottom: '16px' }, children: kids });
+    var cards = [];
+    for (var i = 0; i < list.length; i++) cards.push(detachedRow(h, list[i]));
+    return mapSection(h, 'detached', mapHead(h, 'Detached commands', list.length, DETACHED_NOTE), cards);
   };
 
   /* The record's status: busy while a turn runs, shell while a command of its own runs, idle while it waits for input. */
   var WORKER_STATE = { busy: 'running', shell: 'running a command', idle: 'idle' };
   var workerRow = function(h, w){
-    var live = w.status === 'busy' || w.status === 'shell';
-    var when = w.startedAt > 0 ? ' · for ' + bgSpan(Date.now() - w.startedAt) : '';
-    return h('div', { style: { margin: '6px 0' }, title: w.id, children: [
-      h('div', { children: [
-        h('span', { children: [w.name || w.id.slice(0, 8)] }),
-        h('span', { style: { color: DIM }, children: [' · '] }),
-        bgStateSpan(h, live ? 'working' : 'stopped', WORKER_STATE[w.status] || w.status || 'state unknown'),
-        h('span', { style: { color: DIM }, children: [when] }),
-      ] }),
-      h('div', { style: { color: DIM }, children: ['session ' + w.id + ' · pid ' + w.pid] }),
-    ] });
+    var live = w.status === 'busy' || w.status === 'shell', meta = ['pid ' + w.pid];
+    if (w.startedAt > 0) meta.push('started ' + startText(w.startedAt), bgSpan(Date.now() - w.startedAt));
+    return mapCard(h, { kind: 'worker', dot: live ? 'running' : 'idle', title: w.name || w.id.slice(0, 8), meta: meta.join(' · '),
+      note: 'claude -p session ' + w.id + ' · ' + (WORKER_STATE[w.status] || w.status || 'state unknown') });
   };
   var WORKER_NOTE = 'claude -p sessions this conversation started that are still running, found from their session '
                   + 'records. Each runs in its own process and writes its output wherever the command that started it sent it.';
   var workerSection = function(h, list){
-    var kids = [h('div', {
-      style: { color: DIM, fontSize: '1em', marginBottom: '4px' },
-      title: WORKER_NOTE,
-      children: [list.length + (list.length === 1 ? ' worker' : ' workers') + ' · claude -p, started from this conversation'],
-    })];
-    for (var i = 0; i < list.length; i++) kids.push(workerRow(h, list[i]));
-    return h('div', { style: { marginBottom: '16px' }, children: kids });
+    var cards = [];
+    for (var i = 0; i < list.length; i++) cards.push(workerRow(h, list[i]));
+    return mapSection(h, 'workers', mapHead(h, 'sessions', list.length, WORKER_NOTE, 'claude -p'), cards);
   };
 
-  // Called by the panel with its own element factory, so this returns a real element tree rather than text. null is how
-  // a child says it has nothing to add, which is the ordinary case.
+  /* Called by the panel with its own element factory, as the first child of the dialog's content, so this returns a
+     real element tree rather than text: the heading over the conversation's own row and this page's sections, in a
+     wrapper the stylesheet takes out of the layout (display: contents) so that each lands in its place among Claude
+     Code's. */
+  var mapMe = function(h){
+    return h('div', { className: 'cce-map-head cce-map-me', 'data-cce-map-me': '1', children: [
+      h('span', { className: 'cce-map-label', children: ['This conversation'] }),
+    ] });
+  };
   window.__cceSchedule = function(h){
     try {
       if (typeof h !== 'function') return null;
       mapRenders();
-      var parts = [];
-      var ws = myWorkers();
-      if (ws.length) parts.push(workerSection(h, ws));
+      putMapStyle();
+      queueHeads();
+      var parts = [mapMe(h)];
       var det = myDetached();
       if (det.length) parts.push(detachedSection(h, det));
       var sched = mySchedules();
       if (sched.length) parts.push(scheduleSection(h, sched));
+      var ws = myWorkers();
+      if (ws.length) parts.push(workerSection(h, ws));
       var bgs = myBackground();
       if (bgs.length) parts.push(bgSection(h, bgs));
-      if (!parts.length) return null;
-      return parts.length === 1 ? parts[0] : h('div', { children: parts });
+      return h('div', { 'data-cce-map': '1', children: parts });
     } catch (e) { return null; }
   };
 

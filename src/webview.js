@@ -185,7 +185,7 @@ function backgroundProperty(list) {
 function detachedProperty(list) {
   if (!Array.isArray(list) || !list.length) return '';
   const rows = list.map((j) => ({ session: j.session, pid: j.pid, startedAt: j.startedAt, command: j.command,
-    ...(typeof j.label === 'string' && j.label ? { label: j.label } : {}),
+    ...(typeof j.title === 'string' && j.title ? { title: j.title } : {}),
     ...(Array.isArray(j.workers) && j.workers.length ? { workers: j.workers } : {}) }));
   return `:root{--cce-detached:"${Buffer.from(JSON.stringify(rows), 'utf8').toString('base64')}";}\n`;
 }
@@ -645,11 +645,11 @@ const EDITS = [
   },
   {
     /*
-     * A section for this session's scheduled prompts, at the top of the agent map.
+     * This extension's part of the agent map, as the first child of the dialog's content: the heading over the
+     * conversation's own row and a section for each kind of work Claude Code does not list (src/page/82-scheduled-tasks.js).
      *
-     * The page is handed the element factory from this scope, so it returns a real element tree rather than a string -
-     * the section has a heading and one collapsible row per prompt. Returning null when there is nothing to show is how
-     * a child opts out, so an unpatched-looking panel is the normal case.
+     * The page is handed the element factory from this scope, so it returns a real element tree rather than a string.
+     * Where the page is missing or fails, the child is null, which leaves the dialog as Claude Code draws it.
      *
      * The anchor is the panel's own title and its children array, with whatever props sit between them skipped: the
      * dialog's size and scrolling have been reshaped upstream before, and none of that changes where a child goes.
