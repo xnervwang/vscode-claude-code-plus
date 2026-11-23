@@ -3034,7 +3034,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         panelA = await stewardIn(page);
         panelB = await stewardIn(pageB);
         const listed = panelA && panelB && await until(async () => (await boxIn(panelA, X.id)) && (await boxIn(panelA, Q1.id)) && (await boxIn(panelB, SA.id))
-          && (await boxIn(panelB, X.id)) && (await boxIn(panelB, Q2.id)) && (await header(panelB)).includes(Q1.title.slice(0, 20)), 60000, 1000);
+          && (await boxIn(panelB, X.id)) && (await boxIn(panelB, Q2.id)) && (await header(panelB)).includes(Q1.title.slice(0, 20))
+          && (await header(panelA)).includes(SA.title.slice(0, 20)), 60000, 1000);
         check(!!listed, 'each window\'s Steward panel lists the conversations of both', { a: panelA && await panelA.evaluate(() => document.body.innerText.slice(0, 400)), b: panelB && await panelB.evaluate(() => document.body.innerText.slice(0, 400)) });
         if (!listed) return;
 
@@ -3752,14 +3753,18 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }, 30000, 500);
       const staleLine = (f) => f.evaluate(() => { const p = document.querySelector('p.stale'); return p ? { text: p.innerText.replace(/\s+/g, ' ').trim(), button: !!p.querySelector('button[data-act="reload"]') } : null; });
 
-      /* Window A: the conversation in front set to All in the Steward panel. */
+      /* Window A: the conversation in front set to All in the Steward panel, once the panel is about that conversation:
+         it follows the tab in front at its next pass, and a click before then is for the one in front before. */
+      const headed = (f, t) => until(() => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; })
+        .then((h) => h.includes(t.title.slice(0, 30))).catch(() => false), 20000, 300);
       for (const t of threads.slice(1, 3)) { await exec('claude-vscode.editor.open', t.id); await sleep(800); }
       await exec('claude-vscode.editor.open', front.id);
       await exec('workbench.view.extension.claudeCodePlusSteward');
       let panel = await stewardIn(page);
-      if (panel && !await panel.locator('input[data-every]').isChecked()) await panel.locator('input[data-every]').click();
+      const forFront = panel && await headed(panel, front);
+      if (forFront && !await panel.locator('input[data-every]').isChecked()) await panel.locator('input[data-every]').click();
       const every = await until(() => table()[front.id] && table()[front.id].all === true, 10000, 300);
-      check(!!panel && !!every, 'window A has a steward of all conversations in front', table()[front.id] || null);
+      check(!!panel && !!forFront && !!every, 'window A has a steward of all conversations in front', { front: front.id, forFront: !!forFront, table: table() });
       if (!panel || !every) return;
 
       /* Window B on a folder of its own, opened before the install so that it runs the earlier build too. */
@@ -3861,7 +3866,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('claude-vscode.editor.open', front.id);
         await exec('workbench.view.extension.claudeCodePlusSteward');
         panel = await stewardIn(page);
-        if (panel) await panel.locator('input[data-every]').click();
+        if (panel && await headed(panel, front)) await panel.locator('input[data-every]').click();
         const offA = panel && await until(() => table()[front.id] && table()[front.id].all !== true, 10000, 300);
         check(!!offA, 'and A, reloaded, keeps the table: turning All off there is saved', table()[front.id] || null);
       } finally {
