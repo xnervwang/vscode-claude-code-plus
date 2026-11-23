@@ -9567,13 +9567,15 @@ console.log('\nthe Steward panel');
        does; one whose build was installed over does only while no live window says it runs the installed build. */
     {
       const sv = require('../src/steward-view');
-      const E = (installed) => (installed === undefined ? { pid: 1 } : { pid: 1, installed });
+      const E = (installed, build = 'new') => (installed === undefined ? { pid: 1 } : { pid: 1, installed, build });
       const cases = [
         ['a window running the installed build', { canWrite: true, replaced: false }, [E(false)], true],
         ['a replaced window with no other window open', { canWrite: false, replaced: true }, [], true],
         ['a replaced window beside other replaced ones', { canWrite: false, replaced: true }, [E(false), E(false)], true],
         ['a replaced window beside a window of an older build, whose entry says nothing', { canWrite: false, replaced: true }, [E()], true],
-        ['a replaced window once another window runs the installed build', { canWrite: false, replaced: true }, [E(false), E(true)], false],
+        ['a replaced window once another window runs the installed build', { canWrite: false, replaced: true, build: 'old' }, [E(false), E(true)], false],
+        ['a replaced window beside one whose entry, not yet rewritten since the install, still says its build, which is this one\'s, is installed',
+          { canWrite: false, replaced: true, build: 'old' }, [E(true, 'old')], true],
         ['the replaced window itself after a reload, which runs the installed build', { canWrite: true, replaced: false }, [E(false)], true],
         ['a window being uninstalled, or after Remove', { canWrite: false, replaced: false }, [], false],
       ];

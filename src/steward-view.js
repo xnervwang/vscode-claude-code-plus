@@ -184,11 +184,13 @@ function alive(pid) {
  * file. One whose build was installed over (mine.replaced) leaves shared files to the windows running the installed
  * build, but until one of them is open nobody else keeps the table: a steward set to All would gain nothing and no tick
  * would be saved. So it writes the table while no live window's entry (`others`, src/window-entries.js) says it runs the
- * installed build. A window of a build older than this rule says nothing, and does not write the table either.
+ * installed build. An entry naming this window's own build (mine.build) is not believed: that build is no longer the
+ * installed one, and an entry says so only at its window's next pass after an install. A window of a build older than
+ * this rule says nothing, and does not write the table either.
  */
 function writesTable(mine, others) {
   if (mine.canWrite) return true;
-  return !!mine.replaced && !(others || []).some((w) => w && w.installed === true);
+  return !!mine.replaced && !(others || []).some((w) => w && w.installed === true && !(mine.build && w.build === mine.build));
 }
 
 /* The window name without the " [SSH: host]" suffix VS Code adds for a remote window. */
@@ -435,7 +437,8 @@ function create(vscode, deps) {
   /* The windows on this machine, this one included, from their entries. */
   const windows = (now = Date.now()) => [{ pid: process.pid, name: deps.windowName(), folders: deps.windowFolders(), sessions: deps.shownList() }]
     .concat(windowEntries.others(deps.dir, { now, alive: deps.alive }).map((w) => ({ pid: w.pid, name: w.name, folders: w.folders, sessions: w.sessions })));
-  const writes = () => writesTable({ canWrite: deps.canWrite(), replaced: deps.replaced() }, windowEntries.others(deps.dir, { alive: deps.alive }));
+  const writes = () => writesTable({ canWrite: deps.canWrite(), replaced: deps.replaced(), build: (deps.build() || {}).code || '' },
+    windowEntries.others(deps.dir, { alive: deps.alive }));
   /* Said once per window when a change made in the panel is not saved; the panel's own line says it all along. */
   let toldStale = false;
   const tellStale = () => {

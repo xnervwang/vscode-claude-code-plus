@@ -3823,8 +3823,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const rowOn = newId && await until(async () => { const b = await boxOf(panel, newId); return b && b.checked && b; }, 60000, 1000);
         const quietA = await staleLine(panel);
         const eA = entryOf(profile.folder), eB = entryOf(folderS);
-        check(/^Opened: /.test(opened) && !!gained && !!rowOn && !quietA,
-          'with every window on the build installed over, the steward of all gains the conversation it opened: stewards.json has it, and its panel shows it ticked, with no word of a reload',
+        check(/^Opened: /.test(opened) && /It is now ticked for you in the Steward panel\./.test(opened) && !!gained && !!rowOn && !quietA,
+          'with every window on the build installed over, the steward of all gains the conversation it opened at once: the script says it is ticked, stewards.json has it, and its panel shows it ticked, with no word of a reload',
           { opened, gained: !!gained, row: rowOn || (newId && await boxOf(panel, newId)), line: quietA, manages: (table()[front.id] || {}).manages });
         check(!!eA && eA.installed === false && !!eB && eB.installed === false && typeof eA.build === 'string' && eA.build.length > 0 && eA.build === eB.build,
           'both windows\' entries say they run the same build, and not the installed one', { a: eA && [eA.build, eA.installed], b: eB && [eB.build, eB.installed] });
