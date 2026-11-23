@@ -113,6 +113,10 @@ function sse(res, type, payload) {
 
 const LINK_ASK = /link to conversation ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 const LINK_TEXT = 'that conversation';
+/* A reply naming another conversation three ways, for the links the page makes of them: by its title as it stands, by
+   its title in corner brackets, and by the first 8 characters of its id. */
+const NAME_ASK = /name the conversation ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) titled (.+?)\.?\s*$/i;
+const NAMED_REPLY = (id, title) => `${title} is the one. In brackets: \u300c${title}\u300d. By its short id: ${id.slice(0, 8)}.`;
 const IMAGE_ASK = /show me the picture at (\S+)/i;
 const IMAGE_ALT = 'a red square';
 const IMAGE_WEB = 'https://example.com/square.png';
@@ -152,6 +156,7 @@ const asksForChoice = (ask) => { const t = lastAsk(ask); return t !== null && t.
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
+const nameAsked = (ask) => { const m = NAME_ASK.exec(typedText(ask)); return m ? NAMED_REPLY(m[1].toLowerCase(), m[2]) : null; };
 const imageAsked = (ask) => { const m = IMAGE_ASK.exec(lastAsk(ask) || ''); return m ? m[1] : null; };
 /* Which of the texts the work plan plugin's hooks and this extension add to Claude's context this turn's input carries:
    the messages after the last reply, since Claude Code 2.1.330 sends the hooks' text and its list of skills in a system
@@ -209,9 +214,9 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const worker = asksForWorker(ask), bgSession = asksForBgSession(ask);
       const choice = asksForChoice(ask);
       const tool = background || helper || detach || detachShort || worker || bgSession || choice || asksToRun(ask);
-      const linked = linkAsked(ask), picture = imageAsked(ask);
-      const reply = linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
-        : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain;
+      const linked = linkAsked(ask), picture = imageAsked(ask), named = nameAsked(ask);
+      const reply = named || (linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
+        : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain);
       seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping, choice,
         parts: lastParts(ask).map((p) => (p && p.type) || typeof p), result: resultText(ask), ask: (lastAsk(ask) || '').slice(0, 400),
         typed: typedText(ask).slice(0, 400),
@@ -274,6 +279,6 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
 }
 
 module.exports = { start, ROUTE_MARK, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
-  DETACH_SHORT_RUN, LINK_TEXT,
+  DETACH_SHORT_RUN, LINK_TEXT, NAMED_REPLY,
   IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_BG_SESSION, BG_SESSION_RUN, BG_SESSION_NAME,
   BG_SESSION_SCRIPT, ASK_FOR_CHOICE, CHOICE };

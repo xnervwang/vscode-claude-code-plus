@@ -11054,6 +11054,137 @@ console.log('\nanswering from the Conversations tab');
     } else bad(`the image component: ${JSON.stringify({ error: r3.error, drawn, left })}`);
   }
 
+  {
+    try {
+      /* Links to other conversations in replies (src/page/95-conversation-links.js): the rehype plugin over the tree a
+         reply's block renders, against the conversations the extension sent. */
+      const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+      const fragment = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '95-conversation-links.js'), 'utf8');
+      const SELF = '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f1', OTHER = '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f2', CODEX = '0199a213-81c0-7800-8aa1-bbab2a035a53';
+      const make = (off = {}) => {
+        const sent = [], listeners = {}, docListeners = {}, shown = [];
+        let signal = null, sid = SELF;
+        const env = {
+          window: { addEventListener: (t, f) => { listeners[t] = f; } },
+          document: { addEventListener: (t, f) => { docListeners[t] = f; } },
+          acquireVsCodeApi: () => ({ postMessage: (m) => sent.push(m) }),
+          sigValue: (n) => (n === 'sessionId' ? sid : undefined), isOff: (k) => !!off[k],
+          showLabel: (el, t) => shown.push(t), hideLabel: () => shown.push(null), Date, out: {},
+        };
+        env.window.__cceSignal = (v) => (signal = { value: v });
+        new vm.Script(`(function(){${KIT}\n${fragment}\n;out.follow = mentionsFollow; out.wire = wireConversationLinks; out.ask = askConversations;})()`,
+          { filename: '95-conversation-links.js' }).runInNewContext(env);
+        const tell = (list, rev) => listeners.message({ data: { type: 'from-extension', message: { type: 'cce_conversations', rev, list } } });
+        return { env, sent, docListeners, shown, tell, tick: () => (signal ? signal.value : null), setSid: (v) => { sid = v; } };
+      };
+      const known = [
+        { sourceId: 'claude-code', label: 'Claude Code', sessionId: SELF, title: 'Find where the retry delay for the inventory sync is set', lastActiveAt: 3 },
+        { sourceId: 'claude-code', label: 'Claude Code', sessionId: OTHER, title: 'Why does the nightly export skip archived rows?', lastActiveAt: 2 },
+        { sourceId: 'codex', label: 'Codex', sessionId: CODEX, title: 'Fix the login redirect', lastActiveAt: Date.now() - 120000 },
+      ];
+      const t = (value) => ({ type: 'text', value });
+      const el = (tagName, children, properties = {}) => ({ type: 'element', tagName, properties, children });
+      const flat = (n) => (n.type === 'text' ? n.value : `<${n.tagName}${n.properties.href ? ' ' + n.properties.href : ''}>${n.children.map(flat).join('')}</${n.tagName}>`);
+      const p = make();
+      p.env.window.__cceMentionsRev();
+      p.env.out.wire();
+      p.env.out.follow();
+      const before = [p.env.window.__cceMentionPlugins(['math'], 'live'), p.tick()];
+      p.tell(known, 1);
+      const plugins = p.env.window.__cceMentionPlugins(['math'], 'live');
+      const tree = { type: 'root', children: [
+        el('p', [t('See Why does the nightly export skip archived rows? and \u300cFix the login redirect\u300d, by id 7d1f3c2a here and ' + CODEX.slice(0, 8) + '.')]),
+        el('p', [t('Find where the retry delay for the inventory sync is set is this one, ' + SELF + ' too.')]),
+        el('pre', [el('code', [t('Why does the nightly export skip archived rows?')])]),
+        el('p', [el('a', [t('Why does the nightly export skip archived rows?')], { href: 'https://example.com/' }), el('code', [t('claude --resume ' + OTHER)])]),
+      ] };
+      if (plugins.length === 2) plugins[1]()(tree);
+      const href = (id, s) => `vscode://xnervwang.claude-code-plus/open?session=${id}&source=${s}`;
+      same([before, plugins.length, p.tick(), tree.children.map(flat)],
+        [[['math'], 0], 2, 1, [
+          `<p>See <a ${href(OTHER, 'claude-code')}>Why does the nightly export skip archived rows?</a> and \u300c<a ${href(CODEX, 'codex')}>Fix the login redirect</a>\u300d, by id 7d1f3c2a here and <a ${href(CODEX, 'codex')}>0199a213</a>.</p>`,
+          `<p>Find where the retry delay for the inventory sync is set is this one, ${SELF} too.</p>`,
+          '<pre><code>Why does the nightly export skip archived rows?</code></pre>',
+          `<p><a https://example.com/>Why does the nightly export skip archived rows?</a><code>claude --resume <a ${href(OTHER, 'claude-code')}>${OTHER}</a></code></p>`]],
+        'a reply names other conversations by title, in corner brackets and by session id as links to them, an agent\'s id in each; its own conversation, a code block, an existing link and a short id two conversations share are left alone, and inline code gets only its id linked; the list arriving moves the signal the reply reads');
+      const a = { getAttribute: () => href(CODEX, 'codex'), closest: () => a, contains: () => false };
+      p.docListeners.mouseover({ target: a });
+      p.docListeners.mouseout({ target: a, relatedTarget: null });
+      same([p.shown[0] && p.shown[0].split('\n').slice(0, 2), p.shown[1]], [['Fix the login redirect', 'Codex conversation 0199a213, active 2m ago'], null],
+        'hovering over a link shows the conversation and its agent, and the label goes when the pointer leaves');
+      same([p.env.window.__cceMentionPlugins(['math'], 'text'), make({ conversationLinks: true }).env.window.__cceMentionPlugins(['math'], 'live')],
+        [['math'], ['math']], 'where Claude Code draws links as text, and with claudeCodePlus.show.conversationLinks off, no plugin is added');
+      const t0 = p.tick();
+      p.env.out.follow();
+      const still = p.tick();
+      p.setSid(OTHER);
+      p.env.out.follow();
+      const moved = p.tick();
+      p.tell(known, 1);
+      same([still, moved, p.tick()], [t0, t0 + 1, t0 + 1], 'the reply is drawn again when the panel\'s conversation changes, and not for the same list sent twice');
+      const q = make(), stamps = [];
+      q.env.out.wire();
+      q.env.Date = { now: () => stamps[stamps.length - 1] };
+      for (const at of [1000, 1500, 2100, 3200, 4300, 5400, 6500, 7600]) { stamps.push(at); q.env.out.ask(); }
+      q.tell(known, 4);
+      stamps.push(9000); q.env.out.ask();
+      same(q.sent.filter((m) => m.type === 'cce_conversations_ask').length, 5,
+        'a panel with no list asks for it at most once a second and five times, and not once it has it');
+    } catch (e) { bad(`conversation links in a panel threw: ${(e && e.stack) || e}`); }
+  }
+
+  {
+    try {
+      /* The click on such a link (src/page/93-steward-links.js) and where its message goes in the patched host. */
+      const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+      const fragment = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '93-steward-links.js'), 'utf8');
+      const sent = [], listeners = [];
+      const env = { out: {}, document: { addEventListener: (t, f, c) => listeners.push([t, f, c]) }, hideLabel: () => {},
+        acquireVsCodeApi: () => ({ postMessage: (m) => sent.push(m) }) };
+      new vm.Script(`(function(){${fragment}\n;out.wire = wireStewardLinks;})()`).runInNewContext(env);
+      env.out.wire();
+      const click = (h) => listeners[0][1]({ preventDefault() {}, stopPropagation() {}, target: { closest: () => ({ getAttribute: () => h }) } });
+      const id = '0199a213-81c0-7800-8aa1-bbab2a035a53';
+      click(`vscode://xnervwang.claude-code-plus/open?session=${id}&source=codex`);
+      click(`vscode://xnervwang.claude-code-plus/open?session=${id}`);
+      same(sent, [{ type: 'cce_open_conversation', sourceId: 'codex', sessionId: id }, { type: 'cce_open_session', sessionId: id }],
+        'a conversation link clicked in a panel posts its agent and session to the extension; a steward\'s own link still posts the session alone');
+      const edit = host.EDITS.find((e) => e.name === 'panel messages');
+      const r = require('../src/edits').applyEdits('function eT($,J){let Q=`Received message from webview: ${bl0(J)}`;$.info(Q)}', [edit]);
+      const got = [];
+      const henv = { bl0: (m) => JSON.stringify(m), __cceOpenConversationHook: (s, i) => got.push(['open', s, i]), __cceConversationsAskHook: () => got.push(['ask']) };
+      henv.globalThis = henv;
+      vm.createContext(henv);
+      if (!r.error) vm.runInContext(r.out + ';eT({info(){}},{type:"cce_open_conversation",sourceId:"codex",sessionId:"s1"});eT({info(){}},{type:"cce_open_conversation",sessionId:"s2"});'
+        + 'eT({info(){}},{type:"cce_conversations_ask"});', henv);
+      same([r.error || '', got], ['', [['open', 'codex', 's1'], ['ask']]], 'in the patched host, a link clicked and a panel asking for the list each reach their hook');
+    } catch (e) { bad(`a conversation link clicked threw: ${(e && e.stack) || e}`); }
+  }
+
+  {
+    try {
+      /* The two edits that hand a reply's blocks the plugin and the revision, on Claude Code 2.1.330's shapes. */
+      const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+      const { applyEdits } = require('../src/edits');
+      const block = 'var D8n=nh(function({source:t,fileOpener:n,platform:i,links:o,authLinksAsText:r,isMathEnabled:s,isCodeColored:a,drawsMath:l,mathCosts:c,index:d,onLinkContextMenu:u}){'
+        + 'let{remarkPlugins:h,urlTransform:p}=S8n(o,i),f=cIt(t,s,c,d,l),g=yt(()=>({}),[o]);'
+        + 'return m(tW,{remarkPlugins:[...h,...f.remarkPlugins],rehypePlugins:f.rehypePlugins,urlTransform:p,components:g,children:t})});';
+      const reply = 'function al({content:e,context:t,streaming:n,links:i="live"}){vt();let l=e;return k("span",{children:[l.map((b,y)=>m(X8n,{source:b,fileOpener:t?.fileOpener,platform:t?.platform,links:i,index:y},y))]})}';
+      const r1 = applyEdits(block, [webview.EDITS.find((e) => e.name === 'conversation links in replies')]);
+      const r2 = applyEdits(reply, [webview.EDITS.find((e) => e.name === 'conversation links redraw the reply')]);
+      const run = (src, win) => new Function('window', 'nh', 'S8n', 'cIt', 'yt', 'm', 'tW', 'k', 'vt', 'X8n', `${src};return typeof D8n!=="undefined"?D8n:al;`)(win,
+        (fn) => fn, () => ({ remarkPlugins: [], urlTransform: null }), () => ({ remarkPlugins: [], rehypePlugins: ['math'] }), (fn) => fn(),
+        (c, props) => ({ c, props }), 'tW', (tag, props) => props, () => {}, 'X8n');
+      const plug = r1.error ? null : run(r1.out, { __cceMentionPlugins: (list, links) => list.concat([links]) });
+      const plain = r1.error ? null : run(r1.out, {});
+      const drawn = r2.error ? null : run(r2.out, { __cceMentionsRev: () => 7 })({ content: ['a'], context: {} });
+      same([r1.error || '', r2.error || '', plug && plug({ source: 'x', links: 'live' }).props.rehypePlugins, plain && plain({ source: 'x', links: 'live' }).props.rehypePlugins,
+        drawn && drawn.children[0][0].props.cceMentions],
+      ['', '', ['math', 'live'], ['math'], 7],
+      'each block of a reply asks the page for its rehype plugins, with Claude Code\'s own first, and gets the revision the page moves; without the page, its own plugins alone');
+    } catch (e) { bad(`the edits for conversation links threw: ${(e && e.stack) || e}`); }
+  }
+
   /* In a browser, against an input built like Claude Code's: an editable box whose Enter sends its textContent, or with
      Ctrl+Enter only when set so, and Shift+Enter a new line. The script under test is the one that ships. */
   {
@@ -12759,6 +12890,47 @@ const repo = path.join(__dirname, '..');
   await require('./shared-copies.js')(t, repo);
   console.log('\nthe package');
   await require('./pack-check.js')(t, repo);
+
+  console.log('\nconversation links, what the extension sends the panels');
+  {
+    try {
+      /* What the extension sends the panels (src/conversation-links.js). */
+      const links = require('../src/conversation-links');
+      const sent = [], opened = [], ownOpened = [];
+      let listener = null, all = [], on = true, ownCalls = 0;
+      const core = { features: ['allConversations'], allConversations: () => all,
+        onDidChangeAllConversations: (fn) => { listener = fn; return { dispose: () => { listener = null; } }; } };
+      const c = links.create({ on: () => on, own: async () => { ownCalls++; return [{ sessionId: 's-own', title: 'Own', lastActiveAt: 1 }]; },
+        send: (m) => sent.push(JSON.parse(JSON.stringify(m))), open: async (x) => opened.push(x), openOwn: async (id) => ownOpened.push(id) });
+      const C1 = { sourceId: 'codex', label: 'Codex', sessionId: 'S1', title: 'Fix the login redirect', cwd: '/w', lastActiveAt: 5 };
+      all = [C1, C1];
+      c.attach(core);
+      all = [Object.assign({}, C1, { lastActiveAt: 9 })];
+      listener();
+      all = [C1, { sourceId: 'claude-code', label: 'Claude Code', sessionId: 'S2', title: 'Second', cwd: '/v', lastActiveAt: 2 }];
+      listener();
+      c.ask();
+      await c.open('codex', 's1');
+      eq([sent.map((m) => [m.rev, m.list.map((x) => x.sessionId)]), opened, ownCalls],
+        [[[1, ['S1']], [2, ['S1', 'S2']], [2, ['S1', 'S2']]], [{ sourceId: 'codex', sessionId: 'S1', title: 'Fix the login redirect', cwd: '/w' }], 0],
+        'with Agent Plus\'s list the panels are sent every agent\'s conversations once each, again only when one comes, goes or is renamed and when a panel asks, and a click opens through agentPlus.openConversation with the title and folder');
+      on = false;
+      c.settingChanged();
+      const n = sent.length;
+      c.ask();
+      eq([listener, sent.length - n], [null, 0], 'switched off it stops listening and sends nothing, a panel\'s question included');
+      const own = links.create({ on: () => true, own: async () => [{ sessionId: 's-own', title: 'Own conversation', lastActiveAt: 1 }],
+        send: (m) => sent.push(m), open: async (x) => opened.push(x), openOwn: async (id) => ownOpened.push(id) });
+      own.attach({ features: [] });
+      await own.ask();
+      own.attach(null);
+      await own.ask();
+      await own.open('claude-code', 's-own');
+      eq([sent.slice(n).map((m) => m.list.map((x) => [x.sourceId, x.sessionId])), ownOpened],
+        [[[['claude-code', 's-own']], [['claude-code', 's-own']], [['claude-code', 's-own']]], ['s-own']],
+        'an Agent Plus without that list leaves this extension\'s own Claude Code conversations, and with no Agent Plus a click opens one directly');
+    } catch (e) { bad(`what the extension sends the panels threw: ${(e && e.stack) || e}`); }
+  }
 
   /* The image files a reply shows: read only when they are images, by their bytes, and small enough. */
   console.log('\nimages in replies, read by the extension');

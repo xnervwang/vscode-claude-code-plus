@@ -28,6 +28,8 @@
       "settings": ["claudeCodePlus.show.footerInfo"] },
     { "id": "reply-images", "what": "An image a reply gives by path is drawn at most 640 by 480 px; a click shows a scaled-down one large and a click or Escape closes it; an image at a web address stays a link; switched off, an image shows as its text and path.",
       "settings": ["claudeCodePlus.show.replyImages"] },
+    { "id": "conversation-links", "what": "Another conversation's title or session id in a reply, by title, in corner brackets or by its first 8 characters, is drawn as a link like Claude Code's own; hovering names the conversation and its agent, and a click opens it in the window that shows it.",
+      "settings": ["claudeCodePlus.show.conversationLinks"], "window": ["conversation links in replies", "two windows"] },
     { "id": "agent-map", "what": "The footer's button that counts background work, its dot green while any of that work runs, and the map it opens: claude -p workers, commands left running detached, scheduled prompts, background sessions, and the conversation's own row with the dot its tab has.",
       "settings": ["claudeCodePlus.show.detachedCommands"] },
     { "id": "background-sessions", "what": "The claude --bg sessions a conversation started: counted on its Agents button, whose dot is green while one runs, listed in its agent map with each state in its own colour, and kept once done, with the result.",

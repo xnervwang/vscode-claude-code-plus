@@ -36,6 +36,7 @@ const detachedEnds = require('./src/detachedends');
 const bgEnds = require('./src/bgends');
 const stoppedWork = require('./src/stoppedwork');
 const replyImages = require('./src/reply-images');
+const conversationLinks = require('./src/conversation-links');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
 const { transcriptOf, projectsDir, writeAtomic } = require('./src/claude-files');
@@ -988,14 +989,36 @@ function start(context, log, renamed, handing = false) {
     }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceOpenSessionHook) delete globalThis.__cceOpenSessionHook; } });
-  /* vscode://xnervwang.claude-code-plus/open?session=<id>, the link a steward gives for a conversation it names. */
+  /* Other conversations named in replies, drawn as links by the panels' page (src/conversation-links.js). */
+  const openOwnConversation = (id) => steward.open(id).then((r) => {
+    if (r === 'nowhere') vscode.window.showInformationMessage('That conversation is not open in any VS Code window on this machine.');
+  }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
+  const links = conversationLinks.create({
+    on: () => !removed() && !uninstalling() && !switchedOff().includes('conversationLinks'),
+    own: async () => {
+      const all = await Promise.resolve(claude.source.listAllConversations()).catch(() => []);
+      const here = await Promise.resolve(claude.source.listConversations()).catch(() => []);
+      return [].concat(Array.isArray(all) ? all : [], Array.isArray(here) ? here : []);
+    },
+    send: (m) => { if (typeof globalThis.__cceToAllPanels === 'function') globalThis.__cceToAllPanels(m); },
+    open: (target) => Promise.resolve(vscode.commands.executeCommand('agentPlus.openConversation', target))
+      .catch((e) => log.appendLine('conversation links: ' + ((e && e.message) || e))),
+    openOwn: openOwnConversation,
+    log: (m) => log.appendLine(m),
+  });
+  context.subscriptions.push(links);
+  globalThis.__cceOpenConversationHook = (sourceId, id) => { links.open(sourceId, id).catch((e) => log.appendLine('conversation links: ' + ((e && e.message) || e))); };
+  globalThis.__cceConversationsAskHook = () => { links.ask(); };
+  context.subscriptions.push({ dispose: () => { delete globalThis.__cceOpenConversationHook; delete globalThis.__cceConversationsAskHook; } });
+  context.subscriptions.push(claude.source.onDidChangeConversations(() => links.refresh()));
+  /* vscode://xnervwang.claude-code-plus/open?session=<id>, the link a steward gives for a conversation it names; a link
+     the page made for another agent's conversation also says which (&source=). */
   context.subscriptions.push(vscode.window.registerUriHandler({
     handleUri(uri) {
       if (uri.path !== '/open') return;
-      const id = new URLSearchParams(uri.query).get('session') || '';
-      steward.open(id).then((r) => {
-        if (r === 'nowhere') vscode.window.showInformationMessage('That conversation is not open in any VS Code window on this machine.');
-      }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
+      const q = new URLSearchParams(uri.query), id = q.get('session') || '', source = q.get('source') || '';
+      if (source && source !== conversationLinks.OWN_SOURCE) { links.open(source, id).catch((e) => log.appendLine('conversation links: ' + ((e && e.message) || e))); return; }
+      openOwnConversation(id);
     },
   }));
   /* Tab titles and the session list are redrawn when stewards.json changes, whichever window changed it
@@ -1035,12 +1058,13 @@ function start(context, log, renamed, handing = false) {
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceAnswerHook) delete globalThis.__cceAnswerHook; } });
   coreLink.link(vscode, claude.source, { name: 'the Claude Code source', log: (m) => log.appendLine(m) }).then((r) => {
-    if (!r.registered) return;
+    if (!r.registered) { links.attach(null); return; }
     const { registration } = r;
     log.appendLine(`registered with Agent Plus ${r.core.version || ''}`.trim());
     if (closing) { registration.dispose(); return; }
     context.subscriptions.push(registration);
     claude.refocus();
+    links.attach(r.core);
   }).catch((e) => log.appendLine('registering with Agent Plus: ' + ((e && e.message) || e)));
   /*
    * Following the conversation has to be immediate, so the patched field calls this the moment it is written. Waiting
@@ -1905,6 +1929,7 @@ function start(context, log, renamed, handing = false) {
       if (!removed() && enabled()) for (const id of shownList()) sendPlan(id);
     } else if (e.affectsConfiguration(BRIEF_SETTING)) claude.changed();
     if (modeChanged) followTokenMode();
+    if (e.affectsConfiguration(PREFIX + 'show.conversationLinks')) links.settingChanged();
     if (e.affectsConfiguration(HIDE_BG_SETTING)) {
       try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the list catches up on its next read */ }
     }
