@@ -28,7 +28,7 @@ const { applyEdits, shapesOf } = require('./edits');
 const { writeAtomic } = require('./files');
 const { patchTarget } = require('./patch-target');
 
-const VERSION = 20;
+const VERSION = 21;
 const ANY_MARK = '/* CLAUDE-CODE-EXTRAS-HOST v';
 const BACKUP_SUFFIX = '.claude-code-extras-host.bak';
 const TMP_SUFFIX = '.claude-code-extras-host.tmp';
@@ -45,6 +45,9 @@ if (/<\/script/i.test(PANEL_TZ)) throw new Error('panel-tz.js must not contain a
 /* Read by the host at the moment a panel's HTML is built, so the setting reaches every panel opened after it changes.
    Unset counts as on: a panel restored before this extension has activated still gets the watch. */
 const LOAD_WATCH_OFF = '__cceNoLoadWatch';
+/* Read the same way: true while Claude Code's own notices of waits are left to Agent Plus (src/waiting-for.js), so a
+   panel opened then starts out knowing it (src/page/95-wait-notices.js). */
+const WAITS_LEFT_ON = '__cceWaitsAnnounced';
 
 const EDITS = [
   {
@@ -89,6 +92,7 @@ const EDITS = [
       + '${\'<script nonce="\'+' + nonce + '+\'">\'+' + JSON.stringify(PANEL_TZ) + '+\'</script>\'}'
       + '${globalThis.' + LOAD_WATCH_OFF + '?"":\'<script nonce="\'+' + nonce + '+\'">\'+'
       + JSON.stringify(LOAD_WATCH) + '+\'</script>\'}'
+      + '${globalThis.' + WAITS_LEFT_ON + '===true?\'<script nonce="\'+' + nonce + '+\'">window.__cceWaitsQuiet=true</script>\':""}'
       + link,
   },
   /*
@@ -97,7 +101,8 @@ const EDITS = [
    * from the Conversations tab was sent (src/page/91-answer.js), the info box asking for its conversation's
    * process id (src/page/80-session-info.js), the panel's page getting focus (src/page/92-focus.js), the page
    * saying it is still there (src/page/99-sweep.js, for src/duplicates.js), and the state a panel reports for its
-   * conversation with whether a turn runs beside it (src/webview.js, for src/activity.js).
+   * conversation with whether a turn runs and what it waits for beside it (src/webview.js, for src/activity.js and
+   * src/waiting-for.js).
    *
    * Every message a panel sends passes through the one function that logs it, before anything decides what the message
    * is, and Claude Code itself ignores all of these types. A global is how each reaches this extension - both run in one
@@ -132,7 +137,7 @@ const EDITS = [
       + `else if(${msg}&&${msg}.type==="cce_alive"){globalThis.__cceAliveHook&&globalThis.__cceAliveHook()}`
       + `else if(${msg}&&${msg}.type==="request"&&${msg}.request&&${msg}.request.type==="update_session_state"`
       + `&&typeof ${msg}.request.sessionId==="string"){globalThis.__cceTurnHook&&globalThis.__cceTurnHook(${msg}.request.sessionId,`
-      + `${msg}.request.cceBusy,${msg}.request.cceBg,${msg}.request.isFarewell===true)}}catch(e){}${rest}`,
+      + `${msg}.request.cceBusy,${msg}.request.cceBg,${msg}.request.isFarewell===true,${msg}.request.cceWait)}}catch(e){}${rest}`,
   },
   /*
    * After the logging above, a panel's message goes on to Claude Code's switch over the message types it knows, whose
@@ -367,7 +372,7 @@ const EDITS = [
    replacements put into the bundle. */
 const MARK = `/* CLAUDE-CODE-EXTRAS-HOST v${VERSION}-` + crypto.createHash('sha256')
   .update(EDITS.map((e) => [e.name, ...shapesOf(e).map((s) => [String(s.re), String(s.to), s.note || ''].join('\0'))].join('\0')).join('\n'))
-  .update('\n').update([LOAD_WATCH, LOAD_WATCH_OFF, PANEL_TZ].map(String).join('\0'))
+  .update('\n').update([LOAD_WATCH, LOAD_WATCH_OFF, PANEL_TZ, WAITS_LEFT_ON].map(String).join('\0'))
   .digest('hex').slice(0, 12) + ' */';
 
 function hostFile(claudeExtensionPath) { return path.join(claudeExtensionPath, 'extension.js'); }
@@ -401,7 +406,7 @@ const target = patchTarget({
 
 module.exports = {
   id: 'anthropic.claude-code', name: 'Claude Code host',
-  VERSION, MARK, ANY_MARK, BACKUP_SUFFIX, EDITS, LOAD_WATCH, LOAD_WATCH_OFF, PANEL_TZ,
+  VERSION, MARK, ANY_MARK, BACKUP_SUFFIX, EDITS, LOAD_WATCH, LOAD_WATCH_OFF, PANEL_TZ, WAITS_LEFT_ON,
   patchSource, status: target.status, apply: target.apply, restore: target.restore, writeAtomic: write, hostFile,
   targetFile: hostFile, findInstalls: require('./webview').findInstalls,
 };

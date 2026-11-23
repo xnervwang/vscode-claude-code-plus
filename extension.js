@@ -42,6 +42,7 @@ const { transcriptOf, projectsDir, writeAtomic } = require('./src/claude-files')
 const planInjections = require('./src/plan-injections');
 const tokenMode = require('./src/token-mode');
 const waiting = require('./src/waiting');
+const waitingFor = require('./src/waiting-for');
 const { createClaudeSource, isPanelTab } = require('./src/claude-source');
 const { agentOfTab } = require('./src/other-agents');
 const coreLink = require('./src/core-link');
@@ -746,8 +747,18 @@ function start(context, log, renamed, handing = false) {
    */
   const turns = activity.turnTracker();
   let marksTimer = 0;
-  globalThis.__cceTurnHook = (sessionId, busy, bg, farewell) => {
+  /* What each panel of this window last reported in front of it, { tool } or { dialog }, for Agent Plus's notices
+     (src/waiting-for.js). */
+  const waits = new Map();
+  const noteWait = (sessionId, wait, farewell) => {
+    const next = !farewell && wait && typeof wait === 'object' ? JSON.stringify(wait) : '';
+    if ((waits.get(sessionId) || '') === next) return;
+    if (next) waits.set(sessionId, next); else waits.delete(sessionId);
+    if (!statesTimer) statesTimer = setTimeout(() => { statesTimer = 0; claude.changed(); }, 300);
+  };
+  globalThis.__cceTurnHook = (sessionId, busy, bg, farewell, wait) => {
     try {
+      noteWait(sessionId, wait, farewell);
       const r = turns.report(sessionId, busy, bg, farewell);
       if (!r.changed) return;
       if (r.ended && enabled() && !removed()) {
@@ -794,6 +805,7 @@ function start(context, log, renamed, handing = false) {
     live: () => liveStates,
     unread: () => unreadKeys,
     activity: (id) => activityFor(id),
+    waitingFor: (id) => { const w = waits.get(id); try { return w ? JSON.parse(w) : null; } catch (_) { return null; } },
     lastUserAt: (id) => lastUser.at(transcriptOf(id)),
     activeChat: () => activeChat(),
     logo: () => {
@@ -1030,12 +1042,33 @@ function start(context, log, renamed, handing = false) {
     if (typeof detail === 'string' && detail) answersReady.add(detail);
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceAnswerHook) delete globalThis.__cceAnswerHook; } });
+  /*
+   * Claude Code's own notices of a permission request, a question, a plan to review and auto mode's choice are left to
+   * Agent Plus while it tells of the same waits (src/waiting-for.js). The patched host puts the answer into each panel's
+   * HTML as it is built, and the panels already open are told whenever it changes.
+   */
+  let agentCore = null, waitsLeft = false;
+  const decideWaits = () => {
+    const next = waitingFor.leftToAgentPlus({ core: agentCore, on: enabled() && !removed(), announcesWaits: coreLink.announcesWaits });
+    globalThis[host.WAITS_LEFT_ON] = next;
+    if (next === waitsLeft) return;
+    waitsLeft = next;
+    log.appendLine(next ? 'Claude Code\'s notices of waits are left to Agent Plus' : 'Claude Code shows its own notices of waits');
+    try { if (typeof globalThis.__cceToAllPanels === 'function') globalThis.__cceToAllPanels({ type: 'cce_waits_announced', on: next }); } catch (_) { /* the next change */ }
+  };
+  /* Asked again when a setting changes (the settings listener below), on each half-minute tick, which also sees the
+     extension removed, and when the workspace is trusted. */
+  if (typeof vscode.workspace.onDidGrantWorkspaceTrust === 'function') context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(decideWaits));
+  context.subscriptions.push({ dispose: () => { delete globalThis[host.WAITS_LEFT_ON]; } });
   coreLink.link(vscode, claude.source, { name: 'the Claude Code source', log: (m) => log.appendLine(m) }).then((r) => {
     if (!r.registered) return;
     const { registration } = r;
     log.appendLine(`registered with Agent Plus ${r.core.version || ''}`.trim());
     if (closing) { registration.dispose(); return; }
     context.subscriptions.push(registration);
+    context.subscriptions.push({ dispose: () => { agentCore = null; decideWaits(); } });
+    agentCore = r.core;
+    decideWaits();
     claude.refocus();
   }).catch((e) => log.appendLine('registering with Agent Plus: ' + ((e && e.message) || e)));
   /*
@@ -1847,6 +1880,7 @@ function start(context, log, renamed, handing = false) {
    */
   const tick = setInterval(() => {
     claude.invalidate();
+    decideWaits();
     sweepPlans().catch((e) => log.appendLine('orphan work plans: ' + e.message));
     recover();
     if (removed() || !enabled() || uninstalling() || replaced()) {
@@ -1884,6 +1918,7 @@ function start(context, log, renamed, handing = false) {
   context.subscriptions.push(tokenMode.warnOutsideCustom(vscode, MODE_SWITCHES, { who: 'Claude Code Plus', log: (m) => log.appendLine(m) }));
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
     settings = null;
+    if (e.affectsConfiguration('agentPlus.notifications') || e.affectsConfiguration(SETTING)) decideWaits();
     if (Object.values(HOOK_SETTINGS).some((k) => e.affectsConfiguration(k)) || e.affectsConfiguration(SETTING)
         || e.affectsConfiguration(PREFIX + 'show.replyImages')) writeHookSettings();
     if (e.affectsConfiguration(LATENCY_ON_SETTING)) loadWatchOff();

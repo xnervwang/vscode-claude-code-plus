@@ -693,7 +693,15 @@ function checkEdits(adapter, src, label) {
   if (r.error) bad(`${label}: patchSource refused: ${r.error}`);
   else if (!r.out.includes(adapter.MARK)) bad(`${label}: patched output carries no marker`);
   else ok(`${label}: patched output parses and is marked`);
-  if (adapter.name === 'Claude Code panel') { checkReplyShape(src, label); checkRowIds(src, label); }
+  if (adapter.name === 'Claude Code panel') { checkReplyShape(src, label); checkRowIds(src, label); if (!r.error) checkWaitNotices(r.out, label); }
+}
+
+/* Every notice the panel shows with a View button, only while it is not on screen, is one of a wait, and each is left to
+   Agent Plus while it tells of waits (src/waiting-for.js). A build with a third would show it beside Agent Plus's. */
+function checkWaitNotices(out, label) {
+  const shown = out.split('"info",["View"],!0)').length - 1, left = out.split('(' + webview.WAITS_LEFT + '?void 0:').length - 1;
+  if (shown === 2 && left === 2) ok(`${label}: both of the panel's notices of a wait are left to Agent Plus while it tells of them`);
+  else bad(`${label}: ${shown} notices with a View button, ${left} of them left to Agent Plus (expected 2 and 2)`);
 }
 
 /* Text colors find a conversation's rows by the end of their id (84-session-colors.js). No edit covers how the list
@@ -11578,12 +11586,12 @@ console.log('\nClaude Code\'s own source');
     let o = {};
     try { o = JSON.parse(r.stdout); } catch (_) { o = { threw: r.stdout + r.stderr }; }
     const SID = 'abababab-1111-4222-8333-444444444444';
-    if (JSON.stringify(o.shape) === JSON.stringify([1, 'claude-code', 'Claude Code', '[]', 'xnervwang.claude-code-plus',
+    if (JSON.stringify(o.shape) === JSON.stringify([1, 'claude-code', 'Claude Code', '["shows"]', 'xnervwang.claude-code-plus',
       path.join('/plans', SID + '.json'), null, '/plans', null, 'Asia/Tokyo']) && o.planOff === null) {
       ok('Claude Code\'s source has the protocol 1 members and plan paths');
     } else bad(`claude source shape ${JSON.stringify(o.shape || o)}, with the plan off ${JSON.stringify(o.planOff)}`);
-    if (JSON.stringify(o.features) === JSON.stringify(['["brief"]', '[]', '[]'])) {
-      ok('features lists brief only while both the work plan and the brief are on');
+    if (JSON.stringify(o.features) === JSON.stringify(['["shows","brief"]', '["shows"]', '["shows"]'])) {
+      ok('features lists shows always, and brief only while both the work plan and the brief are on');
     } else bad(`features with plan and brief on, plan off, brief off: ${JSON.stringify(o.features)}`);
     if (JSON.stringify(o.claims) === JSON.stringify(['A', 'C', null, null, '', '', false]) && o.listeners === 1 && o.afterDispose === '') {
       ok('sessionForTab() claims only Claude Code tabs');
@@ -11688,6 +11696,149 @@ console.log('\nClaude Code\'s source for notices from every window');
   } else bad('the source\'s shown() or open() is not wired to the window\'s list and the Steward panel');
 }
 
+console.log('\nwhat a waiting conversation waits for, and Claude Code\'s own notice of it');
+const eqWait = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+{
+  const { applyEdits } = require('../src/edits');
+  const WF = require('../src/waiting-for');
+  eqWait([WF.fromPanel({ tool: 'Bash' }), WF.fromPanel({ tool: ' mcp__slack__post   message ' }), WF.fromPanel({ tool: 'AskUserQuestion' }),
+    WF.fromPanel({ tool: 'ExitPlanMode' }), WF.fromPanel({ dialog: 'auto_mode_continue' }), WF.fromPanel({ tool: '' }), WF.fromPanel(null),
+    WF.fromPanel({ tool: 'x'.repeat(200) }).tool.length],
+  [{ kind: 'permission', tool: 'Bash' }, { kind: 'permission', tool: 'mcp__slack__post message' }, { kind: 'question' }, { kind: 'plan' },
+    { kind: 'choice' }, null, null, 80],
+  'a panel\'s report gives the tool of a permission request, AskUserQuestion as a question, ExitPlanMode as a plan, a dialog as a choice');
+  eqWait(['permission prompt', 'sandbox request', 'input needed', 'dialog open', 'something new', undefined].map(WF.fromAgents),
+    [{ kind: 'permission' }, { kind: 'permission' }, { kind: 'question' }, { kind: 'choice' }, null, null],
+    'claude agents\' waitingFor gives the kind of wait alone, grouped as the CLI groups it');
+  const says = (v) => () => v;
+  const link = require('../src/core-link');
+  const core = (features, fn) => ({ features, announcesWaits: fn });
+  eqWait([WF.leftToAgentPlus({ core: core(['waitingFor'], says(true)), on: true, announcesWaits: link.announcesWaits }),
+    WF.leftToAgentPlus({ core: core(['waitingFor'], says(false)), on: true, announcesWaits: link.announcesWaits }),
+    WF.leftToAgentPlus({ core: core([], says(true)), on: true, announcesWaits: link.announcesWaits }),
+    WF.leftToAgentPlus({ core: core(['waitingFor'], says(true)), on: false, announcesWaits: link.announcesWaits }),
+    WF.leftToAgentPlus({ core: null, on: true, announcesWaits: link.announcesWaits }),
+    WF.leftToAgentPlus({ core: core(['waitingFor'], () => { throw new Error('x'); }), on: true, announcesWaits: link.announcesWaits })],
+  [true, false, false, false, false, false],
+  'Claude Code\'s notices of waits are left out only while this extension runs and Agent Plus, with waitingFor, says it tells of them');
+
+  /* The panel's state report carries what it waits for. */
+  const wedit = (name) => webview.EDITS.find((e) => e.name === name);
+  const report = 'Zt(()=>{let p=(c.permissionRequests.value.length??0)>0||c.userDialogRequests.value.length>0,f=c.busy.value,'
+    + 'g=c.backgroundTaskIds.value.size>0,_;if(p)_="waiting_input";else if(f||g)_="running";else _="idle";'
+    + 'u.updateSessionState(d,_,c.summary.value,{isPanelInitial:c.isPanelInitial||void 0,idConfirmed:c.sessionIdFromCli.value||void 0})})';
+  const rr = applyEdits(report, [wedit('panel state says whether a turn runs')]);
+  const waitsOf = (perm, dialogs) => {
+    let sent = null;
+    const env = { Zt: (f) => f(), u: { updateSessionState: (...a) => { sent = a; } }, d: 'S',
+      c: { permissionRequests: { value: perm }, userDialogRequests: { value: dialogs }, busy: { value: true }, backgroundTaskIds: { value: new Set() },
+        summary: { value: 'T' }, sessionIdFromCli: { value: 'S' } } };
+    vm.createContext(env);
+    vm.runInContext(rr.out, env);
+    return sent && [sent[1], sent[3].cceWait === undefined ? 'none' : sent[3].cceWait];
+  };
+  eqWait(rr.error || [waitsOf([{ toolName: 'Bash' }, { toolName: 'Edit' }], []), waitsOf([], [{ dialogKind: 'auto_mode_continue' }]), waitsOf([], [])],
+    [['waiting_input', { tool: 'Bash' }], ['waiting_input', { dialog: 'auto_mode_continue' }], ['running', 'none']],
+    'the panel reports the tool of the permission request in front of it, or the kind of its dialog, with the state that makes the dot red');
+
+  /* The two notices, shaped as in 2.1.330, with the page's answer true, false and missing. */
+  const perm = 'function eWt({permissionRequest:e,session:t}){if(t.showNotification(RLt(e),"info",["View"],!0),e.toolName===FW.toolName)return 1;return 0}';
+  const auto = 'class S extends B{constructor(){super();let i;Zt(()=>{let r=this.userDialogRequests.value.find((s)=>s.dialogKind===Vk);if(r===void 0||r===i)return;'
+    + 'i=r,this.showNotification("Auto mode is waiting for you to choose Continue or Stop","info",["View"],!0)})}}';
+  const pe = wedit('permission notice left to Agent Plus'), ae = wedit('auto mode notice left to Agent Plus');
+  const pr = pe ? applyEdits(perm, [pe]) : { error: 'no edit for the permission notice' }, ar = ae ? applyEdits(auto, [ae]) : { error: 'no edit for auto mode\'s notice' };
+  const shownWith = (answer) => {
+    const calls = [];
+    const env = { window: {}, RLt: (e) => `Claude is requesting permission to use ${e.toolName}`, FW: { toolName: 'Edit' }, Vk: 'auto', Zt: (f) => f(),
+      B: class { constructor() { this.userDialogRequests = { value: [{ dialogKind: 'auto' }] }; this.showNotification = (...a) => { calls.push(a[0]); }; } } };
+    if (answer !== undefined) env.window.__cceWaitsAnnounced = () => answer;
+    vm.createContext(env);
+    vm.runInContext(pr.out + ar.out + ';this.eWt=eWt;this.S=S;', env);
+    const r = env.eWt({ permissionRequest: { toolName: 'Bash' }, session: { showNotification: (...a) => { calls.push(a[0]); return Promise.resolve(); } } });
+    vm.runInContext('new S()', env);
+    return [r, calls];
+  };
+  if (pr.error || ar.error) bad('the notice edits did not apply: ' + (pr.error || ar.error));
+  else try {
+    eqWait([shownWith(true), shownWith(false), shownWith(undefined)], [[0, []],
+      [0, ['Claude is requesting permission to use Bash', 'Auto mode is waiting for you to choose Continue or Stop']],
+      [0, ['Claude is requesting permission to use Bash', 'Auto mode is waiting for you to choose Continue or Stop']]],
+    'the permission notice and auto mode\'s are left out while the page says Agent Plus tells of waits, and shown as before otherwise');
+  } catch (e) { bad('the notice edits threw: ' + ((e && e.stack) || e)); }
+
+  /* The page's answer: from the panel's HTML at first, then from the extension's messages. */
+  const frag = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '95-wait-notices.js'), 'utf8');
+  const pageWith = (quiet) => {
+    const handlers = [];
+    const env = { window: { addEventListener: (t, fn) => { if (t === 'message') handlers.push(fn); } } };
+    if (quiet) env.window.__cceWaitsQuiet = true;
+    vm.createContext(env);
+    vm.runInContext(frag + ';listenForWaitNotices();', env);
+    const said = [env.window.__cceWaitsAnnounced()];
+    const post = (m) => handlers.forEach((h) => h({ data: { type: 'from-extension', message: m } }));
+    post({ type: 'cce_waits_announced', on: !quiet }); said.push(env.window.__cceWaitsAnnounced());
+    post({ type: 'cce_waits_announced', on: 'yes' }); said.push(env.window.__cceWaitsAnnounced());
+    post({ type: 'cce_other', on: quiet }); said.push(env.window.__cceWaitsAnnounced());
+    return said;
+  };
+  eqWait([pageWith(true), pageWith(false)], [[true, false, false, false], [false, true, true, true]],
+    'the page starts from what its HTML says and follows the extension\'s word after that');
+
+  /* The panel's HTML says it when the panel is built while the notices are left to Agent Plus. */
+  const edit = host.EDITS.find((e) => e.name === 'panel load watch');
+  const tpl = 'return`<head>\n        <meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'nonce-${U}\'; ${j};">\n\n'
+    + '        <meta name="viewport" content="width=device-width, initial-scale=1.0">\n        <link href="${K}" rel="stylesheet">\n      </head>`';
+  const hr = applyEdits(tpl, [edit]);
+  const htmlWith = (v) => { if (v === undefined) delete globalThis[host.WAITS_LEFT_ON]; else globalThis[host.WAITS_LEFT_ON] = v; const h = new Function('U', 'K', 'X', 'j', hr.out)('n0nce', 's.css', false, ''); delete globalThis[host.WAITS_LEFT_ON]; return h; };
+  const flag = '<script nonce="n0nce">window.__cceWaitsQuiet=true</script>';
+  const on = htmlWith(true);
+  eqWait(hr.error || [on.includes(flag) && on.indexOf(flag) < on.indexOf('<link href="s.css"'), htmlWith(false).includes('__cceWaitsQuiet'), htmlWith(undefined).includes('__cceWaitsQuiet')],
+    [true, false, false], 'a panel built while the notices are left to Agent Plus says so in its HTML, with its nonce, ahead of the bundle');
+}
+
+/* The source gives Agent Plus what a waiting conversation waits for, and says which conversations this window shows. */
+{
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-claude-waits-')));
+  try {
+    const stub = path.join(home, 'vscode-stub.js');
+    fs.writeFileSync(stub, `module.exports = { TabInputWebview: class { constructor(v) { this.viewType = v; } } };`);
+    const script = `
+      const Module = require('module'), realResolve = Module._resolveFilename;
+      Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+      const C = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+      const id = (n) => n + n + n + n + n + n + n + n + '-1111-4222-8333-444444444444';
+      const records = [{ sessionId: id('a'), cwd: '/w/a', status: 'waiting', waitingFor: 'permission prompt' },
+        { sessionId: id('b'), cwd: '/w/b', status: 'waiting', waitingFor: 'permission prompt' },
+        { sessionId: id('c'), cwd: '/w/c', status: 'waiting', waitingFor: 'input needed' },
+        { sessionId: id('d'), cwd: '/w/d', status: 'busy' }];
+      const panel = { [id('a')]: { tool: 'Bash' }, [id('d')]: { tool: 'Bash' } };
+      const acts = { [id('a')]: 'waiting', [id('b')]: 'waiting', [id('c')]: 'waiting', [id('d')]: 'working' };
+      const c = C.createClaudeSource({ planDir: () => '/plans', enabled: () => false, listAgents: async () => ({ records, error: '' }), folders: () => ['/w'],
+        readPlan: () => null, titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
+        activeChat: () => '', logo: () => null, canDeliver: (sid) => sid === id('a'), hand: () => false, reveal: async () => false,
+        activity: (sid) => acts[sid], waitingFor: (sid) => panel[sid] || null });
+      (async () => {
+        const all = (await c.source.listAllConversations()).map((x) => [x.sessionId.slice(0, 1), x.waitingFor === undefined ? '-' : x.waitingFor]).sort();
+        process.stdout.write(JSON.stringify({ all, shows: [c.source.shows(id('a')), c.source.shows(id('b')), c.source.shows(''), c.source.shows(7)],
+          features: c.source.features }));
+      })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
+    const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
+    let o = {};
+    try { o = JSON.parse(r.stdout); } catch (_) { o = { threw: r.stdout + r.stderr }; }
+    eqWait(o, { all: [['a', { kind: 'permission', tool: 'Bash' }], ['b', { kind: 'permission' }], ['c', { kind: 'question' }], ['d', '-']],
+      shows: [true, false, false, false], features: ['shows'] },
+    'a waiting conversation carries waitingFor, from this window\'s panel with the tool or else from claude agents, and shows() answers for a panel of this window');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  if (/const next = waitingFor\.leftToAgentPlus\(\{ core: agentCore, on: enabled\(\) && !removed\(\), announcesWaits: coreLink\.announcesWaits \}\);/.test(ext)
+      && /globalThis\[host\.WAITS_LEFT_ON\] = next;/.test(ext) && /__cceToAllPanels\(\{ type: 'cce_waits_announced', on: next \}\)/.test(ext)
+      && /settings = null;\n\s+if \(e\.affectsConfiguration\('agentPlus\.notifications'\) \|\| e\.affectsConfiguration\(SETTING\)\) decideWaits\(\);/.test(ext)
+      && /claude\.invalidate\(\);\n\s+decideWaits\(\);/.test(ext) && /agentCore = r\.core;\n\s+decideWaits\(\);/.test(ext)
+      && /noteWait\(sessionId, wait, farewell\);/.test(ext)) {
+    ok('the extension asks Agent Plus once registered, on a change of its notices\' settings and on every tick, and tells the panels when the answer changes');
+  } else bad('extension.js does not decide and pass on whether the notices of waits are left to Agent Plus as expected');
+}
+
 console.log('\nwhat a conversation is doing: its dot, its envelope, and the fields Agent Plus reads');
 {
   const act = require('../src/activity');
@@ -11772,11 +11923,12 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
       env.__cceTurnHook = (...a) => heard.push(a);
       vm.createContext(env);
       vm.runInContext(r.out + ';eT({info:(q)=>out=q},{type:"request",requestId:"1",request:{type:"update_session_state",sessionId:"S",state:"running",cceBusy:false,cceBg:true}});'
+        + 'eT({info:(q)=>out=q},{type:"request",requestId:"1b",request:{type:"update_session_state",sessionId:"S",state:"waiting_input",cceBusy:true,cceBg:false,cceWait:{tool:"Bash"}}});'
         + 'eT({info:(q)=>out=q},{type:"request",requestId:"2",request:{type:"update_session_state",sessionId:"S",state:"idle",isFarewell:true}});'
         + 'eT({info:(q)=>out=q},{type:"request",requestId:"3",request:{type:"update_session_state",sessionId:7}});'
         + 'eT({info:(q)=>out=q},{type:"request",requestId:"4",request:{type:"set_session_unread",sessionKey:"S"}});', env);
-      if (JSON.stringify(heard) === '[["S",false,true,false],["S",null,null,true]]' && /^Received message from webview: /.test(env.out)) {
-        ok('the patched host passes a panel\'s report of its conversation, with whether a turn runs, to this extension, and still logs it');
+      if (JSON.stringify(heard) === '[["S",false,true,false,null],["S",true,false,false,{"tool":"Bash"}],["S",null,null,true,null]]' && /^Received message from webview: /.test(env.out)) {
+        ok('the patched host passes a panel\'s report of its conversation, with whether a turn runs and what it waits for, to this extension, and still logs it');
       } else bad(`the turn hook heard ${JSON.stringify(heard)}`);
     }
     const rec = host.EDITS.find((e) => e.name === 'tab record at start');
@@ -12214,10 +12366,10 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
   }
 
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  if (/globalThis\.__cceTurnHook = \(sessionId, busy, bg, farewell\) =>/.test(ext) && /activity\.marksUnread\(true, r\.bg \|\| bgWorking\.has\(sessionId\), shown\)/.test(ext)
+  if (/globalThis\.__cceTurnHook = \(sessionId, busy, bg, farewell, wait\) =>/.test(ext) && /activity\.marksUnread\(true, r\.bg \|\| bgWorking\.has\(sessionId\), shown\)/.test(ext)
       && /globalThis\.__cceSetUnread\(sessionId, true\)/.test(ext) && /globalThis\.__cceActivityMap = \(\) =>/.test(ext)
       && /activity: \(id\) => activityFor\(id\), question: \(id\) => freshQuestionOf\(id\),/.test(ext)
-      && /activity: \(id\) => activityFor\(id\),\n\s+lastUserAt: \(id\) => lastUser\.at\(transcriptOf\(id\)\),/.test(ext)
+      && /activity: \(id\) => activityFor\(id\),\n\s+waitingFor: \(id\) => \{[^\n]*waits\.get\(id\)[^\n]*\},\n\s+lastUserAt: \(id\) => lastUser\.at\(transcriptOf\(id\)\),/.test(ext)
       && /s\.state === 'waiting_input' \? 'waiting' : s\.state/.test(ext)) {
     ok('the extension marks the reply, sends the dots, and hands what each conversation is doing to the Steward panel and to Agent Plus');
   } else bad('extension.js does not wire the turn reports and the dots as expected');
@@ -12409,7 +12561,7 @@ console.log('\nthe token mode');
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
     const f = r.features || {}, d = r.redraws || {};
-    if (f.interface === '[]' && f.essential === '[]' && f.all === '["brief"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
+    if (f.interface === '["shows"]' && f.essential === '["shows"]' && f.all === '["shows","brief"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
       ok('the brief is offered to Agent Plus only in a mode that runs it, and every change of mode redraws its list');
     } else bad(`features ${JSON.stringify(f)}, redraws ${JSON.stringify(d)}`);
     const told = r.told || [];

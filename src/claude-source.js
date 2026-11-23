@@ -11,7 +11,8 @@
  *                    notices, every running one on the machine (listAllConversations). Each carries `activity`
  *                    ('working', 'background', 'waiting' or 'stopped', src/activity.js), `unseen` (the host's mark of a
  *                    reply not read yet) and `lastUserAt` (when the user last wrote to it, in milliseconds, when known),
- *                    from which Agent Plus decides its notices; `state` stays for builds of it that predate them
+ *                    from which Agent Plus decides its notices; `state` stays for builds of it that predate them; a
+ *                    waiting one also carries `waitingFor` (src/waiting-for.js)
  *   open             in this window, or in the window that shows the conversation (src/steward-view.js open)
  *   plans            <session id>.json in the companion plugin's data directory (src/workplan.js)
  *   focus            a change of the host's activeSessionId; a panel's onDidChangeViewState; sessionForTab(); and the
@@ -30,6 +31,7 @@ const conversations = require('./conversations');
 const { SESSION } = require('./claude-files');
 const { oncePerDelivery } = require('./core-link');
 const titleMarks = require('./title-marks');
+const waitingFor = require('./waiting-for');
 
 /* The protocol major this source implements; package.json repeats it under "agentPlus". */
 const PROTOCOL = 1;
@@ -93,7 +95,9 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   activity(sessionId)             optional: what it is doing (src/activity.js); 'stopped' when not given
  *   lastUserAt(sessionId)           optional: when the user last wrote to it, in milliseconds, or 0 when unknown
  *   activeChat()                    the host's activeSessionId, or ''
- *   canDeliver(sessionId)           whether a panel in this window shows it
+ *   canDeliver(sessionId)           whether a panel in this window shows it, in a tab or the sidebar
+ *   waitingFor(sessionId)           optional: what this window's panel last reported in front of it, { tool } or
+ *                                   { dialog }, or null
  *   hand(sessionId, text, key)      gives the answer to the panel; its result comes back through answered()
  *   sentSince(sessionId, text, ms)  optional: Promise of 'sent', 'queued' or '' from the transcript (src/sent-check.js)
  *   log(line)                       optional
@@ -134,6 +138,12 @@ function createClaudeSource(deps) {
   const lastUserOf = (id) => { try { return typeof deps.lastUserAt === 'function' ? Number(deps.lastUserAt(id)) || 0 : 0; } catch (_) { return 0; } };
   const replyOf = (s) => { try { return typeof deps.replyAt === 'function' ? Number(deps.replyAt(s)) || 0 : 0; } catch (_) { return 0; } };
   const stewardOf = (id) => { try { return typeof deps.isSteward === 'function' && deps.isSteward(id) === true; } catch (_) { return false; } };
+  /* The panel here knows the tool; `claude agents` only the kind of wait. */
+  const reasonOf = (s) => {
+    let raw = null;
+    try { raw = typeof deps.waitingFor === 'function' ? deps.waitingFor(s.sessionId) : null; } catch (_) { raw = null; }
+    return waitingFor.fromPanel(raw) || waitingFor.fromAgents(s.waitingFor);
+  };
   /* The title as every view shows it: without the marks an older build or a rename box left in the stored name, and
      with the crown first for a steward (src/title-marks.js). `steward` says the same to a view that draws it itself. */
   const listed = (s, on, live, unread) => {
@@ -154,6 +164,7 @@ function createClaudeSource(deps) {
     const reply = replyOf(s);
     if (reply > 0) out.lastReplyAt = reply;
     if (steward) out.steward = true;
+    if (out.activity === 'waiting') { const why = reasonOf(s); if (why) out.waitingFor = why; }
     return out;
   };
 
@@ -195,8 +206,8 @@ function createClaudeSource(deps) {
 
   const source = {
     protocol: PROTOCOL,
-    /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. */
-    get features() { return enabled() && briefOn() ? ['brief'] : []; },
+    /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. 'shows': it asks shows(). */
+    get features() { return enabled() && briefOn() ? ['shows', 'brief'] : ['shows']; },
     id: ID,
     label: 'Claude Code',
     extensionId: EXTENSION_ID,
@@ -271,6 +282,10 @@ function createClaudeSource(deps) {
     },
 
     canDeliver: (sessionId) => deps.canDeliver(sessionId) === true,
+
+    /* A panel of this window holds the conversation, in a tab behind others or in the sidebar, where sessionForTab, which
+       knows only the panels on screen, cannot see it. Agent Plus shows no notice of it in this window. */
+    shows(sessionId) { try { return typeof sessionId === 'string' && !!sessionId && deps.canDeliver(sessionId) === true; } catch (_) { return false; } },
 
     deliverAnswer(sessionId, text, opts) { return deliverOnce(sessionId, text, opts); },
 
