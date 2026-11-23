@@ -261,7 +261,7 @@
         "claudeCodePlus.show.detachedCommands": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Show the commands a conversation left running outside Claude Code. The list includes a shell or `timeout` if it outlives the command that started it. Any other program started with `setsid` also qualifies because it leads its own session. After its turn ends, these commands show a green ring on the conversation's tab and session list rows. The Agents button in the panel footer shows the count (for example, `1 detached`) and opens the agent map. The map shows each command's command line, PID and start time. The extension finds these commands through `/proc`, so this works only on Linux. Takes effect without a reload."
+          "markdownDescription": "Show the commands a conversation left running outside Claude Code. The list includes a shell or `timeout` if it outlives the command that started it. Any other program started with `setsid` also qualifies because it leads its own session. After its turn ends, these commands show a green ring on the conversation's tab and session list rows. The Agents button in the panel footer shows the count (for example, `1 detached`) and opens the agent map. The map shows each command with its PID and start time, and its command line as hover text. The extension finds these commands through `/proc`, so this works only on Linux. Takes effect without a reload."
         },
         "claudeCodePlus.show.replyImages": {
           "type": "boolean",

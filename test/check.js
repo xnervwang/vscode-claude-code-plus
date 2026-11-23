@@ -1667,7 +1667,8 @@ console.log('\nscheduled prompts');
     }
     // A task belonging to another session must not show up in this one.
     sandbox.sigValue = (name) => (name === 'sessionId' ? 'someone-else' : undefined);
-    if (api.__cceSchedule(h) !== null) bad("another session's task leaked into this panel");
+    const other = api.__cceSchedule(h);
+    if (!other || other.props.children.length !== 1) bad("another session's task leaked into this panel");
     else ok("another session's task is not shown here");
 
   }
@@ -1727,8 +1728,8 @@ console.log('\nscheduled prompts');
     const fragment = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '82-scheduled-tasks.js'), 'utf8');
     new vm.Script(`(function(){${fragment}})()`, { filename: '82-scheduled-tasks.js' }).runInNewContext(sandbox);
     sandbox.window.__cceSchedule(h);
-    // One span per row carries the reading and nothing else; the two beside it are styled.
-    const read = calls.filter((c) => c.type === 'span' && !(c.props && c.props.style)).map((c) => c.props.children[0]);
+    // Each card's second line starts with the reading.
+    const read = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-meta').map((c) => c.props.children[0].split(' · ')[0]);
     const wrong = [];
     READINGS.forEach(([expr, want], i) => {
       if (read[i] !== want) wrong.push(`${JSON.stringify(expr)} read as ${JSON.stringify(read[i])}, expected ${JSON.stringify(want)}`);
@@ -2236,20 +2237,19 @@ console.log('\nbackground sessions');
   const api = sandbox.window;
   const tree = api.__cceSchedule(h);
   const flat = JSON.stringify(calls);
-  if (tree && flat.includes('5 background sessions') && flat.includes('Waiting for you: decide which of the two copies')) {
+  if (tree && calls.some((c) => c.props && c.props['data-cce-map-head'] === 'claude --bg sessions') && calls.some((c) => c.props && c.props.className === 'cce-map-count' && c.props.children[0] === '5')
+      && flat.includes('Waiting for you: decide which of the two copies')) {
     ok('the agent map lists this conversation\'s sessions, a waiting one saying what it waits for');
   } else bad('the section did not render the sessions as expected');
   {
-    const spans = calls.filter((c) => c.type === 'span' && c.props && c.props.style && c.props.style.color
-      && Array.isArray(c.props.children) && typeof c.props.children[0] === 'string');
-    const tone = (re) => spans.filter((c) => re.test(c.props.children[0])).map((c) => c.props.style.color);
-    const states = { running: 'charts-green', 'waiting for you': 'editorWarning', done: 'charts-blue', stopped: 'descriptionForeground', failed: 'errorForeground' };
-    const rows = Object.entries(states).filter(([word]) => tone(new RegExp('^' + word + '$')).length);
-    const rowsRight = rows.every(([word, v]) => tone(new RegExp('^' + word + '$')).every((c) => c.includes(v)));
-    const heads = Object.entries(states).filter(([word, v]) => tone(new RegExp('^\\d+ ' + word + '$')).some((c) => c.includes(v)));
-    if (["running", "waiting for you", "done"].every((w) => rows.some(([r]) => r === w)) && rowsRight && heads.length === rows.length) {
-      ok(`each state has its own colour, on its row and counted in the heading (${rows.map(([w]) => w).join(', ')})`);
-    } else bad(`state colours: rows ${JSON.stringify(rows.map(([w]) => [w, tone(new RegExp('^' + w + '$'))]))}, heading counts for ${heads.map(([w]) => w)}`);
+    /* Each card's dot is the one Claude Code gives an agent in that state, and its second line starts with the state. */
+    const metas = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-meta').map((c) => c.props.children[0].split(' · ')[0]);
+    const dots = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-dot').map((c) => c.props['data-cce-map-dot']);
+    const want = { running: 'running', 'waiting for you': 'waiting', done: 'idle', stopped: 'failed', failed: 'failed' };
+    const pairs = metas.map((m, i) => [m, dots[i]]);
+    if (['running', 'waiting for you', 'done'].every((w) => metas.includes(w)) && pairs.every(([m, d]) => want[m] === d)) {
+      ok(`each session's card has the dot of its state and says the state (${[...new Set(metas)].join(', ')})`);
+    } else bad(`state dots: ${JSON.stringify(pairs)}`);
   }
   if (flat.includes('claude attach 1a2b3c4d') && flat.includes('claude logs 5e6f7a8b')) {
     ok('each session offers the commands to reach it, and nothing that opens it in this panel');
@@ -2305,7 +2305,8 @@ console.log('\nbackground sessions');
 
   sandbox.sigValue = (name) => (name === 'sessionId' ? 'someone-else' : undefined);
   calls.length = 0;
-  if (api.__cceSchedule(h) === null) ok("another conversation's sessions are not shown here");
+  const otherTree = api.__cceSchedule(h);
+  if (otherTree && otherTree.props.children.length === 1) ok("another conversation's sessions are not shown here");
   else bad("another conversation's sessions leaked into this panel");
 
   sandbox.sigValue = (name) => (name === 'sessionId' ? SID : undefined);
@@ -2314,7 +2315,7 @@ console.log('\nbackground sessions');
   const offTree = api.__cceSchedule(h);
   // The counts are held for half a second, so wait that out before asking the label again.
   const until = Date.now() + 600; while (Date.now() < until) { /* spin */ }
-  if (offTree === null && api.__cceAgentsLabel('3 agents', 3) === '3 agents') ok('switched off, nothing is drawn or counted');
+  if (offTree && offTree.props.children.length === 1 && api.__cceAgentsLabel('3 agents', 3) === '3 agents') ok('switched off, nothing is drawn or counted');
   else bad('the switch left the section or the count in place');
 
   fs.rmSync(root, { recursive: true, force: true });
@@ -2360,15 +2361,15 @@ console.log('\ndetached commands in the agent map');
   const api = make(SID);
   const tree = api.__cceSchedule(h);
   const flat = JSON.stringify(calls);
-  const codes = calls.filter((c) => c.type === 'code').map((c) => c.props.children[0]);
-  const lines = calls.filter((c) => c.type === 'div' && Array.isArray(c.props.children) && /^pid \d+/.test(c.props.children[0])).map((c) => c.props.children[0]);
-  same([!!tree, flat.includes('2 detached commands'), (codes[0] || '').length, (codes[0] || '').endsWith('\u2026'), codes[1], flat.includes('sleep 99')],
-    [true, true, 120, true, 'java -jar build-server.jar', false],
-    'the section lists this conversation\'s commands, newest first, a long one cut short, and none of another conversation\'s');
+  const titles = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-text').map((c) => c.props.children[0]);
+  const lines = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-meta').map((c) => c.props.children[0]);
+  same([!!tree, calls.some((c) => c.props && c.props['data-cce-map-head'] === 'Detached commands'), titles, flat.includes('sleep 99')],
+    [true, true, [long, 'java -jar build-server.jar'], false],
+    'the section lists this conversation\'s commands, newest first, and none of another conversation\'s; a job from an older build that carries no title is titled by its command');
   /* Just after midnight these start times fall on the previous day, and a row then shows the date as well. */
-  const started = (pid, ago) => new RegExp(`^pid ${pid} · started (?:[A-Z][a-z]{2} \\d{1,2} )?\\d\\d:\\d\\d \\(${ago} ago\\)$`);
+  const started = (pid, ago) => new RegExp(`^pid ${pid} · started (?:[A-Z][a-z]{2} \\d{1,2} )?\\d\\d:\\d\\d · ${ago}$`);
   same([started(4343, '2 min').test(lines[0] || ''), started(4242, '25 min').test(lines[1] || ''),
-    calls.some((c) => c.props && c.props.title === long)], [true, true, true], 'each row gives the pid and when it started, with the whole command on hover');
+    calls.some((c) => c.props && c.props['aria-label'] === `${long}\n${lines[0]}`)], [true, true, true], 'each card gives the pid, when it started and how long it has run, with the whole command on hover');
   const bare = calls.filter((c) => c.props && 'children' in c.props && !Array.isArray(c.props.children));
   same([bare.length, api.__cceAgentsLabel('3 agents', 3), api.__cceAgentsLabel('0 agents', 0), api.__cceScheduleCount()],
     [0, '3 agents · 2 detached', '2 detached', 2], 'the Agents button counts them first and opens for them alone');
@@ -2394,29 +2395,29 @@ console.log('\ndetached commands in the agent map');
     same(ticks.slice(2), [1, 2, 3], 'a scheduled prompt of this conversation coming or going in a later stylesheet redraws them as well, and another conversation\'s does not');
   }
   {
-    /* perl -e and the like: the row shows the arguments after the program, the hover the whole command. */
-    const det = require('../src/detached');
-    const relay = ['perl', '-e', 'use strict;\nmy ($port, $path) = @ARGV;', '2014', '/w/.sandbox/demo/cache.sock', 'cache-relay:demo:'].join('\0');
-    const label = det.labelOf(relay);
-    same([label, det.labelOf(['bash', '-c', 'python3 job.py'].join('\0')), det.labelOf(['python3', '-c', 'print(1)'].join('\0')),
-      det.labelOf(['node', 'server.js', '--port', '8080'].join('\0'))],
-    ['perl -e \u2026 2014 /w/.sandbox/demo/cache.sock cache-relay:demo:', '', '', ''],
-    'an interpreter\'s inline program is left out of the row, a shell\'s -c command and ordinary arguments are not');
-    const one = [{ session: SID, pid: 5151, start: '9', startedAt: Date.now() - 60000, kind: 'leader', command: 'perl -e use strict; my ($port) = @ARGV; 2014 /w/.sandbox/demo/cache.sock', label }];
+    /* perl -e and the like: the card shows the host's title, the hover the whole command; a window on an older build
+       hands over a label instead, which is shown in its place. */
+    const one = [{ session: SID, pid: 5151, start: '9', startedAt: Date.now() - 60000, kind: 'leader', command: 'perl -e use strict; 2014 /w/.sandbox/demo/cache.sock cache-relay:demo:',
+      title: 'perl -e \u2026 cache-relay:demo:' }];
     const packedOne = (webview.liveCss({ enabled: true, detached: one }).match(/--cce-detached:"([A-Za-z0-9+/=]+)"/) || [])[1] || '';
+    const older = Buffer.from(JSON.stringify([{ session: SID, pid: 5152, startedAt: Date.now() - 60000, command: 'perl -e 1 relay', label: 'perl -e \u2026 relay' }])).toString('base64');
     const saved = props['--cce-detached'];
-    props['--cce-detached'] = `"${packedOne}"`;
-    calls.length = 0;
-    make(SID).__cceSchedule(h);
+    const titled = (packedValue) => {
+      props['--cce-detached'] = `"${packedValue}"`;
+      calls.length = 0;
+      make(SID).__cceSchedule(h);
+      const text = calls.find((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-text');
+      const card = calls.find((c) => c.props && c.props.className === 'cce-map-card');
+      return [text && text.props.children[0], card && card.props['aria-label'].split('\n')[0]];
+    };
+    const got = [titled(packedOne), titled(older)];
     props['--cce-detached'] = saved;
-    const code = calls.find((c) => c.type === 'code');
-    const row = calls.find((c) => c.type === 'div' && c.props && c.props.title === one[0].command);
-    same([code && code.props.children[0], !!row], [label, true], 'the row shows that shorter text, and the whole command line on hover');
+    same(got, [[one[0].title, one[0].command], ['perl -e \u2026 relay', 'perl -e 1 relay']], 'the card shows that title, and the whole command line on hover');
   }
   const other = make('abcdef01-0000-4000-8000-000000000003');
   offNow.on = true;
   const offApi = make(SID);
-  same([other.__cceSchedule(h), offApi.__cceSchedule(h), offApi.__cceAgentsLabel('3 agents', 3)], [null, null, '3 agents'],
+  same([other.__cceSchedule(h).props.children.length, offApi.__cceSchedule(h).props.children.length, offApi.__cceAgentsLabel('3 agents', 3)], [1, 1, '3 agents'],
     'a conversation with none, or the switch off, shows and counts nothing');
 }
 
@@ -2475,12 +2476,15 @@ console.log('\nworkers in the agent map, and the dots that follow background wor
   calls.length = 0;
   api.__cceSchedule(h);
   const shown = texts();
-  same([shown.includes('2 workers · claude -p, started from this conversation'), shown.includes('joinwin-1b'), shown.includes('running'),
-    shown.includes(' · for 2h'), shown.includes(`session ${W} · pid 7001`), shown.includes('inner-check'), shown.includes('idle'),
-    shown.includes('1 detached command · running, started from this conversation'), shown.includes('sleep 999'),
+  const hovers = calls.filter((c) => c.props && c.props.className === 'cce-map-card').map((c) => c.props['aria-label'] || '');
+  const dotsOf = calls.filter((c) => c.props && c.props.className === 'cce-map-dot').map((c) => c.props['data-cce-map-dot']);
+  same([calls.some((c) => c.props && c.props['data-cce-map-head'] === 'claude -p sessions'), shown.includes('joinwin-1b'), shown.includes('inner-check'),
+    shown.some((t) => /^pid 7001 · started (?:[A-Z][a-z]{2} \d{1,2} )?\d\d:\d\d · 2h$/.test(t)), hovers.some((x) => x.startsWith(`claude -p session ${W} · running\npid 7001 · `)),
+    hovers.some((x) => x.startsWith(`claude -p session ${INNER} · idle\npid 7002 · `)), dotsOf.filter((d) => d === 'running').length >= 2, dotsOf.includes('idle'),
+    calls.some((c) => c.props && c.props['data-cce-map-head'] === 'Detached commands'), shown.includes('sleep 999'),
     JSON.stringify(calls).includes('setsid nohup claude -p go'), JSON.stringify(calls).includes('theirs')],
-  [true, true, true, true, true, true, true, true, true, false, false],
-  'the map lists the workers with name, state, running time, session id and pid, and leaves out the shell that holds one; another conversation\'s worker is not shown');
+  [true, true, true, true, true, true, true, true, true, true, false, false],
+  'the map lists the workers with name, pid, start and running time, their session id and state on hover, and leaves out the shell that holds one; another conversation\'s worker is not shown');
   same([api.__cceAgentsLabel('0 agents', 0), api.__cceAgentsLabel('2 agents', 2), api.__cceScheduleCount()],
     ['1 detached · 1 worker', '2 agents · 1 detached · 1 worker', 3],
     'the button counts the worker once, not its shell, and not one still inside a Bash call of this conversation, and opens for them');
@@ -2535,6 +2539,151 @@ console.log('\nworkers in the agent map, and the dots that follow background wor
   [null, null, { dot: 'running', title: 'says running (idle -> running)', label: '0 agents · 1 task' },
     { dot: 'waiting', title: 'says waiting', label: '2 agents' }, { state: 'idle', ring: true }, { state: 'running' }],
   'the button takes its dot, label and hover text from the page and the map\'s own row its dot; without the page both are Claude Code\'s');
+}
+
+/* The agent map's look, the page side: a heading over the conversation's own row, a section per kind of work with a
+   heading of its own (a label and a count), every row in Claude Code's card form, empty sections left out, and Claude
+   Code's two headings given the same look from their own words - and left alone when worded otherwise. The host side:
+   the title a detached command's card carries. */
+console.log('\nthe agent map: headings, sections and cards');
+{
+  const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+  const det = require('../src/detached');
+  const argv = (...a) => a.join('\0');
+  const snap = (cmd) => argv('/bin/bash', '-c', 'source /h/.claude/shell-snapshots/snapshot-bash-1-a.sh 2>/dev/null || true && '
+    + "\\builtin shopt -u extglob 2>/dev/null || true && eval '" + cmd + "' < /dev/null && pwd -P >| /tmp/claude-1-cwd");
+  same(typeof det.titleOf === 'function' ? [
+    det.titleOf(argv('perl', '-e', 'use strict;\nmy ($port) = @ARGV;', '2014', '/w/.sandbox/demo/cache.sock', 'cache-relay:demo:')),
+    det.titleOf(snap('sleep 2700; echo check')),
+    det.titleOf(snap("echo it'\\''s here")),
+    det.titleOf(argv('/bin/bash', '-c', 'source /h/.claude/shell-snapshots/snapshot-bash-1-a.sh && ( setsid nohup claude -p go & )')),
+    det.titleOf(argv('bash', '-c', 'python3 job.py\nsecond line')),
+    det.titleOf(argv('/usr/bin/python3', '/srv/app/serve.py', '--port', '8000')),
+    det.titleOf(argv('python3', '-c', 'print(1)')),
+    det.titleOf(argv('java', '-jar', 'build-server.jar')),
+    det.titleOf(argv('timeout', '600', 'node', '/x/y/run.js')),
+    det.titleOf(argv('/lib64/ld-linux-x86-64.so.2', '--library-path', '/x', '/opt/aws/dist/aws', 's3', 'sync')),
+    det.titleOf(argv('sleep', '1800')),
+    det.titleOf(argv('top')),
+    det.titleOf(argv('python3', 'x'.repeat(100))).length,
+  ] : 'no titleOf', [
+    'perl -e \u2026 cache-relay:demo:', 'sleep 2700; echo check', "echo it's here", '( setsid nohup claude -p go & )',
+    'bash -c python3 job.py', 'python3 serve.py', 'python3 -c print(1)', 'java build-server.jar', 'node run.js', 'aws s3',
+    'sleep 1800', 'top', 'python3 '.length + 60,
+  ], 'a detached command\'s card is titled by its program and the argument that tells what it runs: the command a Bash tool shell was given, '
+    + 'a shell\'s -c string, the last argument after an inline program, a script by its file name, each part cut short');
+  const SID = 'abcdef01-0000-4000-8000-000000000031';
+  const jobs = [{ session: SID, pid: 4242, start: '9', startedAt: Date.now() - 25 * 60000, kind: 'leader',
+    command: 'perl -e use strict; 2014 /w/.sandbox/demo/cache.sock cache-relay:demo:', title: 'perl -e \u2026 cache-relay:demo:' }];
+  const prop = (css, name) => (css.match(new RegExp(`${name}:"([A-Za-z0-9+/=]+)"`)) || [])[1] || '';
+  const sheet = webview.liveCss({ enabled: true, detached: jobs,
+    tasks: [{ id: 'cafe1234', cron: '*/20 * * * *', recurring: true, session: SID, project: '/p', prompt: 'Check the build.\nThen report.',
+      lastFiredAt: Date.now() - 7 * 60000 }, { id: 'cafe5678', cron: '30 9 * * *', recurring: true, session: SID, project: '/p', prompt: '' }],
+    workers: [{ session: SID, id: 'abcdef01-0000-4000-8000-000000000041', pid: 7001, name: 'notes-worker', status: 'shell', startedAt: Date.now() - 3 * 60000 }],
+    background: [{ session: SID, id: '1a2b3c4d', name: 'nightly', state: 'working', startedAt: Date.now() - 60000, tokens: 12000, detail: 'reading' },
+      { session: SID, id: '5e6f7a8b', name: 'weekly', state: 'done', endedAt: Date.now() - 120000, result: 'all done' },
+      { session: SID, id: '9c0d1e2f', name: 'third', state: 'stopped', endedAt: Date.now() - 120000 }] });
+  same(JSON.parse(Buffer.from(prop(sheet, '--cce-detached'), 'base64').toString('utf8'))[0].title, 'perl -e \u2026 cache-relay:demo:',
+    'the title rides in the stylesheet with the command');
+  /* A stand-in document: the dialog's two headings as Claude Code words them, one it words otherwise, and one tagged
+     before whose words have since changed. */
+  const node = (text, attrs = {}) => ({ textContent: text, attrs, getAttribute: (k) => (k in attrs ? attrs[k] : null),
+    setAttribute: (k, v) => { attrs[k] = String(v); }, removeAttribute: (k) => { delete attrs[k]; } });
+  const heads = [node('2 agents · click an agent for details'), node('1 background task · click a task for details'),
+    node('0 agents · click an agent for details'), node('Two helpers are running'),
+    node('Helpers: 3', { 'data-cce-map-cc': 'Subagents', 'data-cce-map-count': '3' })];
+  const styles = [];
+  /* The page reads Claude Code's headings in a microtask after the render; here that task is run by hand. */
+  const queued = [];
+  const microtask = { resolve: () => ({ then: (fn) => { queued.push(fn); } }) };
+  const make = (sheetText, sid = SID, withDom = true) => {
+    const props = {};
+    for (const n of ['--cce-workers', '--cce-detached', '--cce-schedule', '--cce-background']) props[n] = `"${prop(sheetText, n)}"`;
+    const env = {
+      window: {}, navigator: {}, console, TextDecoder, Promise: microtask,
+      document: withDom ? { documentElement: {}, head: { appendChild: (e) => styles.push(e) },
+        createElement: (t) => ({ tag: t, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } }),
+        querySelectorAll: (sel) => (/subtitle_/.test(sel) && /tasksHeader_/.test(sel) && /\[role="dialog"\]/.test(sel) ? heads : []) } : { documentElement: {} },
+      getComputedStyle: () => ({ getPropertyValue: (name) => props[name] || '' }),
+      atob: (x) => Buffer.from(x, 'base64').toString('binary'),
+      sigValue: (name) => (name === 'sessionId' ? sid : undefined),
+      isOff: () => false,
+      setLabel: (el, text) => el.setAttribute('aria-label', text),
+    };
+    new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '82-scheduled-tasks.js'), 'utf8')}})()`,
+      { filename: '82-scheduled-tasks.js' }).runInNewContext(env);
+    return env.window;
+  };
+  const h = (type, props) => ({ type, props: props || {} });
+  const kids = (e) => (e && Array.isArray(e.props.children) ? e.props.children : []);
+  const text = (e) => (typeof e === 'string' ? e : kids(e).map(text).join(''));
+  const all = (e, out = []) => { if (e && typeof e === 'object') { out.push(e); kids(e).forEach((k) => all(k, out)); } return out; };
+  const cls = (e) => String((e && e.props.className) || '');
+  const api = make(sheet);
+  const tree = api.__cceSchedule(h);
+  api.__cceSchedule(h);
+  const putOnce = styles.length;
+  const parts = kids(tree);
+  const sections = parts.filter((p) => p.props['data-cce-map-section']);
+  const headOf = (s) => kids(s)[0];
+  same([tree && tree.props['data-cce-map'], parts[0] && parts[0].props['data-cce-map-me'], text(parts[0]), sections.map((s) => s.props['data-cce-map-section'])],
+    ['1', '1', 'This conversation', ['detached', 'scheduled', 'workers', 'background']],
+    'the map gets a heading for the conversation\'s own row, then a section for each kind of work there is, in a fixed order');
+  same(sections.map((s) => [cls(headOf(s)).includes('cce-map-head'), headOf(s).props['data-cce-map-head'],
+    text(kids(headOf(s)).find((k) => cls(k) === 'cce-map-count')), !!headOf(s).props['aria-label']]),
+  [[true, 'Detached commands', '1', true], [true, 'Scheduled prompts', '2', true], [true, 'claude -p sessions', '1', true],
+    [true, 'claude --bg sessions', '3', true]],
+  'each section is headed by a short label and its count, with the longer note as hover text');
+  const cards = all(tree).filter((e) => cls(e) === 'cce-map-card');
+  const form = cards.map((c) => {
+    const [line, meta] = kids(c);
+    const dot = kids(line).find((k) => cls(k) === 'cce-map-dot');
+    return { parts: kids(c).length, dot: dot && dot.props['data-cce-map-dot'], title: text(kids(line).find((k) => cls(k) === 'cce-map-text')), meta: text(meta),
+      line: cls(line), metaClass: cls(meta) };
+  });
+  same([cards.length, form.every((f) => f.parts === 2 && f.line === 'cce-map-title' && f.metaClass === 'cce-map-meta' && f.title && f.meta)],
+    [7, true], 'every row the map gets from this page is a card of a dot, a title line and one line under it');
+  const started = (ago) => `started (?:[A-Z][a-z]{2} \\d{1,2} )?\\d\\d:\\d\\d · ${ago}`;
+  const at = (kind) => form[cards.findIndex((c) => c.props['data-cce-map-card'] === kind)] || {};
+  const hover = (kind) => (cards.find((c) => c.props['data-cce-map-card'] === kind) || { props: {} }).props['aria-label'];
+  const bg = cards.filter((c) => c.props['data-cce-map-card'] === 'background').map((c) => form[cards.indexOf(c)]);
+  same([at('detached').dot, at('detached').title, new RegExp(`^pid 4242 · ${started('25 min')}$`).test(at('detached').meta),
+    hover('detached') === jobs[0].command + '\n' + at('detached').meta],
+  ['running', 'perl -e \u2026 cache-relay:demo:', true, true],
+  'a detached command\'s card: a green dot, the host\'s title, its pid, start and running time, and the whole command line on hover');
+  const sched = cards.filter((c) => c.props['data-cce-map-card'] === 'schedule').map((c) => form[cards.indexOf(c)]);
+  same(sched.map((f) => [f.dot, f.title, f.meta]), [['idle', 'Check the build.', 'every 20 min · last fired 7 min ago'],
+    ['idle', '(the prompt was not recorded)', 'daily at 9:30 · never fired']],
+  'a scheduled prompt\'s card: a grey dot, the first line of the prompt, when it fires and when it last did');
+  same([at('worker').dot, at('worker').title, new RegExp(`^pid 7001 · ${started('3 min')}$`).test(at('worker').meta),
+    /claude -p session abcdef01-0000-4000-8000-000000000041 · running a command/.test(hover('worker') || '')],
+  ['running', 'notes-worker', true, true], 'a worker\'s card: its name, pid, start and running time, with its session id and state on hover');
+  same(bg.map((f) => [f.title, f.dot, String(f.meta).split(' · ')[0], String(f.meta).split(' · ').pop()]),
+    [['third', 'failed', 'stopped', '9c0d1e2f'], ['weekly', 'idle', 'done', '5e6f7a8b'], ['nightly', 'running', 'running', '1a2b3c4d']],
+  'a claude --bg session\'s card takes the dot Claude Code gives an agent in that state, and says the state, newest first');
+  const opened = all(tree).filter((e) => e.type === 'details' && cls(e) === 'cce-map-item');
+  same([opened.length, opened.every((d) => kids(d)[0].type === 'summary' && cls(kids(d)[0]) === 'cce-map-card' && cls(kids(d)[1]) === 'cce-map-body'),
+    all(tree).some((e) => e.type === 'pre' && text(e) === 'Check the build.\nThen report.'), all(tree).some((e) => e.type === 'button' && text(e) === 'claude attach 5e6f7a8b')],
+  [5, true, true, true], 'a card with more to show opens it below on a click: a prompt, a session\'s result and the commands that reach it');
+  const bare = all(tree).filter((e) => 'children' in e.props && !Array.isArray(e.props.children));
+  same(bare.length, 0, 'every element passes its children as an array');
+  /* Nothing of the kinds this page lists: the heading over the conversation's row only. */
+  const empty = make(webview.liveCss({ enabled: true })).__cceSchedule(h);
+  same([kids(empty).length, kids(empty)[0] && kids(empty)[0].props['data-cce-map-me']], [1, '1'], 'with nothing to list, no section and no empty heading is drawn');
+  same(kids(make(sheet, 'abcdef01-0000-4000-8000-000000000099').__cceSchedule(h)).length, 1, 'another conversation\'s work is not listed');
+  /* Claude Code's headings, once the render that drew them has run. */
+  {
+    while (queued.length) queued.shift()();
+    same(heads.map((e) => [e.attrs['data-cce-map-cc'] || null, e.attrs['data-cce-map-count'] || null, e.attrs['aria-label'] || null]),
+      [['Subagents', '2', 'Click an agent for details.'], ['Background tasks', '1', 'Click a task for details.'], ['Subagents', '0', 'Click an agent for details.'],
+        [null, null, null], [null, null, null]],
+      'Claude Code\'s headings get a label and a count from their own words, the hint as hover text; worded otherwise they are left as they are');
+    const css = styles.map((e) => e.textContent || '').join('\n');
+    same([putOnce, /\[data-cce-map-cc\]\[data-cce-map-count="0"\]\{display:none/.test(css), /display:contents/.test(css),
+      /:has\(>\[class\*="tree_"\]>\[class\*="node_"\]>\[class\*="rowMain_"\]\)/.test(css), /\.cce-map-head[^{]*\{[^}]*border-top:1px solid/.test(css)],
+    [1, true, true, true, true],
+    'the stylesheet goes in once: it hides the empty agents heading, and moves the rows only where the dialog has the shape it was written against');
+  }
 }
 
 /* Images in replies, the page side: a data: image drawn at once, a local file asked of the host and drawn from its

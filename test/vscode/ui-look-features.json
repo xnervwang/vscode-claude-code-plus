@@ -28,8 +28,11 @@
       "settings": ["claudeCodePlus.show.footerInfo"] },
     { "id": "reply-images", "what": "An image a reply gives by path is drawn at most 640 by 480 px; a click shows a scaled-down one large and a click or Escape closes it; an image at a web address stays a link; switched off, an image shows as its text and path.",
       "settings": ["claudeCodePlus.show.replyImages"] },
-    { "id": "agent-map", "what": "The footer's button that counts background work, its dot green while any of that work runs, and the map it opens: claude -p workers, commands left running detached, scheduled prompts, background sessions, and the conversation's own row with the dot its tab has.",
-      "settings": ["claudeCodePlus.show.detachedCommands"] },
+    { "id": "agent-map", "what": "The footer's button that counts background work, its dot green while any of that work runs, and the map it opens: the conversation's own row first, under a heading of its own and with the dot its tab has, then a section for each kind of work - Claude Code's subagents and background tasks, commands left running detached, scheduled prompts, claude -p workers and claude --bg sessions - each under a heading in capitals with its count and a line above it, and each row of this extension's a card in Claude Code's form: a dot, a title line and a line under it.",
+      "settings": ["claudeCodePlus.show.detachedCommands"],
+   "window": [
+    "the agent map's sections"
+   ] },
     { "id": "background-sessions", "what": "The claude --bg sessions a conversation started: counted on its Agents button, whose dot is green while one runs, listed in its agent map with each state in its own colour, and kept once done, with the result.",
       "settings": ["claudeCodePlus.show.backgroundSessions"], "window": ["a claude --bg session"] },
     { "id": "quiet-replies", "what": "A message from another conversation that got only a quiet reply (a dash) leaves nothing on screen: no dot, no fold row, no blank line." },
