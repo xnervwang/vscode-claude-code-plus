@@ -398,13 +398,18 @@ function start(context, log, renamed, handing = false) {
   };
   /* Never after Remove, which has just taken these files out of Claude Code's folder: a scan finishing afterwards would
      put them back. */
+  /* A failed write is tried again a second later, up to five times, rather than waiting for the next change: what it
+     could not put out is owed (src/webview.js) and goes with the next try. */
+  let liveAgain = 0, liveFails = 0;
   const writeLiveNow = () => {
     if (removed() || uninstalling() || replaced()) return;
     try {
       const opts = options();
       for (const dir of installs(webview)) webview.writeLive(dir, opts);
+      liveFails = 0;
     } catch (e) {
       log.appendLine('live refresh failed: ' + e.message);
+      if (!liveAgain && ++liveFails <= 5) liveAgain = setTimeout(() => { liveAgain = 0; writeLiveNow(); }, 1000);
     }
   };
   /* Reads what the conversation in front of the reader has added to its transcript since last time - the only one, since

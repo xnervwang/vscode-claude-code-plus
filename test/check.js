@@ -1480,6 +1480,59 @@ console.log('\nreply efforts');
     fs.rmSync(inst, { recursive: true, force: true });
   }
 
+  /* A revision image that could not be replaced, as Windows refuses while the panel has it open: the stylesheet or the
+     efforts beside it were written already, so the same content again must still move the counter, or the panel never
+     loads them. Seen in CI on Windows, where a switch turned back on did not reach the panel. */
+  {
+    const inst2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-rev-owed-'));
+    const realRename = fs.renameSync;
+    let refuse = 0;
+    fs.renameSync = function (from, to) {
+      if (refuse > 0 && path.basename(to) === 'claude-code-extras.rev.svg') {
+        refuse--;
+        throw Object.assign(new Error(`EPERM: operation not permitted, rename '${from}' -> '${to}'`), { code: 'EPERM' });
+      }
+      return realRename.apply(this, arguments);
+    };
+    try {
+      fs.mkdirSync(path.join(inst2, 'webview'));
+      const rev = () => {
+        const t = fs.readFileSync(path.join(inst2, 'webview', 'claude-code-extras.rev.svg'), 'utf8');
+        return [Number(/width="(\d+)"/.exec(t)[1]), Number(/height="(\d+)"/.exec(t)[1])];
+      };
+      const sid = 'dddddddd-2222-4333-8444-555555555555';
+      webview.writeLive(inst2, { enabled: true });
+      webview.writeEffort(inst2, sid, '#cce-effort{--cce-effort:"x"}\n');
+      const r0 = rev();
+      const threw = (f) => { try { f(); return false; } catch (_) { return true; } };
+      refuse = 2;
+      const liveThrew = threw(() => webview.writeLive(inst2, { enabled: true, userColor: '#90EE90' }));
+      const r1 = rev();
+      const liveAgain = webview.writeLive(inst2, { enabled: true, userColor: '#90EE90' });
+      const r2 = rev();
+      const liveThird = webview.writeLive(inst2, { enabled: true, userColor: '#90EE90' });
+      refuse = 2;
+      const effortThrew = threw(() => webview.writeEffort(inst2, sid, '#cce-effort{--cce-effort:"y"}\n'));
+      const r3 = rev();
+      const effortAgain = webview.writeEffort(inst2, sid, '#cce-effort{--cce-effort:"y"}\n');
+      const r4 = rev();
+      if (liveThrew && r1.join() === r0.join() && liveAgain === true && r2[0] === r0[0] + 1 && r2[1] === r0[1]
+        && liveThird === false && effortThrew && r3.join() === r2.join() && effortAgain === true
+        && r4[0] === r2[0] && r4[1] === r2[1] + 1) {
+        ok('a revision the rename refused is moved by the next write of the same content, and only once');
+      } else bad(`refused renames: revisions went ${JSON.stringify([r0, r1, r2, r3, r4])}; the stylesheet threw ${liveThrew}, `
+        + `then wrote ${liveAgain}, ${liveThird}; the efforts threw ${effortThrew}, then wrote ${effortAgain}`);
+    } finally {
+      fs.renameSync = realRename;
+      fs.rmSync(inst2, { recursive: true, force: true });
+    }
+    const extLive = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    const liveFn = (/const writeLiveNow = \(\) => \{[\s\S]*?\n  \};/.exec(extLive) || [''])[0];
+    if (/catch \(e\) \{[\s\S]*setTimeout\(\(\) => \{[^}]*writeLiveNow\(\)/.test(liveFn)) {
+      ok('a live refresh that failed is tried again on a timer, not only at the next change');
+    } else bad('a failed live refresh waits for the next change of settings or sessions before it is tried again');
+  }
+
   /* The whole way through, in a browser: the revision probe sees the height, the page loads its conversation's file,
      and every reply shows the effort of the run it falls in - the ones settled before the file arrived included, and
      none past the last reply read. */

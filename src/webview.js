@@ -848,12 +848,26 @@ function readRev(rev) {
   const num = (re) => Number((text.match(re) || [])[1]) || 0;
   return { w: num(/width="(\d+)"/), h: num(/height="(\d+)"/) };
 }
-/** Move one of the two counters, `w` or `h`, keeping the other as it stands. */
+/*
+ * Counters that could not be moved, by image. The file the counter announces was written first, so the next write of the
+ * same content finds nothing to do, and without this the panel would never load it. Windows refuses to rename over a
+ * file another process holds open, and the panel fetches this image every few seconds.
+ */
+const owedRev = new Map();
+/** Move one of the two counters, `w` or `h`, and any that a failed write still owes, keeping the other as it stands. */
 function bumpRev(rev, which) {
+  const owed = new Set(owedRev.get(rev) || []);
+  if (which) owed.add(which);
   const r = readRev(rev);
   const next = (n) => (n % 60000) + 1;
-  const w = which === 'w' ? next(r.w) : r.w || 1, h = which === 'h' ? next(r.h) : r.h || 1;
-  writeAtomic(rev, `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"></svg>`);
+  const w = owed.has('w') ? next(r.w) : r.w || 1, h = owed.has('h') ? next(r.h) : r.h || 1;
+  try {
+    writeAtomic(rev, `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"></svg>`);
+  } catch (e) {
+    owedRev.set(rev, owed);
+    throw e;
+  }
+  owedRev.delete(rev);
 }
 
 /** Write the live settings. Bumps the revision only when the stylesheet actually changed. Returns true if changed. */
@@ -863,7 +877,11 @@ function writeLive(claudeExtensionPath, opts = {}) {
   const next = liveCss(opts);
   let current = null;
   try { current = fs.readFileSync(css, 'utf8'); } catch (_) {}
-  if (current === next && fs.existsSync(rev)) return false;
+  if (current === next && fs.existsSync(rev)) {
+    if (!owedRev.has(rev)) return false;
+    bumpRev(rev);
+    return true;
+  }
   /*
    * Leave alone what a newer build of this extension wrote.
    *
@@ -902,9 +920,14 @@ function writeEffort(claudeExtensionPath, session, text) {
   const file = path.join(dir, EFFORT_PREFIX + session + '.css');
   let current = null;
   try { current = fs.readFileSync(file, 'utf8'); } catch (_) {}
-  if (current === text) return false;
+  const { rev } = liveFiles(claudeExtensionPath);
+  if (current === text) {
+    if (!owedRev.has(rev)) return false;
+    bumpRev(rev);
+    return true;
+  }
   writeAtomic(file, text);
-  bumpRev(liveFiles(claudeExtensionPath).rev, 'h');
+  bumpRev(rev, 'h');
   return true;
 }
 
