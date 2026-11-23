@@ -434,10 +434,10 @@ async function noticeCards(d) {
       fs.writeFileSync(file + '.tmp', JSON.stringify({ format: 1, at: Date.now(), items: o.items, front: [] }) + '\n');
       fs.renameSync(file + '.tmp', file);
     };
-    o.report = (i, activity) => {
+    o.report = (i, activity, title = NOTICE_TITLES[i][0]) => {
       const id = `c1c1c1c1-0000-4000-8000-00000000000${i + 1}`;
       o.items = o.items.filter((x) => x.sessionId !== id).concat([{ sourceId: 'claude-code', source: 'Claude Code', sessionId: id,
-        title: NOTICE_TITLES[i][0], cwd: d.profile.folder, state: activity === 'waiting' ? 'prompt' : activity === 'working' ? 'working' : 'unread',
+        title, cwd: d.profile.folder, state: activity === 'waiting' ? 'prompt' : activity === 'working' ? 'working' : 'unread',
         activity, unseen: activity === 'stopped', steward: false, since: Date.now() }]);
       o.write();
     };
@@ -479,7 +479,38 @@ async function noticeCardsOff(d) {
   if (noticeOther) { clearInterval(noticeOther.timer); noticeOther = null; }
   await d.exec('agentPlus.dismissAttention').catch(() => {});
   await setting(d, 'agentPlus.notifications.style', null);
+  await setting(d, 'agentPlus.notifications.cards', null);
   await d.sleep(1500);
+}
+/* agentPlus.notifications.cards set to `mode`, once Agent Plus has it; and a page's stack once it draws what that mode
+   draws of the cards kept. */
+async function noticeMode(d, mode) {
+  const has = await d.call(`const p = vscode.extensions.getExtension('xnervwang.agent-plus').packageJSON;
+    return !!((p.contributes.configuration || {}).properties || {})['agentPlus.notifications.cards'];`);
+  if (!has) throw new Error('the Agent Plus in this window has no agentPlus.notifications.cards; give --core a build that has it');
+  await setting(d, 'agentPlus.notifications.cards', mode === 'normal' ? null : mode);
+  await d.sleep(1500);
+}
+/* Conversation `i` of the other window works for a moment and then needs the user, as `title`; the page whose stack then
+   draws its card, with `where` choosing among the pages that do. */
+async function noticeArrive(d, i, title, kind, where = () => true) {
+  noticeOther.report(i, 'working', title);
+  await d.sleep(2500);
+  noticeOther.report(i, kind === 'waiting' ? 'waiting' : 'stopped', title);
+  return d.frameWhere((t) => [...document.querySelectorAll('[data-ap-stack] [data-ap-card] [data-ap-title]')].some((e) => e.textContent === t), 30000, title)
+    .then(async (f) => { for (const g of d.page.frames()) { try { if (await g.evaluate((t) => [...document.querySelectorAll('[data-ap-card] [data-ap-title]')].some((e) => e.textContent === t), title)
+      && await where(g)) return g; } catch (_) { /* not this page */ } } return f; });
+}
+/* The right end of the status bar, where Agent Plus's entries are. */
+async function noticeStatus(d) {
+  const s = await d.part('workbench.parts.statusbar');
+  if (!s) throw new Error('no status bar');
+  return { x: s.x + s.width - 640, y: s.y - 4, width: 640, height: s.height + 8 };
+}
+/* Agent Plus's entry for the mode once it names `name`. */
+async function noticeEntry(d, name) {
+  await d.until(() => d.page.evaluate((n) => { const e = document.getElementById('xnervwang.agent-plus.agentPlus.cardMode');
+    return !!e && e.offsetParent && e.innerText.includes(n); }, name), 15000, 300);
 }
 
 const STEPS = [
@@ -2361,8 +2392,8 @@ const STEPS = [
     expect: 'The same stack with the third card from the front pointed at and given the keyboard focus: that card, a red dot, '
       + '"Waiting for you" and "Write the release notes for 1.3", is drawn out whole above the two cards in front of it, with the '
       + 'top edge of the second card showing between it and the front card, and the top edge of the fourth card above it; it may '
-      + 'have a thin focus outline. Over the stack, a grey pill "4 notices" and a "Dismiss all" button. No text of one card is '
-      + 'drawn over another card.',
+      + 'have a thin focus outline. Over the stack, a grey pill "4 notices" and the buttons "Fold", "Do not disturb" and "Dismiss all", '
+      + 'each readable and none cut off. No text of one card is drawn over another card.',
     unchanged: 'The conversation, the message box and the front card are as before.',
     act: async (d) => { const f = await noticeCards(d); await noticePull(d, f, 2); return noticeArea(d, f, 240); },
     undo: async (d) => {
@@ -2395,6 +2426,121 @@ const STEPS = [
       return aux;
     },
     undo: async (d) => { await d.exec('workbench.action.closeAuxiliaryBar'); await noticeCardsOff(d); },
+  },
+  /* The three modes of the cards (agentPlus.notifications.cards): a card in Folded before it goes, the bar's buttons for
+     the modes, and Agent Plus's status bar entry for each mode. */
+  {
+    name: 'notice-cards-folded', features: ['notice-cards'],
+    expect: 'The bottom right of the demo conversation in a wide editor tab, in the dark theme: just above the message box and level '
+      + 'with its right edge, one card alone, a red dot, "Waiting for you", how long ago ("just now"), an x, and the title "Deploy the '
+      + 'hotfix to staging". No other card peeks out above it, although four more conversations still need you, and no grey pill or '
+      + 'button is over it. The message box is uncovered.',
+    act: async (d) => {
+      let f = await noticeCards(d);
+      await noticeMode(d, 'folded');
+      await d.until(() => f.evaluate(() => !document.querySelector('[data-ap-stack] [data-ap-card]')).catch(() => false), 15000, 300);
+      await d.away();
+      f = await noticeArrive(d, 4, 'Deploy the hotfix to staging', 'waiting', async (g) => !!(await g.locator('body').boundingBox()) && (await g.locator('body').boundingBox()).width > 400);
+      await d.sleep(600);
+      return noticeArea(d, f);
+    },
+    undo: async (d) => { await noticeMode(d, 'normal'); },
+  },
+  {
+    name: 'notice-cards-folded-sidebar', features: ['notice-cards', 'narrow-panel', 'light-theme'],
+    expect: 'Claude Code in the secondary side bar, about 300 px wide, in the light theme, showing another conversation: just above its '
+      + 'message box and as wide as it, one card alone, a green dot, "Finished", how long ago and an x on its first line, and the title '
+      + '"Answer the question about the retry limit" on the second, cut with an ellipsis if it does not fit. No card peeks out above it. '
+      + 'Light card, dark text, every word readable; the message box and its footer uncovered.',
+    act: async (d) => {
+      await noticeCards(d);
+      await theme(d, 'Default Light Modern');
+      await d.exec('claude-vscode.editor.open', d.threads[0].id, undefined, undefined, undefined, undefined, { programmatic: 'cce-pin-to-sidebar' });
+      await d.sleep(5000);
+      const aux = await d.part('workbench.parts.auxiliarybar');
+      if (!aux) throw new Error('the secondary side bar did not open');
+      await noticeMode(d, 'folded');
+      await d.away();
+      await noticeArrive(d, 5, 'Answer the question about the retry limit', 'finished',
+        async (g) => { const b = await g.locator('body').boundingBox(); return !!b && b.x >= aux.x - 2; });
+      await d.sleep(600);
+      return aux;
+    },
+    undo: async (d) => { await d.exec('workbench.action.closeAuxiliaryBar'); await theme(d, 'Default Dark Modern'); await noticeMode(d, 'normal'); await d.sleep(1500); },
+  },
+  {
+    name: 'notice-cards-modes-light', features: ['notice-cards', 'light-theme'],
+    expect: 'The stack of cards in the light theme, in a wide editor tab, with the second card from the front pointed at and given the '
+      + 'keyboard focus, so it is drawn out whole above the front card. Over the stack, in one row: a grey pill counting the notices, '
+      + 'and the buttons "Fold", "Do not disturb" and "Dismiss all", each with a thin border, dark text on a light ground, readable and '
+      + 'none cut off or drawn over a card.',
+    act: async (d) => {
+      await theme(d, 'Default Light Modern');
+      await d.sleep(2000);
+      const f = await noticeCards(d);
+      await noticeMode(d, 'normal');
+      await noticePull(d, f, 1);
+      return noticeArea(d, f, 240);
+    },
+    undo: async (d) => {
+      const f = await noticePage(d);
+      await f.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
+      await rest(d, f);
+      await d.away();
+      await theme(d, 'Default Dark Modern');
+      await d.sleep(2000);
+    },
+  },
+  {
+    name: 'notice-cards-modes-sidebar', features: ['notice-cards', 'narrow-panel'],
+    expect: 'Claude Code in the secondary side bar, about 300 px wide, in the dark theme, with its stack of cards and the second card '
+      + 'from the front drawn out above the front card. Over the stack, the grey pill counting the notices and the buttons "Fold", '
+      + '"Do not disturb" and "Dismiss all", on one row or wrapped onto two rows, each whole and readable, within the side bar and not '
+      + 'drawn over a card.',
+    act: async (d) => {
+      await noticeCards(d);
+      await noticeMode(d, 'normal');
+      await d.exec('claude-vscode.editor.open', d.threads[0].id, undefined, undefined, undefined, undefined, { programmatic: 'cce-pin-to-sidebar' });
+      await d.sleep(5000);
+      const aux = await d.part('workbench.parts.auxiliarybar');
+      if (!aux) throw new Error('the secondary side bar did not open');
+      let side = null;
+      for (const g of d.page.frames()) {
+        try {
+          const b = await g.locator('body').boundingBox();
+          if (b && b.x >= aux.x - 2 && await g.evaluate(() => !!document.querySelector('[data-ap-stack] [data-ap-card]'))) { side = g; break; }
+        } catch (_) { /* not this page */ }
+      }
+      if (!side) throw new Error('the side bar has no stack');
+      await noticePull(d, side, 1);
+      return aux;
+    },
+    undo: async (d) => {
+      for (const g of d.page.frames()) { try { await g.evaluate(() => { if (document.activeElement) document.activeElement.blur(); }); } catch (_) { /* gone */ } }
+      await d.away();
+      await d.exec('workbench.action.closeAuxiliaryBar');
+      await d.sleep(1500);
+    },
+  },
+  {
+    name: 'notice-mode-normal', features: ['notice-cards'],
+    expect: 'The right end of VS Code\'s status bar, dark theme: among the entries, a bell icon with the word "Normal" (Agent Plus\'s '
+      + 'mode for the notice cards), next to a bell with a dot and a number (the conversations that need you). Every entry readable.',
+    act: async (d) => { await noticeCards(d); await noticeMode(d, 'normal'); await noticeEntry(d, 'Normal'); await d.away(); return noticeStatus(d); },
+  },
+  {
+    name: 'notice-mode-folded', features: ['notice-cards'],
+    expect: 'The same right end of the status bar, with that entry now a fold icon (two small arrows meeting a line, or a folded shape) '
+      + 'and the word "Folded".',
+    unchanged: 'The other entries of the status bar are as before.',
+    act: async (d) => { await setting(d, 'agentPlus.notifications.style', 'panel'); await noticeMode(d, 'folded'); await noticeEntry(d, 'Folded'); await d.away(); return noticeStatus(d); },
+  },
+  {
+    name: 'notice-mode-quiet', features: ['notice-cards'],
+    expect: 'The same right end of the status bar, with that entry now a bell with a slash through it and the words "Do not disturb".',
+    unchanged: 'The other entries of the status bar are as before.',
+    act: async (d) => { await setting(d, 'agentPlus.notifications.style', 'panel'); await noticeMode(d, 'quiet'); await noticeEntry(d, 'Do not disturb'); await d.away(); return noticeStatus(d); },
+    undo: async (d) => { await noticeCardsOff(d); },
   },
 ];
 
@@ -2490,7 +2636,7 @@ async function main() {
   for (const s of named) if (!steps.includes(s)) demo.log('skipped', s.name, `runs on ${s.only.join(', ')} only`);
   fs.mkdirSync(opt.out, { recursive: true });
   const started = Date.now();
-  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: 'ui-look', prepare,
+  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: 'ui-look',
     /* Manual, as in run.js, so that a tool call stops for permission: auto mode needs a check the fake model cannot do. */
     settings: { 'claudeCode.initialPermissionMode': 'default' } });
   Object.assign(d, { sleep: demo.sleep, until: demo.until, log: demo.log });
