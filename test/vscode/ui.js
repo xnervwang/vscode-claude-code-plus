@@ -4466,6 +4466,39 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await sleep(3000);
         await shot('steward-installed-again');
 
+        /* A `claude --bg` session the conversation in front of A starts while no window runs the installed build: some
+           window still has to note its end and tell the conversation, through its inbox, which native Windows does not
+           offer (src/stewards.js post()). */
+        if (process.platform === 'win32') note('on native Windows a conversation is not told that a claude --bg session ended, so that check is left out here');
+        else {
+          const SECONDS = 30;
+          fs.mkdirSync(path.join(profile.home, 'fake-bg'), { recursive: true });
+          fs.writeFileSync(path.join(profile.home, 'fake-bg', 'claude'), BG_SESSION_SCRIPT(SECONDS), { mode: 0o755 });
+          const jobs = () => { try { return fs.readdirSync(path.join(profile.home, '.claude', 'jobs')); } catch (_) { return []; } };
+          const from = model.seen.length, jobsBefore = jobs();
+          await exec('claude-vscode.editor.open', front.id);
+          const f = await conversation(front, 60000);
+          if (f) {
+            await f.locator('[contenteditable][role="textbox"]').first().click();
+            await page.keyboard.type(`Please ${ASK_FOR_BG_SESSION}.`);
+            await page.keyboard.press('Enter');
+            await until(() => model.seen.slice(from).some((x) => x.tool), 30000, 300);
+            const asking = await until(() => f.evaluate(() => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes('--bg')), 8000, 500);
+            if (asking) await f.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+          }
+          const started = Date.now();
+          const job = f && await until(() => jobs().find((j) => !jobsBefore.includes(j)), 30000, 500);
+          check(!!job, 'with every window on the build installed over, the conversation in front of A starts a claude --bg session',
+            { frame: !!f, asks: model.seen.slice(from).map((x) => (x.ask || '').slice(0, 120)) });
+          if (job) {
+            const notice = /notice, not a message from the user: news of a `claude --bg` session this conversation started/;
+            const told = await until(() => model.seen.slice(from).some((x) => notice.test(x.ask || '')), started + SECONDS * 1000 - Date.now() + 90000, 1000);
+            check(!!told, 'and once it has finished, the conversation is told, which starts a turn, with no window reloaded',
+              { job, asks: model.seen.slice(from).map((x) => (x.ask || '').slice(0, 160)) });
+            await until(() => sessionStatus(front.id) === 'idle', 60000, 500);
+          }
+        }
+
         /* The steward opens a new conversation in A's folder. Running conversations reach the panel from `claude agents
            --json`, asked at most every 30 s. */
         const opened = await act(['--open', profile.folder], 'Start on the changelog, please.');
