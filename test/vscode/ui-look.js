@@ -423,6 +423,91 @@ const liveOf = (d, id) => {
     .filter((r) => r && r.sessionId === id && (() => { try { process.kill(r.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } })());
 };
 
+/* The agent map steps: the conversation they use, the worker's session id, and the two scheduled prompts. */
+const mapThread = (d) => d.threads[1];
+const MAP_WORKER = 'c0ffee00-2222-4222-8333-555555555555';
+const MAP_SCHEDULES = [
+  { id: 'c4d5e6f7', cron: '7,27,47 * * * *', prompt: 'Check whether the nightly build has finished, and report the tests that failed.', firedAgo: 7 * 60000 },
+  { id: 'd5e6f7a8', cron: '30 9 * * *', prompt: 'Summarise yesterday\'s merged pull requests for the stand-up.' },
+];
+/* Whether `frame` shows the agent map. */
+const mapShown = (frame) => frame.evaluate(() => [...document.querySelectorAll('[role="dialog"] h3')].some((h) => h.textContent.trim() === 'Agent map' && !!h.offsetParent));
+/* Opens the agent map of `frame`'s conversation: with the footer's agents button where there is one, and with /tasks,
+   which opens it too, where there is not. `ready`, a regular expression, is what the map's text must match first. */
+async function openMap(d, frame, ready) {
+  if (!await mapShown(frame)) {
+    const button = frame.locator('button[data-agents-dot]').first();
+    if (await button.isVisible().catch(() => false)) await button.click({ timeout: 5000 });
+    else await send(d, frame, '/tasks');
+  }
+  if (!await d.until(() => mapShown(frame), 10000, 300)) throw new Error('the agent map did not open');
+  if (ready) {
+    const has = () => frame.evaluate((re) => {
+      const dialog = [...document.querySelectorAll('[role="dialog"]')].find((x) => /Agent map/.test(x.textContent));
+      return !!dialog && new RegExp(re).test(dialog.textContent);
+    }, ready);
+    /* The host reads a conversation's claude --bg sessions from its transcript on a timer of its own. */
+    if (!await d.until(has, 60000, 500)) throw new Error(`the agent map did not show ${ready} within 60 s`);
+  }
+  await d.sleep(1200);
+  /* Through the page first, so that a card the dialog opened under the mouse is told the mouse has left it. */
+  await rest(d, frame);
+  await d.away();
+}
+const closeMap = async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(500); };
+/* Clicks open the first of the map's folded cards whose text matches `re`, and scrolls it into the middle of the map. */
+async function openCard(d, frame, re) {
+  const done = await frame.evaluate((src) => {
+    const dialog = [...document.querySelectorAll('[role="dialog"]')].find((x) => /Agent map/.test(x.textContent));
+    const row = dialog && [...dialog.querySelectorAll('details > summary')].find((x) => new RegExp(src).test(x.textContent));
+    if (!row) return false;
+    row.click();
+    row.parentElement.scrollIntoView({ block: 'center' });
+    return true;
+  }, re.source);
+  if (!done) throw new Error(`the map has no folded card matching ${re}`);
+  await d.sleep(1000);
+  await rest(d, frame);
+  await d.away();
+}
+/* Starts `argv` with setsid in conversation `sid`'s name, as a command it left running detached (Linux only). */
+function detachFor(d, sid, argv) {
+  const env = Object.assign(require('./lib/env').cleanEnv(path.dirname(d.profile.home)), { CLAUDE_CODE_SESSION_ID: sid });
+  require('child_process').spawnSync('sh', ['-c', 'setsid "$@" < /dev/null > /dev/null 2>&1 &', 'sh', ...argv], { env, cwd: d.profile.folder, stdio: 'ignore' });
+}
+const scheduleFile = (d) => path.join(d.profile.folder, '.claude', 'scheduled_tasks.json');
+function addSchedules(d, sid) {
+  const file = scheduleFile(d);
+  const held = JSON.parse(fs.readFileSync(file, 'utf8'));
+  held.tasks = (held.tasks || []).filter((t) => !MAP_SCHEDULES.some((m) => m.id === t.id)).concat(MAP_SCHEDULES.map((m) => ({ id: m.id, cron: m.cron,
+    prompt: m.prompt, createdAt: Date.now() - 3600000, ...(m.firedAgo ? { lastFiredAt: Date.now() - m.firedAgo } : {}), recurring: true,
+    createdBySessionId: sid, createdInProject: d.profile.folder })));
+  fs.writeFileSync(file, JSON.stringify(held, null, 2));
+}
+function removeSchedules(d) {
+  try {
+    const held = JSON.parse(fs.readFileSync(scheduleFile(d), 'utf8'));
+    held.tasks = (held.tasks || []).filter((t) => !MAP_SCHEDULES.some((m) => m.id === t.id));
+    fs.writeFileSync(scheduleFile(d), JSON.stringify(held, null, 2));
+  } catch (_) { /* no file */ }
+}
+/* Stops what the agent map steps started: on Linux every process started in those conversations' names, and on every
+   platform the claude --bg sessions and the worker, by their session records. */
+function stopMapWork(d, ids) {
+  const marks = ids.map((id) => `CLAUDE_CODE_SESSION_ID=${id}`);
+  if (process.platform === 'linux') {
+    for (const p of fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x))) {
+      try { if (fs.readFileSync(`/proc/${p}/environ`, 'utf8').split('\0').some((v) => marks.includes(v))) process.kill(Number(p), 'SIGTERM'); } catch (_) { /* gone */ }
+    }
+  }
+  const dir = path.join(d.profile.home, '.claude', 'sessions');
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch (_) { return; }
+  for (const n of names) {
+    try { const r = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); if (r.kind === 'bg' || r.sessionId === MAP_WORKER) process.kill(r.pid, 'SIGTERM'); } catch (_) { /* gone */ }
+  }
+}
+
 /* Transcripts of a `claude --bg`, a `claude -p` and a daemon session, written with the demo's home (lib/fake-home.js). */
 const [BACKGROUND_TITLE, PRINT_TITLE, DAEMON_TITLE] = require('./lib/fake-home').BACKGROUND.map((b) => b.title);
 
@@ -659,14 +744,14 @@ const STEPS = [
   },
   {
     name: 'agent-map', features: ['agent-map'],
-    expect: (LINUX ? 'The agent map, opened from the footer\'s button that counts background work ("1 detached . 1 timer"). It lists one '
-      + 'command left running detached (a sleep) with its command line, process id and start time, and one scheduled prompt '
-      + 'with its schedule and text. The conversation\'s own row starts with a green ring, hollow in the middle, since the '
-      + 'detached command runs.'
-      : 'The agent map, opened from the footer\'s button that counts background work ("1 timer"). It lists one scheduled prompt '
-      + 'with its schedule and text, and no detached command. The conversation\'s own row starts with a grey dot, since a '
-      + 'scheduled prompt runs nothing until it is due.')
-      + ' Rows are readable and inside the box; no empty rows; counts at the top match the rows.',
+    expect: 'The agent map, opened from the footer\'s button that counts background work ('
+      + (LINUX ? '"1 detached . 1 timer"' : '"1 timer"') + '). At the top a small bold heading THIS CONVERSATION and the '
+      + 'conversation\'s own card, which starts with ' + (LINUX ? 'a green ring, hollow in the middle, since the detached command runs.'
+        : 'a grey dot, since a scheduled prompt runs nothing until it is due.')
+      + ' Then, each after a thin line and each headed in capitals with a count badge: '
+      + (LINUX ? 'DETACHED COMMANDS 1, a card with a green dot titled "sleep 1800" and its process id, start time and running time under it; ' : '')
+      + 'SCHEDULED PROMPTS 1, a card with a grey dot, the start of its prompt ("Every Monday morning, ...") and "0 9 * * 1 . never fired" '
+      + 'under it. No "0 agents" line anywhere. Cards are readable and inside the box.',
     unchanged: 'The conversation behind the map is as before; the information box is closed.',
     act: async (d) => {
       await demoAt(d, BUDGET);
@@ -912,6 +997,47 @@ const STEPS = [
       if (!await d.until(async () => (await title()) !== was && !(await menus(list)), 15000, 300)) throw new Error('picking Green did not recolor the row and close the menu');
       await d.away();
       await d.sleep(800);
+      return d.sidebar();
+    },
+  },
+  {
+    name: 'session-menu-closed', features: ['session-selection'],
+    expect: 'The session list after the right-click menu of the row "Add a dry-run flag to the cleanup script", whose conversation '
+      + 'is not open, was closed with Escape and nothing picked, and the editor then took the keyboard focus. That row looks like '
+      + 'the other rows of conversations that are not open: no tint, no outline, no lighter background and no pencil or archive '
+      + 'buttons on it. Only the open conversation\'s two copies (under OPEN SESSIONS and among the rows) are highlighted.',
+    unchanged: 'The rows are the same and in the same order as before, and the title made green stays green.',
+    act: async (d) => {
+      const list = await sessionList(d);
+      await rowMenu(d, list, d.threads[2].id);
+      await d.page.keyboard.press('Escape');
+      if (!await d.until(async () => !(await menus(list)), 5000, 200)) throw new Error('Escape did not close the menu');
+      await d.exec('workbench.action.focusActiveEditorGroup');
+      if (!await d.until(() => list.evaluate(() => !document.hasFocus()), 5000, 200)) throw new Error('the list kept the keyboard focus');
+      await rest(d, list, 'bottom');
+      await d.away();
+      return d.sidebar();
+    },
+  },
+  {
+    name: 'session-drag-let-go', features: ['session-selection'],
+    expect: 'The session list after the row "Why does the nightly export skip archived rows?" was dragged down a little and let go '
+      + 'over the empty space below the rows, on no group. The row is back in its place and looks like the other rows of '
+      + 'conversations that are not open: no tint and no outline. Only the open conversation\'s two copies are highlighted.',
+    unchanged: 'The rows are the same and in the same order as before.',
+    act: async (d) => {
+      const list = await sessionList(d);
+      const b = await listRow(list, d.threads[1].id).boundingBox();
+      if (!b) throw new Error('the row to drag is not on screen');
+      const x = b.x + b.width / 2, y = b.y + b.height / 2;
+      await d.page.mouse.move(x, y);
+      await d.page.mouse.down();
+      await d.page.mouse.move(x, y + 20, { steps: 5 });
+      await d.page.mouse.move(x, y + 160, { steps: 5 });
+      await d.page.mouse.up();
+      await d.exec('workbench.action.focusActiveEditorGroup');
+      await rest(d, list, 'bottom');
+      await d.away();
       return d.sidebar();
     },
   },
@@ -1829,16 +1955,16 @@ const STEPS = [
   },
   {
     name: 'live-work-map', only: ['linux'], features: ['agent-map', 'dot-background'],
-    expect: 'The agent map, opened from that button. A section at the top, "1 worker . claude -p, started from this '
-      + 'conversation", lists release-notes-worker as running, for how long, and under it its session id and process id. No '
-      + 'row lists a detached command or the shell that started the worker. The conversation\'s own row (its title, with the '
-      + 'tokens in context) starts with a green ring, hollow in the middle, and the background task (sleep 40) with a filled '
-      + 'green dot of the same green.',
+    expect: 'The agent map, opened from that button. At the top THIS CONVERSATION and the conversation\'s own card (its title, '
+      + 'with the tokens in context), which starts with a green ring, hollow in the middle. After it BACKGROUND TASKS 1, the '
+      + 'command\'s card (sleep 40) with a filled green dot of the same green, and a section headed "claude -p SESSIONS" with a '
+      + 'count badge 1: a card with a green dot, release-notes-worker, and its process id, start and running time. No card lists '
+      + 'a detached command or the shell that started the worker.',
     unchanged: 'The conversation behind the map is as before.',
     act: async (d) => {
       const frame = await live(d);
       await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
-      if (!await d.until(() => frame.evaluate(() => /\b1 worker · claude -p/.test(document.body.innerText)), 10000, 500)) throw new Error('the map lists no worker');
+      if (!await d.until(() => frame.evaluate(() => !!document.querySelector('[data-cce-map-section="workers"]')), 10000, 500)) throw new Error('the map lists no worker');
       await d.sleep(1200);
       await d.away();
       return d.editor();
@@ -1872,8 +1998,9 @@ const STEPS = [
   },
   {
     name: 'live-work-ended-map', only: ['linux'], features: ['agent-map'],
-    expect: 'The agent map once both have ended: no worker section and no background task; the conversation\'s own row starts '
-      + 'with a grey dot, not a green one, and the finished helper of an earlier step is still listed with a grey dot.',
+    expect: 'The agent map once both have ended: no claude -p SESSIONS and no BACKGROUND TASKS section; the conversation\'s own '
+      + 'card starts with a grey dot, not a green one, and under SUBAGENTS the finished helper of an earlier step is still listed '
+      + 'with a grey dot.',
     unchanged: 'The conversation behind the map is as before.',
     act: async (d) => {
       const frame = await live(d);
@@ -1911,14 +2038,15 @@ const STEPS = [
   },
   {
     name: 'live-bg-map', features: ['background-sessions', 'agent-map'],
-    expect: 'The agent map, opened from that button. A section headed "1 background session . 1 running . started from this '
-      + 'conversation", the "1 running" in green, lists nightly-report as running, for how long, and its eight-digit job id. '
-      + 'The conversation\'s own row starts with a green ring, hollow in the middle. Nothing in the map overlaps.',
+    expect: 'The agent map, opened from that button. A section headed "claude --bg SESSIONS" ("claude --bg" in a code font) '
+      + 'with a count badge 1 holds one card: a green dot, nightly-report, and under it "running", for how long and its '
+      + 'eight-digit job id. The conversation\'s own card, first under THIS CONVERSATION, starts with a green ring, hollow in '
+      + 'the middle. Nothing in the map overlaps.',
     unchanged: 'The conversation behind the map is as before.',
     act: async (d) => {
       const frame = await live(d);
       await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
-      if (!await d.until(() => frame.evaluate(() => /1 background session/.test(document.body.innerText)), 10000, 500)) throw new Error('the map lists no background session');
+      if (!await d.until(() => frame.evaluate(() => !!document.querySelector('[data-cce-map-section="background"]')), 10000, 500)) throw new Error('the map lists no background session');
       await d.sleep(1200);
       await d.away();
       return d.editor();
@@ -1949,14 +2077,15 @@ const STEPS = [
   },
   {
     name: 'live-bg-ended-map', features: ['background-sessions', 'agent-map'],
-    expect: 'The agent map once the session has finished: "1 background session . 1 done", the "1 done" in blue, lists '
-      + 'nightly-report as done, with its result in a box ("The nightly report is written: 2 failed tests, both in the export '
-      + 'job.") and buttons for claude attach and claude logs with its id. The conversation\'s own row starts with a grey dot.',
+    expect: 'The agent map once the session has finished, its card clicked open: under claude --bg SESSIONS 1, nightly-report '
+      + 'with a grey dot and "done" on its second line, and under the card its result in a box ("The nightly report is written: '
+      + '2 failed tests, both in the export job.") and buttons for claude attach and claude logs with its id. The conversation\'s '
+      + 'own card starts with a grey dot.',
     unchanged: 'The conversation behind the map is as before.',
     act: async (d) => {
       const frame = await live(d);
       await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
-      const row = frame.locator('details summary').filter({ hasText: 'nightly-report' }).first();
+      const row = frame.locator('details > summary').filter({ hasText: 'nightly-report' }).first();
       if (await d.until(() => row.isVisible().catch(() => false), 10000, 500)) await row.click();
       await d.sleep(1200);
       await d.away();
@@ -2060,7 +2189,7 @@ const STEPS = [
     name: 'token-mode-essential-status', features: ['token-mode', 'show-status'],
     expect: 'The token mode is now Essential features. A notification at the bottom right, from Claude Code Plus: Show Status, '
       + 'ends with "Token mode: Essential features (agentPlus.tokenMode); in Claude Code: work plan on, time-zone note on, '
-      + 'conversation brief off, skill suggestions off, notices when a detached command stops off". It is readable and not cut off. In the whole-window '
+      + 'conversation brief off, notices when a detached command stops off". It is readable and not cut off. In the whole-window '
       + 'picture, Agent Plus\'s token mode entry at the right of the status bar says Essential.',
     unchanged: 'The editor and side bar are as before.',
     act: async (d) => { await modeTo(d, 'essential'); await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
@@ -2112,8 +2241,7 @@ const STEPS = [
   {
     name: 'token-mode-interface-status', features: ['token-mode', 'show-status'],
     expect: 'A notification from Claude Code Plus: Show Status ends with "Token mode: Interface features (agentPlus.tokenMode); in '
-      + 'Claude Code: work plan off, time-zone note off, conversation brief off, skill suggestions off, notices when a detached '
-      + 'command stops off". '
+      + 'Claude Code: work plan off, time-zone note off, conversation brief off, notices when a detached command stops off". '
       + 'Readable, not cut off. Agent Plus\'s status bar entry (whole-window picture) says Interface.',
     unchanged: 'The editor and side bar are as before.',
     act: async (d) => { await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
@@ -2123,7 +2251,7 @@ const STEPS = [
     name: 'token-mode-custom-status', features: ['token-mode', 'show-status'],
     expect: 'The token mode is now Custom, and claudeCodePlus.conversationBrief was then turned off. Show Status\'s notification '
       + 'ends with "Token mode: Custom (agentPlus.tokenMode); in Claude Code: work plan on, time-zone note on, conversation brief '
-      + 'off, skill suggestions on, notices when a detached command stops on". No notification says a setting has no effect. Agent Plus\'s status '
+      + 'off, notices when a detached command stops on". No notification says a setting has no effect. Agent Plus\'s status '
       + 'bar entry (whole-window picture) says Custom.',
     unchanged: 'The editor and side bar are as before.',
     act: async (d) => {
@@ -2158,7 +2286,7 @@ const STEPS = [
   {
     name: 'token-mode-all-again', features: ['token-mode', 'session-info', 'show-status'],
     expect: 'Back in All features: Show Status\'s notification ends with "Token mode: All features (agentPlus.tokenMode); in Claude '
-      + 'Code: work plan on, time-zone note on, conversation brief on, skill suggestions on, notices when a detached command stops on". The information '
+      + 'Code: work plan on, time-zone note on, conversation brief on, notices when a detached command stops on". The information '
       + 'box in the conversation has a Token mode row saying All features, and Agent Plus\'s status bar entry (whole-window '
       + 'picture) says All. No notification says a setting has no effect.',
     unchanged: 'The settings editor is closed; the side bar is as before.',
@@ -2249,9 +2377,10 @@ const STEPS = [
   },
   {
     name: 'light-agent-map', features: ['light-theme', 'agent-map'],
-    expect: 'The agent map in the light theme: its rows (' + (LINUX ? 'the detached command, ' : '') + 'the scheduled prompt) readable, '
-      + 'the map set apart from the conversation behind it; the ' + (LINUX ? 'green ring' : 'grey dot')
-      + ' at the start of the conversation\'s own row visible against the light background.',
+    expect: 'The agent map in the light theme: its headings (THIS CONVERSATION, ' + (LINUX ? 'DETACHED COMMANDS, ' : '') + 'SCHEDULED PROMPTS), '
+      + 'their count badges and the thin lines above them, and its cards readable against the light background; the map set '
+      + 'apart from the conversation behind it; the ' + (LINUX ? 'green ring' : 'grey dot')
+      + ' at the start of the conversation\'s own card visible.',
     unchanged: 'The meter\'s box is gone; the conversation is as before.',
     act: async (d) => {
       await demoAt(d, BUDGET);
@@ -2328,6 +2457,290 @@ const STEPS = [
     /* The demo conversation in front, the one with a plan; the step before left another there. */
     act: async (d) => { await demoAt(d, ''); await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.away(); return d.sidebar(); },
     undo: async (d) => { await theme(d, 'Default Dark Modern'); await d.sleep(2000); },
+  },
+
+  /* The agent map, one state at a time, in the conversation "Why does the nightly export skip archived rows?" (the second
+     fake one) in a tab: alone, with a command in the background, a claude -p worker, claude --bg sessions, a command left
+     running detached and two scheduled prompts, each added to what the step before left; a helper in a third
+     conversation on its own; then all of it at once with a helper as well, in both themes, and in the secondary side
+     bar. Nothing started here ends within a quarter of an hour, so no picture waits on an ending; the last step stops it
+     all. */
+  {
+    name: 'map-alone', features: ['agent-map'],
+    expect: 'The agent map, opened with /tasks, of a conversation that has no background work. Under the dialog\'s title '
+      + '"Agent map" a small bold heading in capitals, THIS CONVERSATION, and under it the conversation\'s own card: a grey '
+      + 'dot, its title on one line, the model and the tokens in context on a second. Nothing else: no "0 agents" line above '
+      + 'or below the card, no empty heading, no divider.',
+    unchanged: 'The window is in the dark theme again; the conversation behind the map is the one named above.',
+    act: async (d) => {
+      await theme(d, 'Default Dark Modern');
+      await d.sleep(2000);
+      const frame = await thread(d, mapThread(d));
+      await openMap(d, frame);
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-task', features: ['agent-map'],
+    expect: 'The same map once the conversation has put a command in the background. Under the conversation\'s card a thin '
+      + 'line across the dialog, then the heading BACKGROUND TASKS with a small count badge "1", and under it one card in '
+      + 'the same form as the conversation\'s: a filled green dot, "Start the nightly build" on one line, "shell" and how long '
+      + 'it has run on a second. No text says "click a task for details"; there is no SUBAGENTS heading.',
+    unchanged: 'The conversation behind the map has one more exchange at its end.',
+    act: async (d) => {
+      const frame = await thread(d, mapThread(d));
+      await runAsked(d, frame, `Please ${fakeModel.ASK_TO_BACKGROUND_LONG}.`, fakeModel.BG_LONG_RUN);
+      await openMap(d, frame, 'Start the nightly build');
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-worker', only: ['linux'], features: ['agent-map'],
+    expect: 'The same map once the conversation has also started a claude -p worker. After BACKGROUND TASKS comes another '
+      + 'thin line and a heading reading "claude -p SESSIONS", with "claude -p" in lower case in a code font, and a count '
+      + 'badge "1". Its card: a green dot, release-notes-worker on one line, and on a second its process id, when it started '
+      + 'and how long it has run. No card shows the shell that started the worker.',
+    unchanged: 'The conversation behind the map has one more exchange at its end.',
+    act: async (d) => {
+      const frame = await thread(d, mapThread(d));
+      const bin = path.join(d.profile.home, 'fake-bin');
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(path.join(bin, 'claude'), fakeModel.WORKER_SCRIPT(MAP_WORKER, 1800), { mode: 0o755 });
+      await runAsked(d, frame, `Please ${fakeModel.ASK_FOR_WORKER}.`, 'fake-bin');
+      await openMap(d, frame, fakeModel.WORKER_NAME);
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-bg', features: ['agent-map', 'background-sessions'],
+    expect: 'The same map once the conversation has started two claude --bg sessions, the first already finished. A section '
+      + 'headed "claude --bg SESSIONS" ("claude --bg" in a code font), count badge "2", holds two nightly-report cards: the '
+      + 'running one with a filled green dot and "running", how long and an eight-digit job id on its second line; the '
+      + 'finished one with a grey dot and "done", when it finished and its job id. Each card has a small arrow at the end of '
+      + 'its title line, pointing right.',
+    unchanged: 'The conversation behind the map has two more exchanges at its end.',
+    act: async (d) => {
+      const frame = await thread(d, mapThread(d));
+      const bin = path.join(d.profile.home, 'fake-bg');
+      fs.mkdirSync(bin, { recursive: true });
+      const script = path.join(bin, 'claude');
+      const jobs = () => { try { return fs.readdirSync(path.join(d.profile.home, '.claude', 'jobs')); } catch (_) { return []; } };
+      const done = (id) => { try { return JSON.parse(fs.readFileSync(path.join(d.profile.home, '.claude', 'jobs', id, 'state.json'), 'utf8')).state === 'done'; } catch (_) { return false; } };
+      fs.writeFileSync(script, fakeModel.BG_SESSION_SCRIPT(3), { mode: 0o755 });
+      const had = jobs();
+      await runAsked(d, frame, `Please ${fakeModel.ASK_FOR_BG_SESSION}.`, '--bg');
+      const first = await d.until(() => jobs().find((j) => !had.includes(j) && done(j)), 30000, 500);
+      if (!first) throw new Error('the first claude --bg session did not finish within 30 s');
+      fs.writeFileSync(script, fakeModel.BG_SESSION_SCRIPT(1800), { mode: 0o755 });
+      await runAsked(d, frame, `Please ${fakeModel.ASK_FOR_BG_SESSION}.`, '--bg');
+      await openMap(d, frame, `${fakeModel.BG_SESSION_NAME}[\\s\\S]*${fakeModel.BG_SESSION_NAME}`);
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-detached', only: ['linux'], features: ['agent-map'],
+    expect: 'The same map once a command has been left running detached in the conversation\'s name: a section headed '
+      + 'DETACHED COMMANDS, count badge "1", comes right after BACKGROUND TASKS. Its card has a green dot, a title naming '
+      + 'the program and the argument that tells what it is ("perl -e ... cache-relay:demo"), not the whole command line, and '
+      + 'a second line with its process id, when it started and how long it has run.',
+    unchanged: 'The conversation behind the map is as before, but for one more reply at its end, with no message of yours before it: '
+      + 'the answer to the notice Claude Code Plus sends when the first claude --bg session has finished.',
+    act: async (d) => {
+      const frame = await thread(d, mapThread(d));
+      const sock = path.join(d.profile.folder, '.relay', 'cache.sock');
+      detachFor(d, mapThread(d).id, ['perl', '-e', 'sleep 1800', '2014', sock, 'cache-relay:demo']);
+      await openMap(d, frame, 'cache-relay:demo');
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-scheduled', features: ['agent-map'],
+    expect: 'The same map once the conversation has two scheduled prompts: a section headed SCHEDULED PROMPTS, count badge '
+      + '"2", after DETACHED COMMANDS where there is one. Each card has a grey dot (a scheduled prompt runs nothing until it '
+      + 'is due), the start of its prompt as its title, cut with an ellipsis, and a second line saying when it fires and when '
+      + 'it last fired: "every 20 min . last fired 7 min ago" and "daily at 9:30 . never fired".',
+    unchanged: 'The conversation behind the map is as before, but it may have one more reply at its end, with no message of yours '
+      + 'before it: the answer to the notice Claude Code Plus sends when the first claude --bg session has finished.',
+    act: async (d) => {
+      const frame = await thread(d, mapThread(d));
+      addSchedules(d, mapThread(d).id);
+      await openMap(d, frame, 'every 20 min');
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-subagent', features: ['agent-map'],
+    expect: 'The agent map of another conversation, "Add a dry-run flag to the cleanup script", whose only background work '
+      + 'is a helper (a sub-agent) still running. THIS CONVERSATION and its card, a thin line, then SUBAGENTS with a count '
+      + 'badge "1" and under it one card: a filled green dot, "Look through the notes" and how long it has run. The helper\'s '
+      + 'card sits under its heading at the left, in line with the conversation\'s card, not to the right of it on a line.',
+    unchanged: 'A different conversation is in front.',
+    act: async (d) => {
+      const frame = await thread(d, d.threads[2]);
+      d.model.holdHelper();
+      const before = d.model.seen.length;
+      await send(d, frame, `Please ${fakeModel.ASK_FOR_HELPER}.`);
+      if (!await d.until(() => d.model.seen.slice(before).some((x) => x.helping), 40000, 300)) throw new Error('the helper did not start within 40 s');
+      await d.sleep(3000);
+      await openMap(d, frame, 'Look through the notes');
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-busy', features: ['agent-map', 'background-sessions'],
+    expect: 'The agent map of the first conversation once it has also started a helper: everything at once. From the top: '
+      + 'THIS CONVERSATION and its card; then, each after a thin line and each with a count badge: SUBAGENTS 1, BACKGROUND '
+      + 'TASKS 1, ' + (LINUX ? 'DETACHED COMMANDS 1, ' : '') + 'SCHEDULED PROMPTS 2, ' + (LINUX ? 'claude -p SESSIONS 1, ' : '')
+      + 'claude --bg SESSIONS 2. Every card has the same form: a dot, a title on one line, a second dimmer line. The headings '
+      + 'stand out from the cards: smaller, bold, in capitals. Nothing overlaps, nothing is cut off at the right edge.',
+    unchanged: 'The first conversation is in front again.',
+    act: async (d) => {
+      const frame = await thread(d, mapThread(d));
+      const before = d.model.seen.length;
+      await send(d, frame, `Please ${fakeModel.ASK_FOR_HELPER}.`);
+      if (!await d.until(() => d.model.seen.slice(before).some((x) => x.helping), 40000, 300)) throw new Error('the helper did not start within 40 s');
+      await d.sleep(3000);
+      await openMap(d, frame, 'Look through the notes');
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-opened', features: ['agent-map', 'background-sessions'],
+    expect: 'The same map with the finished nightly-report card clicked open and scrolled into view: under the card its result '
+      + 'in a box ("The nightly report is written: 2 failed tests, both in the export job."), a folded row "Task" with the task it was '
+      + 'given, and two buttons, claude attach and claude logs, each with the job id; the arrow at the end of that card\'s title line now points down. The other cards '
+      + 'are as before, closed.',
+    unchanged: 'The map is as in the picture before, but for the opened card and where the map is scrolled to.',
+    act: async (d) => {
+      const frame = await thread(d, mapThread(d));
+      await openMap(d, frame, 'every 20 min');
+      await openCard(d, frame, /\bdone\b/);
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-opened-prompt', features: ['agent-map'],
+    expect: 'The same map with the first scheduled prompt\'s card clicked open: under it the whole prompt in a box ("Check '
+      + 'whether the nightly build has finished, and report the tests that failed."), its arrow pointing down; the other '
+      + 'cards closed.',
+    unchanged: 'The map is open again with the session card closed.',
+    act: async (d) => {
+      const frame = await thread(d, mapThread(d));
+      await openMap(d, frame, 'every 20 min');
+      await openCard(d, frame, /every 20 min/);
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-agent-detail', features: ['agent-map'],
+    expect: 'The helper\'s card in the map clicked: Claude Code\'s own dialog for that agent is open over the map, with a back '
+      + 'arrow, the title "Look through the notes" next to a green dot, and what the helper is doing. Clicking a card of '
+      + 'Claude Code\'s still opens its details.',
+    unchanged: 'The map is closed and opened again behind that dialog.',
+    act: async (d) => {
+      const frame = await thread(d, mapThread(d));
+      await openMap(d, frame, 'Look through the notes');
+      await frame.locator('[role="dialog"] button').filter({ hasText: 'Look through the notes' }).first().click({ timeout: 5000 });
+      if (!await d.until(() => frame.evaluate(() => [...document.querySelectorAll('[role="dialog"]')].length >= 2), 5000, 200)) throw new Error('no dialog opened for the helper');
+      await d.sleep(1000);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(400); await closeMap(d); },
+  },
+  {
+    name: 'map-busy-light', features: ['agent-map', 'light-theme'],
+    expect: 'The busiest map of map-busy in the light theme: the same headings, count badges, dividers and cards, all '
+      + 'readable against the light background; the dots visible; the count badges legible.',
+    unchanged: 'The conversation behind the map is the same, in the light theme.',
+    act: async (d) => {
+      await theme(d, 'Default Light Modern');
+      await d.sleep(2500);
+      const frame = await thread(d, mapThread(d));
+      await openMap(d, frame, 'Look through the notes');
+      return d.editor();
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-sidebar-light', features: ['agent-map', 'light-theme', 'narrow-panel'],
+    expect: 'The same conversation reopened in the secondary side bar (narrow, on the right), with a helper and a command '
+      + 'in the background started there again, and its agent map open, in the light theme. The same sections as in '
+      + 'map-busy-light, but SUBAGENTS 2: besides the new helper, the one started while the conversation was in a tab, stopped '
+      + 'when that tab closed, with a red dot. In the narrow width the cards\' second lines may end in an ellipsis (each card\'s hover text holds the whole line); cards no wider than the side bar or the map scrolls sideways; headings, badges '
+      + 'and dividers readable; nothing overlaps.',
+    unchanged: 'The tab of that conversation is gone from the editor.',
+    act: async (d) => {
+      const t = mapThread(d);
+      await closeTab(d, t);
+      const list = await sessionList(d);
+      await rowPick(d, list, t.id, 'Resume in sidebar');
+      const side = await d.until(async () => {
+        for (const f of d.page.frames()) {
+          const hit = await f.evaluate((ask) => !!document.querySelector('[contenteditable][role="textbox"]') && document.body.innerText.includes(ask), t.turns[0][0]).catch(() => false);
+          if (hit) return f;
+        }
+        return null;
+      }, 60000, 1000);
+      if (!side) throw new Error('the conversation did not open in the side bar within 60 s');
+      d.mapSide = side;
+      await d.sleep(2000);
+      await runAsked(d, side, `Please ${fakeModel.ASK_TO_BACKGROUND_LONG}.`, fakeModel.BG_LONG_RUN);
+      const before = d.model.seen.length;
+      await send(d, side, `Please ${fakeModel.ASK_FOR_HELPER}.`);
+      if (!await d.until(() => d.model.seen.slice(before).some((x) => x.helping), 40000, 300)) throw new Error('the helper did not start within 40 s');
+      await d.sleep(3000);
+      await openMap(d, side, 'Look through the notes');
+      return d.part('workbench.parts.auxiliarybar');
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-sidebar-end', features: ['agent-map', 'light-theme', 'narrow-panel'],
+    expect: 'The same side bar map scrolled to its end: the last sections and their cards, inside the side bar\'s width or '
+      + 'with the map scrolling sideways; no card cut in half at the bottom without a way to scroll to it.',
+    unchanged: 'The side bar shows the same map, scrolled.',
+    act: async (d) => {
+      if (!d.mapSide) throw new Error('the conversation is not open in the side bar');
+      await openMap(d, d.mapSide, 'Look through the notes');
+      await d.mapSide.evaluate(() => {
+        const dialog = [...document.querySelectorAll('[role="dialog"]')].find((x) => /Agent map/.test(x.textContent));
+        for (const e of dialog.querySelectorAll('*')) if (e.scrollHeight > e.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(e).overflowY)) e.scrollTop = e.scrollHeight;
+      });
+      await d.sleep(800);
+      return d.part('workbench.parts.auxiliarybar');
+    },
+    undo: closeMap,
+  },
+  {
+    name: 'map-sidebar', features: ['agent-map', 'narrow-panel'],
+    expect: 'The same side bar map in the dark theme.',
+    unchanged: 'The window is in the dark theme; the side bar shows the same conversation.',
+    act: async (d) => {
+      await theme(d, 'Default Dark Modern');
+      await d.sleep(2500);
+      if (!d.mapSide) throw new Error('the conversation is not open in the side bar');
+      await openMap(d, d.mapSide, 'Look through the notes');
+      return d.part('workbench.parts.auxiliarybar');
+    },
+    undo: async (d) => {
+      await closeMap(d);
+      d.model.releaseHelper();
+      stopMapWork(d, [mapThread(d).id, d.threads[2].id]);
+      removeSchedules(d);
+      await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {});
+      await d.sleep(1000);
+    },
   },
 ];
 

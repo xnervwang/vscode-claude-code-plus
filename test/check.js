@@ -1480,6 +1480,59 @@ console.log('\nreply efforts');
     fs.rmSync(inst, { recursive: true, force: true });
   }
 
+  /* A revision image that could not be replaced, as Windows refuses while the panel has it open: the stylesheet or the
+     efforts beside it were written already, so the same content again must still move the counter, or the panel never
+     loads them. Seen in CI on Windows, where a switch turned back on did not reach the panel. */
+  {
+    const inst2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-rev-owed-'));
+    const realRename = fs.renameSync;
+    let refuse = 0;
+    fs.renameSync = function (from, to) {
+      if (refuse > 0 && path.basename(to) === 'claude-code-extras.rev.svg') {
+        refuse--;
+        throw Object.assign(new Error(`EPERM: operation not permitted, rename '${from}' -> '${to}'`), { code: 'EPERM' });
+      }
+      return realRename.apply(this, arguments);
+    };
+    try {
+      fs.mkdirSync(path.join(inst2, 'webview'));
+      const rev = () => {
+        const t = fs.readFileSync(path.join(inst2, 'webview', 'claude-code-extras.rev.svg'), 'utf8');
+        return [Number(/width="(\d+)"/.exec(t)[1]), Number(/height="(\d+)"/.exec(t)[1])];
+      };
+      const sid = 'dddddddd-2222-4333-8444-555555555555';
+      webview.writeLive(inst2, { enabled: true });
+      webview.writeEffort(inst2, sid, '#cce-effort{--cce-effort:"x"}\n');
+      const r0 = rev();
+      const threw = (f) => { try { f(); return false; } catch (_) { return true; } };
+      refuse = 2;
+      const liveThrew = threw(() => webview.writeLive(inst2, { enabled: true, userColor: '#90EE90' }));
+      const r1 = rev();
+      const liveAgain = webview.writeLive(inst2, { enabled: true, userColor: '#90EE90' });
+      const r2 = rev();
+      const liveThird = webview.writeLive(inst2, { enabled: true, userColor: '#90EE90' });
+      refuse = 2;
+      const effortThrew = threw(() => webview.writeEffort(inst2, sid, '#cce-effort{--cce-effort:"y"}\n'));
+      const r3 = rev();
+      const effortAgain = webview.writeEffort(inst2, sid, '#cce-effort{--cce-effort:"y"}\n');
+      const r4 = rev();
+      if (liveThrew && r1.join() === r0.join() && liveAgain === true && r2[0] === r0[0] + 1 && r2[1] === r0[1]
+        && liveThird === false && effortThrew && r3.join() === r2.join() && effortAgain === true
+        && r4[0] === r2[0] && r4[1] === r2[1] + 1) {
+        ok('a revision the rename refused is moved by the next write of the same content, and only once');
+      } else bad(`refused renames: revisions went ${JSON.stringify([r0, r1, r2, r3, r4])}; the stylesheet threw ${liveThrew}, `
+        + `then wrote ${liveAgain}, ${liveThird}; the efforts threw ${effortThrew}, then wrote ${effortAgain}`);
+    } finally {
+      fs.renameSync = realRename;
+      fs.rmSync(inst2, { recursive: true, force: true });
+    }
+    const extLive = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    const liveFn = (/const writeLiveNow = \(\) => \{[\s\S]*?\n  \};/.exec(extLive) || [''])[0];
+    if (/catch \(e\) \{[\s\S]*setTimeout\(\(\) => \{[^}]*writeLiveNow\(\)/.test(liveFn)) {
+      ok('a live refresh that failed is tried again on a timer, not only at the next change');
+    } else bad('a failed live refresh waits for the next change of settings or sessions before it is tried again');
+  }
+
   /* The whole way through, in a browser: the revision probe sees the height, the page loads its conversation's file,
      and every reply shows the effort of the run it falls in - the ones settled before the file arrived included, and
      none past the last reply read. */
@@ -1667,7 +1720,8 @@ console.log('\nscheduled prompts');
     }
     // A task belonging to another session must not show up in this one.
     sandbox.sigValue = (name) => (name === 'sessionId' ? 'someone-else' : undefined);
-    if (api.__cceSchedule(h) !== null) bad("another session's task leaked into this panel");
+    const other = api.__cceSchedule(h);
+    if (!other || other.props.children.length !== 1) bad("another session's task leaked into this panel");
     else ok("another session's task is not shown here");
 
   }
@@ -1727,8 +1781,8 @@ console.log('\nscheduled prompts');
     const fragment = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '82-scheduled-tasks.js'), 'utf8');
     new vm.Script(`(function(){${fragment}})()`, { filename: '82-scheduled-tasks.js' }).runInNewContext(sandbox);
     sandbox.window.__cceSchedule(h);
-    // One span per row carries the reading and nothing else; the two beside it are styled.
-    const read = calls.filter((c) => c.type === 'span' && !(c.props && c.props.style)).map((c) => c.props.children[0]);
+    // Each card's second line starts with the reading.
+    const read = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-meta').map((c) => c.props.children[0].split(' · ')[0]);
     const wrong = [];
     READINGS.forEach(([expr, want], i) => {
       if (read[i] !== want) wrong.push(`${JSON.stringify(expr)} read as ${JSON.stringify(read[i])}, expected ${JSON.stringify(want)}`);
@@ -2236,20 +2290,19 @@ console.log('\nbackground sessions');
   const api = sandbox.window;
   const tree = api.__cceSchedule(h);
   const flat = JSON.stringify(calls);
-  if (tree && flat.includes('5 background sessions') && flat.includes('Waiting for you: decide which of the two copies')) {
+  if (tree && calls.some((c) => c.props && c.props['data-cce-map-head'] === 'claude --bg sessions') && calls.some((c) => c.props && c.props.className === 'cce-map-count' && c.props.children[0] === '5')
+      && flat.includes('Waiting for you: decide which of the two copies')) {
     ok('the agent map lists this conversation\'s sessions, a waiting one saying what it waits for');
   } else bad('the section did not render the sessions as expected');
   {
-    const spans = calls.filter((c) => c.type === 'span' && c.props && c.props.style && c.props.style.color
-      && Array.isArray(c.props.children) && typeof c.props.children[0] === 'string');
-    const tone = (re) => spans.filter((c) => re.test(c.props.children[0])).map((c) => c.props.style.color);
-    const states = { running: 'charts-green', 'waiting for you': 'editorWarning', done: 'charts-blue', stopped: 'descriptionForeground', failed: 'errorForeground' };
-    const rows = Object.entries(states).filter(([word]) => tone(new RegExp('^' + word + '$')).length);
-    const rowsRight = rows.every(([word, v]) => tone(new RegExp('^' + word + '$')).every((c) => c.includes(v)));
-    const heads = Object.entries(states).filter(([word, v]) => tone(new RegExp('^\\d+ ' + word + '$')).some((c) => c.includes(v)));
-    if (["running", "waiting for you", "done"].every((w) => rows.some(([r]) => r === w)) && rowsRight && heads.length === rows.length) {
-      ok(`each state has its own colour, on its row and counted in the heading (${rows.map(([w]) => w).join(', ')})`);
-    } else bad(`state colours: rows ${JSON.stringify(rows.map(([w]) => [w, tone(new RegExp('^' + w + '$'))]))}, heading counts for ${heads.map(([w]) => w)}`);
+    /* Each card's dot is the one Claude Code gives an agent in that state, and its second line starts with the state. */
+    const metas = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-meta').map((c) => c.props.children[0].split(' · ')[0]);
+    const dots = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-dot').map((c) => c.props['data-cce-map-dot']);
+    const want = { running: 'running', 'waiting for you': 'waiting', done: 'idle', stopped: 'failed', failed: 'failed' };
+    const pairs = metas.map((m, i) => [m, dots[i]]);
+    if (['running', 'waiting for you', 'done'].every((w) => metas.includes(w)) && pairs.every(([m, d]) => want[m] === d)) {
+      ok(`each session's card has the dot of its state and says the state (${[...new Set(metas)].join(', ')})`);
+    } else bad(`state dots: ${JSON.stringify(pairs)}`);
   }
   if (flat.includes('claude attach 1a2b3c4d') && flat.includes('claude logs 5e6f7a8b')) {
     ok('each session offers the commands to reach it, and nothing that opens it in this panel');
@@ -2305,7 +2358,8 @@ console.log('\nbackground sessions');
 
   sandbox.sigValue = (name) => (name === 'sessionId' ? 'someone-else' : undefined);
   calls.length = 0;
-  if (api.__cceSchedule(h) === null) ok("another conversation's sessions are not shown here");
+  const otherTree = api.__cceSchedule(h);
+  if (otherTree && otherTree.props.children.length === 1) ok("another conversation's sessions are not shown here");
   else bad("another conversation's sessions leaked into this panel");
 
   sandbox.sigValue = (name) => (name === 'sessionId' ? SID : undefined);
@@ -2314,7 +2368,7 @@ console.log('\nbackground sessions');
   const offTree = api.__cceSchedule(h);
   // The counts are held for half a second, so wait that out before asking the label again.
   const until = Date.now() + 600; while (Date.now() < until) { /* spin */ }
-  if (offTree === null && api.__cceAgentsLabel('3 agents', 3) === '3 agents') ok('switched off, nothing is drawn or counted');
+  if (offTree && offTree.props.children.length === 1 && api.__cceAgentsLabel('3 agents', 3) === '3 agents') ok('switched off, nothing is drawn or counted');
   else bad('the switch left the section or the count in place');
 
   fs.rmSync(root, { recursive: true, force: true });
@@ -2360,15 +2414,15 @@ console.log('\ndetached commands in the agent map');
   const api = make(SID);
   const tree = api.__cceSchedule(h);
   const flat = JSON.stringify(calls);
-  const codes = calls.filter((c) => c.type === 'code').map((c) => c.props.children[0]);
-  const lines = calls.filter((c) => c.type === 'div' && Array.isArray(c.props.children) && /^pid \d+/.test(c.props.children[0])).map((c) => c.props.children[0]);
-  same([!!tree, flat.includes('2 detached commands'), (codes[0] || '').length, (codes[0] || '').endsWith('\u2026'), codes[1], flat.includes('sleep 99')],
-    [true, true, 120, true, 'java -jar build-server.jar', false],
-    'the section lists this conversation\'s commands, newest first, a long one cut short, and none of another conversation\'s');
+  const titles = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-text').map((c) => c.props.children[0]);
+  const lines = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-meta').map((c) => c.props.children[0]);
+  same([!!tree, calls.some((c) => c.props && c.props['data-cce-map-head'] === 'Detached commands'), titles, flat.includes('sleep 99')],
+    [true, true, [long, 'java -jar build-server.jar'], false],
+    'the section lists this conversation\'s commands, newest first, and none of another conversation\'s; a job from an older build that carries no title is titled by its command');
   /* Just after midnight these start times fall on the previous day, and a row then shows the date as well. */
-  const started = (pid, ago) => new RegExp(`^pid ${pid} · started (?:[A-Z][a-z]{2} \\d{1,2} )?\\d\\d:\\d\\d \\(${ago} ago\\)$`);
+  const started = (pid, ago) => new RegExp(`^pid ${pid} · started (?:[A-Z][a-z]{2} \\d{1,2} )?\\d\\d:\\d\\d · ${ago}$`);
   same([started(4343, '2 min').test(lines[0] || ''), started(4242, '25 min').test(lines[1] || ''),
-    calls.some((c) => c.props && c.props.title === long)], [true, true, true], 'each row gives the pid and when it started, with the whole command on hover');
+    calls.some((c) => c.props && c.props['aria-label'] === `${long}\n${lines[0]}`)], [true, true, true], 'each card gives the pid, when it started and how long it has run, with the whole command on hover');
   const bare = calls.filter((c) => c.props && 'children' in c.props && !Array.isArray(c.props.children));
   same([bare.length, api.__cceAgentsLabel('3 agents', 3), api.__cceAgentsLabel('0 agents', 0), api.__cceScheduleCount()],
     [0, '3 agents · 2 detached', '2 detached', 2], 'the Agents button counts them first and opens for them alone');
@@ -2394,29 +2448,29 @@ console.log('\ndetached commands in the agent map');
     same(ticks.slice(2), [1, 2, 3], 'a scheduled prompt of this conversation coming or going in a later stylesheet redraws them as well, and another conversation\'s does not');
   }
   {
-    /* perl -e and the like: the row shows the arguments after the program, the hover the whole command. */
-    const det = require('../src/detached');
-    const relay = ['perl', '-e', 'use strict;\nmy ($port, $path) = @ARGV;', '2014', '/w/.sandbox/demo/cache.sock', 'cache-relay:demo:'].join('\0');
-    const label = det.labelOf(relay);
-    same([label, det.labelOf(['bash', '-c', 'python3 job.py'].join('\0')), det.labelOf(['python3', '-c', 'print(1)'].join('\0')),
-      det.labelOf(['node', 'server.js', '--port', '8080'].join('\0'))],
-    ['perl -e \u2026 2014 /w/.sandbox/demo/cache.sock cache-relay:demo:', '', '', ''],
-    'an interpreter\'s inline program is left out of the row, a shell\'s -c command and ordinary arguments are not');
-    const one = [{ session: SID, pid: 5151, start: '9', startedAt: Date.now() - 60000, kind: 'leader', command: 'perl -e use strict; my ($port) = @ARGV; 2014 /w/.sandbox/demo/cache.sock', label }];
+    /* perl -e and the like: the card shows the host's title, the hover the whole command; a window on an older build
+       hands over a label instead, which is shown in its place. */
+    const one = [{ session: SID, pid: 5151, start: '9', startedAt: Date.now() - 60000, kind: 'leader', command: 'perl -e use strict; 2014 /w/.sandbox/demo/cache.sock cache-relay:demo:',
+      title: 'perl -e \u2026 cache-relay:demo:' }];
     const packedOne = (webview.liveCss({ enabled: true, detached: one }).match(/--cce-detached:"([A-Za-z0-9+/=]+)"/) || [])[1] || '';
+    const older = Buffer.from(JSON.stringify([{ session: SID, pid: 5152, startedAt: Date.now() - 60000, command: 'perl -e 1 relay', label: 'perl -e \u2026 relay' }])).toString('base64');
     const saved = props['--cce-detached'];
-    props['--cce-detached'] = `"${packedOne}"`;
-    calls.length = 0;
-    make(SID).__cceSchedule(h);
+    const titled = (packedValue) => {
+      props['--cce-detached'] = `"${packedValue}"`;
+      calls.length = 0;
+      make(SID).__cceSchedule(h);
+      const text = calls.find((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-text');
+      const card = calls.find((c) => c.props && c.props.className === 'cce-map-card');
+      return [text && text.props.children[0], card && card.props['aria-label'].split('\n')[0]];
+    };
+    const got = [titled(packedOne), titled(older)];
     props['--cce-detached'] = saved;
-    const code = calls.find((c) => c.type === 'code');
-    const row = calls.find((c) => c.type === 'div' && c.props && c.props.title === one[0].command);
-    same([code && code.props.children[0], !!row], [label, true], 'the row shows that shorter text, and the whole command line on hover');
+    same(got, [[one[0].title, one[0].command], ['perl -e \u2026 relay', 'perl -e 1 relay']], 'the card shows that title, and the whole command line on hover');
   }
   const other = make('abcdef01-0000-4000-8000-000000000003');
   offNow.on = true;
   const offApi = make(SID);
-  same([other.__cceSchedule(h), offApi.__cceSchedule(h), offApi.__cceAgentsLabel('3 agents', 3)], [null, null, '3 agents'],
+  same([other.__cceSchedule(h).props.children.length, offApi.__cceSchedule(h).props.children.length, offApi.__cceAgentsLabel('3 agents', 3)], [1, 1, '3 agents'],
     'a conversation with none, or the switch off, shows and counts nothing');
 }
 
@@ -2475,12 +2529,15 @@ console.log('\nworkers in the agent map, and the dots that follow background wor
   calls.length = 0;
   api.__cceSchedule(h);
   const shown = texts();
-  same([shown.includes('2 workers · claude -p, started from this conversation'), shown.includes('joinwin-1b'), shown.includes('running'),
-    shown.includes(' · for 2h'), shown.includes(`session ${W} · pid 7001`), shown.includes('inner-check'), shown.includes('idle'),
-    shown.includes('1 detached command · running, started from this conversation'), shown.includes('sleep 999'),
+  const hovers = calls.filter((c) => c.props && c.props.className === 'cce-map-card').map((c) => c.props['aria-label'] || '');
+  const dotsOf = calls.filter((c) => c.props && c.props.className === 'cce-map-dot').map((c) => c.props['data-cce-map-dot']);
+  same([calls.some((c) => c.props && c.props['data-cce-map-head'] === 'claude -p sessions'), shown.includes('joinwin-1b'), shown.includes('inner-check'),
+    shown.some((t) => /^pid 7001 · started (?:[A-Z][a-z]{2} \d{1,2} )?\d\d:\d\d · 2h$/.test(t)), hovers.some((x) => x.startsWith(`claude -p session ${W} · running\npid 7001 · `)),
+    hovers.some((x) => x.startsWith(`claude -p session ${INNER} · idle\npid 7002 · `)), dotsOf.filter((d) => d === 'running').length >= 2, dotsOf.includes('idle'),
+    calls.some((c) => c.props && c.props['data-cce-map-head'] === 'Detached commands'), shown.includes('sleep 999'),
     JSON.stringify(calls).includes('setsid nohup claude -p go'), JSON.stringify(calls).includes('theirs')],
-  [true, true, true, true, true, true, true, true, true, false, false],
-  'the map lists the workers with name, state, running time, session id and pid, and leaves out the shell that holds one; another conversation\'s worker is not shown');
+  [true, true, true, true, true, true, true, true, true, true, false, false],
+  'the map lists the workers with name, pid, start and running time, their session id and state on hover, and leaves out the shell that holds one; another conversation\'s worker is not shown');
   same([api.__cceAgentsLabel('0 agents', 0), api.__cceAgentsLabel('2 agents', 2), api.__cceScheduleCount()],
     ['1 detached · 1 worker', '2 agents · 1 detached · 1 worker', 3],
     'the button counts the worker once, not its shell, and not one still inside a Bash call of this conversation, and opens for them');
@@ -2535,6 +2592,151 @@ console.log('\nworkers in the agent map, and the dots that follow background wor
   [null, null, { dot: 'running', title: 'says running (idle -> running)', label: '0 agents · 1 task' },
     { dot: 'waiting', title: 'says waiting', label: '2 agents' }, { state: 'idle', ring: true }, { state: 'running' }],
   'the button takes its dot, label and hover text from the page and the map\'s own row its dot; without the page both are Claude Code\'s');
+}
+
+/* The agent map's look, the page side: a heading over the conversation's own row, a section per kind of work with a
+   heading of its own (a label and a count), every row in Claude Code's card form, empty sections left out, and Claude
+   Code's two headings given the same look from their own words - and left alone when worded otherwise. The host side:
+   the title a detached command's card carries. */
+console.log('\nthe agent map: headings, sections and cards');
+{
+  const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+  const det = require('../src/detached');
+  const argv = (...a) => a.join('\0');
+  const snap = (cmd) => argv('/bin/bash', '-c', 'source /h/.claude/shell-snapshots/snapshot-bash-1-a.sh 2>/dev/null || true && '
+    + "\\builtin shopt -u extglob 2>/dev/null || true && eval '" + cmd + "' < /dev/null && pwd -P >| /tmp/claude-1-cwd");
+  same(typeof det.titleOf === 'function' ? [
+    det.titleOf(argv('perl', '-e', 'use strict;\nmy ($port) = @ARGV;', '2014', '/w/.sandbox/demo/cache.sock', 'cache-relay:demo:')),
+    det.titleOf(snap('sleep 2700; echo check')),
+    det.titleOf(snap("echo it'\\''s here")),
+    det.titleOf(argv('/bin/bash', '-c', 'source /h/.claude/shell-snapshots/snapshot-bash-1-a.sh && ( setsid nohup claude -p go & )')),
+    det.titleOf(argv('bash', '-c', 'python3 job.py\nsecond line')),
+    det.titleOf(argv('/usr/bin/python3', '/srv/app/serve.py', '--port', '8000')),
+    det.titleOf(argv('python3', '-c', 'print(1)')),
+    det.titleOf(argv('java', '-jar', 'build-server.jar')),
+    det.titleOf(argv('timeout', '600', 'node', '/x/y/run.js')),
+    det.titleOf(argv('/lib64/ld-linux-x86-64.so.2', '--library-path', '/x', '/opt/aws/dist/aws', 's3', 'sync')),
+    det.titleOf(argv('sleep', '1800')),
+    det.titleOf(argv('top')),
+    det.titleOf(argv('python3', 'x'.repeat(100))).length,
+  ] : 'no titleOf', [
+    'perl -e \u2026 cache-relay:demo:', 'sleep 2700; echo check', "echo it's here", '( setsid nohup claude -p go & )',
+    'bash -c python3 job.py', 'python3 serve.py', 'python3 -c print(1)', 'java build-server.jar', 'node run.js', 'aws s3',
+    'sleep 1800', 'top', 'python3 '.length + 60,
+  ], 'a detached command\'s card is titled by its program and the argument that tells what it runs: the command a Bash tool shell was given, '
+    + 'a shell\'s -c string, the last argument after an inline program, a script by its file name, each part cut short');
+  const SID = 'abcdef01-0000-4000-8000-000000000031';
+  const jobs = [{ session: SID, pid: 4242, start: '9', startedAt: Date.now() - 25 * 60000, kind: 'leader',
+    command: 'perl -e use strict; 2014 /w/.sandbox/demo/cache.sock cache-relay:demo:', title: 'perl -e \u2026 cache-relay:demo:' }];
+  const prop = (css, name) => (css.match(new RegExp(`${name}:"([A-Za-z0-9+/=]+)"`)) || [])[1] || '';
+  const sheet = webview.liveCss({ enabled: true, detached: jobs,
+    tasks: [{ id: 'cafe1234', cron: '*/20 * * * *', recurring: true, session: SID, project: '/p', prompt: 'Check the build.\nThen report.',
+      lastFiredAt: Date.now() - 7 * 60000 }, { id: 'cafe5678', cron: '30 9 * * *', recurring: true, session: SID, project: '/p', prompt: '' }],
+    workers: [{ session: SID, id: 'abcdef01-0000-4000-8000-000000000041', pid: 7001, name: 'notes-worker', status: 'shell', startedAt: Date.now() - 3 * 60000 }],
+    background: [{ session: SID, id: '1a2b3c4d', name: 'nightly', state: 'working', startedAt: Date.now() - 60000, tokens: 12000, detail: 'reading' },
+      { session: SID, id: '5e6f7a8b', name: 'weekly', state: 'done', endedAt: Date.now() - 120000, result: 'all done' },
+      { session: SID, id: '9c0d1e2f', name: 'third', state: 'stopped', endedAt: Date.now() - 120000 }] });
+  same(JSON.parse(Buffer.from(prop(sheet, '--cce-detached'), 'base64').toString('utf8'))[0].title, 'perl -e \u2026 cache-relay:demo:',
+    'the title rides in the stylesheet with the command');
+  /* A stand-in document: the dialog's two headings as Claude Code words them, one it words otherwise, and one tagged
+     before whose words have since changed. */
+  const node = (text, attrs = {}) => ({ textContent: text, attrs, getAttribute: (k) => (k in attrs ? attrs[k] : null),
+    setAttribute: (k, v) => { attrs[k] = String(v); }, removeAttribute: (k) => { delete attrs[k]; } });
+  const heads = [node('2 agents · click an agent for details'), node('1 background task · click a task for details'),
+    node('0 agents · click an agent for details'), node('Two helpers are running'),
+    node('Helpers: 3', { 'data-cce-map-cc': 'Subagents', 'data-cce-map-count': '3' })];
+  const styles = [];
+  /* The page reads Claude Code's headings in a microtask after the render; here that task is run by hand. */
+  const queued = [];
+  const microtask = { resolve: () => ({ then: (fn) => { queued.push(fn); } }) };
+  const make = (sheetText, sid = SID, withDom = true) => {
+    const props = {};
+    for (const n of ['--cce-workers', '--cce-detached', '--cce-schedule', '--cce-background']) props[n] = `"${prop(sheetText, n)}"`;
+    const env = {
+      window: {}, navigator: {}, console, TextDecoder, Promise: microtask,
+      document: withDom ? { documentElement: {}, head: { appendChild: (e) => styles.push(e) },
+        createElement: (t) => ({ tag: t, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } }),
+        querySelectorAll: (sel) => (/subtitle_/.test(sel) && /tasksHeader_/.test(sel) && /\[role="dialog"\]/.test(sel) ? heads : []) } : { documentElement: {} },
+      getComputedStyle: () => ({ getPropertyValue: (name) => props[name] || '' }),
+      atob: (x) => Buffer.from(x, 'base64').toString('binary'),
+      sigValue: (name) => (name === 'sessionId' ? sid : undefined),
+      isOff: () => false,
+      setLabel: (el, text) => el.setAttribute('aria-label', text),
+    };
+    new vm.Script(`(function(){${fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '82-scheduled-tasks.js'), 'utf8')}})()`,
+      { filename: '82-scheduled-tasks.js' }).runInNewContext(env);
+    return env.window;
+  };
+  const h = (type, props) => ({ type, props: props || {} });
+  const kids = (e) => (e && Array.isArray(e.props.children) ? e.props.children : []);
+  const text = (e) => (typeof e === 'string' ? e : kids(e).map(text).join(''));
+  const all = (e, out = []) => { if (e && typeof e === 'object') { out.push(e); kids(e).forEach((k) => all(k, out)); } return out; };
+  const cls = (e) => String((e && e.props.className) || '');
+  const api = make(sheet);
+  const tree = api.__cceSchedule(h);
+  api.__cceSchedule(h);
+  const putOnce = styles.length;
+  const parts = kids(tree);
+  const sections = parts.filter((p) => p.props['data-cce-map-section']);
+  const headOf = (s) => kids(s)[0];
+  same([tree && tree.props['data-cce-map'], parts[0] && parts[0].props['data-cce-map-me'], text(parts[0]), sections.map((s) => s.props['data-cce-map-section'])],
+    ['1', '1', 'This conversation', ['detached', 'scheduled', 'workers', 'background']],
+    'the map gets a heading for the conversation\'s own row, then a section for each kind of work there is, in a fixed order');
+  same(sections.map((s) => [cls(headOf(s)).includes('cce-map-head'), headOf(s).props['data-cce-map-head'],
+    text(kids(headOf(s)).find((k) => cls(k) === 'cce-map-count')), !!headOf(s).props['aria-label']]),
+  [[true, 'Detached commands', '1', true], [true, 'Scheduled prompts', '2', true], [true, 'claude -p sessions', '1', true],
+    [true, 'claude --bg sessions', '3', true]],
+  'each section is headed by a short label and its count, with the longer note as hover text');
+  const cards = all(tree).filter((e) => cls(e) === 'cce-map-card');
+  const form = cards.map((c) => {
+    const [line, meta] = kids(c);
+    const dot = kids(line).find((k) => cls(k) === 'cce-map-dot');
+    return { parts: kids(c).length, dot: dot && dot.props['data-cce-map-dot'], title: text(kids(line).find((k) => cls(k) === 'cce-map-text')), meta: text(meta),
+      line: cls(line), metaClass: cls(meta) };
+  });
+  same([cards.length, form.every((f) => f.parts === 2 && f.line === 'cce-map-title' && f.metaClass === 'cce-map-meta' && f.title && f.meta)],
+    [7, true], 'every row the map gets from this page is a card of a dot, a title line and one line under it');
+  const started = (ago) => `started (?:[A-Z][a-z]{2} \\d{1,2} )?\\d\\d:\\d\\d · ${ago}`;
+  const at = (kind) => form[cards.findIndex((c) => c.props['data-cce-map-card'] === kind)] || {};
+  const hover = (kind) => (cards.find((c) => c.props['data-cce-map-card'] === kind) || { props: {} }).props['aria-label'];
+  const bg = cards.filter((c) => c.props['data-cce-map-card'] === 'background').map((c) => form[cards.indexOf(c)]);
+  same([at('detached').dot, at('detached').title, new RegExp(`^pid 4242 · ${started('25 min')}$`).test(at('detached').meta),
+    hover('detached') === jobs[0].command + '\n' + at('detached').meta],
+  ['running', 'perl -e \u2026 cache-relay:demo:', true, true],
+  'a detached command\'s card: a green dot, the host\'s title, its pid, start and running time, and the whole command line on hover');
+  const sched = cards.filter((c) => c.props['data-cce-map-card'] === 'schedule').map((c) => form[cards.indexOf(c)]);
+  same(sched.map((f) => [f.dot, f.title, f.meta]), [['idle', 'Check the build.', 'every 20 min · last fired 7 min ago'],
+    ['idle', '(the prompt was not recorded)', 'daily at 9:30 · never fired']],
+  'a scheduled prompt\'s card: a grey dot, the first line of the prompt, when it fires and when it last did');
+  same([at('worker').dot, at('worker').title, new RegExp(`^pid 7001 · ${started('3 min')}$`).test(at('worker').meta),
+    /claude -p session abcdef01-0000-4000-8000-000000000041 · running a command/.test(hover('worker') || '')],
+  ['running', 'notes-worker', true, true], 'a worker\'s card: its name, pid, start and running time, with its session id and state on hover');
+  same(bg.map((f) => [f.title, f.dot, String(f.meta).split(' · ')[0], String(f.meta).split(' · ').pop()]),
+    [['third', 'failed', 'stopped', '9c0d1e2f'], ['weekly', 'idle', 'done', '5e6f7a8b'], ['nightly', 'running', 'running', '1a2b3c4d']],
+  'a claude --bg session\'s card takes the dot Claude Code gives an agent in that state, and says the state, newest first');
+  const opened = all(tree).filter((e) => e.type === 'details' && cls(e) === 'cce-map-item');
+  same([opened.length, opened.every((d) => kids(d)[0].type === 'summary' && cls(kids(d)[0]) === 'cce-map-card' && cls(kids(d)[1]) === 'cce-map-body'),
+    all(tree).some((e) => e.type === 'pre' && text(e) === 'Check the build.\nThen report.'), all(tree).some((e) => e.type === 'button' && text(e) === 'claude attach 5e6f7a8b')],
+  [5, true, true, true], 'a card with more to show opens it below on a click: a prompt, a session\'s result and the commands that reach it');
+  const bare = all(tree).filter((e) => 'children' in e.props && !Array.isArray(e.props.children));
+  same(bare.length, 0, 'every element passes its children as an array');
+  /* Nothing of the kinds this page lists: the heading over the conversation's row only. */
+  const empty = make(webview.liveCss({ enabled: true })).__cceSchedule(h);
+  same([kids(empty).length, kids(empty)[0] && kids(empty)[0].props['data-cce-map-me']], [1, '1'], 'with nothing to list, no section and no empty heading is drawn');
+  same(kids(make(sheet, 'abcdef01-0000-4000-8000-000000000099').__cceSchedule(h)).length, 1, 'another conversation\'s work is not listed');
+  /* Claude Code's headings, once the render that drew them has run. */
+  {
+    while (queued.length) queued.shift()();
+    same(heads.map((e) => [e.attrs['data-cce-map-cc'] || null, e.attrs['data-cce-map-count'] || null, e.attrs['aria-label'] || null]),
+      [['Subagents', '2', 'Click an agent for details.'], ['Background tasks', '1', 'Click a task for details.'], ['Subagents', '0', 'Click an agent for details.'],
+        [null, null, null], [null, null, null]],
+      'Claude Code\'s headings get a label and a count from their own words, the hint as hover text; worded otherwise they are left as they are');
+    const css = styles.map((e) => e.textContent || '').join('\n');
+    same([putOnce, /\[data-cce-map-cc\]\[data-cce-map-count="0"\]\{display:none/.test(css), /display:contents/.test(css),
+      /:has\(>\[class\*="tree_"\]>\[class\*="node_"\]>\[class\*="rowMain_"\]\)/.test(css), /\.cce-map-head[^{]*\{[^}]*border-top:1px solid/.test(css)],
+    [1, true, true, true, true],
+    'the stylesheet goes in once: it hides the empty agents heading, and moves the rows only where the dialog has the shape it was written against');
+  }
 }
 
 /* Images in replies, the page side: a data: image drawn at once, a local file asked of the host and drawn from its
@@ -4216,9 +4418,8 @@ console.log('\nswitched off, the work plan costs nothing and keeps nothing');
     if (/WORK_PLAN_SETTING/.test(map)) names.push('claudeCodePlus.workPlan');
     if (/brief: BRIEF_SETTING/.test(map)) names.push('claudeCodePlus.conversationBrief');
     if (/tellTimeZone: TIME_ZONE_SETTING/.test(map)) names.push('claudeCodePlus.tellClaudeYourTimeZone');
-    if (/skillRoute: SKILL_ROUTING_SETTING/.test(map)) names.push('claudeCodePlus.skillRouting');
     const scoped = names.filter((n) => props[n] && props[n].scope === 'application');
-    if (names.length === 9 && scoped.length === names.length) ok('every setting the hooks read is an application setting');
+    if (names.length === 6 && scoped.length === names.length) ok('every setting the hooks read is an application setting');
     else bad(`hook settings ${JSON.stringify(names)}, application-scoped ${JSON.stringify(scoped)}`);
     const brief = props['claudeCodePlus.conversationBrief'];
     if (brief && brief.type === 'boolean' && brief.default === true
@@ -4968,8 +5169,7 @@ console.log("\nthe reader's time zone, told to the model");
 console.log('\none copy of what the hooks share');
 {
   const hooks = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
-  /* skill_route.py is Agent Plus's shared search module, checked in Agent Plus with both agents' plan_agent.py. */
-  const scripts = fs.readdirSync(hooks).filter((f) => f.endsWith('.py') && !PLAN_PATH.includes(f) && f !== 'skill_route.py');
+  const scripts = fs.readdirSync(hooks).filter((f) => f.endsWith('.py') && !PLAN_PATH.includes(f));
   const copies = [
     ['reads a transcript from its end', /\.seek\(/],
     ['writes a file and renames it into place', /os\.replace\(/],
@@ -4996,74 +5196,31 @@ console.log('\none copy of what the hooks share');
   } else bad(`os.kill outside proc_alive.py: ${JSON.stringify(kills)}; the check said ${JSON.stringify(probe.stdout + probe.stderr)}`);
 }
 
-/* ── 19e. skill suggestions ── route-skills.py, on UserPromptSubmit and Stop, searches the skills Claude Code can call
-   with the shared skill_route.py and puts the best few in front of the turn. Run here as Claude Code runs it, against a
-   made-up Claude Code folder: a personal skill and an enabled plugin's skill that a message asks for are given by the
-   names the Skill tool takes, with their descriptions, and skillRoute off in config.json, which the extension writes
-   from claudeCodePlus.skillRouting and the token mode, gives nothing. */
-console.log('\nskill suggestions');
+/* ── 19e. no skill suggestions ── Nothing searches the skills before a message: package.json has no
+   claudeCodePlus.skillRouting setting, hooks.json runs no route-skills.py, the plugin and shared.json carry no
+   skill_route.py, the token mode has no Claude Code Plus switch for skill suggestions, and the README names none of
+   it. */
+console.log('\nno skill suggestions');
 {
-  const hooks = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
-  const spec = JSON.parse(fs.readFileSync(path.join(hooks, 'hooks.json'), 'utf8')).hooks;
-  const ours = (event) => (spec[event] || []).flatMap((m) => m.hooks || [])
-    .filter((h) => h.command === 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/route-skills.py" "${CLAUDE_PLUGIN_DATA}"');
-  const up = ours('UserPromptSubmit'), stop = ours('Stop');
-  if (up.length === 1 && stop.length === 1 && up[0].timeout === 10 && stop[0].timeout === 10 && fs.existsSync(path.join(hooks, 'route-skills.py'))) {
-    ok('route-skills.py runs on UserPromptSubmit and on Stop, each given 10 seconds');
-  } else bad(`route-skills.py in hooks.json: UserPromptSubmit ${JSON.stringify(up)}, Stop ${JSON.stringify(stop)}`);
-  const copy = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'shared.json'), 'utf8')).files
-    .find((f) => f.path === 'claude-plugin/agent-work-plan/hooks/skill_route.py');
-  if (copy && copy.from === 'shared/plugin/hooks/skill_route.py') ok('skill_route.py beside it is the copy of Agent Plus\'s shared search');
-  else bad(`shared.json lists skill_route.py as ${JSON.stringify(copy)}`);
-
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-route-')));
-  try {
-    const claude = path.join(home, '.claude');
-    const data = path.join(claude, 'plugins', 'data', 'agent-work-plan-claude-code-extras');
-    const work = path.join(home, 'work');
-    const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
-    const skill = (dir, name, desc) => put(path.join(dir, name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${desc}\n---\n\nSteps.\n`);
-    fs.mkdirSync(path.join(work, '.git'), { recursive: true });
-    fs.mkdirSync(data, { recursive: true });
-    skill(path.join(claude, 'skills'), 'quokka-census', 'Count the quokkas on the island and file the census sheet.');
-    const kit = path.join(claude, 'plugins', 'cache', 'test-market', 'fauna-kit', '1.0.0');
-    put(path.join(kit, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'fauna-kit' }));
-    skill(path.join(kit, 'skills'), 'wombat-burrows', 'Map the wombat burrows on the island before the census.');
-    put(path.join(claude, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2,
-      plugins: { 'fauna-kit@test-market': [{ scope: 'user', installPath: kit }] } }));
-    put(path.join(claude, 'settings.json'), JSON.stringify({ enabledPlugins: { 'fauna-kit@test-market': true } }));
-    const env = Object.assign({}, process.env, { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: claude });
-    for (const k of Object.keys(env)) if (/^AWS_/.test(k) || k === 'CLAUDE_CODE_USE_BEDROCK') delete env[k];
-    const transcript = path.join(home, 't.jsonl');
-    fs.writeFileSync(transcript, '');
-    const hook = (event, prompt, config) => {
-      fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify(config || {}));
-      const r = cp.spawnSync('python3', [path.join(hooks, 'route-skills.py'), data], { encoding: 'utf8', env, timeout: 30000,
-        input: JSON.stringify({ hook_event_name: event, session_id: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', transcript_path: transcript,
-          cwd: work, prompt }) });
-      return { code: r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
-    };
-    const ask = 'Count the quokkas and map the wombat burrows on the island.';
-    const first = hook('UserPromptSubmit', ask);
-    const indexed = () => { try { return fs.readdirSync(path.join(data, 'skill-route')).some((n) => /^index-[0-9a-f]+\.pickle$/.test(n)); } catch (_) { return false; } };
-    const until = Date.now() + 30000;
-    const pause = new Int32Array(new SharedArrayBuffer(4));
-    while (!indexed() && Date.now() < until) Atomics.wait(pause, 0, 0, 100);
-    const second = hook('UserPromptSubmit', ask);
-    let added = '';
-    try { added = JSON.parse(second.out).hookSpecificOutput.additionalContext; } catch (_) { /* none */ }
-    if (first.code === 0 && first.out === '' && indexed() && second.code === 0
-      && added.startsWith('Skills that may fit this message') && added.includes('\n- quokka-census: Count the quokkas on the island and file the census sheet.')
-      && added.includes('\n- fauna-kit:wombat-burrows: Map the wombat burrows on the island before the census.')) {
-      ok('the first message starts building the index, and the next one is given the personal and the plugin skill it asks for, by name and description');
-    } else bad(`route-skills.py gave ${JSON.stringify({ first, indexed: indexed(), second: second.out.slice(0, 400), err: second.err.slice(-300) })}`);
-    const off = hook('UserPromptSubmit', ask, { skillRoute: false });
-    if (off.code === 0 && off.out === '') ok('with skillRoute off in config.json it adds nothing');
-    else bad(`with skillRoute off route-skills.py printed ${off.out.slice(0, 200)}`);
-    const stopped = hook('Stop', '');
-    if (stopped.code === 0 && stopped.out === '') ok('at the end of a turn it prints nothing, and only logs');
-    else bad(`on Stop route-skills.py printed ${stopped.out.slice(0, 200)} ${stopped.err.slice(-200)}`);
-  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  const root = path.join(__dirname, '..');
+  const plugin = path.join(root, 'claude-plugin', 'agent-work-plan');
+  const props = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).contributes.configuration.properties;
+  const settings = Object.keys(props).filter((k) => k.startsWith('claudeCodePlus.skillRouting'));
+  const spec = JSON.parse(fs.readFileSync(path.join(plugin, 'hooks', 'hooks.json'), 'utf8')).hooks;
+  const hooked = Object.values(spec).flat().flatMap((m) => (m && m.hooks) || []).map((h) => h.command || '')
+    .filter((c) => /route-skills|skill_route/.test(c));
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  const files = walk(plugin).filter((f) => /^(route-skills|skill_route)\.py$/.test(path.basename(f))).map((f) => path.relative(root, f));
+  const listed = JSON.parse(fs.readFileSync(path.join(root, 'shared.json'), 'utf8')).files
+    .filter((f) => /skill_route/.test(f.path)).map((f) => f.path);
+  const rows = require('../src/token-mode').SWITCHES
+    .filter((s) => s.key.startsWith('claudeCodePlus.') && (s.feature === 'skillRouting' || /skillRout/.test(s.key))).map((s) => s.key);
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8').split('\n')
+    .filter((l) => /skill suggestion|skillRout|route-skills|skill_route|skill-route/i.test(l)).map((l) => l.slice(0, 80));
+  if (!settings.length && !hooked.length && !files.length && !listed.length && !rows.length && !readme.length) {
+    ok('no skill suggestions: no claudeCodePlus.skillRouting setting, no route-skills hook, no skill_route.py, no token mode switch for them, none in the README');
+  } else bad(`skill suggestions remain: ${JSON.stringify({ settings, hooked, files, listed, rows, readme })}`);
 }
 
 /* ── 21. an uninstall puts Claude Code back at once ──
@@ -8686,6 +8843,53 @@ console.log('\ntext colors in the session list');
     if (JSON.stringify(senv.sel) === JSON.stringify([['set', 0], ['anchor', null], ['set', 0], ['anchor', null]])) {
       ok('picking a text color from either list\'s menu ends the selection the right-click made');
     } else bad(`picking a text color left the selection calls ${JSON.stringify(senv.sel)}`);
+  }
+  /* A right-click or a drag on a row the list has not picked makes that row the selection; it ends with that menu or that
+     drag, however they end, and a selection that was there before them stays. The source is the shape of the list's
+     handlers; the state is kept as React keeps it: a handler reads the last render's, and its updates land after it. */
+  {
+    const gestureEdits = ['row menu ends the selection it made', 'row menu close ends the selection it made',
+      'row drag remembers the selection it made', 'row drag end ends the selection it made'].map((n) => [n, webview.EDITS.find((x) => x.name === n)]);
+    const handlers = 'function se(he,Mt){if(!E||!I)return;let On=cr(Mt);if(!On)return;if(he.preventDefault(),he.stopPropagation(),Af(Mt)){'
+      + 'let $a=new Set(Wd),Mm=Qr.has(On)?[...Qr].filter((tV)=>$a.has(tV)):[On];if(!Qr.has(On))Ro(new Set([On])),Hn(On);Yi({items:["archived"]});return}'
+      + 'let xr=Upe(Qr,Nl,On);if(!Qr.has(On))Ro(new Set([On])),Hn(On);Yi({items:["live"]})}'
+      + 'function Kg(he,Mt){let On=cr(Mt);let xr=Upe(Qr,Nl,On);if(!Qr.has(On))Ro(new Set([On])),Hn(On);'
+      + 'let th=`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;he.dataTransfer.setData("x",th),Am.current={nonce:th,keys:xr,sourceKey:On}}'
+      + 'function Dm(){Am.current=null,bv(null)}'
+      + 'function menu(){return Ir&&eh&&m(SHt,{items:eh,x:Ir.x,y:Ir.y,onClose:()=>Yi(null)})}';
+    const missing = gestureEdits.filter(([, e]) => !e).map(([n]) => n);
+    const gr = missing.length ? { error: `no edit named ${missing.join(', ')}` } : applyEdits(handlers, gestureEdits.map(([, e]) => e));
+    if (gr.error) bad('the edits that end a selection a right-click or a drag made did not apply: ' + gr.error);
+    else {
+      const R1 = 'aaaaaaaa-0000-4000-8000-000000000001', R2 = 'aaaaaaaa-0000-4000-8000-000000000002', R3 = 'aaaaaaaa-0000-4000-8000-000000000003';
+      let sel = new Set(), menuState = null, queued = [];
+      const g = { window: {}, E: [], I() {}, Wd: [], Nl: [], Am: { current: null }, SHt: 'menu',
+        cr: (x) => x.key, Af: (x) => !!x.archived, Upe: (q, n, k) => (q.has(k) ? [...q] : [k]), Hn() {}, bv() {}, m: (c, props) => props,
+        Ro: (v) => queued.push(['sel', v]), Yi: (v) => queued.push(['menu', v]) };
+      const render = () => {
+        for (const [k, v] of queued) { if (k === 'sel') sel = typeof v === 'function' ? v(sel) : v; else menuState = v; }
+        queued = [];
+        Object.assign(g, { Qr: sel, Ir: menuState, eh: menuState && menuState.items });
+      };
+      vm.createContext(g);
+      vm.runInContext(gr.out, g);
+      const ev = { preventDefault() {}, stopPropagation() {}, dataTransfer: { setData() {} } };
+      const from = (keys) => { queued = [['sel', new Set(keys)], ['menu', null]]; g.window.__cceMenuSelection = void 0; g.Am.current = null; render(); };
+      const now = () => [...sel].sort();
+      const got = {};
+      from([]); vm.runInContext('se', g)(ev, { key: R1 }); render(); got.menuMade = now();
+      g.menu().onClose(); render(); got.menuClosed = now();
+      from([]); vm.runInContext('se', g)(ev, { key: R1, archived: true }); render(); g.menu().onClose(); render(); got.archivedClosed = now();
+      from([R1, R2]); vm.runInContext('se', g)(ev, { key: R1 }); render(); g.menu().onClose(); render(); got.pickedBefore = now();
+      from([]); vm.runInContext('se', g)(ev, { key: R1 }); render(); g.Ro(new Set([R1, R3])); render(); g.menu().onClose(); render(); got.changedSince = now();
+      from([]); vm.runInContext('Kg', g)(ev, { key: R2 }); render(); got.dragMade = now(); vm.runInContext('Dm', g)(); render(); got.dragEnded = now();
+      from([R1, R2]); vm.runInContext('Kg', g)(ev, { key: R2 }); render(); vm.runInContext('Dm', g)(); render(); got.dragPicked = now();
+      const want = { menuMade: [R1], menuClosed: [], archivedClosed: [], pickedBefore: [R1, R2], changedSince: [R1, R3], dragMade: [R2], dragEnded: [],
+        dragPicked: [R1, R2] };
+      if (JSON.stringify(got) === JSON.stringify(want)) {
+        ok('a row a right-click or a drag made the selection stays selected only until that menu closes or that drag ends, in the list and in Archived sessions; a selection there before them, or changed since, stays');
+      } else bad(`the selection a right-click or a drag made: ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+    }
   }
   const me = host.EDITS.find((x) => x.name === 'panel messages');
   const hr = applyEdits('function eT($,J){let Q=`Received message from webview: ${bl0(J)}`;$.info(Q)}', [me]);
@@ -12448,7 +12652,7 @@ console.log('\na panel\'s page getting the focus');
 }
 
 /* ── the token mode ──
-   agentPlus.tokenMode in Agent Plus decides which of the features that add to Claude's context run
+   agentPlus.tokenMode in Agent Plus decides which of the four features that add to Claude's context run
    (src/token-mode.js). For each mode the checks read config.json, which the hooks read, count the redraws of Agent
    Plus's list, and look for the notice shown when a feature's own setting is changed outside Custom. */
 console.log('\nthe token mode');
@@ -12485,18 +12689,16 @@ console.log('\nthe token mode');
       const subs = [], keep = setInterval;
       global.setInterval = () => keep(() => {}, 1 << 30);
       const hooks = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.enabled, c.tellTimeZone, c.brief]; } catch (_) { return null; } };
-      const route = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.skillRoute, c.skillRouteCount, c.skillRouteVector]; } catch (_) { return null; } };
       const change = (...keys) => { for (const fn of vs.listeners) fn({ affectsConfiguration: (k) => keys.some((x) => x === k || x.startsWith(k + '.')) }); };
       const pause = () => new Promise((r) => setTimeout(r, 50));
       (async () => {
-        const out = { threw: '', hooks: {}, route: {}, features: {}, redraws: {} };
+        const out = { threw: '', hooks: {}, features: {}, redraws: {} };
         try {
           await ext.activate({ subscriptions: subs, extensionPath: ${JSON.stringify(root)}, globalState: memo(), workspaceState: memo(),
             extension: { id: 'x.y', packageJSON: require(${JSON.stringify(path.join(root, 'package.json'))}) },
             globalStorageUri: { fsPath: store }, logUri: { fsPath: path.join(store, 'logs', 'exthost1', 'x.y') } });
           await new Promise((r) => setTimeout(r, 200));
           out.hooks.start = hooks();
-          out.route.start = route();
           let redraws = 0;
           if (vs.state.source) vs.state.source.onDidChangeConversations(() => { redraws++; });
           for (const mode of ['interface', 'essential', 'all']) {
@@ -12505,17 +12707,12 @@ console.log('\nthe token mode');
             change('agentPlus.tokenMode');
             await pause();
             out.hooks[mode] = hooks();
-            out.route[mode] = route();
             out.features[mode] = vs.state.source ? JSON.stringify(vs.state.source.features) : null;
             out.redraws[mode] = redraws - before;
           }
           Object.assign(vs.values, { 'claudeCodePlus.workPlan': true, 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false });
           vs.values['agentPlus.tokenMode'] = 'custom'; change('agentPlus.tokenMode'); await pause(); out.hooks.custom = hooks();
-          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': false, 'claudeCodePlus.skillRoutingCount': 7, 'claudeCodePlus.skillRoutingVectorSearch': true });
-          change('claudeCodePlus.skillRouting', 'claudeCodePlus.skillRoutingCount', 'claudeCodePlus.skillRoutingVectorSearch'); await pause();
-          out.route.custom = route();
-          vs.values['agentPlus.tokenMode'] = 'all'; change('agentPlus.tokenMode'); await pause(); out.hooks.allAgain = hooks(); out.route.allAgain = route();
-          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': true, 'claudeCodePlus.skillRoutingCount': undefined, 'claudeCodePlus.skillRoutingVectorSearch': undefined });
+          vs.values['agentPlus.tokenMode'] = 'all'; change('agentPlus.tokenMode'); await pause(); out.hooks.allAgain = hooks();
           vs.values['agentPlus.tokenMode'] = 'custom'; change('agentPlus.tokenMode'); await pause(); out.hooks.customAgain = hooks();
           out.updates = vs.updates.filter(([k]) => k.startsWith('claudeCodePlus.'));
           vs.values['agentPlus.tokenMode'] = 'essential';
@@ -12544,13 +12741,6 @@ console.log('\nthe token mode');
       && JSON.stringify(h.customAgain) === '[true,false,false]' && Array.isArray(r.updates) && !r.updates.length) {
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
-    const rt = r.route || {};
-    const routeWant = { start: [true, null, null], interface: [false, null, null], essential: [false, null, null], all: [true, null, null],
-      custom: [false, 7, true], allAgain: [true, 7, true] };
-    const routeWrong = Object.keys(routeWant).filter((k) => JSON.stringify(rt[k] === undefined ? null : rt[k]) !== JSON.stringify(routeWant[k]));
-    if (!r.threw && !routeWrong.length) {
-      ok('skill suggestions reach the hooks only in All features or while claudeCodePlus.skillRouting is on in Custom, with their count and vector setting');
-    } else bad(`skillRoute, skillRouteCount and skillRouteVector were ${JSON.stringify(rt)}`);
     const f = r.features || {}, d = r.redraws || {};
     if (f.interface === '[]' && f.essential === '[]' && f.all === '["brief"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
       ok('the brief is offered to Agent Plus only in a mode that runs it, and every change of mode redraws its list');
@@ -12560,7 +12750,7 @@ console.log('\nthe token mode');
       && JSON.stringify(told[0][1]) === '["Switch to Custom"]') {
       ok('outside Custom, changing a feature\'s own setting says once that it has no effect, with a button to switch to Custom');
     } else bad(`the notices were ${JSON.stringify(told)}`);
-    if (typeof r.status === 'string' && /^Token mode: Essential features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief off, skill suggestions off, notices when a detached command stops off$/.test(r.status)) {
+    if (typeof r.status === 'string' && /^Token mode: Essential features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief off, notices when a detached command stops off$/.test(r.status)) {
       ok('Show Status names the mode and what it leaves running');
     } else bad(`Show Status says ${JSON.stringify(r.status)}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
@@ -12647,7 +12837,7 @@ console.log('\nthe token mode');
   const tm = require('../src/token-mode');
   const mine = tm.SWITCHES.filter((x) => x.key.startsWith('claudeCodePlus.')).map((x) => x.key);
   const short = mine.filter((k) => !props[k] || !String(props[k].markdownDescription || '').trim().endsWith(tm.ONLY_IN_CUSTOM));
-  if (mine.length === 5 && !short.length) ok('each of the five features\' settings ends its description saying it is used only in Custom');
+  if (mine.length === 4 && !short.length) ok('each of the four features\' settings ends its description saying it is used only in Custom');
   else bad(`settings without the Custom sentence: ${JSON.stringify(short)} of ${JSON.stringify(mine)}`);
   const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
   const sec = readme.slice(readme.indexOf('## What it costs in tokens'));
@@ -12655,11 +12845,11 @@ console.log('\nthe token mode');
   const cols = head.split('|').map((c) => c.trim()).filter(Boolean).slice(1);
   const custom = lines.filter((l) => l.startsWith('| ') && l.trim().endsWith('|')).map((l) => l.split('|').map((c) => c.trim()).filter(Boolean)).filter((c) => c.length === 5).map((c) => c[4]);
   if (JSON.stringify(cols) === JSON.stringify(tm.MODES.map((m) => m.label)) && mine.every((k) => custom.includes('`' + k + '`'))) {
-    ok('the README\'s token section opens with the four modes, its Custom column naming each feature\'s setting');
+    ok('the README\'s token section opens with the four modes, its Custom column naming the four settings');
   } else bad(`the README's mode table has columns ${JSON.stringify(cols)} and Custom ${JSON.stringify(custom)}`);
   const row = readme.split('\n').find((l) => l.startsWith('| Token mode |')) || '';
-  const unnamed = [/work plan/, /time-zone note/, /conversation brief/, /skill suggestions/, /detached-command notices/].filter((re) => !re.test(row));
-  if (row && !unnamed.length) ok('the README\'s feature table says the token mode decides all five: work plan, time-zone note, brief, skill suggestions and detached-command notices');
+  const unnamed = [/work plan/, /time-zone note/, /conversation brief/, /detached-command notices/].filter((re) => !re.test(row));
+  if (row && !unnamed.length) ok('the README\'s feature table says the token mode decides all four: work plan, time-zone note, brief and detached-command notices');
   else bad(`the README's Token mode row does not name ${unnamed.map(String).join(', ')}: ${row.slice(0, 300)}`);
 }
 
@@ -12752,10 +12942,10 @@ console.log('\nthe token mode');
   const OFF = { 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false };
   const r = runModes([['all', {}], ['essential', {}], ['interface', {}], ['custom', OFF], ['all', {}]]);
   const want = {
-    all: ['All features', 'work plan on, time-zone note on, conversation brief on, skill suggestions on, notices when a detached command stops on', [true, true, true]],
-    essential: ['Essential features', 'work plan on, time-zone note on, conversation brief off, skill suggestions off, notices when a detached command stops off', [true, true, false]],
-    interface: ['Interface features', 'work plan off, time-zone note off, conversation brief off, skill suggestions off, notices when a detached command stops off', [false, false, false]],
-    custom: ['Custom', 'work plan on, time-zone note off, conversation brief off, skill suggestions on, notices when a detached command stops on', [true, false, false]],
+    all: ['All features', 'work plan on, time-zone note on, conversation brief on, notices when a detached command stops on', [true, true, true]],
+    essential: ['Essential features', 'work plan on, time-zone note on, conversation brief off, notices when a detached command stops off', [true, true, false]],
+    interface: ['Interface features', 'work plan off, time-zone note off, conversation brief off, notices when a detached command stops off', [false, false, false]],
+    custom: ['Custom', 'work plan on, time-zone note off, conversation brief off, notices when a detached command stops on', [true, false, false]],
   };
   const steps = r.steps || [];
   const wrong = steps.filter((s) => {
@@ -12770,18 +12960,18 @@ console.log('\nthe token mode');
   if (steps.length === 5 && !stale.length) {
     ok('a change of mode sends each conversation shown in the window its new mode, so an information box left open does not keep the old one');
   } else bad(`after a change of mode the conversations shown were sent ${JSON.stringify(steps.map((s) => [s.mode, s.pushed]))}`);
-  /* Told once per setting and window: one notice per feature setting in the first mode, naming it, and none after. */
+  /* Told once per setting and window: four notices in the first mode, naming it, and none after. */
   const first = (steps[0] || {}).told || [];
   const named = KEYS.every((k) => first.some(([t, b]) => t === `Claude Code Plus: the token mode is All features, so ${k} has no effect until the mode is Custom.`
     && JSON.stringify(b) === JSON.stringify([tm.SWITCH_BUTTON])));
   const later = steps.slice(1).map((s) => (s.told || []).length);
-  if (first.length === KEYS.length && KEYS.length === 5 && named && later.every((n) => n === 0)) {
-    ok('changing each of the five settings twice outside Custom says once, for each, that it has no effect, and Custom says nothing');
+  if (first.length === 4 && named && later.every((n) => n === 0)) {
+    ok('changing each of the four settings twice outside Custom says once, for each, that it has no effect, and Custom says nothing');
   } else bad(`the notices were ${JSON.stringify(steps.map((s) => [s.mode, s.told]))}`);
   const r2 = runModes([['interface', {}], ['custom', {}], ['essential', {}]]);
   const s2 = r2.steps || [];
   const inInterface = (s2[0] || {}).told || [];
-  if (!r2.threw && inInterface.length === KEYS.length && inInterface.every(([t]) => /^Claude Code Plus: the token mode is Interface features, so claudeCodePlus\.\w+ has no effect until the mode is Custom\.$/.test(t))
+  if (!r2.threw && inInterface.length === 4 && inInterface.every(([t]) => /^Claude Code Plus: the token mode is Interface features, so claudeCodePlus\.\w+ has no effect until the mode is Custom\.$/.test(t))
     && s2.slice(1).every((s) => !(s.told || []).length)) {
     ok('a window that starts in Interface features names that mode in its notices');
   } else bad(`a window in Interface features: ${JSON.stringify(s2.map((s) => [s.mode, s.told]))} ${(r2.threw || '').slice(0, 300)}`);

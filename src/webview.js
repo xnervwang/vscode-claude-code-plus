@@ -185,7 +185,7 @@ function backgroundProperty(list) {
 function detachedProperty(list) {
   if (!Array.isArray(list) || !list.length) return '';
   const rows = list.map((j) => ({ session: j.session, pid: j.pid, startedAt: j.startedAt, command: j.command,
-    ...(typeof j.label === 'string' && j.label ? { label: j.label } : {}),
+    ...(typeof j.title === 'string' && j.title ? { title: j.title } : {}),
     ...(Array.isArray(j.workers) && j.workers.length ? { workers: j.workers } : {}) }));
   return `:root{--cce-detached:"${Buffer.from(JSON.stringify(rows), 'utf8').toString('base64')}";}\n`;
 }
@@ -512,6 +512,37 @@ const EDITS = [
     to: (m, head, set, anchor, next) => `${head}cceClearSelection:()=>{${set}(new Set),${anchor}(null)},${next}`,
   },
   {
+    /* A right-click on a row the list has not picked makes that row the list's selection (the set an action on several
+       rows works on). Claude Code's own items end it once they have run, but a menu closed with nothing picked keeps it,
+       drawn outlined for as long as the list stays open. The one handler that opens the list's menu and the Archived
+       sessions menu leaves a way to end the selection its right-click made; a selection there before the right-click
+       stays. */
+    name: 'row menu ends the selection it made',
+    re: /(function ([\w$]+)\(([\w$]+),([\w$]+)\)\{if\(![\w$]+\|\|![\w$]+\)return;let ([\w$]+)=[\w$]+\(\4\);if\(!\5\)return;)(if\(\3\.preventDefault\(\),\3\.stopPropagation\(\),[\w$]+\(\4\)\)\{let [\w$]+=new Set\([\w$]+\),[\w$]+=([\w$]+)\.has\(\5\)\?\[\.\.\.\7\]\.filter\(\(([\w$]+)\)=>[\w$]+\.has\(\8\)\):\[\5\];if\(!\7\.has\(\5\)\)([\w$]+)\(new Set\(\[\5\]\)\),)/g,
+    to: (m, head, fn, ev, item, key, rest, sel, x, set) => `${head}window.__cceMenuSelection=${sel}.has(${key})?void 0:()=>${set}((cceS)=>cceS.size===1&&cceS.has(${key})?new Set:cceS);${rest}`,
+  },
+  {
+    // The menu closing, by an item or not, ends a selection its right-click made.
+    name: 'row menu close ends the selection it made',
+    re: /([\w$]+)&&([\w$]+)&&([\w$]+)\(([\w$]+),\{items:\2,x:\1\.x,y:\1\.y,onClose:\(\)=>([\w$]+)\(null\)\}\)/g,
+    to: (m, menu, items, jsx, Menu, setMenu) => `${menu}&&${items}&&${jsx}(${Menu},{items:${items},x:${menu}.x,y:${menu}.y,onClose:()=>{${setMenu}(null);`
+      + 'let cceE=window.__cceMenuSelection;window.__cceMenuSelection=void 0;if(typeof cceE==="function")cceE()}})',
+  },
+  {
+    /* A drag of a row the list has not picked makes it the selection too. A drop on a group ends it; a drag let go
+       anywhere else keeps it. The drag carries a way to end the selection it made. */
+    name: 'row drag remembers the selection it made',
+    re: /if\(!([\w$]+)\.has\(([\w$]+)\)\)([\w$]+)\(new Set\(\[\2\]\)\),([\w$]+)\(\2\);(let ([\w$]+)=`\$\{Date\.now\(\)\.toString\(36\)\}[^]{0,300}?)([\w$]+)\.current=\{nonce:\6,keys:([\w$]+),sourceKey:\2\}/g,
+    to: (m, sel, key, set, anchor, mid, nonce, ref, keys) => `if(!${sel}.has(${key}))${set}(new Set([${key}])),${anchor}(${key});${mid}`
+      + `${ref}.current={nonce:${nonce},keys:${keys},sourceKey:${key},cceEnd:${sel}.has(${key})?void 0:()=>${set}((cceS)=>cceS.size===1&&cceS.has(${key})?new Set:cceS)}`,
+  },
+  {
+    // Every way a drag ends goes through this.
+    name: 'row drag end ends the selection it made',
+    re: /function ([\w$]+)\(\)\{([\w$]+)\.current=null,([\w$]+)\(null\)\}/g,
+    to: (m, fn, ref, setTarget) => `function ${fn}(){let cceE=${ref}.current&&${ref}.current.cceEnd;${ref}.current=null,${setTarget}(null);if(typeof cceE==="function")cceE()}`,
+  },
+  {
     // The panel's open request, carrying where the session list's two buttons and two Resume items asked for.
     name: 'open request says where',
     re: /openInEditor\(([\w$]+),([\w$]+),([\w$]+)\)\{return this\.sendRequest\(\{type:"open_in_editor",sessionId:\1,newSessionGroupId:\2,usage:\3\}\)\}/g,
@@ -646,11 +677,11 @@ const EDITS = [
   },
   {
     /*
-     * A section for this session's scheduled prompts, at the top of the agent map.
+     * This extension's part of the agent map, as the first child of the dialog's content: the heading over the
+     * conversation's own row and a section for each kind of work Claude Code does not list (src/page/82-scheduled-tasks.js).
      *
-     * The page is handed the element factory from this scope, so it returns a real element tree rather than a string -
-     * the section has a heading and one collapsible row per prompt. Returning null when there is nothing to show is how
-     * a child opts out, so an unpatched-looking panel is the normal case.
+     * The page is handed the element factory from this scope, so it returns a real element tree rather than a string.
+     * Where the page is missing or fails, the child is null, which leaves the dialog as Claude Code draws it.
      *
      * The anchor is the panel's own title and its children array, with whatever props sit between them skipped: the
      * dialog's size and scrolling have been reshaped upstream before, and none of that changes where a child goes.
@@ -835,12 +866,26 @@ function readRev(rev) {
   const num = (re) => Number((text.match(re) || [])[1]) || 0;
   return { w: num(/width="(\d+)"/), h: num(/height="(\d+)"/) };
 }
-/** Move one of the two counters, `w` or `h`, keeping the other as it stands. */
+/*
+ * Counters that could not be moved, by image. The file the counter announces was written first, so the next write of the
+ * same content finds nothing to do, and without this the panel would never load it. Windows refuses to rename over a
+ * file another process holds open, and the panel fetches this image every few seconds.
+ */
+const owedRev = new Map();
+/** Move one of the two counters, `w` or `h`, and any that a failed write still owes, keeping the other as it stands. */
 function bumpRev(rev, which) {
+  const owed = new Set(owedRev.get(rev) || []);
+  if (which) owed.add(which);
   const r = readRev(rev);
   const next = (n) => (n % 60000) + 1;
-  const w = which === 'w' ? next(r.w) : r.w || 1, h = which === 'h' ? next(r.h) : r.h || 1;
-  writeAtomic(rev, `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"></svg>`);
+  const w = owed.has('w') ? next(r.w) : r.w || 1, h = owed.has('h') ? next(r.h) : r.h || 1;
+  try {
+    writeAtomic(rev, `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"></svg>`);
+  } catch (e) {
+    owedRev.set(rev, owed);
+    throw e;
+  }
+  owedRev.delete(rev);
 }
 
 /** Write the live settings. Bumps the revision only when the stylesheet actually changed. Returns true if changed. */
@@ -850,7 +895,11 @@ function writeLive(claudeExtensionPath, opts = {}) {
   const next = liveCss(opts);
   let current = null;
   try { current = fs.readFileSync(css, 'utf8'); } catch (_) {}
-  if (current === next && fs.existsSync(rev)) return false;
+  if (current === next && fs.existsSync(rev)) {
+    if (!owedRev.has(rev)) return false;
+    bumpRev(rev);
+    return true;
+  }
   /*
    * Leave alone what a newer build of this extension wrote.
    *
@@ -889,9 +938,14 @@ function writeEffort(claudeExtensionPath, session, text) {
   const file = path.join(dir, EFFORT_PREFIX + session + '.css');
   let current = null;
   try { current = fs.readFileSync(file, 'utf8'); } catch (_) {}
-  if (current === text) return false;
+  const { rev } = liveFiles(claudeExtensionPath);
+  if (current === text) {
+    if (!owedRev.has(rev)) return false;
+    bumpRev(rev);
+    return true;
+  }
   writeAtomic(file, text);
-  bumpRev(liveFiles(claudeExtensionPath).rev, 'h');
+  bumpRev(rev, 'h');
   return true;
 }
 

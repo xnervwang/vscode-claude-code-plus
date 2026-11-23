@@ -87,7 +87,6 @@ Verified against Claude Code 2.1.328, 2.1.329 and 2.1.330.
 | --- | --- |
 | Timestamps | Times from the transcript on every message and reply block, and `start→result` on tool calls. Claude Code's own message times are hidden while these are on. |
 | Your time zone for Claude | When Claude runs on a machine in another time zone, as with Remote SSH, it is told yours, so it gives you times in your zone. |
-| Skill suggestions | Before each turn, Claude is given the skills it can call that best fit your message, from your personal skills, the project's skills and the skills of enabled plugins, by the names to call them with and with their full descriptions. Claude Code's own list of skills leaves most descriptions out once many skills are installed. A skill given in full earlier in the conversation is only named. |
 | Images in replies | An image Claude gives by absolute path or `file://` address (PNG, JPEG, GIF, WebP or SVG, up to 8 MB) and a `data:` image are drawn in the reply, at most 640 by 480 pixels; click one drawn smaller than its own size to see it as large as the panel allows. An image at a web address stays a link. Claude is told how to give one: save it in the conversation's own folder, and download an image from the web there first. `claudeCodePlus.show.replyImages` turns both off. |
 | Links to other conversations | Another conversation's name or session ID in a reply becomes a link, drawn like Claude Code's own; click it to open that conversation in the VS Code window that shows it. A name counts in corner brackets (「name」) from 4 characters, or 2 Chinese, Japanese or Korean ones, and on its own from 10 characters, a CJK character counting as 2. A session ID counts whole or by its first 8 characters, but not as part of a file path. Hovering over a link shows the conversation's agent, when it was last active, and any other conversation with the same name. The conversations are the ones Agent Plus lists, of every agent it has, Codex included: those running on this machine and those its Conversations view shows in this window. `claudeCodePlus.show.conversationLinks` turns it off. |
 | Reply figures | `2m10s · ctx 33% · cost $0.42 · opus-5 high` on each reply shows turn duration, how much of the context window is in use, the conversation's cost so far, model and effort. |
@@ -97,7 +96,7 @@ Verified against Claude Code 2.1.328, 2.1.329 and 2.1.330.
 | Context meter | The panel's context meter stays visible and gets an outline when 15% of the window remains. Rest the pointer on it for two seconds for a breakdown by category, memory files and custom agents, with what the work plan has added to the context. |
 | Chimes | A short sound when a turn finishes, permission is requested or Claude asks a question, played on the machine showing the panel. Mute it in the footer. |
 | Session information | A footer button that shows the session ID, Claude's process ID, starting directory, transcript location and size, and the token mode. Click a value to copy it. |
-| Token mode | Agent Plus's `agentPlus.tokenMode`, set from its entry in the status bar, decides which of the work plan, the time-zone note, the conversation brief (a summary, and a status saying where the conversation stands; see [Settings](#settings)), skill suggestions and the detached-command notices are added to Claude's context. Each one's own setting applies only in Custom. See [What it costs in tokens](#what-it-costs-in-tokens). |
+| Token mode | Agent Plus's `agentPlus.tokenMode`, set from its entry in the status bar, decides which of the work plan, the time-zone note, the conversation brief (a summary, and a status saying where the conversation stands; see [Settings](#settings)) and the detached-command notices are added to Claude's context. Each one's own setting applies only in Custom. See [What it costs in tokens](#what-it-costs-in-tokens). |
 
 ![Times on messages and tool calls, with each reply's duration, model and effort](images/shots/reply-figures.png)
 
@@ -155,7 +154,7 @@ Deleting an archived conversation removes its transcripts, sub-agent conversatio
 
 #### Work that shows a green ring
 
-A conversation shows a green ring after its turn ends if it leaves work running. That includes a `claude --bg` session or `claude -p` worker it started. On Linux, Claude Code Plus also checks `/proc` for commands the conversation left running outside Claude Code. A shell or `timeout` counts as long as it outlives the command that started it, as can happen with `setsid` or `nohup`. Any other program started with `setsid` counts because it leads its own session. For example, `setsid nohup bash -c 'python3 job.py'` leaves `python3` itself as the session leader. Programs that detach without starting their own session do not count, including servers a build leaves running this way. The agent map, opened from the Agents button in the footer, lists these commands with their command lines, PIDs and start times. In All features token mode, Claude Code Plus notifies the conversation that started the command when it stops, but cannot report its exit code. Custom mode sends the same notices while `claudeCodePlus.detachedEndNotices` is on.
+A conversation shows a green ring after its turn ends if it leaves work running. That includes a `claude --bg` session or `claude -p` worker it started. On Linux, Claude Code Plus also checks `/proc` for commands the conversation left running outside Claude Code. A shell or `timeout` counts as long as it outlives the command that started it, as can happen with `setsid` or `nohup`. Any other program started with `setsid` counts because it leads its own session. For example, `setsid nohup bash -c 'python3 job.py'` leaves `python3` itself as the session leader. Programs that detach without starting their own session do not count, including servers a build leaves running this way. The agent map, opened from the Agents button in the footer, lists these commands with their PIDs and start times, each command line as its hover text. In All features token mode, Claude Code Plus notifies the conversation that started the command when it stops, but cannot report its exit code. Custom mode sends the same notices while `claudeCodePlus.detachedEndNotices` is on.
 
 Claude Code runs background commands, subagents, monitors and workflows in the conversation's own process. Starting in version 2.1.326, Claude Code reports this work to the work plan plugin at the end of each turn. With the plugin loaded, this work shows the green ring on every platform. Interface features token mode skips the plugin. Without the plugin or on Claude Code versions before 2.1.326, only background commands can show the green ring. That works only on Linux, where Claude Code Plus finds them through `/proc`. Reloading the window ends the work in the conversation's process, and the ring disappears.
 
@@ -163,11 +162,12 @@ Claude Code runs background commands, subagents, monitors and workflows in the c
 
 | Feature | What it shows |
 | --- | --- |
-| Detached commands | On Linux, the agent map lists the commands this conversation left running outside Claude Code, each with its command line, PID and start time, and the Agents button counts them, as in `1 detached`. |
-| Background sessions | The agent map, opened from the Agents button in the footer, lists this conversation's `claude --bg` sessions, each state in its own color and counted at the top, with what each waits for, its result, and the attach and logs commands. |
-| Scheduled prompts | The agent map also lists the timers this conversation set through Claude Code's scheduled tasks, with each schedule, last-fired time and prompt. |
+| Agent map layout | The map shows the conversation's own row first, under THIS CONVERSATION, then a section for each kind of work: Claude Code's subagents and background tasks, then detached commands, scheduled prompts, `claude -p` sessions and `claude --bg` sessions. Each section has a heading with its count and a line above it, and an empty one is left out. Claude Code's own two headings get the same look, with their "click ... for details" as hover text. Every row Claude Code Plus adds is a card like Claude Code's: a dot, a title and one line under it. |
+| Detached commands | On Linux, the agent map lists the commands this conversation left running outside Claude Code, each titled by its program and the argument that tells what it runs, with its PID, start time and how long it has run, and its whole command line as hover text. The Agents button counts them, as in `1 detached`. |
+| Background sessions | The agent map, opened from the Agents button in the footer, lists this conversation's `claude --bg` sessions, each with the dot Claude Code gives an agent in the same state and its state under its name. Clicking one shows what it waits for, its result, and the attach and logs commands. |
+| Scheduled prompts | The agent map also lists the timers this conversation set through Claude Code's scheduled tasks, each titled by the first line of its prompt, with its schedule and last-fired time. Clicking one shows the whole prompt. |
 | Background commands | The footer shows a count such as `1 task` while a background build, test run or `sleep` timer runs, with the list one click away. |
-| Workers | The agent map lists the `claude -p` workers this conversation started that are still running. For each worker, it shows the name, session ID, PID, state, and how long it has been running. The Agents button shows the count, for example `1 worker`. On Linux, Claude Code Plus finds a worker even if its session ID was never printed, by reading the session record of the `claude` process under a command the conversation left running. That command is then left out of the detached commands. On other systems, a worker shows only if the command that started it printed its session ID. |
+| Workers | The agent map lists the `claude -p` workers this conversation started that are still running. For each worker, it shows the name, PID, start time and how long it has been running, with its session ID and state as hover text. The Agents button shows the count, for example `1 worker`. On Linux, Claude Code Plus finds a worker even if its session ID was never printed, by reading the session record of the `claude` process under a command the conversation left running. That command is then left out of the detached commands. On other systems, a worker shows only if the command that started it printed its session ID. |
 | Agents button dot | The Agents button in Claude Code's panel footer opens the agent map. Its dot is green while any background work from this conversation is running: background commands and monitors, subagents and workflows in the background, detached commands, and the `claude --bg` sessions and `claude -p` workers it started. The dot turns grey when all that work ends. A scheduled prompt alone does not turn it green. In the map, the conversation's own row has the same dot as its tab: green while a turn runs, a green ring when only background work runs, and red while the conversation waits for you. |
 | Background session notices | When a `claude --bg` session this conversation started finishes, fails, is stopped, dies, or waits for an answer, the conversation is told, with the session's result, error or question, and an idle conversation starts a turn. A session the conversation stopped itself is not reported. In All features token mode, or in Custom while `claudeCodePlus.detachedEndNotices` is on. Not on native Windows: the notice goes to the conversation's inbox socket, as a steward's does. |
 
@@ -205,14 +205,13 @@ Measured on 2026-11-15 on one machine, with the brief on.
 | Work plan | Off, plugin not loaded | On | On | `claudeCodePlus.workPlan` |
 | Time zone | Off | On | On | `claudeCodePlus.tellClaudeYourTimeZone` |
 | Conversation brief | Off | Off | On | `claudeCodePlus.conversationBrief` |
-| Skill suggestions | Off | Off | On | `claudeCodePlus.skillRouting` |
 | Detached-command notices | Off | Off | On | `claudeCodePlus.detachedEndNotices` |
 
 Claude Code Plus follows Agent Plus's `agentPlus.tokenMode` setting, which defaults to All features. Outside Custom, the settings in the table's Custom column have no effect, and changing modes leaves their values as they are. Changing one of those settings outside Custom shows a notice with a Switch to Custom button.
 
 In Interface features, Claude Code does not load the work plan plugin, just as when you run `Claude Code Plus: Stop Loading the Work Plan Plugin`. Choosing another mode loads it again unless you stopped loading it yourself. Changes to plugin loading and the work plan skill in Claude Code's list of skills apply only to conversations started after the mode change.
 
-In a running conversation, a mode change applies from the next message to work plan injection and reminders, conversation brief requests, skill suggestions, and the time zone. `Claude Code Plus: Show Status` shows the mode and which of these features run. The information button in the footer of a Claude Code conversation names the mode.
+In a running conversation, a mode change applies from the next message to work plan injection and reminders, conversation brief requests, and the time zone. `Claude Code Plus: Show Status` shows the mode and which of these features run. The information button in the footer of a Claude Code conversation names the mode.
 
 ### Added to every message
 
@@ -221,7 +220,6 @@ In a running conversation, a mode change applies from the next message to work p
 | The work plan | Each message, while the conversation's plan has a row that is not `done` or `dropped`. The whole block, with what the states mean and how to change a row, on the conversation's first message and the first after each compaction; a short head in its place otherwise; one line when no row has changed since the message before. While the brief is on, each ends by asking for the status before the final reply of a turn that moves a row | 6,000 characters, the brief included; the one line is about 240 characters and the plan's path | `claudeCodePlus.workPlan` |
 | The steward's list | Each message in a conversation that manages others in the Steward panel: one line per conversation, and what changed since its previous message. One sentence in its place when nothing in it changed since the previous message; the whole list again after a compaction | About 150 characters, and about 170 more per conversation it manages with a 40-character title, at most 30 of them; the one sentence is about 200 characters | Unticking them in the Steward panel |
 | A steward is watching | Each message in a conversation a steward manages | About 690 characters and the path of the steward's script | Unticking it in the Steward panel |
-| Skill suggestions | Each message of six characters or more whose words some skill shares: the `claudeCodePlus.skillRoutingCount` skills (5 by default) that best fit it, each by name with its full description. A skill given in full earlier in the conversation, and not since a compaction, is only named. The first message after installing gets nothing while the index is built; the first in a new folder is searched with another folder's index, without that folder's project skills | About 4,300 characters for five skills, 5,900 at most, over 20 sample messages and 330 installed skills; descriptions are kept whole up to 4,096 characters and the block under 40,000 bytes | `claudeCodePlus.skillRouting` |
 
 ### Added now and then
 
@@ -259,7 +257,7 @@ In a running conversation, a mode change applies from the next message to work p
 
 ## Settings
 
-Open `Claude Code Plus: Settings` for all 45 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
+Open `Claude Code Plus: Settings` for all 42 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
 
 **Work plan settings**
 
@@ -271,14 +269,6 @@ Open `Claude Code Plus: Settings` for all 45 settings. Most take effect without 
 | `claudeCodePlus.workPlanQuietWhenReplyMatches` | empty | A regular expression tested on the latest reply. If it matches, the prompts before and after compaction are not sent. Use it for conversations that relay another model's replies word for word. When empty, it never matches. |
 | `claudeCodePlus.conversationBrief` | on | In Custom, each conversation is asked to keep a brief: a summary, and where it stands now. Clicking the conversation in Agent Plus's Conversations panel then shows the brief instead of going to the conversation. |
 
-**Skill suggestion settings**
-
-| Setting | Default | What it does |
-| --- | --- | --- |
-| `claudeCodePlus.skillRouting` | on | In Custom, gives each turn the skills that best fit your message. The search runs on this machine, by keywords, with no network or credentials. |
-| `claudeCodePlus.skillRoutingCount` | 5 | How many skills each turn is given, from 1 to 10. |
-| `claudeCodePlus.skillRoutingVectorSearch` | off | Searches by meaning instead, through `cohere.embed-v4` on Amazon Bedrock, while Claude Code itself runs on Bedrock. The first 1,500 characters of each message are sent to the region Claude Code uses, with the credentials Claude Code is configured with. A failure or a slow answer falls back to keywords. |
-
 **To turn off**
 
 | What | How |
@@ -286,7 +276,6 @@ Open `Claude Code Plus: Settings` for all 45 settings. Most take effect without 
 | Timestamps, reply figures and sub-agent tags | Set `claudeCodePlus.enabled` to off. Every other addition has its own `claudeCodePlus.show.*` setting. The patch stays and its scripts keep running. |
 | Everything added to Claude's context | Choose Interface features in Agent Plus's token mode entry in the status bar. |
 | Your time zone in Claude's context | Choose a token mode without it, or in Custom set `claudeCodePlus.tellClaudeYourTimeZone` to off. |
-| Skill suggestions | Choose a token mode without them, or in Custom set `claudeCodePlus.skillRouting` to off. |
 | Work plan plugin, skill description included | Run `Claude Code Plus: Stop Loading the Work Plan Plugin`. |
 | Reopening Claude Code tabs VS Code did not restore | Set `claudeCodePlus.reopenDroppedTabs` to off. |
 | Pins on the session list | Set `claudeCodePlus.sessionPins` to off. Pinned conversations are then cleaned up and archived as usual. |

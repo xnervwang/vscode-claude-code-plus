@@ -98,8 +98,7 @@ const HIDE_BG_SETTING = PREFIX + 'hideBackgroundSessions';
 const WORK_PLAN_SETTING = PREFIX + 'workPlan';
 const BRIEF_SETTING = PREFIX + 'conversationBrief';
 const TIME_ZONE_SETTING = PREFIX + 'tellClaudeYourTimeZone';
-const SKILL_ROUTING_SETTING = PREFIX + 'skillRouting';
-/* The settings that agentPlus.tokenMode overrides outside Custom (src/token-mode.js); each is read through runs(). */
+/* The four settings that agentPlus.tokenMode overrides outside Custom (src/token-mode.js); each is read through runs(). */
 const MODE_SWITCHES = tokenMode.SWITCHES.filter((s) => s.key.startsWith(PREFIX)).map((s) => s.key);
 const runs = (key) => tokenMode.effective(vscode, key);
 /* Read by the plugin's hooks, which are separate processes and cannot see editor settings. Keys match plan_path.py.
@@ -112,9 +111,6 @@ const HOOK_SETTINGS = {
   quietWhenReplyMatches: PREFIX + 'workPlanQuietWhenReplyMatches',
   tellTimeZone: TIME_ZONE_SETTING,
   brief: BRIEF_SETTING,
-  skillRoute: SKILL_ROUTING_SETTING,
-  skillRouteVector: PREFIX + 'skillRoutingVectorSearch',
-  skillRouteCount: PREFIX + 'skillRoutingCount',
 };
 
 /*
@@ -403,13 +399,18 @@ function start(context, log, renamed, handing = false) {
   };
   /* Never after Remove, which has just taken these files out of Claude Code's folder: a scan finishing afterwards would
      put them back. */
+  /* A failed write is tried again a second later, up to five times, rather than waiting for the next change: what it
+     could not put out is owed (src/webview.js) and goes with the next try. */
+  let liveAgain = 0, liveFails = 0;
   const writeLiveNow = () => {
     if (removed() || uninstalling() || replaced()) return;
     try {
       const opts = options();
       for (const dir of installs(webview)) webview.writeLive(dir, opts);
+      liveFails = 0;
     } catch (e) {
       log.appendLine('live refresh failed: ' + e.message);
+      if (!liveAgain && ++liveFails <= 5) liveAgain = setTimeout(() => { liveAgain = 0; writeLiveNow(); }, 1000);
     }
   };
   /* Reads what the conversation in front of the reader has added to its transcript since last time - the only one, since
@@ -1962,7 +1963,7 @@ function deactivate() {
   try { removal.finishLater(selfPath); } catch (_) { /* likewise */ }
 }
 
-/* The token mode line of Show Status: the mode, and which of the features it decides it runs. */
+/* The token mode line of Show Status: the mode, and which of the four features it runs. */
 function tokenModeLine() {
   const what = tokenMode.SWITCHES.filter((s) => MODE_SWITCHES.includes(s.key))
     .map((s) => `${tokenMode.featureOf(s.feature).name} ${runs(s.key) ? 'on' : 'off'}`);
