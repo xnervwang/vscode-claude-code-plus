@@ -4660,7 +4660,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await pointerOffRows();
         const ids = open.map((t) => t.id), f = front ? front.id : null;
         let looks = [];
-        const ok = await until(async () => { looks = await rowLooks(); return looks.length && !misdrawn(looks, ids, f).length; }, 15000, 300);
+        /* Closing a tab adds a row to Recently closed and moves the rows below it, which can bring one under the resting
+           pointer; the pointer is moved off again rather than the row counted as drawn. */
+        const ok = await until(async () => {
+          looks = await rowLooks();
+          if (looks.some((r) => r.hover)) await pointerOffRows();
+          return looks.length && !misdrawn(looks, ids, f).length;
+        }, 15000, 300);
         await shot(`rows-no-longer-open-${++n}`);
         looked.push({ n, what, open: ids, front: f, looks });
         check(!!ok, `${what}: no row is drawn for a conversation open nowhere, and only ${front ? `"${front.title}"` : 'no conversation'} is drawn as the one in front`,
