@@ -2088,6 +2088,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         'Delete session… asks first, in a dialog naming the conversation, saying it cannot be undone, with Delete and Cancel', d);
       await shot('delete-confirmation');
       if (d) check(await answerDialog('Cancel') && fs.existsSync(transcriptOf(t1)), 'Cancel closes it and deletes nothing', transcriptOf(t1));
+      /* Later steps right-click and drag this conversation's row as an ordinary one; under Archived sessions its menu
+         differs and its row cannot be dragged. */
+      retried(await pick(t1, ['Unarchive session']), 'Unarchive session');
+      const ordinary = await until(async () => {
+        const m = await openMenu(t1);
+        await closeMenus();
+        return m && m[0].includes('Archive session') && !m[0].includes('Unarchive session') ? m : null;
+      }, 15000, 1000);
+      check(!!ordinary, 'Unarchive session puts it back among the other conversations, for the steps after this one', ordinary);
     });
 
     await step('the steward panel', async () => { try {
