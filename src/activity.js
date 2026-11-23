@@ -100,8 +100,9 @@ function freshQuestion(nodes, since) {
 
 /*
  * The time of a transcript line if it is a message the user typed, else 0. Tool results, hook output, task
- * notifications, messages from other sessions and compaction summaries are not. A message typed while a turn ran and
- * taken into that turn is a queued_command attachment from a human.
+ * notifications, messages from other sessions and compaction summaries are not, except the answers the user gave on a
+ * question card (AskUserQuestion): the question they answer can be one a plan row put to the user earlier in the same
+ * turn. A message typed while a turn ran and taken into that turn is a queued_command attachment from a human.
  */
 function typedAt(line) {
   if (!line.includes('"user"') && !line.includes('"queued_command"')) return 0;
@@ -115,7 +116,10 @@ function typedAt(line) {
   }
   if (r.type !== 'user') return 0;
   const origin = r.origin && typeof r.origin === 'object' ? r.origin : null;
-  if (origin ? origin.kind !== 'human' : r.toolUseResult !== undefined) return 0;
+  if (origin ? origin.kind !== 'human' : r.toolUseResult !== undefined) {
+    const u = r.toolUseResult;
+    return u && typeof u === 'object' && u.answers && typeof u.answers === 'object' && Object.keys(u.answers).length ? at : 0;
+  }
   const c = r.message && r.message.content;
   const text = typeof c === 'string' ? c
     : Array.isArray(c) ? c.filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('') : '';

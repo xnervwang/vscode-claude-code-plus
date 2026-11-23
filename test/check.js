@@ -12567,11 +12567,26 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
       fs.appendFileSync(file, typed.slice(20));
       const whole = r.at(file);
       const fresh = act.lastUserReader().at(file);
+      /* An answer given on a question card is the user writing; a rejected tool call, or a card answered with nothing, is not. */
+      fs.appendFileSync(file, line({ type: 'user', timestamp: at(40), message: { content: [{ type: 'tool_result', content: 'The user answered' }] },
+        toolUseResult: { questions: [{ question: 'Which config?' }], answers: { 'Which config?': 'the nightly one' } } }));
+      const answered = r.at(file);
+      fs.appendFileSync(file, line({ type: 'user', timestamp: at(50), message: { content: [{ type: 'tool_result', content: 'rejected' }] },
+        toolUseResult: 'User rejected tool use' }));
+      fs.appendFileSync(file, line({ type: 'user', timestamp: at(51), message: { content: [{ type: 'tool_result', content: 'x' }] },
+        toolUseResult: { questions: [], answers: {} } }));
+      const afterReject = r.at(file);
       if (first === Date.parse(at(4)) && again === first && notTyped === first && half === first && whole === Date.parse(at(30))
-          && fresh === whole && r.at(path.join(dir, 'none.jsonl')) === 0 && r.at('') === 0) {
-        ok('the user\'s last message is the last one typed, a message typed during a turn included; tool results, notices, '
-          + 'messages from other sessions, hook text and summaries are not, and a line written in two pieces is read whole');
-      } else bad(`last user message: ${JSON.stringify([first, again, notTyped, half, whole, fresh].map((t) => t && new Date(t).toISOString()))}`);
+          && fresh === whole && answered === Date.parse(at(40)) && afterReject === answered
+          && r.at(path.join(dir, 'none.jsonl')) === 0 && r.at('') === 0) {
+        ok('the user\'s last message is the last one typed, a message typed during a turn and an answer on a question card included; '
+          + 'other tool results, notices, messages from other sessions, hook text and summaries are not, and a line written in two pieces is read whole');
+      } else bad(`last user message: ${JSON.stringify([first, again, notTyped, half, whole, fresh, answered, afterReject].map((t) => t && new Date(t).toISOString()))}`);
+      /* So a question a plan row put to the user earlier in a turn, answered on a card later in it, no longer makes the dot red. */
+      const asked = { title: 't', state: 'waiting', waitingOn: 'user', question: 'Which config?', asked: Date.parse(at(35)) };
+      if (act.freshQuestion([asked], answered) === false && act.freshQuestion([asked], whole) === true) {
+        ok('a plan\'s question answered on a question card in the same turn is not fresh any more, and one not answered still is');
+      } else bad('a plan question answered on a card in the same turn still counts as fresh, or one not answered does not');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
