@@ -18,6 +18,9 @@
  */
 const MAX_LISTED = 2000;
 const MAX_TITLE = 300;
+/* How often this extension's own list is read again, without Agent Plus's: a conversation that starts running tells
+   nothing here, and the list of running ones is kept for 30 seconds (src/claude-source.js). */
+const OWN_POLL_MS = 15000;
 /* The Claude Code source's id, as src/claude-source.js registers it, for the lists this extension makes itself. */
 const OWN_SOURCE = 'claude-code';
 const OWN_LABEL = 'Claude Code';
@@ -50,10 +53,11 @@ function entries(list, sourceId = '', label = '') {
 /*
  * `on()` says whether the setting is on; `own()` resolves to this extension's Claude Code conversations, for an Agent
  * Plus without allConversations; `send(message)` posts to every panel; `open(target)` runs agentPlus.openConversation;
- * `openOwn(sessionId)` opens a Claude Code conversation when there is no Agent Plus to ask.
+ * `openOwn(sessionId)` opens a Claude Code conversation when there is no Agent Plus to ask. `every(fn, ms)` replaces
+ * setInterval, in tests.
  */
-function create({ on, own, send, open, openOwn, log = () => {} }) {
-  let core = null, sub = null, list = [], key = '', rev = 0, closed = false, asking = null;
+function create({ on, own, send, open, openOwn, log = () => {}, every = setInterval, pollMs = OWN_POLL_MS }) {
+  let core = null, sub = null, list = [], key = '', rev = 0, closed = false, asking = null, poll = null, polling = false;
   const usesCore = () => !!(core && Array.isArray(core.features) && core.features.includes('allConversations')
     && typeof core.allConversations === 'function' && typeof core.onDidChangeAllConversations === 'function');
   const post = () => { try { send({ type: 'cce_conversations', rev, list }); } catch (e) { log(`conversation links: ${(e && e.message) || e}`); } };
@@ -75,10 +79,18 @@ function create({ on, own, send, open, openOwn, log = () => {} }) {
       (e) => log(`conversation links: ${(e && e.message) || e}`)).then(() => { asking = null; });
     return asking;
   };
-  const unhook = () => { if (sub) { try { sub.dispose(); } catch (_) { /* gone */ } sub = null; } };
+  const unhook = () => {
+    if (sub) { try { sub.dispose(); } catch (_) { /* gone */ } sub = null; }
+    if (polling) { try { clearInterval(poll); } catch (_) { /* not a timer */ } poll = null; polling = false; }
+  };
   const follow = () => {
     if (closed) return;
     if (!on()) { unhook(); return; }
+    if (!usesCore() && !polling) {
+      polling = true;
+      poll = every(() => { if (!closed && on() && !usesCore()) fromOwn(false); }, pollMs);
+      if (poll && typeof poll.unref === 'function') poll.unref();
+    }
     if (usesCore()) {
       if (!sub) {
         try { sub = core.onDidChangeAllConversations(() => { if (!closed && on()) fromCore(false); }); } catch (e) { sub = null; log(`conversation links: ${(e && e.message) || e}`); }
@@ -113,4 +125,4 @@ function create({ on, own, send, open, openOwn, log = () => {} }) {
   };
 }
 
-module.exports = { create, entries, OWN_SOURCE, OWN_LABEL, MAX_LISTED };
+module.exports = { create, entries, OWN_SOURCE, OWN_LABEL, MAX_LISTED, OWN_POLL_MS };

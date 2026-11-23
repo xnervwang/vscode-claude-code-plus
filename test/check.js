@@ -6729,7 +6729,7 @@ console.log('\nwhat a tick and a change of setting cost');
     delete env.CLAUDE_CONFIG_DIR;
     try { r = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000, env })); }
     catch (e) { r = { threw: e.message }; }
-    if (!r.threw && r.listeners === 2 && JSON.stringify(r.timers) === JSON.stringify([1000, 5000, 10000, 30000, 1800000]) && JSON.stringify(r.recent) === JSON.stringify(['abababab-1111-4222-8333-444444444444'])
+    if (!r.threw && r.listeners === 2 && JSON.stringify(r.timers) === JSON.stringify([1000, 5000, 10000, 15000, 30000, 1800000]) && JSON.stringify(r.recent) === JSON.stringify(['abababab-1111-4222-8333-444444444444'])
         && (r.sentAtStart || []).includes('function')) {
       ok('activation, a change of setting, every timer, the hooks and deactivation run against a stand-in editor without throwing, and the start sends the session list the closed tabs');
     } else bad(`against a stand-in editor: ${JSON.stringify(r).slice(0, 600)}`);
@@ -12929,6 +12929,18 @@ const repo = path.join(__dirname, '..');
       eq([sent.slice(n).map((m) => m.list.map((x) => [x.sourceId, x.sessionId])), ownOpened],
         [[[['claude-code', 's-own']], [['claude-code', 's-own']], [['claude-code', 's-own']]], ['s-own']],
         'an Agent Plus without that list leaves this extension\'s own Claude Code conversations, and with no Agent Plus a click opens one directly');
+      const polls = [], polled = [];
+      let running = [{ sessionId: 's-a', title: 'First one', lastActiveAt: 1 }];
+      const later = links.create({ on: () => true, own: async () => running, send: (m) => polled.push(m.list.map((x) => x.sessionId)),
+        open: async () => {}, openOwn: async () => {}, every: (fn, ms) => { polls.push([fn, ms]); return null; } });
+      later.attach({ features: [] });
+      await later.ask();
+      running = running.concat([{ sessionId: 's-b', title: 'Started later', lastActiveAt: 2 }]);
+      polls[0][0]();
+      await later.ask();
+      later.attach({ features: [] });
+      eq([polls.length, polls[0][1], polled], [2, links.OWN_POLL_MS, [['s-a'], ['s-a'], ['s-a', 's-b'], ['s-a', 's-b']]],
+        'and that list is read again every 15 seconds, so a conversation that starts running later is sent too, with one timer at a time');
     } catch (e) { bad(`what the extension sends the panels threw: ${(e && e.stack) || e}`); }
   }
 
