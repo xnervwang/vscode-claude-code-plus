@@ -35,7 +35,8 @@
  *                  done and grey, and the setting that leaves it out
  *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
  *                  Dismiss, Open bringing the conversation forward, the count, and no notice with each of the
- *                  agentPlus.notifications settings off
+ *                  agentPlus.notifications settings off; a question put while the turn runs: no notice, no count and a
+ *                  green dot until the turn ends, then all three
  *   the steward    the Steward panel, a steward's crown on its tab, on every session list row and in the panel's
  *                  header, the bell an older build stored left out, renames through both of Claude Code's rename
  *                  boxes with marks typed anywhere, a managed conversation's dot and envelope in the panel while it
@@ -1462,6 +1463,45 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         check(!!(await dotsOn(t.label) || {}).waiting, 'while the dot stays red, the question being still open', await dotsOn(t.label));
         question(false);
         check(!!await clear(), 'the question answered in the plan, the dot goes', await dotsOn(t.label));
+        await exec('notifications.clearAll');
+
+        /* A question the plan puts while the turn still runs reaches the user in the reply that turn ends with, so until
+           the turn ends the conversation is not waiting for them: no notice, no count, and the dot stays green. Asked
+           once Agent Plus's Conversations entry counts the question, so Agent Plus has read it. */
+        model.hold();
+        const turnsAsk = model.turns();
+        const timeline = attentionTimeline(tab0.id);
+        try {
+          try {
+            await conv.locator('[contenteditable][role="textbox"]').first().click();
+            await page.keyboard.type('One more turn, please.');
+            await page.keyboard.press('Enter');
+            await until(() => model.turns() > turnsAsk, 30000, 300);
+            const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working' && a; }, SEEN_MS, 300);
+            await hide();
+            await exec('notifications.clearAll');
+            question(true);
+            const read = await until(async () => { const s = await toDecide(); return s && /\b1 to decide\b/.test(s) && s; }, 30000, 500);
+            const quiet = read ? await noticesWithin(tab0) : null;
+            const midTurn = { working: !!working, conversations: read || await toDecide(), notices: quiet, count: await needCount(),
+              dot: await dotsOn(t.label), agentPlus: attentionOf(tab0.id) };
+            check(!!working && !!read && !quiet.length && midTurn.count === null && !!midTurn.dot && midTurn.dot.waiting === 0 && midTurn.dot.running >= 6,
+              'a question the plan puts after the user\'s last message while the turn still runs gives no notice and no count, and the tab\'s dot stays green',
+              midTurn);
+          } finally { model.release(); }
+          const ended = await red();
+          check(!!ended, 'once the turn ends, the tab\'s dot turns red', ended || await dotsOn(t.label));
+          const waitingText = `"${tab0.title}" is waiting for you.`;
+          const toldAfter = await until(async () => (await needNotices()).find((n) => n.text === waitingText), 30000, 250)
+            || (await listedNotices()).find((n) => n.text === waitingText);
+          const countedAfter = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 10000, 300);
+          check(!!toldAfter && !!countedAfter, 'and Agent Plus then says the conversation is waiting for you and counts it as 1',
+            { notice: toldAfter || { toasts: await needNotices(), listed: await listedNotices() }, count: countedAfter || await needCount(), agentPlus: timeline() });
+        } finally { timeline(); }
+        await show();
+        question(false);
+        await clear();
+        await uncounted();
         await exec('notifications.clearAll');
 
         /* With agentPlus.notifications.waiting off: counted, and no notice. */
