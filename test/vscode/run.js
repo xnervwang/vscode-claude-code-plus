@@ -11,7 +11,8 @@
  * checks what is drawn; ./suite inside VS Code, which checks the patched files and the plugin; and test/check.js
  * against the installed copies. Exits non-zero if any fails. Agent Plus is installed from its .vsix when one is given,
  * and from the marketplace otherwise; this extension's .vsix depends on it, so it goes in first. Screenshots, crops,
- * diffs and VS Code's logs go to --out (by default a folder in the temporary root it makes).
+ * diffs and VS Code's logs go to --out (by default a folder in the temporary root it makes). CLAUDE_CODE_PLUS_UI_CLAUDE_CODE,
+ * a version such as 2.1.330, installs that Claude Code instead of the newest.
  *
  * HOME (USERPROFILE and the AppData folders on Windows, the XDG folders on Linux), VS Code's user data and extensions
  * folders all point into a new folder under RUNNER_TEMP or the system's temporary folder, so ~/.claude is a temporary
@@ -88,7 +89,8 @@ async function fetchStage() {
   const code = cli(te, exe);
   const env = cleanEnv(root);
   const profile = [`--extensions-dir=${p.exts}`, `--user-data-dir=${p.user}`];
-  for (const ext of [IDS.claude, core, vsix]) {
+  const claude = process.env.CLAUDE_CODE_PLUS_UI_CLAUDE_CODE ? `${IDS.claude}@${process.env.CLAUDE_CODE_PLUS_UI_CLAUDE_CODE}` : IDS.claude;
+  for (const ext of [claude, core, vsix]) {
     const r = code(['--install-extension', ext, ...profile], env);
     console.log(r.out.split('\n').filter((l) => !/DeprecationWarning|trace-deprecation/.test(l)).join('\n'));
     if (r.status !== 0) throw new Error(`installing ${ext} failed (${r.status})`);

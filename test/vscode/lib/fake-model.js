@@ -22,6 +22,8 @@
  * ASK_FOR_BG_SESSION gets a Bash call of BG_SESSION_RUN, which starts a `claude --bg` session with the stand-in at
  * $HOME/fake-bg/claude (BG_SESSION_SCRIPT). One whose message contains
  * ASK_FOR_CHOICE gets an AskUserQuestion call with CHOICE's question and options, so that Claude Code shows a choice box.
+ * One whose message contains ASK_TO_PAUSE gets a Bash call of PAUSE_RUN, which Claude Code runs without asking; a
+ * message typed while the turn runs is taken into the turn after that call's result.
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
@@ -97,6 +99,8 @@ if (flag === '--bg') {
 `;
 const ASK_FOR_CHOICE = 'ask me which config to change';
 const CHOICE = { question: 'Which config should I change?', header: 'Config', options: ['Staging', 'Production'] };
+const ASK_TO_PAUSE = 'pause for two seconds';
+const PAUSE_RUN = 'sleep 2';
 /*
  * A stand-in for the CLI's `claude -p`, at $HOME/fake-bin/claude: it writes a session record of the CLI's shape for
  * its own process, as a worker started with --output-format stream-json does, and runs for `seconds`.
@@ -161,6 +165,7 @@ const asksToDetachShort = (ask) => { const t = lastAsk(ask); return t !== null &
 const asksForWorker = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_WORKER); };
 const asksForBgSession = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_BG_SESSION); };
 const asksForChoice = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_CHOICE); };
+const asksToPause = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_PAUSE); };
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
@@ -204,8 +209,8 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const helping = !helper && isHelper(ask);
       const detach = asksToDetach(ask), detachShort = asksToDetachShort(ask);
       const worker = asksForWorker(ask), bgSession = asksForBgSession(ask);
-      const choice = asksForChoice(ask);
-      const tool = background || backgroundLong || helper || detach || detachShort || worker || bgSession || choice || asksToRun(ask);
+      const choice = asksForChoice(ask), pause = asksToPause(ask);
+      const tool = background || backgroundLong || helper || detach || detachShort || worker || bgSession || choice || pause || asksToRun(ask);
       const linked = linkAsked(ask), picture = imageAsked(ask), named = nameAsked(ask) || echoAsked(ask);
       const reply = named || (linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
         : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain);
@@ -235,6 +240,7 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
           : bgSession ? { command: BG_SESSION_RUN, description: 'Start the nightly report in a background session' }
           : choice ? { questions: [{ question: CHOICE.question, header: CHOICE.header, multiSelect: false,
             options: CHOICE.options.map((label) => ({ label, description: `The ${label.toLowerCase()} config` })) }] }
+          : pause ? { command: PAUSE_RUN, description: 'Pause for two seconds' }
           : { command: RUN, description: 'Run the test suite' };
       const block = tool ? { type: 'tool_use', id: `toolu_fake_${n}`, name: helper ? 'Agent' : choice ? 'AskUserQuestion' : 'Bash', input } : { type: 'text', text: reply };
       const stop = tool ? 'tool_use' : 'end_turn';
@@ -274,4 +280,4 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
 module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_TO_BACKGROUND_LONG, BG_LONG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
   DETACH_SHORT_RUN, LINK_TEXT, NAMED_REPLY, ECHO_REQUEST,
   IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_BG_SESSION, BG_SESSION_RUN, BG_SESSION_NAME,
-  BG_SESSION_SCRIPT, ASK_FOR_CHOICE, CHOICE };
+  BG_SESSION_SCRIPT, ASK_FOR_CHOICE, CHOICE, ASK_TO_PAUSE, PAUSE_RUN };
