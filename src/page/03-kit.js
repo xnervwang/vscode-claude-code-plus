@@ -222,7 +222,7 @@ var agentPlusKit = (function () {
   function noticeStack(opts) {
     var doc = document, root = null, head = null, count = null, all = null, live = null;
     var els = {}, order = [], last = [], pulled = -1, hovered = -1, focused = -1, inside = false, within = false, drawn = false;
-    var mode = 'normal', known = {}, until = {}, primed = false, foldTimer = 0, kept = 0, modeButtons = {};
+    var mode = 'normal', known = {}, until = {}, primed = false, foldTimer = 0, kept = 0, modeButtons = {}, hideTimer = 0;
     var skew = 0, placer = 0, gone = {}, room = -1, spot = { bottom: 12, right: STACK.margin, width: STACK.width };
     var GONE_WAIT_MS = 3000;
     var colors = (opts && opts.colors) || { waiting: '#ef4444', finished: '#22c55e' };
@@ -495,7 +495,13 @@ var agentPlusKit = (function () {
         inside = false; hovered = -1;
         if (!(doc.activeElement && root.contains(doc.activeElement))) { within = false; focused = -1; }
       }
-      root.style.display = order.length ? '' : 'none';
+      /* The last card to go slides out before the stack is hidden. */
+      if (order.length || !(quick() && root.querySelector('[data-ap-leaving]'))) {
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0; }
+        root.style.display = order.length ? '' : 'none';
+      } else if (!hideTimer) {
+        hideTimer = setTimeout(function () { hideTimer = 0; if (root && !order.length) root.style.display = 'none'; }, STACK.leaveMs + 60);
+      }
       lay(true);
       paintHead();
       if (arrived && first !== els[order[0]]) live.textContent = (KIND_TEXT[arrived.kind] || '') + ': ' + String(arrived.title || '');
@@ -579,6 +585,7 @@ var agentPlusKit = (function () {
       dispose: function () {
         if (placer) { clearInterval(placer); placer = 0; }
         if (foldTimer) { clearTimeout(foldTimer); foldTimer = 0; }
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0; }
         if (root && root.parentNode) root.parentNode.removeChild(root);
         var ring = doc.querySelector('style[data-ap-stack-style]');
         if (ring && ring.parentNode) ring.parentNode.removeChild(ring);

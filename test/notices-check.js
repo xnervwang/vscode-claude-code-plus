@@ -271,7 +271,8 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     'setTimeout(function(){ host([], "folded"); }, 18100);',
     'setTimeout(function(){ host([G], "folded"); }, 18200);',
     'setTimeout(function(){ got.gShown = cards(); }, 18500);',
-    'setTimeout(function(){ got.gGone = cards(); }, 23700);',
+    'setTimeout(function(){ got.gLeaving = [stack().style.display, Q("[data-ap-leaving]").length]; }, 23330);',
+    'setTimeout(function(){ got.gGone = [cards(), stack().style.display]; }, 23700);',
   ].join('\n'), [], 24000);
   if (modes.error) bad(modes.error);
   else {
@@ -287,7 +288,8 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     eq([modes.keyBar, modes.keyStill, modes.afterQuiet], [['6 notices', 'Fold', 'Do not disturb', 'Dismiss all'], [true, ['6 notices', 'Fold', 'Do not disturb', 'Dismiss all']], [[], 'textbox']],
       'from the keyboard the bar opens with a card\'s focus and keeps its buttons while one of them has it; Do not disturb takes the stack away and the focus back to the message box');
     eq(modes.posted, ['mode-folded', 'mode-quiet'], 'and each button tells Agent Plus the mode it picked');
-    eq([modes.gShown, modes.gGone], [['G'], []], 'a folded card goes after its 5 seconds though the stack was emptied from under the pointer before it came');
+    eq([modes.gShown, modes.gGone], [['G'], [[], 'none']], 'a folded card goes after its 5 seconds though the stack was emptied from under the pointer before it came');
+    eq(modes.gLeaving, ['', 1], 'and slides away: the stack stays drawn while the last card leaves it');
     eq(modes.padBack, '128px', 'room asked for again while it is still going, as a folded card soon after another asks, is the same room, not added to what is left');
   }
   const calm = run('calm', [
