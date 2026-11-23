@@ -1,5 +1,5 @@
 {
-  "core": "ef4b329b56c8be429727ec340b98ecbc573fd74e",
+  "core": "3c60c3967127e8cab8a4a7ff6015071d709dfa72",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -64,7 +64,7 @@
     {
       "path": "src/page/03-kit.js",
       "from": "shared/page/kit.js",
-      "sha256": "681e3d319bbeb69f5e3bf12a33cc2ef60121adb14532f15bc509c2db74a82068"
+      "sha256": "afc6010976825e73a6b96c77b1a8614afa8c3fdcebe1a2ca8853b3b8a3c86c00"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_path.py",

@@ -3246,11 +3246,14 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await page.keyboard.press('Escape');
         check(!!picks && picks.some((r) => r.startsWith(named.title)) && !bells(picks), 'and so does the list of the conversations that need you', picks);
         await exec('agentPlus.showConversations');
+        /* The Conversations view hears of a running conversation through `claude agents --json`, which a window reads at
+           most every 30 s and may take from another window's list up to 20 s old, while the notice and the count above
+           can come from the panel at once. */
         const rows = await until(() => page.evaluate((t) => {
           const panel = document.getElementById('workbench.parts.panel');
           const all = panel ? [...panel.querySelectorAll('.monaco-list-row')].map((r) => (r.innerText || r.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim()) : [];
           return all.some((r) => r.includes(t)) ? all : null;
-        }, S.title), 45000, 1000);
+        }, S.title), SEEN_MS + 30000, 1000);
         await shot('steward-old-bell-conversations');
         check(!!rows && rows.some((r) => r.startsWith(named.title)) && !bells(rows), 'and so does Agent Plus\'s Conversations view', rows);
       } finally {
@@ -3374,6 +3377,9 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       await exec('claude-vscode.editor.open', tab0.id);
       const t = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), tab0.title)), 20000, 300);
       if (!t) throw new Error('the conversation\'s tab did not come to the front');
+      /* The steps before reload the window, and the page the conversation had then is gone. */
+      const cv = await conversation(tab0, 60000);
+      if (!cv) throw new Error('the conversation\'s page did not load');
       const hidden = async () => { await openNotes(t.column); return until(async () => { const x = (await claudeTabs()).find((y) => titled(y.label.replace(ENVELOPE, ''), tab0.title)); return x && !x.active; }, 5000, 200); };
       const front = async () => { await page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first().click(); return until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), tab0.title)), 10000, 200); };
       /* A permission prompt in the conversation of the first window while its tab is behind notes.txt. */
@@ -3381,11 +3387,11 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         const before = model.seen.length;
         model.hold();
         try {
-          await say(conv, page, `Please ${ASK_TO_RUN}.`);
+          await say(cv, page, `Please ${ASK_TO_RUN}.`);
           await until(() => model.seen.length > before, 30000, 300);
           await hidden();
         } finally { model.release(); }
-        const asked = await until(() => conv.evaluate((re) => new RegExp(re).test(document.body.innerText), ASK_TEXT.source), 30000, 500);
+        const asked = await until(() => cv.evaluate((re) => new RegExp(re).test(document.body.innerText), ASK_TEXT.source), 30000, 500);
         const red = asked && await until(async () => { const d = await dotsOn(t.label); return d && d.waiting >= 6 && d; }, 20000, 500);
         return { asked, red };
       };
@@ -3393,8 +3399,8 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await testFocus(true);
         await exec('notifications.clearAll');
         if (apWaits) {
-          const told = await until(async () => (await waitsLeft(conv)) === true, 20000, 300);
-          check(told, 'the conversation\'s page has been told that Claude Code\'s notices of waits are left to Agent Plus', { page: await waitsLeft(conv) });
+          const told = await until(async () => (await waitsLeft(cv)) === true, 20000, 300);
+          check(told, 'the conversation\'s page has been told that Claude Code\'s notices of waits are left to Agent Plus', { page: await waitsLeft(cv) });
         }
         const one = await askBehind();
         const counted = one.red && await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, SEEN_MS, 300);
@@ -3412,7 +3418,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await shot('wait-notices-same-window');
         await exec('notifications.clearAll');
         await front();
-        await refuse(conv);
+        await refuse(cv);
         await until(async () => { const d = await dotsOn(t.label); return d && d.waiting === 0 && d; }, 30000, 500);
         await exec('notifications.clearAll');
         if (!apWaits) return;
@@ -3420,22 +3426,22 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         /* Agent Plus's waiting notices off: Claude Code's own notice is back. */
         await setNotify('waiting', false);
         try {
-          const back = await until(async () => (await waitsLeft(conv)) === false, 20000, 300);
+          const back = await until(async () => (await waitsLeft(cv)) === false, 20000, 300);
           const two = await askBehind();
           const cc = two.red ? await until(async () => (await ccWaitNotices()).find((n) => n.text.startsWith(BASH_NOTICE)), 20000, 300) : null;
           const none = await needNotices();
           check(back && !!cc && !none.some(about(tab0)), 'with agentPlus.notifications.waiting off, Claude Code\'s own notice of the permission prompt comes back, and Agent Plus shows none',
-            { page: await waitsLeft(conv), claudeCode: cc || await ccWaitNotices(), agentPlus: none });
+            { page: await waitsLeft(cv), claudeCode: cc || await ccWaitNotices(), agentPlus: none });
           await shot('wait-notices-claude-code-back');
           await exec('notifications.clearAll');
           await front();
-          await refuse(conv);
+          await refuse(cv);
           await until(async () => { const d = await dotsOn(t.label); return d && d.waiting === 0 && d; }, 30000, 500);
         } finally {
           await setNotify('waiting', null);
           await exec('notifications.clearAll');
         }
-        await until(async () => (await waitsLeft(conv)) === true, 20000, 300);
+        await until(async () => (await waitsLeft(cv)) === true, 20000, 300);
 
         /* A second window, with two conversations of its folder. */
         const folderD = path.join(path.dirname(profile.folder), 'ws-d');
