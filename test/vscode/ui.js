@@ -2617,6 +2617,10 @@ async function run({ exe, profile, env, playwright, model, threads, background =
      * drawn out under the pointer; clicking a card opens its conversation; looking at one removes its card, though it
      * still waits; Dismiss removes one; a second window shows the same cards, and a dismiss in one reaches the other; a
      * tab brought forward shows the cards at once; with no Claude Code panel on screen the notification is shown instead.
+     * With two windows open, the three modes of agentPlus.notifications.cards: Agent Plus's status bar entry names the mode
+     * in both and a pick in one changes both; in Folded a new card shows and goes after about 5 seconds, or stays while
+     * pointed at; in Do not disturb a new card draws nothing; back in Normal every kept card is there; Dismiss all in the
+     * stack's bar takes them all, in both windows.
      * The other conversations are reported through one more file in Agent Plus's shared attention folder, as another
      * window would report them. Checked only where the Agent Plus under test has the setting: CI installs Agent Plus from
      * its main branch, which may not have it yet.
@@ -2628,6 +2632,8 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         note(`notice cards: not checked, since the Agent Plus under test (${ap ? ap.version : 'not found'}) has no agentPlus.notifications.style`);
         return;
       }
+      const modes = await call(`const p = vscode.extensions.getExtension('xnervwang.agent-plus').packageJSON;
+        return !!((p.contributes.configuration || {}).properties || {})['agentPlus.notifications.cards'];`);
       const attention = path.join(profile.home, '.agent-work-plan', 'attention');
       const other = path.join(attention, 'zz0uitest-0000000b.json');
       let items = [];
@@ -2700,6 +2706,11 @@ async function run({ exe, profile, env, playwright, model, threads, background =
            attention file reports A working: a conversation opened a moment ago reaches that list only when the window
            next asks claude agents. */
         const working = await until(() => reportedBy(A.id, 'working'), 60000, 300);
+        /* Agent Plus announces nothing in its first 10 seconds, and its window file is named after the time it started: a
+           window just reloaded, as when this step runs alone, is waited for. */
+        let started = 0;
+        try { for (const n of fs.readdirSync(attention)) { const m = /^([0-9a-z]+)-[0-9a-f]{8}\.json$/.exec(n); if (m && n !== path.basename(other)) started = Math.max(started, parseInt(m[1], 36)); } } catch (_) { /* none yet */ }
+        if (started) await until(() => Date.now() - started > 11000 || null, 15000, 250);
         model.release();
         if (!working) note('notice cards: this window never reported A working before its turn was let go');
         const popups = [];
@@ -2785,6 +2796,84 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await dismissFront(B);
         const goneC = inC ? await titlesIn(inC, (t) => t.length === 1 && t[0] === 'Fix the flaky build on main', 15000) : null;
         check(!!goneC, 'a card dismissed in one window goes in the other', { b: (await stackIn(B)).titles, c: inC && (await stackIn(inC)).titles });
+        if (!modes) note('notice cards: the modes are not checked, since the Agent Plus under test has no agentPlus.notifications.cards');
+        else {
+          /* Agent Plus's status bar entry for the mode, in either window. */
+          const ENTRY = 'xnervwang.agent-plus.agentPlus.cardMode';
+          const entryOf = (p) => p.evaluate((id) => { const e = document.getElementById(id); return e && e.offsetParent ? e.innerText.trim() : ''; }, ENTRY).catch(() => '');
+          const entryIs = (p, name) => until(async () => ((await entryOf(p)).includes(name) ? entryOf(p) : null), 10000, 250);
+          const Y = ['c1c1c1c1-0000-4000-8000-00000000000a', 'c1c1c1c1-0000-4000-8000-00000000000b', 'c1c1c1c1-0000-4000-8000-00000000000c'];
+          check(!!await entryIs(page, 'Normal') && !!await entryIs(pageC, 'Normal'), 'Agent Plus\'s status bar entry says the cards show as Normal, in both windows',
+            [await entryOf(page), await entryOf(pageC)]);
+          await exec('notifications.clearAll');
+          await page.mouse.move(5, 5);
+          await page.locator(`[id="${ENTRY}"]`).hover();
+          const tip = await until(() => page.evaluate(() => { const h = [...document.querySelectorAll('.monaco-hover, .workbench-hover')].find((e) => e.offsetParent && e.innerText.trim());
+            return h ? h.innerText.trim() : ''; }), 6000, 200);
+          check(/Notice cards: Normal/.test(tip || '') && /1 card kept/.test(tip || ''), 'its hover names the mode and the cards kept', tip);
+          await page.mouse.move(5, 5);
+          await page.locator(`[id="${ENTRY}"]`).click();
+          const rows = await until(() => page.evaluate(() => [...document.querySelectorAll('.quick-input-widget .quick-input-list .monaco-list-row')]
+            .filter((r) => r.offsetParent).map((r) => r.innerText.replace(/\s+/g, ' ').trim())).then((r) => (r.length ? r : null)), 10000, 250);
+          check(!!rows && ['Normal', 'Folded', 'Do not disturb'].every((n) => rows.some((r) => r.includes(n))), 'a click on it lists the three modes', rows);
+          await page.locator('.quick-input-widget .quick-input-list .monaco-list-row').filter({ hasText: 'Folded' }).first().click({ timeout: 10000 });
+          const foldedHere = await entryIs(page, 'Folded'), foldedThere = await entryIs(pageC, 'Folded');
+          const drawnC = inC ? await until(async () => (!(await stackIn(inC)).shown ? true : null), 10000, 250) : null;
+          check(!!foldedHere && !!foldedThere && !!drawnC, 'picking Folded there changes the entry in both windows, and the other window\'s panel folds its card away too',
+            { here: await entryOf(page), there: await entryOf(pageC), c: inC && (await stackIn(inC)) });
+          await page.bringToFront().catch(() => {});
+          /* In Folded a new card shows, and goes after about 5 seconds. The pointer is moved across B's page to its top left
+             first: a page goes on taking the pointer to be where it last saw it, which here was over the stack. */
+          const bodyB = await (await fresh(B)).locator('body').boundingBox().catch(() => null);
+          if (bodyB) { await page.mouse.move(bodyB.x + bodyB.width - 60, bodyB.y + bodyB.height - 60); await page.mouse.move(bodyB.x + 60, bodyB.y + 120, { steps: 8 }); }
+          await needs(Y[0], 'Folded away after a while', 'waiting');
+          const shownAt = await until(async () => ((await stackIn(B)).titles.includes('Folded away after a while') ? Date.now() : null), 30000, 200);
+          if (shownAt) await shot('notice-cards-folded');
+          const hovered = async () => { const f = await fresh(B); return f ? f.evaluate(() => { const st = document.querySelector('[data-ap-stack]'); return !!st && st.matches(':hover'); }).catch(() => null) : null; };
+          const goneAt = shownAt ? await until(async () => (!(await stackIn(B)).shown ? Date.now() : null), 15000, 200) : null;
+          check(!!shownAt && !!goneAt && goneAt - shownAt >= 4000 && goneAt - shownAt <= 8000, 'in Folded a new card shows alone, and goes after about 5 seconds',
+            { shownFor: shownAt && goneAt ? goneAt - shownAt : null, now: (await stackIn(B)).titles, pointedAt: await hovered() });
+          /* Held while pointed at. */
+          await needs(Y[1], 'Held while pointed at', 'waiting');
+          const heldAt = await until(async () => ((await stackIn(B)).titles.includes('Held while pointed at') ? Date.now() : null), 30000, 200);
+          const hb = heldAt ? await box(B, 0) : null;
+          if (hb) await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2, { steps: 4 });
+          if (heldAt) await until(() => Date.now() - heldAt > 7000 || null, 10000, 250);
+          const still = (await stackIn(B)).titles;
+          await page.mouse.move(5, 5, { steps: 4 });
+          const letGo = heldAt ? await until(async () => (!(await stackIn(B)).shown ? true : null), 5000, 200) : null;
+          check(!!hb && still.includes('Held while pointed at') && !!letGo, 'a folded card the pointer is on stays past its 5 seconds, and goes when the pointer leaves', { still, letGo });
+          /* Do not disturb, set from the other window. */
+          await call('await vscode.commands.executeCommand("agentPlus.chooseCardMode", "quiet"); return true;', undefined, 30000, folderC);
+          check(!!await entryIs(page, 'Do not disturb'), 'Do not disturb chosen in the other window reaches this one\'s entry', await entryOf(page));
+          await page.bringToFront().catch(() => {});
+          await needs(Y[2], 'Kept while quiet', 'waiting');
+          /* The card is in Agent Plus's list once a window's own attention file keeps it. */
+          const keptQuiet = await until(() => {
+            let names = [];
+            try { names = fs.readdirSync(attention).filter((n) => n !== path.basename(other)); } catch (_) { return null; }
+            return names.some((n) => { try { return (JSON.parse(fs.readFileSync(path.join(attention, n), 'utf8')).cards || []).some((c) => c[1] === Y[2]); } catch (_) { return false; } }) || null;
+          }, 30000, 250);
+          let drew = false;
+          const quietUntil = Date.now() + 3000;
+          while (Date.now() < quietUntil) { if ((await stackIn(B)).shown) drew = true; await sleep(250); }
+          check(!!keptQuiet && !drew, 'in Do not disturb a new card is kept and nothing is drawn', { keptQuiet, now: (await stackIn(B)).titles });
+          /* Normal again: every card kept. */
+          await exec('agentPlus.chooseCardMode', 'normal');
+          const all = await titlesIn(B, (t) => t.length === 4, 15000);
+          check(JSON.stringify(all) === JSON.stringify(['Kept while quiet', 'Held while pointed at', 'Folded away after a while', 'Fix the flaky build on main']),
+            'back in Normal every kept card is there, newest first', all || (await stackIn(B)).titles);
+          await shot('notice-cards-normal-again');
+          /* Dismiss all, from the stack's bar. */
+          const fb = await box(B, 0), frameB = await fresh(B);
+          if (fb && frameB) {
+            await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2, { steps: 4 });
+            await frameB.locator('[data-ap-dismiss-all]').click({ timeout: 5000 }).catch(() => {});
+          }
+          const emptyB = await titlesIn(B, (t) => t.length === 0, 10000), emptyC = inC ? await titlesIn(inC, (t) => t.length === 0, 10000) : null;
+          check(!!emptyB && !!emptyC, 'Dismiss all in the stack\'s bar takes every card away, in both windows', { b: (await stackIn(B)).titles, c: inC && (await stackIn(inC)).titles });
+          await page.mouse.move(5, 5);
+        }
         await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderC).catch(() => {});
         await until(async () => !(await w.pageOf(path.basename(folderC), 1000)), 20000, 500);
         pageC = null;
@@ -2817,6 +2906,7 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         }
         await exec('agentPlus.dismissAttention').catch(() => {});
         await setStyle(null).catch(() => {});
+        if (modes) await call('await vscode.workspace.getConfiguration("agentPlus").update("notifications.cards", undefined, vscode.ConfigurationTarget.Global); return true;').catch(() => {});
         fs.rmSync(other, { force: true });
         await exec('notifications.clearAll').catch(() => {});
         await exec('workbench.action.closeAllEditors').catch(() => {});
