@@ -376,6 +376,24 @@ async function stewardPanel(d) {
   if (!frame) throw new Error('the Steward panel did not open in 30 s');
   return frame;
 }
+const stewardsFile = (d) => path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
+/* The demo conversation in front with the Steward panel open, while the first of the other two conversations is a
+   steward with All on that ticked the second. */
+async function greyedPanel(d) {
+  const [t1, t2] = d.threads.slice(1);
+  for (const t of [t1, t2]) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
+  fs.mkdirSync(path.dirname(stewardsFile(d)), { recursive: true });
+  fs.writeFileSync(stewardsFile(d), JSON.stringify({ version: 1, stewards: { [t1.id]: { manages: [t2.id], ticked: [t2.id],
+    names: { [t2.id]: t2.title }, at: Date.now(), all: true } } }, null, 1) + '\n');
+  await d.exec('claude-vscode.editor.open', d.sid);
+  await d.sleep(1000);
+  const frame = await stewardPanel(d);
+  if (!await d.until(() => frame.evaluate((id) => { const b = document.querySelector(`input[data-id="${id}"]`); return !!b && b.disabled; }, t1.id), 40000, 1000)) {
+    throw new Error(`the box of the steward "${t1.title}" is not greyed`);
+  }
+  d.greyed = frame;
+  return frame;
+}
 /* The demo conversation in front with the Steward panel open, and `ids` ticked in it. */
 async function stewardOf(d, ids) {
   await d.exec('claude-vscode.editor.open', d.sid);
@@ -1313,6 +1331,61 @@ const STEPS = [
       return d.body();
     },
   },
+  /* One steward for each conversation: in the panel of the conversation in front, another steward's box, the box of the
+     conversation that steward ticked, and the All switch it holds are greyed, and each says why in a hover label. The
+     other steward is set by writing the table, as its own panel would. In both themes. */
+  ...['dark', 'light'].flatMap((tone) => [
+    {
+      name: `steward-greyed-box${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
+      expect: `The Steward panel at the bottom, in a ${tone} theme, for the demo conversation in front. Another conversation, "Why does the nightly `
+        + 'export skip archived rows?", is a steward with All on: its row\'s box is greyed. The row of "Add a dry-run flag to the cleanup script", which '
+        + 'that steward ticked, has a greyed box too, and the mouse rests on it: a small hover label beside it reads "Managed by Why does the nightly '
+        + 'export skip archived rows?". The "All, including new ones" switch at the top right is greyed. The label is readable against its background '
+        + 'and does not hide the row\'s title.',
+      unchanged: tone === 'light' ? null : 'The editor and the tab bar are as before.',
+      act: async (d) => {
+        if (tone === 'light') { await theme(d, 'Default Light Modern'); await d.sleep(2500); }
+        const frame = await greyedPanel(d);
+        const t2 = d.threads[2];
+        const box = frame.locator(`.box:has(input[data-id="${t2.id}"])`).first();
+        if (!await d.until(() => frame.evaluate((id) => { const b = document.querySelector(`input[data-id="${id}"]`); return !!b && b.disabled; }, t2.id), 40000, 1000)) {
+          throw new Error(`the box of "${t2.title}" is not greyed`);
+        }
+        await rest(d, frame);
+        await box.hover();
+        if (!await d.until(() => frame.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return !!l && l.getBoundingClientRect().width > 0; }), 3000, 100)) {
+          throw new Error('no hover label appeared for the greyed box');
+        }
+        await d.sleep(300);
+        return d.part('workbench.parts.panel');
+      },
+    },
+    {
+      name: `steward-greyed-all${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
+      expect: `The same Steward panel in the ${tone} theme. The mouse rests on the greyed "All, including new ones" switch at the top right, and a `
+        + 'hover label near it reads "Why does the nightly export skip archived rows? has All on". The label is readable and not cut off at the panel\'s edge.',
+      unchanged: 'The rows of the Steward panel are as in the step before.',
+      act: async (d) => {
+        const frame = d.greyed || await greyedPanel(d);
+        await rest(d, frame);
+        await frame.locator('label.every').first().hover();
+        if (!await d.until(() => frame.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return !!l && /has All on$/.test(l.textContent); }), 3000, 100)) {
+          throw new Error('no hover label appeared for the greyed All switch');
+        }
+        await d.sleep(300);
+        return d.part('workbench.parts.panel');
+      },
+      undo: async (d) => {
+        await d.away();
+        if (tone === 'light') { await theme(d, 'Default Dark Modern'); await d.sleep(2000); }
+        try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ }
+        for (const t of d.threads.slice(1)) await closeTab(d, t);
+        await d.exec('workbench.action.closePanel').catch(() => {});
+        d.greyed = null;
+        await d.sleep(800);
+      },
+    },
+  ]),
   {
     name: 'session-twice', features: ['session-twice'],
     expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once: the one its '
@@ -2366,7 +2439,7 @@ async function main() {
   for (const s of named) if (!steps.includes(s)) demo.log('skipped', s.name, `runs on ${s.only.join(', ')} only`);
   fs.mkdirSync(opt.out, { recursive: true });
   const started = Date.now();
-  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: 'ui-look', prepare,
+  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: 'ui-look',
     /* Manual, as in run.js, so that a tool call stops for permission: auto mode needs a check the fake model cannot do. */
     settings: { 'claudeCode.initialPermissionMode': 'default' } });
   Object.assign(d, { sleep: demo.sleep, until: demo.until, log: demo.log });

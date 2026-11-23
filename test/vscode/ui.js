@@ -55,6 +55,9 @@
  *                  copy of it opens; a link to one open nowhere says so; once that window has reloaded with the
  *                  conversation's tab restored behind another and not loaded, deleting it from the first window is
  *                  refused and names the second
+ *   one steward    two stewards in two windows: a steward's box is greyed in the other's panel, one that becomes a
+ *                  steward leaves the other's list, one a steward ticked is greyed for the other, and All is on for one
+ *                  steward only and takes only what the other has not ticked; each greyed control's hover label says why
  *   closed, sidebar, archived
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
@@ -2189,13 +2192,21 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             }
           }
           await shot('steward-actions');
-          /* A second steward: the managed conversation ticks the steward in its own panel. In the first steward's panel its
-             row then shows one crown, and the other rows none. */
+          /* A second steward: the managed conversation ticks another conversation in its own panel, where the first
+             steward's box is greyed, since a steward is managed by none. Becoming a steward takes it off the first steward's
+             list, and in the first steward's panel its row then shows one crown, and the other rows none. */
           await exec('claude-vscode.editor.open', target.id);
           const box2 = frame.locator(`input[data-id="${front.id}"]`).first();
-          const ticked2 = await until(async () => { const h = await header(); return h && h.includes(target.title.slice(0, 20)) && await box2.isVisible().catch(() => false); }, 45000, 500);
-          if (ticked2 && !await box2.isChecked()) await box2.click();
-          const isSteward2 = await until(() => { try { const t2 = JSON.parse(fs.readFileSync(file, 'utf8')).stewards[target.id]; return t2 && t2.manages.includes(front.id); } catch (_) { return false; } }, 10000, 300);
+          const other2 = frame.locator(`input[data-id]:not([disabled]):not([data-id="${front.id}"])`).first();
+          const ticked2 = await until(async () => { const h = await header(); return h && h.includes(target.title.slice(0, 20)) && await box2.isVisible().catch(() => false)
+            && await other2.isVisible().catch(() => false); }, 45000, 500);
+          const frontGreyed = !!ticked2 && await box2.isDisabled().catch(() => false);
+          if (ticked2 && !await other2.isChecked()) await other2.click();
+          const isSteward2 = await until(() => {
+            try { const all = JSON.parse(fs.readFileSync(file, 'utf8')).stewards; return all[target.id] && all[target.id].manages.length && !(all[front.id] || { manages: [] }).manages.includes(target.id); } catch (_) { return false; }
+          }, 10000, 300);
+          check(frontGreyed && !!isSteward2, 'in the managed conversation\'s panel the steward\'s box is greyed; ticking another makes it a steward, which takes it off the first steward\'s list',
+            { ticked2: !!ticked2, frontGreyed, table: (() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards; } catch (_) { return null; } })() });
           await exec('claude-vscode.editor.open', front.id);
           const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row [data-open]')].map((a) => [a.dataset.open, a.textContent])));
           const shown2 = await until(async () => {
@@ -2958,6 +2969,123 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       async function shotB() { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-reopen-in-window-b.png`) }).catch(() => {}); }
     });
 
+    /* Two stewards in two windows, one conversation for each steward at most: a steward cannot be ticked by another (1),
+       one that becomes a steward leaves the other's list (2), one a steward ticked is greyed in the other's panel (3), and
+       All is on for one steward only, which takes only what the other has not ticked (4). Each greyed control says why
+       in a hover label. */
+    await step('one steward for each conversation', async () => {
+      const SA = threads[0], X = threads[1];
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const file = path.join(dataDir, 'stewards.json');
+      const table = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards || {}; } catch (_) { return {}; } };
+      const has = (s, id) => !!table()[s] && table()[s].manages.includes(id);
+      const stewardIn = (p) => until(async () => {
+        for (const f of p.frames()) { try { if (await f.evaluate(() => /Managed by/.test(document.body ? document.body.innerText : ''))) return f; } catch (_) { /* gone */ } }
+        return null;
+      }, 30000, 500);
+      /* A box in a panel: whether it is ticked and greyed, and the reason its wrapper gives. */
+      const boxIn = (f, id) => f.evaluate((id) => {
+        const b = document.querySelector(`input[data-id="${id}"]`);
+        const w = b && b.closest('[data-why]');
+        return b ? { checked: b.checked, disabled: b.disabled, why: w ? w.dataset.why : '' } : null;
+      }, id).catch(() => null);
+      const everyIn = (f) => f.evaluate(() => {
+        const b = document.querySelector('input[data-every]'), l = b && b.closest('label');
+        return b ? { checked: b.checked, disabled: b.disabled, why: (l && l.dataset.why) || '' } : null;
+      }).catch(() => null);
+      const header = (f) => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; }).catch(() => '');
+      /* The hover label the panel draws for a greyed control. */
+      const hovered = async (p, f, sel) => {
+        const loc = f.locator(sel).first();
+        await loc.hover().catch(() => {});
+        return until(() => f.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return l && l.getBoundingClientRect().width > 0 && l.textContent; }).catch(() => ''), 3000, 200);
+      };
+
+      /* Window B on a folder of its own: Q1 will be the second steward, Q2 a conversation it ticks. */
+      const folderT = fs.realpathSync.native((() => { const d = path.join(path.dirname(profile.folder), 'ws-t'); fs.mkdirSync(d, { recursive: true }); return d; })());
+      const Q1 = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e700', title: 'Watch over the reports work', days: 0,
+        turns: [['Watch over the reports work.', 'I will keep an eye on it.']] };
+      const Q2 = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e701', title: 'Add totals to the monthly report', days: 0,
+        turns: [['Add totals to the monthly report.', 'Added a totals row to report/monthly.sql.']] };
+      fakeHome.writeThreads(profile.home, folderT, [Q1, Q2]);
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderT);
+      const pageB = await w.pageOf(path.basename(folderT), 90000);
+      const hostB = pageB ? await w.hostUp(before, folderT).catch(() => null) : null;
+      check(!!pageB && !!hostB, 'a second window, B, opens on a folder of its own', { pageB: !!pageB });
+      if (!pageB || !hostB) {
+        if (pageB) await pageB.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        return;
+      }
+      w.pin(profile.folder);
+      const inB = (body, arg) => call(body, arg, 60000, folderT);
+      const shotB = (name) => pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-${name}.png`) }).catch(() => {});
+      let panelA = null, panelB = null;
+      try {
+        await until(() => inB(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`), 60000, 1000);
+        await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', Q2.id);
+        await sleep(800);
+        await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); await vscode.commands.executeCommand("workbench.view.extension.claudeCodePlusSteward"); return true;', Q1.id);
+        /* Window A: X loaded in a tab, SA in front with the Steward panel. */
+        await exec('claude-vscode.editor.open', X.id);
+        await sleep(800);
+        await exec('claude-vscode.editor.open', SA.id);
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        panelA = await stewardIn(page);
+        panelB = await stewardIn(pageB);
+        const listed = panelA && panelB && await until(async () => (await boxIn(panelA, X.id)) && (await boxIn(panelA, Q1.id)) && (await boxIn(panelB, SA.id))
+          && (await boxIn(panelB, X.id)) && (await boxIn(panelB, Q2.id)) && (await header(panelB)).includes(Q1.title.slice(0, 20)), 60000, 1000);
+        check(!!listed, 'each window\'s Steward panel lists the conversations of both', { a: panelA && await panelA.evaluate(() => document.body.innerText.slice(0, 400)), b: panelB && await panelB.evaluate(() => document.body.innerText.slice(0, 400)) });
+        if (!listed) return;
+
+        /* SA ticks X and Q1 in A's panel. */
+        for (const id of [X.id, Q1.id]) await panelA.locator(`input[data-id="${id}"]`).first().click();
+        const ticked = await until(() => has(SA.id, X.id) && has(SA.id, Q1.id), 10000, 300);
+        check(!!ticked, 'in window A, the conversation in front ticks one of its own and one of B\'s, and is a steward', table()[SA.id] || null);
+
+        /* 1 and 3, in B's panel: SA's box and X's box are greyed, and say why. */
+        const sa = await until(async () => { const b = await boxIn(panelB, SA.id); return b && b.disabled && b; }, 20000, 500);
+        const x = await until(async () => { const b = await boxIn(panelB, X.id); return b && b.disabled && b; }, 20000, 500);
+        check(!!sa && sa.why === 'This conversation is a steward, and a steward is not managed by another',
+          'in B\'s panel the steward\'s box is greyed, and says on hover that a steward is not managed by another', sa || await boxIn(panelB, SA.id));
+        const xLabel = x ? await hovered(pageB, panelB, `.box:has(input[data-id="${X.id}"])`) : '';
+        check(!!x && x.why === `Managed by ${SA.title}` && xLabel === `Managed by ${SA.title}`,
+          'and so is the box of the conversation that steward ticked, whose hover label names that steward', { box: x || await boxIn(panelB, X.id), label: xLabel });
+        await shotB('one-steward-greyed-in-b');
+
+        /* 2: Q1 ticks Q2 in B's panel, becomes a steward and leaves SA's list; in A's panel its box is greyed. */
+        await panelB.locator(`input[data-id="${Q2.id}"]`).first().click();
+        const left = await until(() => has(Q1.id, Q2.id) && !has(SA.id, Q1.id), 10000, 300);
+        const q1InA = await until(async () => { const b = await boxIn(panelA, Q1.id); return b && b.disabled && !b.checked && b; }, 20000, 500);
+        check(!!left && !!q1InA && q1InA.why === 'This conversation is a steward, and a steward is not managed by another',
+          'once the conversation in front of B ticks one, it is a steward: it leaves the first steward\'s list, and its box in A\'s panel is greyed', { table: table(), box: q1InA || await boxIn(panelA, Q1.id) });
+
+        /* 4: All for SA, which leaves Q2 to Q1; in B's panel the All switch is greyed and names SA. */
+        await panelA.locator('input[data-every]').click();
+        const allOn = await until(() => table()[SA.id] && table()[SA.id].all === true && table()[SA.id], 10000, 300);
+        const q2InA = await until(async () => { const b = await boxIn(panelA, Q2.id); return b && b.disabled && !b.checked && b; }, 20000, 500);
+        check(!!allOn && !allOn.manages.includes(Q2.id) && !!q2InA && q2InA.why === `Managed by ${Q1.title}`,
+          'turned to All, the first steward takes only conversations the other has not ticked: the other\'s is greyed in its panel and names that steward', { all: allOn, box: q2InA || await boxIn(panelA, Q2.id) });
+        await shot('one-steward-all-in-a');
+        const sw = await until(async () => { const e = await everyIn(panelB); return e && e.disabled && e; }, 20000, 500);
+        const swLabel = sw ? await hovered(pageB, panelB, 'label.every') : '';
+        check(!!sw && !sw.checked && sw.why === `${SA.title} has All on` && swLabel === `${SA.title} has All on`,
+          'and in B\'s panel the All switch is greyed, its hover label naming the steward that has All on', { every: sw || await everyIn(panelB), label: swLabel });
+        await shotB('one-steward-all-greyed-in-b');
+      } finally {
+        if (panelA) {
+          if (await panelA.locator('input[data-every]').isChecked().catch(() => false)) await panelA.locator('input[data-every]').click().catch(() => {});
+          await panelA.locator('button[data-act="none"]').click().catch(() => {});
+        }
+        if (panelB) await panelB.locator('button[data-act="none"]').click().catch(() => {});
+        await until(() => !table()[SA.id] && !table()[Q1.id], 10000, 300);
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderT).catch(() => {});
+        await until(async () => !(await w.pageOf(path.basename(folderT), 1000)), 20000, 500);
+        w.pin(undefined);
+        await exec('workbench.action.closePanel').catch(() => {});
+      }
+    });
+
     /* In a light theme a colour emoji font draws the envelope white, so the tab title, the session list and the Steward
        panel draw its one-colour text form there (src/envelope.js); a dark theme brings the colour form back without a
        reload. */
@@ -3708,10 +3836,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const eA2 = await until(() => { const e = entryOf(profile.folder); return e && e.installed === true && e; }, 30000, 500);
         check(!!eA2 && eA2.build !== (entryOf(folderS) || {}).build, 'after its reload A\'s entry says it runs the installed build, another than B\'s', { a: entryOf(profile.folder), b: entryOf(folderS) });
 
-        /* B, still on the earlier build, leaves the table to A: a tick in its panel is not saved, and it says so. */
+        /* B, still on the earlier build, leaves the table to A: a tick in its panel is not saved, and it says so. The tick is
+           for a conversation of A's that the steward has through All, which runs again once its tab is in front. */
+        await exec('claude-vscode.editor.open', threads[1].id);
+        await conversation(threads[1], 60000).catch(() => null);
+        await exec('claude-vscode.editor.open', front.id);
         await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); await vscode.commands.executeCommand("workbench.view.extension.claudeCodePlusSteward"); return true;', P.id);
         const panelB = await stewardIn(pageB);
-        const firstB = panelB && await until(async () => { const b = panelB.locator('input[data-id]').first(); return (await b.isVisible().catch(() => false)) && b; }, 45000, 1000);
+        const firstB = panelB && await until(async () => { const b = panelB.locator(`input[data-id="${threads[1].id}"]:not([disabled])`).first(); return (await b.isVisible().catch(() => false)) && b; }, 60000, 1000);
         if (firstB) await firstB.click();
         await sleep(6000);
         const lineB = panelB ? await staleLine(panelB) : null;

@@ -19,9 +19,9 @@
  * folder is `to`: Claude Code starts a new conversation in a window's first folder. It is refused while a window
  * shows the conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation
  * hands something it thinks belongs elsewhere to a steward that manages it (`from` is then the one asking, and `to` is
- * empty). A window showing one of its stewards takes it and posts it, as a notice and never as the user's message, to
- * the inbox of one steward only: of those that manage the conversation, the one the user last typed to, or the next
- * one that can be reached.
+ * empty). A window showing its steward takes it and posts it, as a notice and never as the user's message, to the inbox
+ * of the steward that has the conversation on its list, or, when none has, of the steward with "all" on; should a table
+ * still name several, of the one the user last typed to, or the next one that can be reached.
  *
  * Any process can write a request file. A window carries one out only if the conversation is one the steward manages
  * (for `open` and `resume`, only if the one asking is a steward; for `handoff`, only if a steward manages the one
@@ -45,6 +45,7 @@ const { SESSION, writeAtomic, filedUnder } = require('./claude-files');
 const { realPath } = require('./folders');
 const os = require('os');
 const sentCheck = require('./sent-check');
+const { holderOf } = require('./stewards');
 
 const RELAY_DIR = 'relay';
 const REQUEST = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i;
@@ -309,11 +310,11 @@ function textFor(action, raw) {
   return text && text.length <= MAX_TEXT ? { text } : { why: `there is no text, or it is longer than ${MAX_TEXT} characters` };
 }
 
-/* Whether steward `steward` manages conversation `id`. A steward of all conversations manages all but other stewards,
-   even ones missing from its list for the moment. */
+/* Whether steward `steward` manages conversation `id`. A steward of all conversations manages all but other stewards
+   and those another steward has, even ones missing from its list for the moment. */
 const manages = (table, steward, id) => {
   const t = table[steward];
-  return !!t && (t.manages.includes(id) || (t.all && id !== steward && !table[id]));
+  return !!t && (t.manages.includes(id) || (t.all && id !== steward && !table[id] && !holderOf(table, id, steward)));
 };
 
 async function carryOut(req, action, to, dir, deps, now) {
@@ -382,9 +383,11 @@ async function carryOut(req, action, to, dir, deps, now) {
   return out;
 }
 
-/* Gives a handoff to one of `stewards`: the one the user last typed to, or failing that the next by the same order. */
+/* Gives a handoff to one of `stewards`: the one with `from` on its list; if none has, the one the user last typed to,
+   or failing that the next by the same order. */
 async function handOff(stewards, from, text, table, deps) {
-  const order = stewards.map((s) => ({ s, at: lastUserAt(deps.transcriptOf(s)) })).sort((a, b) => b.at - a.at).map((x) => x.s);
+  const own = stewards.filter((s) => table[s].manages.includes(from));
+  const order = (own.length ? own : stewards).map((s) => ({ s, at: lastUserAt(deps.transcriptOf(s)) })).sort((a, b) => b.at - a.at).map((x) => x.s);
   const missed = [];
   for (const s of order) {
     const title = (table[s].names && table[s].names[from]) || (deps.titleOf && deps.titleOf(from)) || '';

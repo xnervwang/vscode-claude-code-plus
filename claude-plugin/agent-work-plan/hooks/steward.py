@@ -31,8 +31,8 @@ from plan_common import (  # noqa: E402
     COMPACTED_SUFFIX, SESSION_NAME, children, data_dir, launcher, listed, read_payload, side_file, write_quietly,
 )
 from proc_alive import alive  # noqa: E402
+import steward_table  # noqa: E402
 
-STEWARDS_FILE = "stewards.json"
 SEEN_SUFFIX = ".steward-seen"
 MAX_LISTED = 30
 MAX_DOING = 2
@@ -110,34 +110,20 @@ def plan_summary(directory, sid):
 
 def managed_by(directory, sid):
     """(ids, names) this conversation manages, or ([], {})."""
-    try:
-        with open(os.path.join(directory, STEWARDS_FILE), encoding="utf-8") as fh:
-            table = json.load(fh)
-    except (OSError, ValueError):
+    entry = steward_table.read(directory).get(sid)
+    if not entry:
         return [], {}
-    entry = table.get("stewards", {}).get(sid) if isinstance(table, dict) and isinstance(table.get("stewards"), dict) else None
-    if not isinstance(entry, dict):
-        return [], {}
-    ids = [m.lower() for m in listed(entry.get("manages")) if isinstance(m, str) and SESSION_NAME.match(m) and m.lower() != sid]
-    names = entry.get("names") if isinstance(entry.get("names"), dict) else {}
-    return ids[:MAX_LISTED], names
+    return entry["manages"][:MAX_LISTED], entry["names"]
 
 
 def stewards_of(directory, sid):
-    """The stewards that manage this conversation."""
-    try:
-        with open(os.path.join(directory, STEWARDS_FILE), encoding="utf-8") as fh:
-            table = json.load(fh)
-    except (OSError, ValueError):
-        return []
-    all_ = table.get("stewards") if isinstance(table, dict) and isinstance(table.get("stewards"), dict) else {}
-    return [s.lower() for s, e in all_.items() if isinstance(e, dict) and SESSION_NAME.match(s) and s.lower() != sid
-            and sid in [m.lower() for m in listed(e.get("manages")) if isinstance(m, str)]]
+    """The steward that has this conversation on its list, as a list of one, or []."""
+    return [s for s, e in steward_table.read(directory).items() if sid in e["manages"]]
 
 
 def watched():
-    """The line a managed conversation gets each turn. It names no steward: a conversation can have several, and the
-    window that delivers a handoff picks one."""
+    """The line a managed conversation gets each turn. It names no steward: the window that delivers a handoff finds the
+    one that manages this conversation."""
     handoff = " ".join([shlex.quote(w) for w in launcher()] + [shlex.quote(RELAY), "--handoff"])
     return ("A steward conversation watches this one for the user through Claude Code Plus: it reads your work plan and "
             "latest reply, and speaks for the user by typing messages here, which come as the user's own. Do not send it "

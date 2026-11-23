@@ -63,6 +63,9 @@ const MAX_ASKS = 3;
 const MAX_ASK = 300;
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+/* Agent Plus's page helpers (src/page/03-kit.js), whose hover label the page draws for a control that says why it is
+   greyed: VS Code draws a webview's own title tooltips outside the page, slowly and not over a disabled control. */
+const KIT = fs.readFileSync(path.join(__dirname, 'page', '03-kit.js'), 'utf8');
 
 /* The titles of a plan's rows in progress, depth first. */
 function doingRows(nodes, out = []) {
@@ -219,7 +222,8 @@ function body(model) {
   const now = Date.now();
   const row = (c) => `
     <li class="row ${c.managed ? 'managed' : ''}">
-      <input type="checkbox" data-id="${esc(c.sessionId)}" ${c.managed ? 'checked' : ''} ${model.every ? 'disabled' : ''} title="Managed by this conversation">
+      ${c.why ? `<span class="box" data-why="${esc(c.why)}">` : ''}<input type="checkbox" data-id="${esc(c.sessionId)}" ${c.managed ? 'checked' : ''} ${model.every || c.lock ? 'disabled' : ''}
+        ${c.why ? `aria-label="${esc(c.why)}"` : 'title="Managed by this conversation"'}>${c.why ? '</span>' : ''}
       <span class="dot ${esc(c.dot || '')}" ${c.dot ? `title="${esc(DOT_TEXT[c.dot] || c.dot)}"` : ''}></span>
       <a href="#" class="name" data-open="${esc(c.sessionId)}" title="${esc(c.cwd)}">${esc(titleMarks.withMarks(c.title, { steward: !!c.steward }))}</a>
       ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${htmlChars(model.envelope || envelope.COLOUR)}</span>` : ''}
@@ -230,11 +234,12 @@ function body(model) {
       <span class="when">${esc(ago(c.lastActiveAt, now))}</span>` : `<span class="when">${esc(ago(c.lastActiveAt, now))}</span>`}
     </li>`;
   const group = (g) => {
-    const on = g.rows.filter((c) => c.managed).length;
+    const on = g.rows.filter((c) => c.managed).length, free = g.rows.filter((c) => !c.lock).length;
     return `
     <div class="group">
-      <label class="ghead"><input type="checkbox" data-group="${esc(g.key)}" ${on && on === g.rows.length ? 'checked' : ''} ${model.every ? 'disabled' : ''}
-        ${on && on < g.rows.length ? 'data-mixed="1"' : ''} title="Every conversation in ${esc(g.name)}">
+      <label class="ghead" ${free ? '' : 'data-why="Every conversation here is a steward or ticked by another steward"'}><input type="checkbox" data-group="${esc(g.key)}"
+        ${on && on === free ? 'checked' : ''} ${model.every || !free ? 'disabled' : ''} ${on && on < free ? 'data-mixed="1"' : ''}
+        ${free ? `title="Every conversation in ${esc(g.name)} that no other steward has ticked"` : ''}>
         <span class="gname">${esc(g.name)}</span><span class="count">${on}/${g.rows.length}</span></label>
       <ul>${g.rows.map(row).join('')}</ul>
     </div>`;
@@ -252,8 +257,8 @@ function body(model) {
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
     : `<div class="head"><span>Managed by <b>${esc(titleMarks.withMarks(model.front.title, { steward: !!(model.managed || model.every) }))}</b>: ${model.managed}</span>
-         <label class="every" title="Also ticks conversations opened later. Other stewards are never ticked.">
-           <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''}> All, including new ones</label>
+         <label class="every" ${model.everyBy ? `data-why="${esc(model.everyBy)} has All on"` : 'title="Also ticks conversations opened later that no other steward has ticked. Other stewards are never ticked."'}>
+           <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''} ${model.everyBy ? 'disabled' : ''}> All, including new ones</label>
          <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${stale}${away}
        ${model.groups.length ? model.groups.map(group).join('') : '<p class="empty">No other Claude Code conversation is open in a VS Code window.</p>'}`;
 }
@@ -273,6 +278,10 @@ function shell(list, nonce) {
   button:hover { background: var(--vscode-button-secondaryHoverBackground); }
   button:disabled { opacity: 0.5; cursor: default; }
   .every { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .every:has(input:disabled) { opacity: 0.6; }
+  input:disabled { pointer-events: none; }
+  .box { display: inline-flex; }
+  .box input:disabled, .ghead[data-why] input:disabled { opacity: 0.4; }
   ul { list-style: none; margin: 0; padding: 0; }
   .row { display: flex; align-items: center; gap: 6px; padding: 2px 0; white-space: nowrap; }
   .row:not(.managed) { opacity: 0.7; }
@@ -292,13 +301,26 @@ function shell(list, nonce) {
   .ghead .count { opacity: 0.6; font-weight: normal; }
   .group ul { padding-left: 18px; }
 </style></head><body><div id="root">${list}</div>
+<script nonce="${nonce}">${KIT}</script>
 <script nonce="${nonce}">
   const vscode = acquireVsCodeApi();
+  const tips = agentPlusKit.labels({ mark: ['data-steward-why', '1'], css: 'z-index:10;padding:6px 8px;border-radius:4px;font-size:.92em;'
+    + 'background:var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));'
+    + 'border:1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #454545));'
+    + 'color:var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground, #ccc));' });
+  let under = null;
+  document.addEventListener('mouseover', (e) => {
+    const t = e.target && e.target.closest ? e.target.closest('[data-why]') : null;
+    if (t === under) return;
+    under = t;
+    if (t) tips.show(t, t.dataset.why); else tips.hide();
+  });
+  document.addEventListener('mouseleave', () => { under = null; tips.hide(); });
   // A group's box shows a part of its conversations ticked as neither ticked nor clear, which only a property can say.
   const mixed = () => { for (const b of document.querySelectorAll('input[data-mixed]')) b.indeterminate = true; };
   window.addEventListener('message', (e) => {
     const m = e.data;
-    if (m && m.type === 'body' && typeof m.html === 'string') { document.getElementById('root').innerHTML = m.html; mixed(); }
+    if (m && m.type === 'body' && typeof m.html === 'string') { under = null; tips.hide(); document.getElementById('root').innerHTML = m.html; mixed(); }
   });
   mixed();
   vscode.postMessage({ type: 'ready' });
@@ -368,7 +390,7 @@ function create(vscode, deps) {
     const open = (id) => wins.some((w) => w.sessions.includes(id));
     const steward = (id) => { const t = table[id] || table[String(id).toLowerCase()]; return !!(t && (t.all || (t.manages || []).length)); };
     const rows = [...all.values()].filter((c) => c.sessionId !== front && (open(c.sessionId) || hostWindow(c, wins)))
-      .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c));
+      .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c, lockOf(table, c.sessionId, front, all)));
     rows.sort((a, b) => (b.managed - a.managed) || (b.lastActiveAt - a.lastActiveAt));
     const groups = grouped(rows, wins, front);
     const hidden = [...mine].filter((id) => !open(id) && !rows.some((c) => c.sessionId === id));
@@ -376,8 +398,24 @@ function create(vscode, deps) {
     // The conversation in front may not be in the list yet: `claude agents --json` is read at most every half minute.
     const title = self ? self.title : front ? titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: front, name: '', cwd: '' },
       deps.titles({ sessionId: front }), () => deps.readPlan(front))) : '';
+    const everyBy = front ? stewards.everyOf(table, front) : '';
     return { front: front ? { id: front, title } : null, other, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
-      every, envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
+      every, everyBy: everyBy ? nameOf(everyBy, all) : '', envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
+  };
+  /* A conversation's title for the panel's words about it. */
+  const nameOf = (id, all = last) => (all.get(id) && all.get(id).title)
+    || titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: id, name: '', cwd: '' }, deps.titles({ sessionId: id }), () => deps.readPlan(id))) || id;
+  /*
+   * Why the box of conversation `id` in the panel of `front` cannot be ticked, as { lock: true, why }, or a word about
+   * it that does not stop a tick: a steward is managed by none (lock), one another steward ticked stays with it (lock),
+   * and one another steward has only through All goes to the steward that ticks it.
+   */
+  const lockOf = (table, id, front, all) => {
+    if (table[id]) return { lock: true, why: 'This conversation is a steward, and a steward is not managed by another' };
+    const h = stewards.holderOf(table, id, front);
+    if (!h) return { lock: false, why: '' };
+    return h.ticked ? { lock: true, why: `Managed by ${nameOf(h.steward, all)}` }
+      : { lock: false, why: `Managed by ${nameOf(h.steward, all)} through All; ticking it here moves it to this conversation` };
   };
 
   /* This window's entry in the windows folder, written when what it shows changes and once a minute besides. */
@@ -407,10 +445,12 @@ function create(vscode, deps) {
       + 'installed, and a window running that one keeps the stewards list. Reload the window to change what a steward manages.');
   };
 
-  /* The list for a steward with "all" set: every conversation open in a window, except itself and other stewards. */
+  /* The list for a steward with "all" set: every conversation open in a window, except itself, other stewards, and
+     ones another steward has. */
   const everyIds = (steward, table) => {
     const wins = windows();
-    return [...last.keys()].filter((id) => id !== steward && !table[id] && wins.some((w) => w.sessions.includes(id)));
+    return [...last.keys()].filter((id) => id !== steward && !table[id] && !stewards.holderOf(table, id, steward)
+      && wins.some((w) => w.sessions.includes(id)));
   };
   const titlesOf = (list) => {
     const names = {};
@@ -433,7 +473,7 @@ function create(vscode, deps) {
       const kept = t.manages.filter((id) => {
         const k = steward + ' ' + id;
         if (open.has(id)) { absentSince.delete(k); return true; }
-        if (table[id]) return false;
+        if (table[id] || stewards.holderOf(table, id, steward)) return false;
         if (!absentSince.has(k)) absentSince.set(k, now);
         return now - absentSince.get(k) < GONE_MS;
       });
@@ -634,10 +674,12 @@ function create(vscode, deps) {
         manage: (steward, id) => {
           if (!writes()) return false;
           const t = stewards.read(deps.dir)[steward];
-          if (t && !t.manages.includes(id)) {
-            stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: titleOf(id) }), { dir: deps.dir });
-          }
+          if (!t) return false;
+          const after = t.manages.includes(id) ? stewards.read(deps.dir)
+            : stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: titleOf(id) }),
+              { dir: deps.dir, ticked: t.ticked.concat(id) });
           deps.changed();
+          return !!(after[steward] && after[steward].manages.includes(id));
         },
         pid: process.pid })) {
         deps.log(`steward ${r.action === 'send' ? 'relay' : r.action} to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`);
@@ -670,6 +712,7 @@ function create(vscode, deps) {
       if (planSeen.size > 1000) planSeen.clear();
       last = gather(r && r.records, cached);
       if (writes()) {
+        if (stewards.migrate(deps.dir)) deps.log('steward panel: rewrote stewards.json so that each conversation has one steward at most');
         const names = {};
         for (const [id, c] of last) names[id] = c.title;
         stewards.rename(names, { dir: deps.dir });
@@ -704,25 +747,27 @@ function create(vscode, deps) {
     const table = stewards.read(deps.dir);
     const mine = new Set(table[front] ? table[front].manages : []);
     if (m.type === 'every') {
+      if (m.on === true && stewards.everyOf(table, front)) { render(true); return; }
       const list = m.on ? everyIds(front, table) : [...mine];
-      stewards.setManaged(front, list, titlesOf(list), { dir: deps.dir, every: m.on === true });
-      render();
+      stewards.setManaged(front, list, titlesOf(list), { dir: deps.dir, every: m.on === true, ticked: [...mine] });
+      render(true);
       deps.changed();
       return;
     }
     // While it manages all, nothing can be unticked or ticked by hand.
     if (table[front] && table[front].all) return;
-    if (m.type === 'toggle' && typeof m.id === 'string') { if (m.on) mine.add(m.id); else mine.delete(m.id); }
+    const free = (id) => !lockOf(table, id, front, last).lock;
+    if (m.type === 'toggle' && typeof m.id === 'string') { if (!m.on) mine.delete(m.id); else if (free(m.id)) mine.add(m.id); }
     else if (m.type === 'group' && typeof m.key === 'string') {
       const g = model(last, front).groups.find((x) => x.key === m.key);
-      for (const c of g ? g.rows : []) { if (m.on) mine.add(c.sessionId); else mine.delete(c.sessionId); }
+      for (const c of g ? g.rows : []) { if (!m.on) mine.delete(c.sessionId); else if (!c.lock) mine.add(c.sessionId); }
     }
-    else if (m.type === 'all') for (const c of model(last, front).rows) mine.add(c.sessionId);
+    else if (m.type === 'all') for (const c of model(last, front).rows) { if (!c.lock) mine.add(c.sessionId); }
     else if (m.type === 'none') mine.clear();
     else if (m.type === 'drop-hidden') for (const id of model(last, front).hiddenIds) mine.delete(id);
     else return;
     stewards.setManaged(front, [...mine], titlesOf(mine), { dir: deps.dir });
-    render();
+    render(true);
     deps.changed();
   };
 
@@ -757,7 +802,7 @@ function create(vscode, deps) {
     refresh() { render(); },
     open,
     _gather: gather, _model: model, _notify: notify, _pass: pass, _onMessage: onMessage, _takeRequest: takeRequest, _syncEvery: syncEvery,
-    _takeRelays: takeRelays, _writes: writes,
+    _takeRelays: takeRelays, _writes: writes, _last: () => last,
   };
 }
 
