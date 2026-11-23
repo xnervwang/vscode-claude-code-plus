@@ -2674,6 +2674,16 @@ async function run({ exe, profile, env, playwright, model, threads, background =
       }).catch(() => ({ shown: false, titles: [] })); };
       const titlesIn = async (who, want, ms = 30000) => until(async () => { const s = await stackIn(who); return want(s.titles) ? s.titles : null; }, ms, 250);
       const box = async (who, i) => { const frame = await fresh(who); return frame ? frame.locator('[data-ap-card]').nth(i).boundingBox({ timeout: 5000 }).catch(() => null) : null; };
+      /* Where a card comes to rest: one just drawn is still sliding in, and the pointer sent to where it is then can miss
+         where it ends up. */
+      const restingBox = async (who, i) => {
+        let last = null;
+        return until(async () => {
+          const b = await box(who, i), same = !!b && !!last && JSON.stringify(b) === JSON.stringify(last);
+          last = b;
+          return same ? b : null;
+        }, 5000, 150);
+      };
       const dismissFront = async (who) => {
         const b = await box(who, 0), frame = await fresh(who);
         if (!b || !frame) return;
@@ -2836,13 +2846,15 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           /* Held while pointed at. */
           await needs(Y[1], 'Held while pointed at', 'waiting');
           const heldAt = await until(async () => ((await stackIn(B)).titles.includes('Held while pointed at') ? Date.now() : null), 30000, 200);
-          const hb = heldAt ? await box(B, 0) : null;
+          const hb = heldAt ? await restingBox(B, 0) : null;
           if (hb) await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2, { steps: 4 });
+          const pointed = hb ? await until(async () => (await hovered()) || null, 3000, 150) : null;
           if (heldAt) await until(() => Date.now() - heldAt > 7000 || null, 10000, 250);
           const still = (await stackIn(B)).titles;
           await page.mouse.move(5, 5, { steps: 4 });
           const letGo = heldAt ? await until(async () => (!(await stackIn(B)).shown ? true : null), 5000, 200) : null;
-          check(!!hb && still.includes('Held while pointed at') && !!letGo, 'a folded card the pointer is on stays past its 5 seconds, and goes when the pointer leaves', { still, letGo });
+          check(!!pointed && still.includes('Held while pointed at') && !!letGo, 'a folded card the pointer is on stays past its 5 seconds, and goes when the pointer leaves',
+            { box: hb, pointed, still, letGo });
           /* Do not disturb, set from the other window. */
           await call('await vscode.commands.executeCommand("agentPlus.chooseCardMode", "quiet"); return true;', undefined, 30000, folderC);
           check(!!await entryIs(page, 'Do not disturb'), 'Do not disturb chosen in the other window reaches this one\'s entry', await entryOf(page));

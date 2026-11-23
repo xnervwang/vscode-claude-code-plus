@@ -270,10 +270,13 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     'var G = card("g", "waiting", "G", 0);',
     'setTimeout(function(){ host([], "folded"); }, 18100);',
     'setTimeout(function(){ host([G], "folded"); }, 18200);',
-    'setTimeout(function(){ got.gShown = cards(); }, 18500);',
-    'setTimeout(function(){ got.gLeaving = [stack().style.display, Q("[data-ap-leaving]").length]; }, 23330);',
-    'setTimeout(function(){ got.gGone = [cards(), stack().style.display]; }, 23700);',
-  ].join('\n'), [], 24000);
+    /* Every change to the stack from here on is recorded as [its display, cards leaving], so that how it goes does not
+       depend on when it is looked at. */
+    'setTimeout(function(){ got.gShown = cards(); got.gSeen = [];',
+    '  new MutationObserver(function(){ got.gSeen.push([stack().style.display, Q("[data-ap-leaving]").length]); })',
+    '    .observe(stack(), { attributes: true, childList: true, subtree: true }); }, 18500);',
+    'setTimeout(function(){ got.gGone = [cards(), stack().style.display]; }, 24500);',
+  ].join('\n'), [], 25000);
   if (modes.error) bad(modes.error);
   else {
     eq([modes.normal, modes.foldedStart], [['C', 'B', 'A'], [[], '']], 'in Normal every card is drawn; switched to Folded, the cards already there go and so does the room they took');
@@ -289,7 +292,9 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
       'from the keyboard the bar opens with a card\'s focus and keeps its buttons while one of them has it; Do not disturb takes the stack away and the focus back to the message box');
     eq(modes.posted, ['mode-folded', 'mode-quiet'], 'and each button tells Agent Plus the mode it picked');
     eq([modes.gShown, modes.gGone], [['G'], [[], 'none']], 'a folded card goes after its 5 seconds though the stack was emptied from under the pointer before it came');
-    eq(modes.gLeaving, ['', 1], 'and slides away: the stack stays drawn while the last card leaves it');
+    const seen = modes.gSeen || [], slid = 'and slides away: the stack stays drawn while the last card leaves it, and is hidden once it has gone';
+    if (seen.some((s) => s[0] !== 'none' && s[1] > 0) && JSON.stringify(seen[seen.length - 1]) === '["none",0]') ok(slid);
+    else bad(`${slid}: the stack went ${JSON.stringify(seen)}`);
     eq(modes.padBack, '128px', 'room asked for again while it is still going, as a folded card soon after another asks, is the same room, not added to what is left');
   }
   const calm = run('calm', [
