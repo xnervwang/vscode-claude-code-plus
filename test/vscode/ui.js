@@ -65,8 +65,8 @@
  *   commands       Show Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
  *   rows no longer open
  *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
- *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn selected,
- *                  highlighted or focused, and only the one in a tab in front drawn as that one
+ *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn picked or
+ *                  highlighted, and only the one in a tab in front drawn as that one
  *   removal        last: Remove from Claude Code restores both files, and turning the extension on puts the patch back
  *   self-check     no page of a Claude Code panel drew the warning that its messages are no longer found, all through the run
  *
@@ -3401,13 +3401,14 @@ async function run({ exe, profile, env, playwright, model, threads, background =
 
     /*
      * The session list's rows as each way of opening and closing conversations leaves them, read as a person sees them:
-     * no row of a conversation open nowhere is drawn selected, highlighted, focused or as the one in front, and the rows
-     * of the conversation in a tab in front are drawn as that one. The ways: a row clicked and its tab closed in front; two
+     * no row of a conversation open nowhere is drawn picked, as the row the arrow keys are on or as the one in front, or
+     * other than plain unless it holds the keyboard focus, and the rows of the conversation in a tab in front are drawn as
+     * that one. The ways: a row clicked and its tab closed in front; two
      * opened and the first closed behind the second; one brought forward from OPEN SESSIONS and closed; one opened in the
      * sidebar from its page's own list, which then starts a new conversation; one opened with the arrow keys and Enter; a
      * row picked with a modifier click before another is opened; a row's menu closed with nothing picked; one opened from
-     * its menu; a row dragged and let go over no group. Tabs are closed by their close buttons, as a person closes them,
-     * which also takes the keyboard focus out of the list.
+     * its menu; a row dragged and let go over no group. Tabs are closed by their close buttons, as a person closes them;
+     * a click there leaves the keyboard focus where it was.
      */
     await step('rows of conversations no longer open', async () => {
       const [A, B, C] = threads;
