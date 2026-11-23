@@ -138,8 +138,9 @@
     { "id": "remove-patch", "what": "Claude Code Plus: Remove from Claude Code restores Claude Code's original files.",
       "commands": ["claudeCodePlus.remove"], "window": ["removing the patch"],
       "notShown": "it needs a reload, after which the remaining steps would run without the patch, and it rewrites the shared cache's copy of Claude Code; the window test, whose copy is its own, removes it last" },
-    { "id": "notice-cards", "what": "Agent Plus's notices drawn as a stack of cards above the message input of every Claude Code panel, newest in front, a card behind drawn out under the pointer (with Agent Plus's agentPlus.notifications.style on panel).",
-      "agentPlus": { "settings": ["agentPlus.notifications.style"], "commands": ["agentPlus.dismissAttention"] }, "agentPlusNeeds": "agentPlus.notifications.style",
+    { "id": "notice-cards", "what": "Agent Plus's notices drawn as a stack of cards above the message input of every Claude Code panel, newest in front, a card behind drawn out under the pointer (with Agent Plus's agentPlus.notifications.style on panel), in the mode of agentPlus.notifications.cards: every card, a new one for 5 seconds, or none, chosen from the stack's bar or Agent Plus's status bar entry.",
+      "agentPlus": { "settings": ["agentPlus.notifications.style", "agentPlus.notifications.cards"], "commands": ["agentPlus.dismissAttention", "agentPlus.chooseCardMode"] },
+      "agentPlusNeeds": "agentPlus.notifications.cards",
       "window": ["notice cards"] }
   ],
   "agentPlusOther": [

@@ -8,7 +8,8 @@
  * showNotices() in src/claude-source.js, the host's two additions for it (the cce_notice message, __cceSidebarVisible),
  * and the page in a headless browser (src/page/95-notices.js with agentPlusKit.noticeStack): the cards in order, the
  * room left in the message list, a card drawn out on hover and on focus, open and dismiss by mouse and by key, nothing
- * that moves while nothing changes, and no motion with reduced motion. Run from test/check.js.
+ * that moves while nothing changes, no motion with reduced motion, and the three modes (all the cards, a new one for a
+ * few seconds, none) with their buttons. Run from test/check.js.
  */
 const cp = require('child_process');
 const fs = require('fs');
@@ -50,6 +51,17 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     eq([sent.length - before, sent[sent.length - 1].cards.map((c) => c.sessionId), ran],
       [1, ['z'], [['agentPlus.openAttention', 'claude-code', 'z'], ['agentPlus.dismissAttention', 'codex', 'q'], ['agentPlus.dismissAttention']]],
       'a page asking gets the cards again; open and dismiss go to Agent Plus\'s commands, for any agent\'s card; anything else does nothing');
+    const at = sent.length;
+    n.show([card('z')], { mode: 'folded' });
+    n.show([card('z')], { mode: 'folded' });
+    n.show([card('z')], { mode: 'odd' });
+    n.show([card('z')]);
+    eq([sent.slice(at).map((m) => m.mode), sent[at - 1].mode], [['folded', 'normal'], 'normal'],
+      'the mode goes with the cards, normal unless Agent Plus says folded or quiet, and a change of mode alone is sent');
+    ran.length = 0;
+    n.heard('mode-folded', '', ''); n.heard('mode-quiet', '', ''); n.heard('mode-normal', '', ''); n.heard('mode-odd', '', '');
+    eq(ran, [['agentPlus.chooseCardMode', 'folded'], ['agentPlus.chooseCardMode', 'quiet'], ['agentPlus.chooseCardMode', 'normal']],
+      'a mode button on a page sets that mode through Agent Plus\'s command, and an unknown one does nothing');
   }
 
   /* showNotices() in src/claude-source.js, through a stand-in vscode. */
@@ -64,19 +76,20 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
         titles: () => ({}), since: () => 0, live: () => new Map(), unread: () => new Set(), activeChat: () => '', logo: () => null,
         canDeliver: () => false, hand: () => false, reveal: async () => false };
       const handed = [];
-      const a = C.createClaudeSource(Object.assign({}, base, { showNotices: (cards) => { handed.push(cards); return cards.length > 0; } }));
+      const a = C.createClaudeSource(Object.assign({}, base, { showNotices: (cards, o) => { handed.push(o); return cards.length > 0; } }));
       const b = C.createClaudeSource(base);
       const c = C.createClaudeSource(Object.assign({}, base, { showNotices: () => { throw new Error('no'); } }));
       const out = { features: [a.source.features, b.source.features], r: [a.source.showNotices([{ sessionId: 'x' }]), a.source.showNotices([]),
-        b.source.showNotices([{ sessionId: 'x' }]), c.source.showNotices([{ sessionId: 'x' }])], handed: handed.length };
+        b.source.showNotices([{ sessionId: 'x' }]), c.source.showNotices([{ sessionId: 'x' }])], handed };
+      a.source.showNotices([], { mode: 'quiet' });
       process.stdout.write(JSON.stringify(out));`;
     let r;
     try { r = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 })); } catch (e) { r = { threw: e.message }; }
     fs.rmSync(path.dirname(stub), { recursive: true, force: true });
-    eq(r, { features: [['showNotices'], []], r: [true, false, false, false], handed: 2 },
-      'the source lists showNotices only when it is given one, hands Agent Plus\'s cards to it, and answers false when it has none or it throws');
+    eq(r, { features: [['showNotices'], []], r: [true, false, false, false], handed: [null, null, { mode: 'quiet' }] },
+      'the source lists showNotices only when it is given one, hands Agent Plus\'s cards and mode to it, and answers false when it has none or it throws');
     const ext = fs.readFileSync(path.join(repo, 'extension.js'), 'utf8');
-    if (/showNotices: \(cards\) => notices\.show\(cards\),/.test(ext) && /globalThis\.__cceNoticeHook = \(action, sourceId, sessionId\) =>/.test(ext)
+    if (/showNotices: \(cards, options\) => notices\.show\(cards, options\),/.test(ext) && /globalThis\.__cceNoticeHook = \(action, sourceId, sessionId\) =>/.test(ext)
         && /send: \(m\) => \(typeof globalThis\.__cceToAllPanels === 'function' \? globalThis\.__cceToAllPanels\(m\) : 0\)/.test(ext)
         && /groups\.some\(\(g\) => isPanelTab\(g\.activeTab\)\)/.test(ext) && /globalThis\.__cceSidebarVisible\(\) === true/.test(ext)) {
       ok('the extension draws the cards in every panel of the window, counts them on screen when a Claude Code tab is in front of an editor group or the sidebar shows, and hears the pages through __cceNoticeHook');
@@ -140,7 +153,8 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     + '<form><div role="textbox" aria-label="Message input" contenteditable="true"></div><button type="submit" data-permission-mode="default">Send</button></form>'
     + '<script>var posted = []; window.acquireVsCodeApi = function(){ return { postMessage: function(m){ posted.push(m); } }; };</script>'
     + '<script>' + SCRIPT + '</script><script>'
-    + 'var host = function(cards){ window.postMessage({ type: "from-extension", message: { type: "cce_notices", cards: cards, now: Date.now() } }, "*"); };'
+    + 'var host = function(cards, mode){ window.postMessage({ type: "from-extension", message: { type: "cce_notices", cards: cards, now: Date.now(), mode: mode } }, "*"); };'
+    + 'var bar = function(){ return Q("[data-ap-head] > *").filter(function(e){ return e.style.display !== "none" && e.textContent; }).map(function(e){ return e.textContent; }); };'
     + 'var card = function(id, kind, title, ago){ return { sourceId: "claude-code", sessionId: id, kind: kind, title: title, at: Date.now() - ago, steward: false, agent: "" }; };'
     + 'var Q = function(s){ return [].slice.call(document.querySelectorAll(s)); };'
     + 'var cards = function(){ return Q("[data-ap-card]").map(function(c){ return c.querySelector("[data-ap-title]").textContent; }); };'
@@ -148,11 +162,11 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     + 'var fire = function(el, type, init){ el.dispatchEvent(new (type.indexOf("pointer") === 0 ? PointerEvent : type.indexOf("key") === 0 ? KeyboardEvent : MouseEvent)(type, Object.assign({ bubbles: type !== "pointerenter" && type !== "pointerleave" }, init || {}))); };'
     + 'var got = {};' + steps
     + '</script></body></html>';
-  const run = (name, steps, flags = []) => {
+  const run = (name, steps, flags = [], end = 9000) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-notices-page-'));
     const file = path.join(dir, 'panel.html');
-    fs.writeFileSync(file, page(steps + 'setTimeout(function(){ document.getElementById("out").textContent = "' + mark + '" + JSON.stringify(got); }, 9000);'));
-    const r = cp.spawnSync(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=12000', ...flags, '--dump-dom', 'file://' + file],
+    fs.writeFileSync(file, page(steps + 'setTimeout(function(){ document.getElementById("out").textContent = "' + mark + '" + JSON.stringify(got); }, ' + end + ');'));
+    const r = cp.spawnSync(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', `--virtual-time-budget=${end + 3000}`, ...flags, '--dump-dom', 'file://' + file],
       { encoding: 'utf8', timeout: 120000 });
     fs.rmSync(dir, { recursive: true, force: true });
     const at = (r.stdout || '').indexOf(mark);
@@ -168,7 +182,7 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     '  got.pad = document.querySelector(".messagesContainer_t").style.paddingBottom; got.rest = tf();',
     '  got.ages = Q("[data-ap-age]").map(function(e){ return e.textContent; }); }, 3500);',
     'setTimeout(function(){ var c = Q("[data-ap-card]"); fire(document.querySelector("[data-ap-stack]"), "pointerenter"); fire(c[2], "pointerenter"); }, 5200);',
-    'setTimeout(function(){ got.pulled = tf(); got.head = document.querySelector("[data-ap-head]").textContent; fire(document.querySelector("[data-ap-stack]"), "pointerleave"); }, 5600);',
+    'setTimeout(function(){ got.pulled = tf(); got.head = bar(); fire(document.querySelector("[data-ap-stack]"), "pointerleave"); }, 5600);',
     'setTimeout(function(){ got.back = tf(); var c = Q("[data-ap-card]"); fire(document.querySelector("[data-ap-stack]"), "pointerenter"); fire(c[2], "pointerenter");',
     '  got.outAgain = tf()[2]; document.documentElement.dispatchEvent(new MouseEvent("mouseleave")); got.leftPage = tf(); }, 5800);',
     'setTimeout(function(){ var c = Q("[data-ap-card]"); c[1].focus(); }, 6000);',
@@ -189,8 +203,8 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
     eq(got.rest, ['translateY(0px) scale(1)', 'translateY(-8px) scale(0.96)', 'translateY(-16px) scale(0.92)'],
       'the front card is shown whole and each older one peeks out above it, a little narrower');
     eq([got.pad, got.padOne], ['128px', '128px'], 'the message list gets a full stack\'s height more room at its end, on top of its own padding, the same for one card as for three');
-    eq([got.pulled, got.head], [['translateY(0px) scale(1)', 'translateY(-8px) scale(0.96)', 'translateY(-64px) scale(1)'], '3 noticesDismiss all'],
-      'pointing at a card behind draws it out whole above the cards in front of it, and the bar above the stack offers Dismiss all');
+    eq([got.pulled, got.head], [['translateY(0px) scale(1)', 'translateY(-8px) scale(0.96)', 'translateY(-64px) scale(1)'], ['3 notices', 'Fold', 'Do not disturb', 'Dismiss all']],
+      'pointing at a card behind draws it out whole above the cards in front of it, and the bar above the stack offers the other two modes and Dismiss all');
     eq([got.outAgain, got.leftPage], ['translateY(-64px) scale(1)', got.rest], 'a card drawn out goes back when the pointer leaves the whole page, even without passing over anything else in it');
     eq([got.back, got.focused], [got.rest, ['translateY(0px) scale(1)', 'translateY(-56px) scale(1)', 'translateY(-64px) scale(0.92)']],
       'leaving puts it back; a card given the focus from the keyboard is drawn out the same way, the cards behind it making room');
@@ -224,6 +238,50 @@ module.exports = async ({ ok, bad, eq, note }, repo) => {
   if (many.error) bad(many.error);
   else eq(many, { count: '+2', rest: ['1', '1', '1', '1', '0', '0'], focused: true, out: ['1', 'translateY(-80px) scale(1)'] },
     'past four cards the stack shows a count of the rest, and ArrowUp from the fourth reaches the fifth and draws it out');
+  /* The three modes, as Agent Plus hands them over, and the bar's buttons for them. */
+  const modes = run('modes', [
+    /* Each card made once, so that it keeps its time across the lists, as Agent Plus's cards do. */
+    'var ALL = ["f", "e", "d", "c", "b", "a"].map(function(id, i){ return card(id, i % 2 ? "finished" : "waiting", id.toUpperCase(), i * 1000); });',
+    'var six = function(n){ return ALL.slice(6 - n); };',
+    'var pad = function(){ return document.querySelector(".messagesContainer_t").style.paddingBottom; };',
+    'var stack = function(){ return document.querySelector("[data-ap-stack]"); };',
+    'setTimeout(function(){ host(six(3), "normal"); }, 2500);',
+    'setTimeout(function(){ got.normal = cards(); host(six(3), "folded"); }, 2800);',
+    'setTimeout(function(){ got.foldedStart = [cards(), pad()]; host(six(4), "folded"); }, 3100);',
+    'setTimeout(function(){ got.foldedNew = [cards(), pad()]; }, 3400);',
+    'setTimeout(function(){ got.foldedStill = cards(); }, 7400);',
+    'setTimeout(function(){ got.foldedGone = [cards(), pad()]; host(six(5), "folded"); }, 8500);',
+    'setTimeout(function(){ fire(stack(), "pointerenter"); fire(Q("[data-ap-card]")[0], "pointerenter"); got.foldedBar = bar(); }, 8900);',
+    'setTimeout(function(){ got.held = cards(); fire(stack(), "pointerleave"); }, 14600);',
+    'setTimeout(function(){ got.released = cards(); host(six(6), "quiet"); }, 15000);',
+    'setTimeout(function(){ got.quiet = [cards(), stack().style.display, pad()]; host(six(6), "normal"); }, 15300);',
+    'setTimeout(function(){ got.normalAgain = [cards(), pad()]; fire(stack(), "pointerenter"); got.normalBar = bar();',
+    '  var fold = document.querySelector("[data-ap-mode=folded]"); fold.click(); got.afterFold = cards(); }, 15600);',
+    'setTimeout(function(){ fire(stack(), "pointerleave"); }, 15900);',
+    'setTimeout(function(){ got.foldedAway = cards(); host(six(6), "normal"); }, 16300);',
+    'setTimeout(function(){ Q("[data-ap-card]")[0].focus(); got.keyBar = bar(); var q = document.querySelector("[data-ap-mode=quiet]"); q.focus();',
+    '  got.keyStill = [document.activeElement === q, bar()]; q.click(); got.afterQuiet = [cards(), document.activeElement && document.activeElement.getAttribute("role")]; }, 16600);',
+    'setTimeout(function(){ got.posted = posted.filter(function(m){ return m.type === "cce_notice" && /^mode-/.test(m.action); }).map(function(m){ return m.action; });',
+    '  host(six(1), "normal"); }, 16900);',
+    'setTimeout(function(){ host([], "normal"); host(six(1), "normal"); }, 17300);',
+    'setTimeout(function(){ got.padBack = pad(); }, 17800);',
+  ].join('\n'), [], 18000);
+  if (modes.error) bad(modes.error);
+  else {
+    eq([modes.normal, modes.foldedStart], [['C', 'B', 'A'], [[], '']], 'in Normal every card is drawn; switched to Folded, the cards already there go and so does the room they took');
+    eq([modes.foldedNew, modes.foldedStill], [[['D'], '128px'], ['D']], 'in Folded a card that arrives is drawn alone, with room for it, and still there after 4 seconds');
+    eq(modes.foldedGone, [[], ''], 'and gone after 5, the room with it; the cards are kept');
+    eq([modes.held, modes.released, modes.foldedBar], [['E'], [], ['5 notices', 'Normal', 'Do not disturb', 'Dismiss all']],
+      'a folded card the pointer is on stays past its 5 seconds and goes when the pointer leaves; its bar counts the cards kept and offers Normal, Do not disturb and Dismiss all');
+    eq(modes.quiet, [[], 'none', ''], 'in Do not disturb nothing is drawn and no room is kept');
+    eq([modes.normalAgain, modes.normalBar], [[['F', 'E', 'D', 'C', 'B', 'A'], '128px'], ['6 notices', 'Fold', 'Do not disturb', 'Dismiss all']],
+      'back in Normal every card kept is drawn again, and the bar offers Fold, Do not disturb and Dismiss all');
+    eq([modes.afterFold, modes.foldedAway], [['F', 'E', 'D', 'C', 'B', 'A'], []], 'Fold folds at once on the page, the cards staying while the pointer is on them and going when it leaves');
+    eq([modes.keyBar, modes.keyStill, modes.afterQuiet], [['6 notices', 'Fold', 'Do not disturb', 'Dismiss all'], [true, ['6 notices', 'Fold', 'Do not disturb', 'Dismiss all']], [[], 'textbox']],
+      'from the keyboard the bar opens with a card\'s focus and keeps its buttons while one of them has it; Do not disturb takes the stack away and the focus back to the message box');
+    eq(modes.posted, ['mode-folded', 'mode-quiet'], 'and each button tells Agent Plus the mode it picked');
+    eq(modes.padBack, '128px', 'room asked for again while it is still going, as a folded card soon after another asks, is the same room, not added to what is left');
+  }
   const calm = run('calm', [
     'setTimeout(function(){ host([card("b", "finished", "Second", 60000)]); }, 2500);',
     'setTimeout(function(){ host([card("c", "waiting", "Third", 0), card("b", "finished", "Second", 60000)]); }, 3000);',

@@ -168,13 +168,21 @@ var agentPlusKit = (function () {
    * that keep their place in the document, so the browser's own hit testing follows the cards: the strip a card shows
    * lies inside where it is drawn out to, all the way there, and the pointer stays on it while it moves.
    *
-   * opts: post(action, card), action 'open', 'dismiss' or 'dismiss-all'; anchor(), { bottom, right, width }: the stack's
-   * distance from the bottom and the right of the window and the most it may be wide, in px; room(px), told how tall the
-   * stack stands at rest, 0 once it is empty, so the page can leave that much free below what it shows; skip(card), true
-   * for a card this page leaves out; colors, { waiting, finished }; leave(), where Escape sends the focus. Returns
-   * set(cards, hostNow), place() after the page has changed size, refresh() after skip() has changed, and dispose().
+   * The mode (agentPlus.notifications.cards) says which cards are drawn: every one ('normal'); one that arrives while
+   * the page is open, for STACK.foldMs and for as long after as the pointer or the focus is on the stack, then none
+   * ('folded'); or none ('quiet'). The bar over the stack offers the other two modes beside Dismiss all.
+   *
+   * opts: post(action, card), action 'open', 'dismiss', 'dismiss-all', 'mode-normal', 'mode-folded' or 'mode-quiet';
+   * anchor(), { bottom, right, width }: the stack's distance from the bottom and the right of the window and the most it
+   * may be wide, in px; room(px), told how tall the stack stands at rest, 0 once nothing is drawn, so the page can leave
+   * that much free below what it shows; skip(card), true for a card this page leaves out; colors, { waiting, finished };
+   * leave(), where Escape sends the focus. Returns set(cards, hostNow, mode), place() after the page has changed size,
+   * refresh() after skip() has changed, and dispose().
    */
-  var STACK = { width: 320, height: 56, peek: 8, depth: 3, shrink: 0.04, margin: 10, enterMs: 260, pullMs: 170, leaveMs: 200 };
+  var STACK = { width: 320, height: 56, peek: 8, depth: 3, shrink: 0.04, margin: 10, enterMs: 260, pullMs: 170, leaveMs: 200, foldMs: 5000 };
+  var MODES = { normal: { label: 'Normal', title: 'Normal: every card stays' },
+    folded: { label: 'Fold', title: 'Folded: a new card shows for 5 seconds, then goes; the cards are kept' },
+    quiet: { label: 'Do not disturb', title: 'Do not disturb: new cards are kept but not shown' } };
   var EASE = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
   var KIND_TEXT = { waiting: 'Waiting for you', finished: 'Finished' };
   var DOT = String.fromCharCode(183), TIMES = String.fromCharCode(215);
@@ -200,9 +208,21 @@ var agentPlusKit = (function () {
     return out;
   }
 
+  /* One card: the same conversation needing the user again is another card. */
+  function cardId(c) { return JSON.stringify([String(c.sourceId), String(c.sessionId), Number(c.at) || 0]); }
+
+  /* Which of `cards` are drawn in `mode`: all of them in normal (and in a mode not known), none in quiet, and in folded
+     those whose time (`until[cardId]`, ms) is later than `now` or that are held (`held[cardId]`). */
+  function inMode(cards, mode, until, held, now) {
+    if (mode === 'quiet') return [];
+    if (mode !== 'folded') return cards.slice();
+    return cards.filter(function (c) { var id = cardId(c); return (until[id] || 0) > now || !!held[id]; });
+  }
+
   function noticeStack(opts) {
     var doc = document, root = null, head = null, count = null, all = null, live = null;
-    var els = {}, order = [], last = [], pulled = -1, hovered = -1, focused = -1, inside = false, drawn = false;
+    var els = {}, order = [], last = [], pulled = -1, hovered = -1, focused = -1, inside = false, within = false, drawn = false;
+    var mode = 'normal', known = {}, until = {}, primed = false, foldTimer = 0, kept = 0, modeButtons = {};
     var skew = 0, placer = 0, gone = {}, room = -1, spot = { bottom: 12, right: STACK.margin, width: STACK.width };
     var GONE_WAIT_MS = 3000;
     var colors = (opts && opts.colors) || { waiting: '#ef4444', finished: '#22c55e' };
@@ -229,32 +249,40 @@ var agentPlusKit = (function () {
     function build() {
       root = el('div', 'position:fixed;right:' + STACK.margin + 'px;bottom:12px;height:' + STACK.height + 'px;z-index:900;pointer-events:none;'
         + 'font-family:var(--vscode-font-family, system-ui, sans-serif);', { 'data-ap-stack': '1', role: 'region', 'aria-label': 'Conversations that need you' });
-      head = el('div', 'position:absolute;right:0;bottom:0;height:26px;box-sizing:border-box;padding-bottom:6px;display:flex;align-items:flex-end;'
-        + 'justify-content:flex-end;gap:6px;opacity:0;pointer-events:none;transition:opacity 120ms linear;font-size:11px;line-height:18px;'
+      /* In a narrow panel the buttons go on to a second row above the first. */
+      head = el('div', 'position:absolute;right:0;bottom:0;min-height:26px;box-sizing:border-box;padding-bottom:6px;display:flex;flex-wrap:wrap;'
+        + 'align-items:flex-end;justify-content:flex-end;gap:4px 6px;opacity:0;pointer-events:none;transition:opacity 120ms linear;font-size:11px;line-height:18px;'
         + 'color:var(--vscode-descriptionForeground, #9d9d9d);', { 'data-ap-head': '1' });
       count = el('span', 'padding:0 7px;border-radius:9px;background:var(--vscode-badge-background, #616161);color:var(--vscode-badge-foreground, #fff);', { 'data-ap-count': '1' });
-      all = el('button', 'font:inherit;padding:0 8px;border-radius:9px;cursor:pointer;color:var(--vscode-foreground, #ccc);'
-        + 'border:1px solid var(--vscode-widget-border, rgba(128,128,128,.4));background:var(--vscode-notifications-background, var(--vscode-editorWidget-background, #252526));',
-      { type: 'button', 'data-ap-dismiss-all': '1' });
+      var button = 'font:inherit;padding:0 8px;border-radius:9px;cursor:pointer;color:var(--vscode-foreground, #ccc);white-space:nowrap;'
+        + 'border:1px solid var(--vscode-widget-border, rgba(128,128,128,.4));background:var(--vscode-notifications-background, var(--vscode-editorWidget-background, #252526));';
+      all = el('button', button, { type: 'button', 'data-ap-dismiss-all': '1' });
       all.textContent = 'Dismiss all';
       all.addEventListener('click', function (e) { e.stopPropagation(); post('dismiss-all'); });
       head.appendChild(count);
+      Object.keys(MODES).forEach(function (m) {
+        var b = el('button', button, { type: 'button', 'data-ap-mode': m, title: MODES[m].title, 'aria-label': MODES[m].title });
+        b.textContent = MODES[m].label;
+        b.addEventListener('click', function (e) { e.stopPropagation(); choose(m); });
+        modeButtons[m] = b;
+        head.appendChild(b);
+      });
       head.appendChild(all);
       live = el('div', 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;', { 'aria-live': 'polite' });
       root.appendChild(head);
       root.appendChild(live);
       root.addEventListener('pointerenter', function () { inside = true; paintHead(); });
-      root.addEventListener('pointerleave', function () { inside = false; hovered = -1; pull(); paintHead(); });
-      root.addEventListener('focusin', function (e) { focused = indexOf(e.target); pull(); paintHead(); });
+      root.addEventListener('pointerleave', function () { inside = false; hovered = -1; pull(); paintHead(); letGo(); });
+      root.addEventListener('focusin', function (e) { within = true; focused = indexOf(e.target); pull(); paintHead(); });
       root.addEventListener('focusout', function (e) {
         if (e.relatedTarget && root.contains(e.relatedTarget)) return;
-        focused = -1; pull(); paintHead();
+        within = false; focused = -1; pull(); paintHead(); letGo();
       });
       /* The pointer can leave the whole page without passing over anything else in it, as when it moves straight onto
          another part of the window; and a page that loses the focus is not being read. */
       var away = function () {
         if (hovered < 0 && !inside) return;
-        inside = false; hovered = -1; pull(); paintHead();
+        inside = false; hovered = -1; pull(); paintHead(); letGo();
       };
       doc.documentElement.addEventListener('mouseleave', away);
       globalThis.addEventListener('blur', away);
@@ -362,15 +390,38 @@ var agentPlusKit = (function () {
       lay(true);
     }
 
+    /* Over the stack while it is pointed at or holds the focus: the count of the cards kept, the other two modes, and
+       Dismiss all; otherwise only the count of the cards not drawn. */
     function paintHead() {
       if (!head) return;
       var n = order.length, hidden = Math.max(0, n - 1 - STACK.depth);
-      var open = n >= 2 && (inside || focused >= 0);
-      count.textContent = open ? n + ' notices' : '+' + hidden;
-      count.style.display = open || hidden ? '' : 'none';
-      all.style.display = open ? '' : 'none';
+      var open = n >= 1 && (inside || within);
+      count.textContent = open ? kept + ' notices' : '+' + hidden;
+      count.style.display = (open && kept >= 2) || (!open && hidden) ? '' : 'none';
+      for (var m in modeButtons) modeButtons[m].style.display = open && m !== mode ? '' : 'none';
+      all.style.display = open && kept >= 2 ? '' : 'none';
       head.style.opacity = open || hidden ? '1' : '0';
       head.style.pointerEvents = open ? 'auto' : 'none';
+    }
+
+    /* A folded card held by the pointer or the focus goes once they leave, if its time is over. */
+    function letGo() { if (mode === 'folded' && root) render(last); }
+
+    function choose(m) {
+      var had = doc.activeElement && root.contains(doc.activeElement);
+      post('mode-' + m);
+      useMode(m);
+      if (had && !order.length) { try { if (opts.leave) opts.leave(); } catch (e) { /* stays */ } }
+    }
+
+    /* A new mode starts with no card in its few seconds: what was drawn goes, unless the pointer or the focus holds it. */
+    function useMode(m) {
+      var next = MODES[m] ? m : 'normal';
+      if (next === mode) return false;
+      mode = next;
+      until = {};
+      if (root) render(last);
+      return true;
     }
 
     function lay(animate) {
@@ -407,6 +458,19 @@ var agentPlusKit = (function () {
         try { if (opts.skip && opts.skip(c)) continue; } catch (e) { /* shown */ }
         seen[k] = true;
         shown.push(c);
+      }
+      kept = shown.length;
+      var held = {};
+      if (inside || within) for (var h = 0; h < order.length; h++) if (els[order[h]] && els[order[h]].__apCard) held[cardId(els[order[h]].__apCard)] = true;
+      var now = Date.now();
+      shown = inMode(shown, mode, until, held, now);
+      seen = {};
+      for (var q = 0; q < shown.length; q++) seen[keyOf(shown[q])] = true;
+      if (foldTimer) { clearTimeout(foldTimer); foldTimer = 0; }
+      if (mode === 'folded') {
+        var soon = Infinity;
+        for (var id in until) if (until[id] > now && until[id] < soon) soon = until[id];
+        if (soon < Infinity) foldTimer = setTimeout(function () { foldTimer = 0; render(last); }, soon - now + 20);
       }
       var was = order, first = order.length ? els[order[0]] : null;
       order = shown.map(keyOf);
@@ -480,11 +544,24 @@ var agentPlusKit = (function () {
       if (root.style.width !== width() + 'px') lay(false);
     }
 
-    function set(cards, hostNow) {
+    function set(cards, hostNow, m) {
       if (typeof hostNow === 'number' && isFinite(hostNow)) skew = Date.now() - hostNow;
       last = Array.isArray(cards) ? cards.slice() : [];
-      var listed = {};
-      for (var i = 0; i < last.length; i++) if (last[i]) listed[keyOf(last[i])] = true;
+      var next = MODES[m] ? m : 'normal';
+      if (next !== mode) { mode = next; until = {}; }
+      var listed = {}, ids = {}, now = Date.now();
+      for (var i = 0; i < last.length; i++) {
+        var c = last[i];
+        if (!c) continue;
+        listed[keyOf(c)] = true;
+        var id = cardId(c);
+        ids[id] = true;
+        /* A card already there when the page started, or when the mode changed, is not one that arrives. */
+        if (!known[id]) { known[id] = true; if (primed && mode === 'folded') until[id] = now + STACK.foldMs; }
+      }
+      for (var x in known) if (!ids[x]) delete known[x];
+      for (var y in until) if (!ids[y]) delete until[y];
+      primed = true;
       for (var k in gone) if (!listed[k] || Date.now() - gone[k] > GONE_WAIT_MS) delete gone[k];
       render(last);
     }
@@ -496,6 +573,7 @@ var agentPlusKit = (function () {
       refresh: function () { if (root) render(last); },
       dispose: function () {
         if (placer) { clearInterval(placer); placer = 0; }
+        if (foldTimer) { clearTimeout(foldTimer); foldTimer = 0; }
         if (root && root.parentNode) root.parentNode.removeChild(root);
         var ring = doc.querySelector('style[data-ap-stack-style]');
         if (ring && ring.parentNode) ring.parentNode.removeChild(ring);
@@ -506,6 +584,6 @@ var agentPlusKit = (function () {
   }
 
   return { p2: p2, stamp: stamp, age: age, span: span, kfmt: kfmt, pct: pct, TONES: TONES, chime: chime, unlockAudio: unlockAudio,
-    labels: labels, STACK: STACK, stackLayout: stackLayout, noticeStack: noticeStack };
+    labels: labels, STACK: STACK, stackLayout: stackLayout, cardId: cardId, inMode: inMode, noticeStack: noticeStack };
 })();
 if (typeof module === 'object' && module) module['exports'] = agentPlusKit;

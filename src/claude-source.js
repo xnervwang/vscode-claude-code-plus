@@ -104,8 +104,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   logo()                          { light, dark } Uris, or null
  *   timeZone()                      the zone a panel reported, or ''
  *   isSteward(sessionId)            optional: whether the conversation is a steward, which gets the crown
- *   showNotices(cards)              optional: draws Agent Plus's cards and says whether they are on screen; the source
- *                                   lists showNotices among its features only when it is given
+ *   showNotices(cards, options)     optional: draws Agent Plus's cards in options.mode and says whether they are on
+ *                                   screen; the source lists showNotices among its features only when it is given
  *   isBackground(id, cwd)           optional, for tests
  */
 function createClaudeSource(deps) {
@@ -281,8 +281,8 @@ function createClaudeSource(deps) {
 
     deliverAnswer(sessionId, text, opts) { return deliverOnce(sessionId, text, opts); },
 
-    showNotices(cards) {
-      try { return typeof deps.showNotices === 'function' && deps.showNotices(cards) === true; } catch (_) { return false; }
+    showNotices(cards, options) {
+      try { return typeof deps.showNotices === 'function' && deps.showNotices(cards, options) === true; } catch (_) { return false; }
     },
 
     planNotice: () => notice,

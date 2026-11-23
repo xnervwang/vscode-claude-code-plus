@@ -840,7 +840,7 @@ function start(context, log, renamed, handing = false) {
     },
     shown: () => shownList(),
     open: (sessionId) => (openAnywhere ? openAnywhere(sessionId) : 'nowhere'),
-    showNotices: (cards) => notices.show(cards),
+    showNotices: (cards, options) => notices.show(cards, options),
   });
   context.subscriptions.push(claude);
   /* The other agent's conversation tab that came to the front last; null once a Claude Code panel comes to the front.

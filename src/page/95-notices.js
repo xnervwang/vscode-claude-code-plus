@@ -14,6 +14,9 @@
   /* The message list given more room at its end, as { el, own, ownMove, base }: its inline padding and transition, and
      its computed padding, before that; and the room. */
   var noticeRoomed = null, noticeRoomPx = 0;
+  /* The same, for NOTICE_ROOM_MS after the room went: room asked for again meanwhile, as a folded card coming soon after
+     another makes it, starts from the list's own padding, not from where the padding has got to on its way back. */
+  var noticeReleased = null;
   var noticePost = function(action, card){
     try {
       acquireVsCodeApi().postMessage({ type: 'cce_notice', action: action, sourceId: card ? String(card.sourceId) : '',
@@ -50,8 +53,9 @@
     if (!list) return;
     if (!noticeRoomed) {
       if (!noticeRoomPx) return;
-      noticeRoomed = { el: list, own: list.style.paddingBottom || '', ownMove: list.style.transition || '',
-        base: parseFloat(getComputedStyle(list).paddingBottom) || 0 };
+      noticeRoomed = noticeReleased && noticeReleased.el === list ? noticeReleased : { el: list, own: list.style.paddingBottom || '',
+        ownMove: list.style.transition || '', base: parseFloat(getComputedStyle(list).paddingBottom) || 0 };
+      noticeReleased = null;
     }
     var want = noticeRoomPx ? (noticeRoomed.base + noticeRoomPx + NOTICE_GAP) + 'px' : noticeRoomed.own;
     if (list.style.paddingBottom === want) return;
@@ -63,7 +67,11 @@
     if (!noticeRoomPx) {
       var gone = noticeRoomed;
       noticeRoomed = null;
-      setTimeout(function(){ try { if (!noticeRoomed) gone.el.style.transition = gone.ownMove; } catch (e) { /* gone */ } }, NOTICE_ROOM_MS + 50);
+      noticeReleased = gone;
+      setTimeout(function(){
+        if (noticeReleased === gone) noticeReleased = null;
+        try { if (!noticeRoomed) gone.el.style.transition = gone.ownMove; } catch (e) { /* gone */ }
+      }, NOTICE_ROOM_MS + 50);
       return;
     }
     if (!atEnd) return;
@@ -95,7 +103,7 @@
     window.addEventListener('message', function(ev){
       var d = ev && ev.data, m = d && d.type === 'from-extension' ? d.message : null;
       if (!m || m.type !== 'cce_notices' || !Array.isArray(m.cards)) return;
-      try { noticeSession = String(sigValue('sessionId') || ''); notices.set(isOn() ? m.cards : [], m.now); } catch (e) { /* the next list */ }
+      try { noticeSession = String(sigValue('sessionId') || ''); notices.set(isOn() ? m.cards : [], m.now, m.mode); } catch (e) { /* the next list */ }
     });
     /* A page that was hidden, or has just been made, asks for the cards rather than waiting for the next change. */
     document.addEventListener('visibilitychange', function(){ if (!document.hidden) noticePost('ask'); });
