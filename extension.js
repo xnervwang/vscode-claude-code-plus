@@ -1245,6 +1245,11 @@ function start(context, log, renamed, handing = false) {
      decides whether it is sent. */
   const DETACHED_NOTICES = PREFIX + 'detachedEndNotices';
   const endNoticesOn = () => !!runs(DETACHED_NOTICES);
+  /* The ends of detached commands and background sessions are noted and told by a window running the installed build,
+     and, like the stewards table, by one whose build was installed over while no window runs the installed one
+     (src/steward-view.js writesTable). Otherwise, while every window runs an earlier build, a conversation hears of
+     an end only once a window is reloaded, which can be hours later. */
+  const tracksEnds = () => !uninstalling() && !removed() && (!replaced() || steward.keepsShared());
   /* A `claude -p` worker is left out: it would take the notice for its next task. So is a process in `avoid`. */
   const inboxOf = (id, avoid = []) => {
     const rec = background.liveRecords().find((r) => r && r.sessionId === id && typeof r.messagingSocketPath === 'string'
@@ -1305,7 +1310,7 @@ function start(context, log, renamed, handing = false) {
     } finally { bgReading = false; }
     if (Date.now() - began > SLOW_SCAN_MS) log.appendLine(`work running: a scan took ${Math.round((Date.now() - began) / 1000)} s`);
     if (!replaced() && !uninstalling() && !removed()) shareWorking(next);
-    if (!replaced() && !uninstalling() && !removed()) noteDetached();
+    if (tracksEnds()) noteDetached();
     if (next.size === bgWorking.size && [...next].every((id) => bgWorking.has(id))) return;
     log.appendLine('work running: ' + ([...next].map((id) => id.slice(0, 8)).join(', ') || 'none'));
     bgWorking = next;

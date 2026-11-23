@@ -814,6 +814,8 @@ function create(vscode, deps) {
     },
     refresh() { render(); },
     open,
+    /* Whether this window keeps the files every window shares, by the rule of writesTable. */
+    keepsShared: () => writes(),
     _gather: gather, _model: model, _notify: notify, _pass: pass, _onMessage: onMessage, _takeRequest: takeRequest, _syncEvery: syncEvery,
     _takeRelays: takeRelays, _writes: writes, _last: () => last,
   };

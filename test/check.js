@@ -9882,13 +9882,13 @@ console.log('\nthe Steward panel');
         const manages = () => (st.read(dir)[S(1)] || { manages: [] }).manages.slice().sort();
         (async () => {
           await v._pass();
-          const alone = manages();
+          const alone = manages(), keepsAlone = typeof v.keepsShared === 'function' ? v.keepsShared() : null;
           const own = JSON.parse(fs.readFileSync(wdir + '/' + process.pid + '.json', 'utf8'));
           const quiet = sv.body(v._model(new Map(), S(1)));
           entry(5252, [], { build: 'new', installed: true });
           entry(5151, [S(9), S(8)], { build: 'old', installed: false });
           await v._pass();
-          const beside = manages();
+          const beside = manages(), keepsBeside = typeof v.keepsShared === 'function' ? v.keepsShared() : null;
           const said = sv.body(v._model(new Map(), S(1)));
           await v._onMessage({ type: 'every', on: false });
           await v._onMessage({ type: 'every', on: false });
@@ -9896,14 +9896,22 @@ console.log('\nthe Steward panel');
           await v._onMessage({ type: 'reload' });
           fs.unlinkSync(wdir + '/5252.json');
           await v._pass();
-          const after = manages();
+          const after = manages(), keepsAfter = typeof v.keepsShared === 'function' ? v.keepsShared() : null;
           canWrite = true; replaced = false;
           entry(5252, [], { build: 'new', installed: true });
           const reloaded = typeof v._writes === 'function' ? v._writes() : null;
-          process.stdout.write(JSON.stringify({ alone, own, quiet, beside, said, refused, offered, reloads, after, reloaded }));
+          process.stdout.write(JSON.stringify({ alone, own, quiet, beside, said, refused, offered, reloads, after, reloaded, keeps: [keepsAlone, keepsBeside, keepsAfter] }));
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`], { encoding: 'utf8', timeout: 30000 }));
       if (out2.error) bad('the replaced window\'s panel threw: ' + out2.error);
       else {
+        /* The same rule decides whether the window notes and tells the ends of detached commands and background sessions:
+           otherwise, with every window on an earlier build, a conversation hears of them only once a window is reloaded. */
+        const extEnds = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+        const gate = (/const tracksEnds = \(\) => ([^;]*);/.exec(extEnds) || [])[1] || '';
+        if (JSON.stringify(out2.keeps) === JSON.stringify([true, false, true]) && /steward\.keepsShared\(\)/.test(gate) && /!replaced\(\) \|\|/.test(gate)
+            && /if \(tracksEnds\(\)\) noteDetached\(\);/.test(extEnds) && !/if \(!replaced\(\)[^\n]*\) noteDetached\(\);/.test(extEnds)) {
+          ok('a window whose build was installed over keeps noting and telling the ends of background work while no window runs the installed build, and leaves them once one does');
+        } else bad(`ends of background work in a replaced window: keepsShared gave ${JSON.stringify(out2.keeps)}, the gate is "${gate}"`);
         if (JSON.stringify(out2.alone) === JSON.stringify([S(2), S(9)].sort()) && out2.own.build === 'old' && out2.own.installed === false
             && !/earlier build/.test(out2.quiet)) {
           ok('a window whose build was installed over, with no window running the installed build, adds to its steward of all conversations one that a window\'s entry lists, '
