@@ -66,6 +66,12 @@
  *   the focused window
  *                  a conversation of a second window that starts to wait: the window with the focus shows the notice,
  *                  the other does not, and both count it
+ *   what it waits for
+ *                  a permission prompt behind another editor of the window with the focus: no notice at all, and
+ *                  Claude Code's own back with Agent Plus's waiting notices off; in a second window, a permission prompt
+ *                  and a question each named in one notice in the window with the focus and none from Claude Code, Open
+ *                  bringing that window forward; two waits while no window has the focus shown once, in the first
+ *                  window to get it
  *   token mode     each of Agent Plus's token modes in turn: Show Status, the status bar, the information box, the hooks'
  *                  settings, Claude Code's list of plugins, the notice for a feature's own setting, what the fake model
  *                  receives, a detached command's end, and the four settings in the Settings editor
@@ -203,8 +209,8 @@ async function run({ exe, profile, env, playwright, model, threads, background =
   /* The notices of that kind showing as toasts in the window of `p`. */
   const needNotices = async (p = page) => (await notificationItems(p, '.notifications-toasts')).filter(NEED);
   /* The notices of that kind in the notification list of the window of `p` (whose extension host has `folder` open),
-     toasts included: the list is opened to read it, and closed again. */
-  const listedNotices = async (p = page, folder) => {
+     toasts included: the list is opened to read it, and closed again. `kind` picks other notices. */
+  const listedNotices = async (p = page, folder, kind = NEED) => {
     await call('await vscode.commands.executeCommand("notifications.showList"); return true;', undefined, 60000, folder);
     /* Drawn once the list is open and holds its items, or says it has none. */
     const drawn = await until(() => p.evaluate(() => {
@@ -215,8 +221,61 @@ async function run({ exe, profile, env, playwright, model, threads, background =
     const got = drawn ? await notificationItems(p, '.notifications-center') : null;
     await call('await vscode.commands.executeCommand("notifications.hideList"); return true;', undefined, 60000, folder);
     if (!got) throw new Error('the notification list did not open');
-    return got.filter(NEED);
+    return got.filter(kind);
   };
+  /* Claude Code's own notices of a wait, which its panel shows in the conversation's window while the panel is not on
+     screen, with a View button (src/waiting-for.js). */
+  const CC_WAIT = (n) => /^(Claude is requesting permission to |Claude is asking you a question|Claude has finished a plan|Auto mode is waiting for you)/.test(n.text);
+  /* Those of them in the window of `p`, as toasts or in its list. */
+  const ccWaitNotices = async (p = page, folder) => {
+    const shown = (await notificationItems(p, '.notifications-toasts')).filter(CC_WAIT);
+    return shown.length ? shown : listedNotices(p, folder, CC_WAIT);
+  };
+  /* Whether the Agent Plus this run installed names what a conversation waits for, shows no notice of a conversation the
+     window with the focus shows, and keeps what comes while no window has the focus: its 'waitingFor' feature. Without
+     it, Claude Code's own notices of waits stay, and the steps expect what such an Agent Plus does. */
+  const apWaits = (() => {
+    try {
+      const dir = fs.readdirSync(profile.exts).find((n) => n.startsWith('xnervwang.agent-plus-'));
+      return require(path.join(profile.exts, dir, 'src', 'sources.js')).FEATURES.includes('waitingFor');
+    } catch (_) { return false; }
+  })();
+  /* Under xvfb-run every window VS Code has once focused says it is focused for good, so a step says for itself which
+     window has the focus, to Agent Plus alone, through a global of that window's extension host: lib/window.js starts the
+     windows with AGENT_PLUS_TEST_FOCUS=1, without which Agent Plus does not read it. null hands the window back to VS
+     Code's own word. */
+  const testFocus = (on, folder) => call('if (arg === null) delete globalThis.__agentPlusTestFocused; else globalThis.__agentPlusTestFocused = arg; return true;',
+    on, 60000, folder);
+  /* What each window of Agent Plus wrote to the folder they share, for a failure's details: its items' activity and
+     reason, and what it noted it told the user of. And what a window's extension host makes of its focus. */
+  const attentionFiles = () => {
+    const dir = path.join(profile.home, '.agent-work-plan', 'attention');
+    try {
+      return fs.readdirSync(dir).filter((n) => n.endsWith('.json')).map((n) => {
+        try { const d = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); return { n, age: Date.now() - d.at, items: (d.items || []).map((x) => [x.sessionId.slice(0, 8), x.activity, x.waitingFor]), front: d.front, settled: (d.settled || []).map((x) => [x[1].slice(0, 8), Date.now() - x[2]]) }; } catch (_) { return { n }; }
+      });
+    } catch (_) { return null; }
+  };
+  /* Each change of what each window's file says of conversation `id` (its activity and reason), with the time since this
+     started, until stop() returns them. */
+  const fileTimeline = (id) => {
+    const dir = path.join(profile.home, '.agent-work-plan', 'attention'), t0 = Date.now(), seen = [], last = new Map();
+    const timer = setInterval(() => {
+      let names = [];
+      try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch (_) { return; }
+      for (const n of names) {
+        let it = null;
+        try { it = (JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')).items || []).find((x) => x.sessionId === id) || null; } catch (_) { continue; }
+        const k = JSON.stringify(it ? [it.activity, it.waitingFor] : null);
+        if (last.get(n) !== k) { last.set(n, k); seen.push([Date.now() - t0, n.slice(0, 8), k]); }
+      }
+    }, 200);
+    return () => { clearInterval(timer); return seen; };
+  };
+  const focusOf = (folder) => call('return { env: process.env.AGENT_PLUS_TEST_FOCUS || null, said: globalThis.__agentPlusTestFocused === undefined ? null : globalThis.__agentPlusTestFocused, state: vscode.window.state.focused };',
+    undefined, 60000, folder).catch((e) => String(e));
+  /* What the page of `frame` was last told: whether Claude Code's own notices of waits are left to Agent Plus. */
+  const waitsLeft = (frame) => frame.evaluate(() => (typeof window.__cceWaitsAnnounced === 'function' ? window.__cceWaitsAnnounced() : null)).catch(() => null);
   /* Whether VS Code counts the window whose extension host has `folder` open as the one with the focus. */
   const focused = (folder) => call('return vscode.window.state.focused;', undefined, 60000, folder).catch(() => null);
   /* This window brought to the front, once VS Code counts it as focused; Agent Plus shows its notices only then. Under
@@ -973,11 +1032,19 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         return x && x.label.endsWith(ENVELOPE) && d && d.running === 0 && d.waiting === 0 && { label: x.label, dots: d };
       }, 30000, 500);
       check(!!unread, 'once the reply lands with the tab in the background, the dot goes and the tab\'s title ends in an envelope', await claudeTabs());
-      /* Agent Plus tells the user once the reply has stayed unread for a moment, and counts it in the status bar. The
-         toast moves to the notification list after a while, so the list is read when no toast is found. */
-      const told = await until(() => noticeOf(tab0), 30000, 250) || (await listedNotices()).find(about(tab0));
-      check(!!told && told.text === `"${tab0.title}" finished.` && ['Open', 'Dismiss'].every((b) => told.buttons.includes(b)),
-        'Agent Plus shows a notice that the conversation finished, with Open and Dismiss', told || { toasts: await needNotices(), listed: await listedNotices(), agentPlus: timeline() });
+      /* Agent Plus counts the reply once it has stayed unread for a moment. The window with the focus shows the
+         conversation, behind another editor, so Agent Plus shows no notice of it there; an Agent Plus without
+         'waitingFor' does. The toast moves to the notification list after a while, so the list is read when no toast is found. */
+      if (apWaits) {
+        const countedFirst = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 30000, 300);
+        const none = countedFirst ? await noticesWithin(tab0, 'finished') : null;
+        check(!!countedFirst && !none.length, 'Agent Plus counts the reply left unread in a tab behind another editor of the window with the focus, and shows no notice of it there',
+          { count: countedFirst || await needCount(), notices: none, agentPlus: timeline() });
+      } else {
+        const told = await until(() => noticeOf(tab0), 30000, 250) || (await listedNotices()).find(about(tab0));
+        check(!!told && told.text === `"${tab0.title}" finished.` && ['Open', 'Dismiss'].every((b) => told.buttons.includes(b)),
+          'Agent Plus shows a notice that the conversation finished, with Open and Dismiss', told || { toasts: await needNotices(), listed: await listedNotices(), agentPlus: timeline() });
+      }
       timeline();
       const counted = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 10000, 300);
       check(!!counted, 'and counts it in the status bar as 1', counted || await needCount());
@@ -1483,14 +1550,23 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           'a question the plan put to the user after the user\'s last message makes the tab\'s dot red', asked || await dotsOn(t.label));
         const rows = await until(async () => { const s = [await listDotState(tab0), await listDotState(tab0, true)]; return s.every((x) => x && x.state === 'waiting') && s; }, 15000, 500);
         check(!!rows, 'and both its rows in the session list', rows || [await listDotState(tab0), await listDotState(tab0, true)]);
-        const told = await until(() => noticeOf(tab0), 30000, 250) || (await listedNotices()).find(about(tab0));
-        check(!!told && told.text === `"${tab0.title}" is waiting for you.` && ['Open', 'Dismiss'].every((b) => told.buttons.includes(b)),
-          'Agent Plus shows a notice that the conversation is waiting for you, with Open and Dismiss', told || { toasts: await needNotices(), listed: await listedNotices() });
-        const counted = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 10000, 300);
+        /* The window with the focus shows the conversation behind another editor: Agent Plus counts it and, from an Agent
+           Plus with 'waitingFor', shows no notice of it there. */
+        const told = apWaits ? null : await until(() => noticeOf(tab0), 30000, 250) || (await listedNotices()).find(about(tab0));
+        if (!apWaits) {
+          check(!!told && told.text === `"${tab0.title}" is waiting for you.` && ['Open', 'Dismiss'].every((b) => told.buttons.includes(b)),
+            'Agent Plus shows a notice that the conversation is waiting for you, with Open and Dismiss', told || { toasts: await needNotices(), listed: await listedNotices() });
+        }
+        const counted = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, apWaits ? 30000 : 10000, 300);
         check(!!counted, 'and counts it in the status bar as 1', counted || await needCount());
+        if (apWaits) {
+          const none = counted ? await noticesWithin(tab0) : null;
+          check(!!counted && !none.length, 'and, the tab being in the window with the focus, shows no notice of it', { notices: none });
+        }
         await shot('needs-you-question');
         /* Open on the notice, which brings the conversation forward. */
-        if (told && await noticeOf(tab0)) {
+        if (apWaits) await show();
+        else if (told && await noticeOf(tab0)) {
           await pressNotice(tab0, 'Open');
           check(!!await until(inFront, 15000, 300), 'Open on the notice brings the conversation\'s tab to the front', await tabs());
         } else {
@@ -1530,11 +1606,18 @@ async function run({ exe, profile, env, playwright, model, threads, background =
           const ended = await red();
           check(!!ended, 'once the turn ends, the tab\'s dot turns red', ended || await dotsOn(t.label));
           const waitingText = `"${tab0.title}" is waiting for you.`;
-          const toldAfter = await until(async () => (await needNotices()).find((n) => n.text === waitingText), 30000, 250)
-            || (await listedNotices()).find((n) => n.text === waitingText);
-          const countedAfter = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 10000, 300);
-          check(!!toldAfter && !!countedAfter, 'and Agent Plus then says the conversation is waiting for you and counts it as 1',
-            { notice: toldAfter || { toasts: await needNotices(), listed: await listedNotices() }, count: countedAfter || await needCount(), agentPlus: timeline() });
+          if (apWaits) {
+            const countedAfter = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 30000, 300);
+            const none = countedAfter ? await noticesWithin(tab0) : null;
+            check(!!countedAfter && !none.length, 'and Agent Plus then counts it as 1, with no notice in the window that shows it',
+              { count: countedAfter || await needCount(), notices: none, agentPlus: timeline() });
+          } else {
+            const toldAfter = await until(async () => (await needNotices()).find((n) => n.text === waitingText), 30000, 250)
+              || (await listedNotices()).find((n) => n.text === waitingText);
+            const countedAfter = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 10000, 300);
+            check(!!toldAfter && !!countedAfter, 'and Agent Plus then says the conversation is waiting for you and counts it as 1',
+              { notice: toldAfter || { toasts: await needNotices(), listed: await listedNotices() }, count: countedAfter || await needCount(), agentPlus: timeline() });
+          }
         } finally { timeline(); }
         await show();
         question(false);
@@ -3133,11 +3216,20 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         const now = new Date().toISOString();
         fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick which conversation goes first', state: 'waiting', waitingOn: 'user',
           question: 'Which one first?', asked: now, opened: now, since: now }] }, null, 2));
-        /* `claude agents --json`, where Agent Plus hears of a running conversation, is read at most every 30 s. */
-        const told = await until(() => noticeOf(named), 60000, 250) || (await listedNotices()).find(about(named));
-        const all = await needNotices();
-        check(!!told && told.text === `"${named.title}" is waiting for you.` && !bells(all),
-          'Agent Plus\'s notice names the steward with the crown first and no bell', { notice: told, toasts: all, listed: told ? undefined : await listedNotices(), record: recordOf(S.id) });
+        /* `claude agents --json`, where Agent Plus hears of a running conversation, is read at most every 30 s. The
+           steward's tab is behind the other in the window with the focus, so an Agent Plus with 'waitingFor' shows no
+           notice of it there, and its count is where its name is read. */
+        if (apWaits) {
+          const seen = await until(async () => { const c = await needCount(); return c && c.n >= 1 && c; }, 60000, 300);
+          const none = seen ? await noticesWithin(named) : null;
+          check(!!seen && !none.length && !bells(await needNotices()), 'Agent Plus counts the waiting steward and shows no notice of it in the window that shows it',
+            { count: seen || await needCount(), notices: none, record: recordOf(S.id) });
+        } else {
+          const told = await until(() => noticeOf(named), 60000, 250) || (await listedNotices()).find(about(named));
+          const all = await needNotices();
+          check(!!told && told.text === `"${named.title}" is waiting for you.` && !bells(all),
+            'Agent Plus\'s notice names the steward with the crown first and no bell', { notice: told, toasts: all, listed: told ? undefined : await listedNotices(), record: recordOf(S.id) });
+        }
         await shot('steward-old-bell-notice');
         await exec('notifications.clearAll');
         const counted = await until(async () => { const c = await needCount(); return c && c.n >= 1 && c; }, 15000, 300);
@@ -3228,11 +3320,16 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         const counts = await until(async () => { const a = await needCount(), c = await needCount(pageC); return a && c && a.n === 1 && c.n === 1 && [a, c]; }, SEEN_MS, 300);
         check(!!counts, 'both windows count the waiting conversation in the status bar', [await needCount(), await needCount(pageC)]);
         const shows = wins.filter((x) => x.focused === true), quiet = wins.filter((x) => x.focused !== true);
+        /* The second window shows the conversation, so an Agent Plus with 'waitingFor' shows no notice there whatever VS
+           Code says of its focus, and names the plan's question in the first. */
+        const said = apWaits ? `"${Z.title}" has a question for you in its plan.` : `"${Z.title}" is waiting for you.`;
         for (const x of shows) {
+          if (apWaits && x.name === 'second') continue;
           const told = await until(() => noticeOf(Z, x.p), 20000, 250) || (await listedNotices(x.p, x.folder)).find(about(Z));
-          check(!!told && told.text === `"${Z.title}" is waiting for you.`, `the ${x.name} window, which VS Code counts as focused, shows Agent Plus's notice of it`,
+          check(!!told && told.text === said, `the ${x.name} window, which VS Code counts as focused, shows Agent Plus's notice of it`,
             told || { toasts: await needNotices(x.p), agentPlus: attentionOf(Z.id) });
         }
+        if (apWaits) quiet.push(...shows.filter((x) => x.name === 'second'));
         await shot('notice-in-focused-window');
         for (const x of quiet) {
           const there = counts ? await noticesWithin(Z, 'waiting', x.p, x.folder) : null;
@@ -3244,6 +3341,259 @@ async function run({ exe, profile, env, playwright, model, threads, background =
         await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderC).catch(() => {});
         await until(async () => !(await w.pageOf(path.basename(folderC), 1000)), 20000, 500);
         w.pin(undefined);
+      }
+    });
+
+    /* What a conversation waits for, in Agent Plus's notices, which take the place of Claude Code's own (src/waiting-for.js
+       and Agent Plus's src/attention.js). A permission prompt in a tab behind another editor of the window with the focus
+       gives no notice at all, only the red dot and the count; with Agent Plus's waiting notices off, Claude Code's own
+       notice comes back. In a second window, a permission prompt and a question each give one Agent Plus notice in the
+       window with the focus, naming the tool or saying it is a question, and none from Claude Code in either window;
+       Open brings the second window forward with the prompt on screen. What starts to wait while no window has the focus
+       is shown once, as one notice, in the first window to get the focus, and the other then shows nothing more. Which
+       window has the focus is said to Agent Plus by the step itself (testFocus). With an Agent Plus without
+       'waitingFor', only Claude Code's own notice is checked, which stays. */
+    await step('notices of what a conversation waits for', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const setNotify = (k, v) => call(`await vscode.workspace.getConfiguration('agentPlus').update(arg[0], arg[1] === null ? undefined : arg[1],
+        vscode.ConfigurationTarget.Global); return true;`, [`notifications.${k}`, v]);
+      const ASK_TEXT = /Allow this bash command\?/;
+      const BASH_NOTICE = 'Claude is requesting permission to use Bash';
+      /* A message typed into the conversation of `frame`, in the window of `p`. */
+      const say = async (frame, p, text) => {
+        await frame.locator('[contenteditable][role="textbox"]').first().click();
+        await p.keyboard.type(text);
+        await p.keyboard.press('Enter');
+      };
+      /* No on the permission prompt in `frame`, and the prompt gone. A notice at the bottom right can lie over the
+         panel's buttons, so the caller clears them first. */
+      const refuse = async (frame) => {
+        await frame.locator('button, [role="button"]').filter({ hasText: /^\s*3\s*No\s*$/ }).first().click({ timeout: 5000 });
+        return until(() => frame.evaluate((re) => !new RegExp(re).test(document.body.innerText), ASK_TEXT.source), 15000, 500);
+      };
+      await exec('claude-vscode.editor.open', tab0.id);
+      const t = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), tab0.title)), 20000, 300);
+      if (!t) throw new Error('the conversation\'s tab did not come to the front');
+      const hidden = async () => { await openNotes(t.column); return until(async () => { const x = (await claudeTabs()).find((y) => titled(y.label.replace(ENVELOPE, ''), tab0.title)); return x && !x.active; }, 5000, 200); };
+      const front = async () => { await page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first().click(); return until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), tab0.title)), 10000, 200); };
+      /* A permission prompt in the conversation of the first window while its tab is behind notes.txt. */
+      const askBehind = async () => {
+        const before = model.seen.length;
+        model.hold();
+        try {
+          await say(conv, page, `Please ${ASK_TO_RUN}.`);
+          await until(() => model.seen.length > before, 30000, 300);
+          await hidden();
+        } finally { model.release(); }
+        const asked = await until(() => conv.evaluate((re) => new RegExp(re).test(document.body.innerText), ASK_TEXT.source), 30000, 500);
+        const red = asked && await until(async () => { const d = await dotsOn(t.label); return d && d.waiting >= 6 && d; }, 20000, 500);
+        return { asked, red };
+      };
+      try {
+        await testFocus(true);
+        await exec('notifications.clearAll');
+        if (apWaits) {
+          const told = await until(async () => (await waitsLeft(conv)) === true, 20000, 300);
+          check(told, 'the conversation\'s page has been told that Claude Code\'s notices of waits are left to Agent Plus', { page: await waitsLeft(conv) });
+        }
+        const one = await askBehind();
+        const counted = one.red && await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, SEEN_MS, 300);
+        if (apWaits) {
+          const none = counted ? await noticesWithin(tab0) : null;
+          const cc = await ccWaitNotices();
+          check(!!one.red && !!counted && !none.length && !cc.length,
+            'a permission prompt in a tab behind another editor of the window with the focus gives no notice, neither Agent Plus\'s nor Claude Code\'s, and its dot is red and Agent Plus counts it',
+            { asked: one.asked, red: one.red, count: counted || await needCount(), agentPlus: none, claudeCode: cc });
+        } else {
+          const cc = await until(async () => (await ccWaitNotices()).find((n) => n.text.startsWith(BASH_NOTICE)), 20000, 300);
+          check(!!one.red && !!cc, 'with an Agent Plus that does not name what a conversation waits for, Claude Code\'s own notice of a permission prompt in a tab behind another editor stays',
+            { red: one.red, claudeCode: await ccWaitNotices() });
+        }
+        await shot('wait-notices-same-window');
+        await exec('notifications.clearAll');
+        await front();
+        await refuse(conv);
+        await until(async () => { const d = await dotsOn(t.label); return d && d.waiting === 0 && d; }, 30000, 500);
+        await exec('notifications.clearAll');
+        if (!apWaits) return;
+
+        /* Agent Plus's waiting notices off: Claude Code's own notice is back. */
+        await setNotify('waiting', false);
+        try {
+          const back = await until(async () => (await waitsLeft(conv)) === false, 20000, 300);
+          const two = await askBehind();
+          const cc = two.red ? await until(async () => (await ccWaitNotices()).find((n) => n.text.startsWith(BASH_NOTICE)), 20000, 300) : null;
+          const none = await needNotices();
+          check(back && !!cc && !none.some(about(tab0)), 'with agentPlus.notifications.waiting off, Claude Code\'s own notice of the permission prompt comes back, and Agent Plus shows none',
+            { page: await waitsLeft(conv), claudeCode: cc || await ccWaitNotices(), agentPlus: none });
+          await shot('wait-notices-claude-code-back');
+          await exec('notifications.clearAll');
+          await front();
+          await refuse(conv);
+          await until(async () => { const d = await dotsOn(t.label); return d && d.waiting === 0 && d; }, 30000, 500);
+        } finally {
+          await setNotify('waiting', null);
+          await exec('notifications.clearAll');
+        }
+        await until(async () => (await waitsLeft(conv)) === true, 20000, 300);
+
+        /* A second window, with two conversations of its folder. */
+        const folderD = path.join(path.dirname(profile.folder), 'ws-d');
+        fs.mkdirSync(folderD, { recursive: true });
+        fs.writeFileSync(path.join(folderD, 'notes-d.txt'), 'A file for the fourth folder.\n');
+        const Z = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f9', title: 'Rotate the signing keys of the release bucket', days: 0,
+          turns: [['Rotate the signing keys of the release bucket.', 'The new keys are in place; the old ones expire in a week.']] };
+        const Y = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6e9', title: 'Choose the config the nightly import reads', days: 0,
+          turns: [['Choose the config the nightly import reads.', 'It reads config/import.yml by default.']] };
+        fakeHome.writeThreads(profile.home, folderD, [Z, Y]);
+        const started = Date.now();
+        await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderD);
+        const pageD = await w.pageOf(path.basename(folderD), 90000);
+        const hostD = pageD ? await w.hostUp(started, folderD).catch(() => null) : null;
+        check(!!pageD && !!hostD, 'a second window opens on another folder, with the test helper in it', { page: !!pageD });
+        if (!pageD || !hostD) return;
+        w.pin(profile.folder);
+        const inD = (body, arg) => call(body, arg, 60000, folderD);
+        const frameOf = (c) => until(async () => {
+          for (const f of pageD.frames()) { try { if (await f.evaluate((x) => !!document.body && document.body.innerText.includes(x), c.turns[0][1])) return f; } catch (_) { /* gone */ } }
+          return null;
+        }, 60000, 1000);
+        const openIn = async (c) => { await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', c.id); return frameOf(c); };
+        const behindD = () => inD('await vscode.window.showTextDocument(vscode.Uri.file(arg), { preview: false, viewColumn: vscode.window.tabGroups.activeTabGroup.viewColumn }); return true;',
+          path.join(folderD, 'notes-d.txt'));
+        /* A message to `c` in the second window, with its tab behind notes-d.txt by the time the agent answers; resolves
+           once the page shows text matching `shows`. */
+        const sendBehind = async (c, frame, text, shows) => {
+          const before = model.seen.length;
+          model.hold();
+          try {
+            await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', c.id);
+            await sleep(800);
+            await say(frame, pageD, text);
+            await until(() => model.seen.length > before, 30000, 300);
+            await behindD();
+          } finally { model.release(); }
+          return until(() => frame.evaluate((re) => new RegExp(re).test(document.body.innerText), shows.source).catch(() => false), 30000, 500);
+        };
+        const askedBash = (frame) => until(() => frame.evaluate((re) => new RegExp(re).test(document.body.innerText), ASK_TEXT.source).catch(() => false), 30000, 500);
+        const askedChoice = (frame) => until(() => frame.evaluate((q) => document.body.innerText.includes(q), CHOICE.question).catch(() => false), 30000, 500);
+        const answerChoice = async (frame) => {
+          await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
+          await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', Y.id);
+          await sleep(800);
+          await frame.getByText(CHOICE.options[0], { exact: true }).last().click({ timeout: 5000 }).catch(() => {});
+          if (await askedChoice(frame).catch(() => false)) await frame.getByText(/Submit answers\s*$/).last().click({ timeout: 5000 }).catch(() => {});
+          return until(() => frame.evaluate((q) => !document.body.innerText.includes(q) || !/Esc to cancel/.test(document.body.innerText), CHOICE.question).catch(() => false), 20000, 500);
+        };
+        const refuseIn = async (c, frame) => {
+          await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
+          await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', c.id);
+          await sleep(800);
+          return refuse(frame);
+        };
+        try {
+          await until(() => inD('const mine = vscode.extensions.getExtension("xnervwang.claude-code-plus"); return !!(mine && mine.isActive);'), 60000, 1000);
+          await inD('await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar"); return true;');
+          const zf = await openIn(Z), yf = await openIn(Y);
+          check(!!zf && !!yf, 'the second window shows two conversations of its folder in tabs', null);
+          if (!zf || !yf) return;
+          await testFocus(true);
+          await testFocus(false, folderD);
+          await exec('notifications.clearAll');
+          await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
+
+          /* A permission prompt in the second window, with the first focused. */
+          const zLine = fileTimeline(Z.id);
+          const zAsked = await sendBehind(Z, zf, `Please ${ASK_TO_RUN}.`, ASK_TEXT);
+          const zText = `"${Z.title}" is waiting for you to approve Bash.`;
+          const zTold = zAsked && (await until(async () => (await needNotices()).find((n) => n.text === zText), SEEN_MS, 300) || (await listedNotices()).find((n) => n.text === zText));
+          /* Counted, and Open pressed, while the toast is on screen: reading a window's notification list puts its toasts away. */
+          const zToasts = [(await needNotices()).filter(about(Z)).length, (await needNotices(pageD)).filter(about(Z)).length];
+          const toastNow = !!zTold && !!await noticeOf(Z);
+          let opened = null, ahead = null;
+          if (toastNow) {
+            await pressNotice(Z, 'Open');
+            opened = await until(async () => {
+              const label = await inD('const t = vscode.window.tabGroups.activeTabGroup.activeTab; return t ? t.label : "";');
+              const onScreen = await zf.evaluate((re) => document.visibilityState === 'visible' && new RegExp(re).test(document.body.innerText), ASK_TEXT.source).catch(() => false);
+              return titled(label, Z.title) && onScreen && label;
+            }, 20000, 500);
+            if (process.platform === 'linux') {
+              const r = require('child_process').spawnSync('python3', [path.join(__dirname, 'lib', 'xfocus.py')], { encoding: 'utf8', env: process.env });
+              ahead = (r.stdout || '').trim();
+            } else ahead = (await focused(folderD)) === true ? path.basename(folderD) : '';
+          }
+          const ccHere = await ccWaitNotices(), ccThere = await ccWaitNotices(pageD, folderD);
+          check(!!zTold && ['Open', 'Dismiss'].every((b) => zTold.buttons.includes(b)) && !ccHere.length && !ccThere.length,
+            'a permission prompt in a conversation of the second window gives one notice from Agent Plus in the window with the focus, naming the tool, and Claude Code shows none in either window',
+            { asked: zAsked, notice: zTold || { toasts: await needNotices(), listed: await listedNotices(), files: attentionFiles(), focus: [await focusOf(), await focusOf(folderD)] }, claudeCodeHere: ccHere, claudeCodeThere: ccThere,
+              timeline: zLine() });
+          check(zToasts[0] <= 1 && zToasts[1] === 0, 'one such notice, and none in the second window', { toasts: zToasts });
+          await shot('wait-notices-tool');
+          if (toastNow) {
+            check(!!opened && (ahead || '').includes(path.basename(folderD)), 'Open on it brings the second window forward, with the conversation\'s tab in front and its prompt on screen',
+              { tab: opened, front: ahead });
+          } else note('the notice had left the screen for the notification list before Open could be pressed');
+          await refuseIn(Z, zf);
+          await behindD();
+          await testFocus(true);
+          await exec('notifications.clearAll');
+
+          /* A question in the second window. */
+          const yAsked = await sendBehind(Y, yf, `Please ${ASK_FOR_CHOICE}.`, /Which config should I change\?/);
+          const yText = `"${Y.title}" has a question for you.`;
+          const yTold = yAsked && (await until(async () => (await needNotices()).find((n) => n.text === yText), SEEN_MS, 300) || (await listedNotices()).find((n) => n.text === yText));
+          const ccQ = [...await ccWaitNotices(), ...await ccWaitNotices(pageD, folderD)];
+          check(!!yTold && !ccQ.length, 'AskUserQuestion in the second window gives Agent Plus\'s notice that the conversation has a question for you, and none from Claude Code',
+            { asked: yAsked, notice: yTold || { toasts: await needNotices(), agentPlus: attentionOf(Y.id) }, claudeCode: ccQ });
+          await shot('wait-notices-question');
+          await answerChoice(yf);
+          await behindD();
+          await exec('notifications.clearAll');
+          await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
+
+          /* Both start to wait while no window has the focus, once no window reports either waiting any more: a window
+             hears of another window's conversations through `claude agents`, which it reads at most every 30 s. */
+          const settledBoth = await until(() => [Z, Y].every((c) => { const a = attentionOf(c.id); return !a || a.activity !== 'waiting'; }), SEEN_MS + 15000, 500);
+          check(!!settledBoth, 'both answered, no window reports either waiting', { files: attentionFiles() });
+          await testFocus(false);
+          await testFocus(false, folderD);
+          const zAgain = await sendBehind(Z, zf, `Please ${ASK_TO_RUN} once more.`, ASK_TEXT);
+          const yAgain = await sendBehind(Y, yf, `Please ${ASK_FOR_CHOICE} again.`, /Which config should I change\?/);
+          const bothSeen = zAgain && yAgain && await until(() => { const a = attentionOf(Z.id), b = attentionOf(Y.id); return a && b && a.activity === 'waiting' && b.activity === 'waiting'; }, SEEN_MS, 300);
+          /* Asked for as long as Agent Plus takes to show a notice once it has seen the wait: what it keeps meanwhile is
+             not drawn anywhere. */
+          const awayNotices = await until(async () => { const n = [...await needNotices(), ...await needNotices(pageD)].filter((x) => about(Z)(x) || about(Y)(x)); return n.length ? n : null; },
+            noticeDelay.waiting + 2500, 250) || [];
+          check(!!bothSeen && !awayNotices.length, 'while no window has the focus, two conversations that start to wait give no notice', { seen: bothSeen, notices: awayNotices });
+          await testFocus(true);
+          const replay = await until(async () => (await needNotices()).find((n) => /^2 conversations need you \(2 waiting for you\): /.test(n.text)), 15000, 300);
+          const replays = (await needNotices()).filter((n) => about(Z)(n) || about(Y)(n));
+          check(!!replay && replays.length === 1 && replay.text.includes(`"${Z.title}" (approve Bash)`) && replay.text.includes(`"${Y.title}" (a question)`)
+            && replay.buttons.includes('Show them'),
+          'once the first window has the focus, it shows one notice naming both and what each waits for, with Show them',
+          { notice: replay, toasts: replays, listed: replay ? undefined : await listedNotices(), files: replay ? undefined : attentionFiles(), focus: [await focusOf(), await focusOf(folderD)] });
+          await shot('wait-notices-replay');
+          await testFocus(false);
+          await testFocus(true, folderD);
+          const there = await until(async () => { const n = (await needNotices(pageD)).filter((x) => about(Z)(x) || about(Y)(x) || /conversations need you/.test(x.text)); return n.length ? n : null; },
+            noticeDelay.waiting + 2500, 250) || [];
+          const listedThere = there.length ? there : (await listedNotices(pageD, folderD)).filter((n) => about(Z)(n) || about(Y)(n));
+          check(!listedThere.length, 'and the second window, given the focus after it, shows nothing more of them', { there: listedThere });
+          await refuseIn(Z, zf);
+          await answerChoice(yf);
+        } finally {
+          await testFocus(null, folderD).catch(() => {});
+          await exec('notifications.clearAll').catch(() => {});
+          await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderD).catch(() => {});
+          await until(async () => !(await w.pageOf(path.basename(folderD), 1000)), 20000, 500);
+          w.pin(undefined);
+        }
+      } finally {
+        model.release();
+        await setNotify('waiting', null).catch(() => {});
+        await testFocus(null).catch(() => {});
+        await exec('notifications.clearAll').catch(() => {});
       }
     });
 
