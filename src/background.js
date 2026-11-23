@@ -65,9 +65,16 @@ const WORKER_NEEDLES = ['claude -p', 'claude --print', 'claude --resume', 'claud
   .map((s) => Buffer.from(s, 'utf8'));
 const MAX_WORKERS = 50;
 const NEEDLES = [BG_FLAG, MARK, ...HINT_NEEDLES, ...ALONE_NEEDLES, ...WORKER_NEEDLES];
+/* A launch run as a background command (run_in_background) prints into a file of its own, which its result names; the
+   transcript gets only that. The file is read on every pass while it may still be written, up to a day, and these many
+   at most per conversation. */
+const OUTPUT_AT = /Output is being written to: (\S+\.output)\b/;
+const OUTPUT_MS = 24 * 3600 * 1000;
+const MAX_OUTPUTS = 20;
+const MAX_OUTPUT_BYTES = 1 << 20;
 /* Bump this when the scan starts recognising a launch it used to miss: link files written by an older version are then
    read again from the start, once. */
-const READER = 4;
+const READER = 5;
 /* The stylesheet carries all of this to every panel on every change, so the caps are about its size, not about how
    many sessions anyone starts. */
 const MAX_SESSIONS = 10;
@@ -97,7 +104,7 @@ const textOf = (b) => (typeof b.content === 'string' ? b.content
  * `ran` carries the commands, and when each was made, across lines and passes, since a call and its result are
  * separate rows.
  */
-function readLine(line, ran, jobs, seen, workers) {
+function readLine(line, ran, jobs, seen, workers, outputs) {
   let row;
   try { row = JSON.parse(line); } catch (_) { return; }
   const blocks = row && row.message && Array.isArray(row.message.content) ? row.message.content : [];
@@ -109,7 +116,7 @@ function readLine(line, ran, jobs, seen, workers) {
       const worker = !command.includes('--bg') && WORKER_CMD.test(command);
       if (!worker && !command.includes('--bg')) continue;
       if (worker) for (const m of command.matchAll(WORKER_IDS)) workers.add(m[1].toLowerCase());
-      ran.set(b.id, { at, command, worker });
+      ran.set(b.id, { at, command, worker, background: b.input.run_in_background === true });
       if (ran.size > 500) ran.delete(ran.keys().next().value);
       continue;
     }
@@ -120,6 +127,8 @@ function readLine(line, ran, jobs, seen, workers) {
       for (const m of text.matchAll(INIT_ID)) workers.add(m[1].toLowerCase());
       continue;
     }
+    const file = call.background && outputs ? (OUTPUT_AT.exec(text) || [])[1] : '';
+    if (file && isFinite(call.at)) { outputs.set(file, call.at); continue; }
     let m, named = false;
     for (const re of [ID_AFTER, ID_IN_HINT]) {
       re.lastIndex = 0;
@@ -178,7 +187,7 @@ function readLink(file) {
   let st;
   try { st = fs.statSync(file); } catch (e) {
     links.delete(file);
-    return { ids: [], workers: [], scannedTo: 0, launched: 0, exists: !(e && e.code === 'ENOENT') };
+    return { ids: [], workers: [], outputs: [], scannedTo: 0, launched: 0, exists: !(e && e.code === 'ENOENT') };
   }
   const was = links.get(file);
   if (was && was.mtimeMs === st.mtimeMs && was.size === st.size) return was.link;
@@ -188,7 +197,10 @@ function readLink(file) {
   const workers = d && Array.isArray(d.workers) ? d.workers.filter((x) => typeof x === 'string' && SESSION.test(x)) : [];
   const scannedTo = d && d.reader === READER && typeof d.scannedTo === 'number' && d.scannedTo >= 0 ? d.scannedTo : 0;
   const launched = d && typeof d.launched === 'number' && isFinite(d.launched) ? d.launched : 0;
-  const link = { ids, workers, scannedTo, launched, exists: true };
+  const outputs = d && Array.isArray(d.outputs)
+    ? d.outputs.filter((o) => o && typeof o.file === 'string' && typeof o.at === 'number' && isFinite(o.at)).map((o) => ({ file: o.file, at: o.at }))
+    : [];
+  const link = { ids, workers, outputs, scannedTo, launched, exists: true };
   links.set(file, { mtimeMs: st.mtimeMs, size: st.size, link });
   return link;
 }
@@ -199,8 +211,8 @@ function writeLink(file, link) {
   try {
     const st = fs.statSync(file);
     links.set(file, { mtimeMs: st.mtimeMs, size: st.size,
-      link: { ids: link.ids.slice(), workers: (link.workers || []).slice(), scannedTo: link.reader === READER ? link.scannedTo : 0,
-        launched: link.launched || 0, exists: true } });
+      link: { ids: link.ids.slice(), workers: (link.workers || []).slice(), outputs: (link.outputs || []).slice(),
+        scannedTo: link.reader === READER ? link.scannedTo : 0, launched: link.launched || 0, exists: true } });
   } catch (_) { /* read again next time */ }
 }
 
@@ -241,7 +253,7 @@ const readTo = new Map();
  * the CLI's words in it.
  */
 const RESULT_ID = Buffer.from('"tool_use_id":"', 'utf8');
-function readChunk(data, ran, jobs, seen, workers) {
+function readChunk(data, ran, jobs, seen, workers, outputs) {
   const last = data.length - 1;
   const starts = new Set(), results = new Map();
   for (const needle of NEEDLES) {
@@ -259,8 +271,41 @@ function readChunk(data, ran, jobs, seen, workers) {
   }
   for (const ls of [...starts, ...results.keys()].sort((a, b) => a - b)) {
     if (results.has(ls) && !ran.has(results.get(ls))) continue;
-    readLine(data.subarray(ls, data.indexOf(0x0a, ls)).toString('utf8'), ran, jobs, seen, workers);
+    readLine(data.subarray(ls, data.indexOf(0x0a, ls)).toString('utf8'), ran, jobs, seen, workers, outputs);
   }
+}
+
+/*
+ * Reads the output files of background launches (`outputs`: file -> when the call was made) for the CLI's words, as a
+ * transcript's tool result is read, and returns those still worth reading again: a day after the call, or once the
+ * file is gone, it is dropped. Claude Code keeps such a file in a folder named after the conversation, so a path
+ * without the conversation's id in it is not read; one that has not changed since the last pass is not read again.
+ */
+const outputRead = new Map();
+function readOutputs(session, outputs, jobs, seen, now) {
+  const kept = [];
+  for (const [file, at] of [...outputs].sort((a, b) => a[1] - b[1]).slice(-MAX_OUTPUTS)) {
+    if (now - at > OUTPUT_MS || !file.includes(session)) { outputRead.delete(file); continue; }
+    let text;
+    try {
+      const fd = fs.openSync(file, 'r');
+      try {
+        const st = fs.fstatSync(fd), stamp = st.mtimeMs + ':' + st.size;
+        kept.push({ file, at });
+        if (outputRead.get(file) === stamp) continue;
+        outputRead.set(file, stamp);
+        if (outputRead.size > 500) outputRead.delete(outputRead.keys().next().value);
+        const buf = Buffer.alloc(Math.min(st.size, MAX_OUTPUT_BYTES));
+        text = buf.subarray(0, fs.readSync(fd, buf, 0, buf.length, 0)).toString('utf8');
+      } finally { fs.closeSync(fd); }
+    } catch (_) { outputRead.delete(file); continue; }
+    for (const re of [ID_AFTER, ID_IN_HINT]) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(text))) if (!seen.has(m[1]) && fs.existsSync(path.join(jobs, m[1], 'state.json'))) seen.add(m[1]);
+    }
+  }
+  return kept;
 }
 
 async function scanOnce(session, opts) {
@@ -277,10 +322,13 @@ async function scanOnce(session, opts) {
   if (!commands.has(session)) commands.set(session, new Map());
   const ran = commands.get(session);
   // A position past the end means the transcript was replaced rather than appended to, so it is read again in full.
+  const outputs = new Map(link.outputs.map((o) => [o.file, o.at]));
   const reader = { pos: Math.max(link.scannedTo, readTo.get(session) || 0),
-    take: (data) => readChunk(data, ran, jobs, seen, workers) };
+    take: (data) => readChunk(data, ran, jobs, seen, workers, outputs) };
   if (!(await readLines(transcript, reader))) return { added: 0, scannedTo: 0 };
   const consumed = reader.pos;
+  const kept = readOutputs(session, outputs, jobs, seen, opts.now || Date.now());
+  const outputsChanged = JSON.stringify(kept) !== JSON.stringify(link.outputs);
   const ids = [...seen];
   known.set(session, ids);
   readTo.set(session, consumed);
@@ -292,12 +340,13 @@ async function scanOnce(session, opts) {
   const freshWorkers = found.filter((id) => !link.workers.includes(id));
   /* Written even when nothing was launched (see the top of this file); collect() skips such files. With write: false
      nothing is written, and working() reads what was found from memory. */
-  if (opts.write !== false && (fresh.length || freshWorkers.length || !link.exists || consumed - link.scannedTo >= PERSIST_EVERY)) {
+  if (opts.write !== false && (fresh.length || freshWorkers.length || outputsChanged || !link.exists
+      || consumed - link.scannedTo >= PERSIST_EVERY)) {
     const launched = Math.max(link.launched, launchOf(link.launched ? fresh : ids, jobs));
     try {
       fs.mkdirSync(dir, { recursive: true });
       writeLink(file, Object.assign({ ids, scannedTo: consumed, reader: READER }, found.length ? { workers: found } : {},
-        launched ? { launched } : {}));
+        kept.length ? { outputs: kept } : {}, launched ? { launched } : {}));
     } catch (_) { /* the next pass writes it */ }
   }
   return { added: fresh.length, scannedTo: consumed };

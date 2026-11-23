@@ -2074,6 +2074,63 @@ console.log('\nbackground sessions');
     } else bad(`a hint that was not a launch was recorded: ${JSON.stringify(ids)}`);
   }
 
+  /* A launch run as a background command: its result names only the file the command prints into, so the launch is read
+     from that file, also once it is written after the result, and by a window started afterwards. A file outside the
+     conversation's own folder, or named by a command that did not run in the background, is not read. */
+  {
+    const SIDB = 'abababab-1111-2222-3333-444444444444';
+    const tB = path.join(proj, SIDB + '.jsonl');
+    const plansB = path.join(root, 'plansB');
+    const tasksB = path.join(root, 'tmp', '-p', SIDB, 'tasks');
+    fs.mkdirSync(tasksB, { recursive: true });
+    const outB = path.join(tasksB, 'b0000001.output'), otherB = path.join(root, 'tmp', 'elsewhere.output');
+    const fgB = path.join(tasksB, 'b0000002.output');
+    job('5a5a5a5a'); job('6b6b6b6b'); job('7c7c7c7c');
+    let nB = 0;
+    const bgRan = (command, file, background = true) => {
+      const id = 'toolu_bg_' + (++nB);
+      return JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { role: 'assistant', content: [
+        { type: 'tool_use', id, name: 'Bash', input: Object.assign({ command }, background ? { run_in_background: true } : {}) }] } }) + '\n'
+        + JSON.stringify({ type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id,
+          content: `Command running in background with ID: b0000001. Output is being written to: ${file}. You will be notified when it completes.` }] } }) + '\n';
+    };
+    fs.writeFileSync(outB, '');
+    fs.writeFileSync(otherB, launched('6b6b6b6b'));
+    fs.writeFileSync(fgB, launched('7c7c7c7c'));
+    fs.writeFileSync(tB, bgRan('git commit -q; claude --bg "task ten" 2>&1 | tail -3', outB)
+      + bgRan('claude --bg "task eleven"', otherB) + bgRan('claude --bg "task twelve" | tee log', fgB, false));
+    const scanB = (before) => JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+      const bg = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'background.js'))});
+      const fs = require('fs');
+      const opts = ${JSON.stringify({ dir: plansB, jobs, transcript: tB })};
+      (async () => {
+        const out = [];
+        for (const write of ${JSON.stringify(before)}) {
+          if (write) fs.writeFileSync(write.file, write.text);
+          await bg.scan(${JSON.stringify(SIDB)}, opts);
+          let link = {};
+          try { link = JSON.parse(fs.readFileSync(opts.dir + '/' + ${JSON.stringify(SIDB)} + '.background', 'utf8')); } catch (_) {}
+          out.push({ ids: link.ids || [], outputs: (link.outputs || []).map((o) => o.file) });
+        }
+        process.stdout.write(JSON.stringify(out));
+      })().catch((e) => process.stdout.write(JSON.stringify({ error: e.message })));`], { encoding: 'utf8' }));
+    const stepsB = scanB([null, { file: outB, text: 'Starting background service\u2026\n  claude attach 5a5a5a5a    open in this terminal\n' }]);
+    const laterB = scanB([null]);
+    if (stepsB.error || laterB.error) bad('the scan of a background launch threw: ' + (stepsB.error || laterB.error));
+    else {
+      const [beforeB, afterB] = stepsB;
+      if (!beforeB.ids.includes('5a5a5a5a') && afterB.ids.includes('5a5a5a5a') && JSON.stringify(afterB.outputs) === JSON.stringify([outB])) {
+        ok('a launch run as a background command is found in the file its result names, once the command has written it, and the file is kept to be read again');
+      } else bad(`a background launch gave ${JSON.stringify(stepsB)}`);
+      if (!afterB.ids.includes('6b6b6b6b') && !afterB.ids.includes('7c7c7c7c')) {
+        ok('an output file outside the conversation\'s own folder, or named by a command that did not run in the background, is not read');
+      } else bad(`a file that should not be read was: ${JSON.stringify(afterB)}`);
+      if (laterB[0].ids.includes('5a5a5a5a') && JSON.stringify(laterB[0].outputs) === JSON.stringify([outB])) {
+        ok('a window started afterwards, with the transcript already read, still has the launch and the file');
+      } else bad(`a later window gave ${JSON.stringify(laterB)}`);
+    }
+  }
+
   {
     const SID7 = '77777777-1111-2222-3333-444444444444';
     const t7 = path.join(proj, SID7 + '.jsonl');
