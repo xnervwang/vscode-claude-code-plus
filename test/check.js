@@ -4216,9 +4216,8 @@ console.log('\nswitched off, the work plan costs nothing and keeps nothing');
     if (/WORK_PLAN_SETTING/.test(map)) names.push('claudeCodePlus.workPlan');
     if (/brief: BRIEF_SETTING/.test(map)) names.push('claudeCodePlus.conversationBrief');
     if (/tellTimeZone: TIME_ZONE_SETTING/.test(map)) names.push('claudeCodePlus.tellClaudeYourTimeZone');
-    if (/skillRoute: SKILL_ROUTING_SETTING/.test(map)) names.push('claudeCodePlus.skillRouting');
     const scoped = names.filter((n) => props[n] && props[n].scope === 'application');
-    if (names.length === 9 && scoped.length === names.length) ok('every setting the hooks read is an application setting');
+    if (names.length === 6 && scoped.length === names.length) ok('every setting the hooks read is an application setting');
     else bad(`hook settings ${JSON.stringify(names)}, application-scoped ${JSON.stringify(scoped)}`);
     const brief = props['claudeCodePlus.conversationBrief'];
     if (brief && brief.type === 'boolean' && brief.default === true
@@ -4968,8 +4967,7 @@ console.log("\nthe reader's time zone, told to the model");
 console.log('\none copy of what the hooks share');
 {
   const hooks = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
-  /* skill_route.py is Agent Plus's shared search module, checked in Agent Plus with both agents' plan_agent.py. */
-  const scripts = fs.readdirSync(hooks).filter((f) => f.endsWith('.py') && !PLAN_PATH.includes(f) && f !== 'skill_route.py');
+  const scripts = fs.readdirSync(hooks).filter((f) => f.endsWith('.py') && !PLAN_PATH.includes(f));
   const copies = [
     ['reads a transcript from its end', /\.seek\(/],
     ['writes a file and renames it into place', /os\.replace\(/],
@@ -4996,74 +4994,31 @@ console.log('\none copy of what the hooks share');
   } else bad(`os.kill outside proc_alive.py: ${JSON.stringify(kills)}; the check said ${JSON.stringify(probe.stdout + probe.stderr)}`);
 }
 
-/* ── 19e. skill suggestions ── route-skills.py, on UserPromptSubmit and Stop, searches the skills Claude Code can call
-   with the shared skill_route.py and puts the best few in front of the turn. Run here as Claude Code runs it, against a
-   made-up Claude Code folder: a personal skill and an enabled plugin's skill that a message asks for are given by the
-   names the Skill tool takes, with their descriptions, and skillRoute off in config.json, which the extension writes
-   from claudeCodePlus.skillRouting and the token mode, gives nothing. */
-console.log('\nskill suggestions');
+/* ── 19e. no skill suggestions ── Nothing searches the skills before a message: package.json has no
+   claudeCodePlus.skillRouting setting, hooks.json runs no route-skills.py, the plugin and shared.json carry no
+   skill_route.py, the token mode has no Claude Code Plus switch for skill suggestions, and the README names none of
+   it. */
+console.log('\nno skill suggestions');
 {
-  const hooks = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
-  const spec = JSON.parse(fs.readFileSync(path.join(hooks, 'hooks.json'), 'utf8')).hooks;
-  const ours = (event) => (spec[event] || []).flatMap((m) => m.hooks || [])
-    .filter((h) => h.command === 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/route-skills.py" "${CLAUDE_PLUGIN_DATA}"');
-  const up = ours('UserPromptSubmit'), stop = ours('Stop');
-  if (up.length === 1 && stop.length === 1 && up[0].timeout === 10 && stop[0].timeout === 10 && fs.existsSync(path.join(hooks, 'route-skills.py'))) {
-    ok('route-skills.py runs on UserPromptSubmit and on Stop, each given 10 seconds');
-  } else bad(`route-skills.py in hooks.json: UserPromptSubmit ${JSON.stringify(up)}, Stop ${JSON.stringify(stop)}`);
-  const copy = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'shared.json'), 'utf8')).files
-    .find((f) => f.path === 'claude-plugin/agent-work-plan/hooks/skill_route.py');
-  if (copy && copy.from === 'shared/plugin/hooks/skill_route.py') ok('skill_route.py beside it is the copy of Agent Plus\'s shared search');
-  else bad(`shared.json lists skill_route.py as ${JSON.stringify(copy)}`);
-
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-route-')));
-  try {
-    const claude = path.join(home, '.claude');
-    const data = path.join(claude, 'plugins', 'data', 'agent-work-plan-claude-code-extras');
-    const work = path.join(home, 'work');
-    const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
-    const skill = (dir, name, desc) => put(path.join(dir, name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${desc}\n---\n\nSteps.\n`);
-    fs.mkdirSync(path.join(work, '.git'), { recursive: true });
-    fs.mkdirSync(data, { recursive: true });
-    skill(path.join(claude, 'skills'), 'quokka-census', 'Count the quokkas on the island and file the census sheet.');
-    const kit = path.join(claude, 'plugins', 'cache', 'test-market', 'fauna-kit', '1.0.0');
-    put(path.join(kit, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'fauna-kit' }));
-    skill(path.join(kit, 'skills'), 'wombat-burrows', 'Map the wombat burrows on the island before the census.');
-    put(path.join(claude, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2,
-      plugins: { 'fauna-kit@test-market': [{ scope: 'user', installPath: kit }] } }));
-    put(path.join(claude, 'settings.json'), JSON.stringify({ enabledPlugins: { 'fauna-kit@test-market': true } }));
-    const env = Object.assign({}, process.env, { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: claude });
-    for (const k of Object.keys(env)) if (/^AWS_/.test(k) || k === 'CLAUDE_CODE_USE_BEDROCK') delete env[k];
-    const transcript = path.join(home, 't.jsonl');
-    fs.writeFileSync(transcript, '');
-    const hook = (event, prompt, config) => {
-      fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify(config || {}));
-      const r = cp.spawnSync('python3', [path.join(hooks, 'route-skills.py'), data], { encoding: 'utf8', env, timeout: 30000,
-        input: JSON.stringify({ hook_event_name: event, session_id: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', transcript_path: transcript,
-          cwd: work, prompt }) });
-      return { code: r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
-    };
-    const ask = 'Count the quokkas and map the wombat burrows on the island.';
-    const first = hook('UserPromptSubmit', ask);
-    const indexed = () => { try { return fs.readdirSync(path.join(data, 'skill-route')).some((n) => /^index-[0-9a-f]+\.pickle$/.test(n)); } catch (_) { return false; } };
-    const until = Date.now() + 30000;
-    const pause = new Int32Array(new SharedArrayBuffer(4));
-    while (!indexed() && Date.now() < until) Atomics.wait(pause, 0, 0, 100);
-    const second = hook('UserPromptSubmit', ask);
-    let added = '';
-    try { added = JSON.parse(second.out).hookSpecificOutput.additionalContext; } catch (_) { /* none */ }
-    if (first.code === 0 && first.out === '' && indexed() && second.code === 0
-      && added.startsWith('Skills that may fit this message') && added.includes('\n- quokka-census: Count the quokkas on the island and file the census sheet.')
-      && added.includes('\n- fauna-kit:wombat-burrows: Map the wombat burrows on the island before the census.')) {
-      ok('the first message starts building the index, and the next one is given the personal and the plugin skill it asks for, by name and description');
-    } else bad(`route-skills.py gave ${JSON.stringify({ first, indexed: indexed(), second: second.out.slice(0, 400), err: second.err.slice(-300) })}`);
-    const off = hook('UserPromptSubmit', ask, { skillRoute: false });
-    if (off.code === 0 && off.out === '') ok('with skillRoute off in config.json it adds nothing');
-    else bad(`with skillRoute off route-skills.py printed ${off.out.slice(0, 200)}`);
-    const stopped = hook('Stop', '');
-    if (stopped.code === 0 && stopped.out === '') ok('at the end of a turn it prints nothing, and only logs');
-    else bad(`on Stop route-skills.py printed ${stopped.out.slice(0, 200)} ${stopped.err.slice(-200)}`);
-  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  const root = path.join(__dirname, '..');
+  const plugin = path.join(root, 'claude-plugin', 'agent-work-plan');
+  const props = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).contributes.configuration.properties;
+  const settings = Object.keys(props).filter((k) => k.startsWith('claudeCodePlus.skillRouting'));
+  const spec = JSON.parse(fs.readFileSync(path.join(plugin, 'hooks', 'hooks.json'), 'utf8')).hooks;
+  const hooked = Object.values(spec).flat().flatMap((m) => (m && m.hooks) || []).map((h) => h.command || '')
+    .filter((c) => /route-skills|skill_route/.test(c));
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  const files = walk(plugin).filter((f) => /^(route-skills|skill_route)\.py$/.test(path.basename(f))).map((f) => path.relative(root, f));
+  const listed = JSON.parse(fs.readFileSync(path.join(root, 'shared.json'), 'utf8')).files
+    .filter((f) => /skill_route/.test(f.path)).map((f) => f.path);
+  const rows = require('../src/token-mode').SWITCHES
+    .filter((s) => s.key.startsWith('claudeCodePlus.') && (s.feature === 'skillRouting' || /skillRout/.test(s.key))).map((s) => s.key);
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8').split('\n')
+    .filter((l) => /skill suggestion|skillRout|route-skills|skill_route|skill-route/i.test(l)).map((l) => l.slice(0, 80));
+  if (!settings.length && !hooked.length && !files.length && !listed.length && !rows.length && !readme.length) {
+    ok('no skill suggestions: no claudeCodePlus.skillRouting setting, no route-skills hook, no skill_route.py, no token mode switch for them, none in the README');
+  } else bad(`skill suggestions remain: ${JSON.stringify({ settings, hooked, files, listed, rows, readme })}`);
 }
 
 /* ── 21. an uninstall puts Claude Code back at once ──
@@ -12269,7 +12224,7 @@ console.log('\na panel\'s page getting the focus');
 }
 
 /* ── the token mode ──
-   agentPlus.tokenMode in Agent Plus decides which of the features that add to Claude's context run
+   agentPlus.tokenMode in Agent Plus decides which of the four features that add to Claude's context run
    (src/token-mode.js). For each mode the checks read config.json, which the hooks read, count the redraws of Agent
    Plus's list, and look for the notice shown when a feature's own setting is changed outside Custom. */
 console.log('\nthe token mode');
@@ -12306,18 +12261,16 @@ console.log('\nthe token mode');
       const subs = [], keep = setInterval;
       global.setInterval = () => keep(() => {}, 1 << 30);
       const hooks = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.enabled, c.tellTimeZone, c.brief]; } catch (_) { return null; } };
-      const route = () => { try { const c = JSON.parse(fs.readFileSync(config, 'utf8')); return [c.skillRoute, c.skillRouteCount, c.skillRouteVector]; } catch (_) { return null; } };
       const change = (...keys) => { for (const fn of vs.listeners) fn({ affectsConfiguration: (k) => keys.some((x) => x === k || x.startsWith(k + '.')) }); };
       const pause = () => new Promise((r) => setTimeout(r, 50));
       (async () => {
-        const out = { threw: '', hooks: {}, route: {}, features: {}, redraws: {} };
+        const out = { threw: '', hooks: {}, features: {}, redraws: {} };
         try {
           await ext.activate({ subscriptions: subs, extensionPath: ${JSON.stringify(root)}, globalState: memo(), workspaceState: memo(),
             extension: { id: 'x.y', packageJSON: require(${JSON.stringify(path.join(root, 'package.json'))}) },
             globalStorageUri: { fsPath: store }, logUri: { fsPath: path.join(store, 'logs', 'exthost1', 'x.y') } });
           await new Promise((r) => setTimeout(r, 200));
           out.hooks.start = hooks();
-          out.route.start = route();
           let redraws = 0;
           if (vs.state.source) vs.state.source.onDidChangeConversations(() => { redraws++; });
           for (const mode of ['interface', 'essential', 'all']) {
@@ -12326,17 +12279,12 @@ console.log('\nthe token mode');
             change('agentPlus.tokenMode');
             await pause();
             out.hooks[mode] = hooks();
-            out.route[mode] = route();
             out.features[mode] = vs.state.source ? JSON.stringify(vs.state.source.features) : null;
             out.redraws[mode] = redraws - before;
           }
           Object.assign(vs.values, { 'claudeCodePlus.workPlan': true, 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false });
           vs.values['agentPlus.tokenMode'] = 'custom'; change('agentPlus.tokenMode'); await pause(); out.hooks.custom = hooks();
-          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': false, 'claudeCodePlus.skillRoutingCount': 7, 'claudeCodePlus.skillRoutingVectorSearch': true });
-          change('claudeCodePlus.skillRouting', 'claudeCodePlus.skillRoutingCount', 'claudeCodePlus.skillRoutingVectorSearch'); await pause();
-          out.route.custom = route();
-          vs.values['agentPlus.tokenMode'] = 'all'; change('agentPlus.tokenMode'); await pause(); out.hooks.allAgain = hooks(); out.route.allAgain = route();
-          Object.assign(vs.values, { 'claudeCodePlus.skillRouting': true, 'claudeCodePlus.skillRoutingCount': undefined, 'claudeCodePlus.skillRoutingVectorSearch': undefined });
+          vs.values['agentPlus.tokenMode'] = 'all'; change('agentPlus.tokenMode'); await pause(); out.hooks.allAgain = hooks();
           vs.values['agentPlus.tokenMode'] = 'custom'; change('agentPlus.tokenMode'); await pause(); out.hooks.customAgain = hooks();
           out.updates = vs.updates.filter(([k]) => k.startsWith('claudeCodePlus.'));
           vs.values['agentPlus.tokenMode'] = 'essential';
@@ -12365,13 +12313,6 @@ console.log('\nthe token mode');
       && JSON.stringify(h.customAgain) === '[true,false,false]' && Array.isArray(r.updates) && !r.updates.length) {
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
-    const rt = r.route || {};
-    const routeWant = { start: [true, null, null], interface: [false, null, null], essential: [false, null, null], all: [true, null, null],
-      custom: [false, 7, true], allAgain: [true, 7, true] };
-    const routeWrong = Object.keys(routeWant).filter((k) => JSON.stringify(rt[k] === undefined ? null : rt[k]) !== JSON.stringify(routeWant[k]));
-    if (!r.threw && !routeWrong.length) {
-      ok('skill suggestions reach the hooks only in All features or while claudeCodePlus.skillRouting is on in Custom, with their count and vector setting');
-    } else bad(`skillRoute, skillRouteCount and skillRouteVector were ${JSON.stringify(rt)}`);
     const f = r.features || {}, d = r.redraws || {};
     if (f.interface === '[]' && f.essential === '[]' && f.all === '["brief"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
       ok('the brief is offered to Agent Plus only in a mode that runs it, and every change of mode redraws its list');
@@ -12381,7 +12322,7 @@ console.log('\nthe token mode');
       && JSON.stringify(told[0][1]) === '["Switch to Custom"]') {
       ok('outside Custom, changing a feature\'s own setting says once that it has no effect, with a button to switch to Custom');
     } else bad(`the notices were ${JSON.stringify(told)}`);
-    if (typeof r.status === 'string' && /^Token mode: Essential features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief off, skill suggestions off, notices when a detached command stops off$/.test(r.status)) {
+    if (typeof r.status === 'string' && /^Token mode: Essential features \(agentPlus\.tokenMode\); in Claude Code: work plan on, time-zone note on, conversation brief off, notices when a detached command stops off$/.test(r.status)) {
       ok('Show Status names the mode and what it leaves running');
     } else bad(`Show Status says ${JSON.stringify(r.status)}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
@@ -12468,7 +12409,7 @@ console.log('\nthe token mode');
   const tm = require('../src/token-mode');
   const mine = tm.SWITCHES.filter((x) => x.key.startsWith('claudeCodePlus.')).map((x) => x.key);
   const short = mine.filter((k) => !props[k] || !String(props[k].markdownDescription || '').trim().endsWith(tm.ONLY_IN_CUSTOM));
-  if (mine.length === 5 && !short.length) ok('each of the five features\' settings ends its description saying it is used only in Custom');
+  if (mine.length === 4 && !short.length) ok('each of the four features\' settings ends its description saying it is used only in Custom');
   else bad(`settings without the Custom sentence: ${JSON.stringify(short)} of ${JSON.stringify(mine)}`);
   const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
   const sec = readme.slice(readme.indexOf('## What it costs in tokens'));
@@ -12476,11 +12417,11 @@ console.log('\nthe token mode');
   const cols = head.split('|').map((c) => c.trim()).filter(Boolean).slice(1);
   const custom = lines.filter((l) => l.startsWith('| ') && l.trim().endsWith('|')).map((l) => l.split('|').map((c) => c.trim()).filter(Boolean)).filter((c) => c.length === 5).map((c) => c[4]);
   if (JSON.stringify(cols) === JSON.stringify(tm.MODES.map((m) => m.label)) && mine.every((k) => custom.includes('`' + k + '`'))) {
-    ok('the README\'s token section opens with the four modes, its Custom column naming each feature\'s setting');
+    ok('the README\'s token section opens with the four modes, its Custom column naming the four settings');
   } else bad(`the README's mode table has columns ${JSON.stringify(cols)} and Custom ${JSON.stringify(custom)}`);
   const row = readme.split('\n').find((l) => l.startsWith('| Token mode |')) || '';
-  const unnamed = [/work plan/, /time-zone note/, /conversation brief/, /skill suggestions/, /detached-command notices/].filter((re) => !re.test(row));
-  if (row && !unnamed.length) ok('the README\'s feature table says the token mode decides all five: work plan, time-zone note, brief, skill suggestions and detached-command notices');
+  const unnamed = [/work plan/, /time-zone note/, /conversation brief/, /detached-command notices/].filter((re) => !re.test(row));
+  if (row && !unnamed.length) ok('the README\'s feature table says the token mode decides all four: work plan, time-zone note, brief and detached-command notices');
   else bad(`the README's Token mode row does not name ${unnamed.map(String).join(', ')}: ${row.slice(0, 300)}`);
 }
 
@@ -12573,10 +12514,10 @@ console.log('\nthe token mode');
   const OFF = { 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false };
   const r = runModes([['all', {}], ['essential', {}], ['interface', {}], ['custom', OFF], ['all', {}]]);
   const want = {
-    all: ['All features', 'work plan on, time-zone note on, conversation brief on, skill suggestions on, notices when a detached command stops on', [true, true, true]],
-    essential: ['Essential features', 'work plan on, time-zone note on, conversation brief off, skill suggestions off, notices when a detached command stops off', [true, true, false]],
-    interface: ['Interface features', 'work plan off, time-zone note off, conversation brief off, skill suggestions off, notices when a detached command stops off', [false, false, false]],
-    custom: ['Custom', 'work plan on, time-zone note off, conversation brief off, skill suggestions on, notices when a detached command stops on', [true, false, false]],
+    all: ['All features', 'work plan on, time-zone note on, conversation brief on, notices when a detached command stops on', [true, true, true]],
+    essential: ['Essential features', 'work plan on, time-zone note on, conversation brief off, notices when a detached command stops off', [true, true, false]],
+    interface: ['Interface features', 'work plan off, time-zone note off, conversation brief off, notices when a detached command stops off', [false, false, false]],
+    custom: ['Custom', 'work plan on, time-zone note off, conversation brief off, notices when a detached command stops on', [true, false, false]],
   };
   const steps = r.steps || [];
   const wrong = steps.filter((s) => {
@@ -12591,18 +12532,18 @@ console.log('\nthe token mode');
   if (steps.length === 5 && !stale.length) {
     ok('a change of mode sends each conversation shown in the window its new mode, so an information box left open does not keep the old one');
   } else bad(`after a change of mode the conversations shown were sent ${JSON.stringify(steps.map((s) => [s.mode, s.pushed]))}`);
-  /* Told once per setting and window: one notice per feature setting in the first mode, naming it, and none after. */
+  /* Told once per setting and window: four notices in the first mode, naming it, and none after. */
   const first = (steps[0] || {}).told || [];
   const named = KEYS.every((k) => first.some(([t, b]) => t === `Claude Code Plus: the token mode is All features, so ${k} has no effect until the mode is Custom.`
     && JSON.stringify(b) === JSON.stringify([tm.SWITCH_BUTTON])));
   const later = steps.slice(1).map((s) => (s.told || []).length);
-  if (first.length === KEYS.length && KEYS.length === 5 && named && later.every((n) => n === 0)) {
-    ok('changing each of the five settings twice outside Custom says once, for each, that it has no effect, and Custom says nothing');
+  if (first.length === 4 && named && later.every((n) => n === 0)) {
+    ok('changing each of the four settings twice outside Custom says once, for each, that it has no effect, and Custom says nothing');
   } else bad(`the notices were ${JSON.stringify(steps.map((s) => [s.mode, s.told]))}`);
   const r2 = runModes([['interface', {}], ['custom', {}], ['essential', {}]]);
   const s2 = r2.steps || [];
   const inInterface = (s2[0] || {}).told || [];
-  if (!r2.threw && inInterface.length === KEYS.length && inInterface.every(([t]) => /^Claude Code Plus: the token mode is Interface features, so claudeCodePlus\.\w+ has no effect until the mode is Custom\.$/.test(t))
+  if (!r2.threw && inInterface.length === 4 && inInterface.every(([t]) => /^Claude Code Plus: the token mode is Interface features, so claudeCodePlus\.\w+ has no effect until the mode is Custom\.$/.test(t))
     && s2.slice(1).every((s) => !(s.told || []).length)) {
     ok('a window that starts in Interface features names that mode in its notices');
   } else bad(`a window in Interface features: ${JSON.stringify(s2.map((s) => [s.mode, s.told]))} ${(r2.threw || '').slice(0, 300)}`);
