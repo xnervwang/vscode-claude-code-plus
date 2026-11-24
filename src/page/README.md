@@ -39,4 +39,4 @@ catches a fragment breaking another one.
 - **Nothing at load time.** This script runs while the panel is still laying itself out, so anything that reads or
   watches the page goes inside `boot()` in `99-sweep.js`, which the browser calls when it is idle — not at load time.
   A resource a fragment loads must not block painting either. Four omissions of exactly this once left every panel
-  blank for a remote round trip on every open; the full account is the fourth constraint in the top-level `README.md`.
+  blank for a remote round trip on every open.

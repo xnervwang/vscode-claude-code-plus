@@ -52,7 +52,7 @@
  * NEITHER OF THOSE LOADS MAY BLOCK THE FIRST PAINT. Both files are on a remote file system here, so a naive load holds
  * the panel blank for a round trip every time it opens. The stylesheet goes in under media=print and is switched to all
  * once it has arrived; its address carries the revision rather than the clock, so a panel can reuse one it already has;
- * and the probe is an image, which never blocked anything. The full account is the fourth constraint in README.md.
+ * and the probe is an image, which never blocked anything.
  *
  * DISCIPLINE. Every edit must match exactly once or nothing at all is written; the result must parse; the untouched
  * original is saved beside the file before the first write; the replacement is atomic; and Remove or uninstall puts
