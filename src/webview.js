@@ -142,10 +142,10 @@ const EDGE_CSS = `${USER_SELECTOR}{`
   + 'var(--vscode-focusBorder, var(--vscode-textLink-foreground)) !important;'
   + 'padding-left:calc(6px + 2px * var(--cce-edge, 1) * var(--cce-on, 1)) !important;}';
 
-/* The session list's dots in the tab icons' green and red (src/tabdot.js), and its envelope between the title and the
-   time (src/page/84-row-marks.js): the row lays its children out in a row and the title takes the space left, so the
-   envelope keeps its size beside a title cut short, and moving the time after it keeps the times of all rows lined up
-   at the right. The envelope is drawn here, in the form src/envelope.js gives for the page's theme class, so a theme change redraws it. */
+/* The session list's dots in the tab icons' green and red (src/tabdot.js), and a steward's crown and the envelope
+   between the title and the time, in that order (src/page/84-row-marks.js): the row lays its children out in a row and
+   the title takes the space left, so the crown and the envelope keep their size beside a title cut short, and moving
+   the time after them keeps the times of all rows lined up at the right. The envelope is drawn here, in the form src/envelope.js gives for the page's theme class, so a theme change redraws it. */
 const cssChars = (s) => [...String(s)].map((c) => '\\' + c.codePointAt(0).toString(16).toUpperCase() + ' ').join('').trim();
 const LIGHT_BODY = ['body.vscode-light', 'body.vscode-high-contrast-light'];
 const LIST_DOTS_CSS = `[class*="sessionItem_"]{--app-status-busy:${tabdot.GREEN};--app-status-pending:${tabdot.RED};}`
@@ -153,7 +153,7 @@ const LIST_DOTS_CSS = `[class*="sessionItem_"]{--app-status-busy:${tabdot.GREEN}
   + '[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;}'
   + `[data-cce-envelope]::after{content:"${cssChars(envelope.COLOUR)}";}`
   + `${LIGHT_BODY.map((b) => `${b} [data-cce-envelope]::after`).join(',')}{content:"${cssChars(envelope.TEXT)}";}`
-  + '[class*="sessionItem_"]>[data-cce-crown]{flex:none;line-height:1;}';
+  + '[class*="sessionItem_"]>[data-cce-crown]{order:1;flex:none;line-height:1;}';
 /* The same green and red for the dot on the footer's agents button and for every dot in the agent map it opens, whose
    tree of rows (rowMain_ is the conversation's own row) is drawn in every view of it. Two rules, so a browser that
    cannot read :has() still colours the button. */
@@ -358,7 +358,7 @@ function pageFragments() {
 /* The marks src/title-marks.js takes off a title, each with its variation selector: the page strips a title typed in the
    session list's rename box the same way (84-row-marks.js). The page itself names no mark, since the envelope it draws
    comes from the stylesheet in the form for the theme. */
-const TITLE_MARKS = String.raw`(?:\u{1F451}|\u{1F6CE}|\u2709)[\uFE0E\uFE0F]?`;
+const TITLE_MARKS = String.raw`(?:\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709)[\uFE0E\uFE0F]?`;
 
 function configBlock() {
   return [

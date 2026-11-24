@@ -90,7 +90,7 @@
  *   light theme    the envelope's text form on the tab, the session list rows and the Steward panel, and the colour form
  *                  back in a dark theme
  *   the old bell   a steward whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
- *                  its list of what needs you and its Conversations view name it with the crown first and no bell
+ *                  its list of what needs you and its Conversations view name it with the crown after it and no bell
  *   the focused window
  *                  a conversation of a second window that starts to wait: the focused window shows the notice,
  *                  the other does not, and both count it
@@ -141,7 +141,7 @@ const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 /* Blue is the colour of Claude Code's own dot, which this extension draws over and never uses (src/tabdot.js). */
 const BLUE = '#3b82f6';
 const DOTS = { running: rgb(tabdot.GREEN), waiting: rgb(tabdot.RED), blue: rgb(BLUE) };
-const ENVELOPE = ' \u2709\uFE0F';
+const ENVELOPE = ' \u{1F4E9}';
 /* The envelope's one-colour text form, which a light theme gets (src/envelope.js). */
 const ENVELOPE_TEXT = ' \u2709\uFE0E';
 const PANEL_VIEW = 'mainThreadWebview-claudeVSCodePanel';
@@ -165,7 +165,7 @@ const STAMP = `(?:\\d\\d/\\d\\d${NB})?\\d\\d:\\d\\d:\\d\\d`;
 /* The marks this extension draws with a title and never stores (src/title-marks.js): the crown, the envelope in either
    form, and the bell older builds drew. */
 const CROWN = '\u{1F451}', BELL = '\u{1F6CE}\uFE0F';
-const MARK_RE = /\u{1F451}|\u{1F6CE}|\u2709/u;
+const MARK_RE = /\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709/u;
 /* Conversations a steward opens again: one started in a folder below the window's, one in a folder no window has open. */
 const FOLDER_THREADS = [
   { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fa', title: 'Tidy the helper scripts in the sub folder', days: 0,
@@ -2460,38 +2460,42 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its steward', table);
-        const belled = (label) => typeof label === 'string' && label.startsWith('\u{1F451} ') && (label.match(/\u{1F451}/gu) || []).length === 1
-          && titled(label.slice('\u{1F451} '.length), front.title);
+        const belled = (label) => typeof label === 'string' && label.endsWith(' \u{1F451}') && (label.match(/\u{1F451}/gu) || []).length === 1
+          && titled(label.slice(0, -' \u{1F451}'.length), front.title);
         const marked = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
-        check(!!marked, 'and its tab keeps its title with one crown before it', await claudeTabs());
-        /* Each of its rows in the session list, in OPEN SESSIONS and below it: one crown, before the title and outside
-           it, and no mark in the title; the other conversations' rows have none. */
+        check(!!marked, 'and its tab keeps its title with one crown after it', await claudeTabs());
+        /* Each of its rows in the session list, in OPEN SESSIONS and below it: one crown, drawn after the title and before
+           any envelope, outside the title, and no mark in the title; the other conversations' rows have none. The crown
+           comes before the title in the row's markup and the stylesheet moves it, so its place is read from where it is
+           drawn. */
         const rowsOf = (id) => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"], [class*="sessionItem_"]:has([data-cce-pin="${id}"]), [data-cce-open-row="${id}"]`)]
           .map((r) => {
             const name = r.querySelector('span[class*="sessionName_"]'), crowns = [...r.querySelectorAll('[data-cce-crown]')];
+            const env = r.querySelector('[data-cce-envelope]'), box = (e) => e.getBoundingClientRect();
             return { section: !!r.closest('[data-cce-section]'), crowns: crowns.length, name: name ? name.textContent : null,
-              before: !!name && crowns.length === 1 && !name.contains(crowns[0]) && !!(crowns[0].compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING) };
+              after: !!name && crowns.length === 1 && !name.contains(crowns[0]) && box(crowns[0]).left >= box(name).right - 1
+                && (!env || box(env).left >= box(crowns[0]).right - 1) };
           }), id);
         const crownedRows = (rs, title) => rs.length >= 2 && rs.some((r) => r.section) && rs.some((r) => !r.section)
-          && rs.every((r) => r.crowns === 1 && r.before && r.name === title && !MARK_RE.test(r.name));
+          && rs.every((r) => r.crowns === 1 && r.after && r.name === title && !MARK_RE.test(r.name));
         const crownRows = list ? await until(async () => { const rs = await rowsOf(front.id); return crownedRows(rs, front.title) && rs; }, 15000, 500) : null;
         const others = list ? await Promise.all(threads.filter((t) => t.id !== front.id).map((t) => rowsOf(t.id))) : [];
         check(!!crownRows && others.every((rs) => rs.every((r) => r.crowns === 0)),
-          'and each of its rows in the session list, in OPEN SESSIONS and below, has one crown, before the title and not in it; no other row has one',
+          'and each of its rows in the session list, in OPEN SESSIONS and below, has one crown, after the title and not in it; no other row has one',
           { steward: crownRows || (list && await rowsOf(front.id)), others });
         /* The Steward panel's header shows the steward's name with its crown and without the bell stored in that
            name. */
         const header = () => frame.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : null; });
-        const headed = await until(async () => (await header()) === `${CROWN} ${front.title}`, 15000, 500);
-        check(!!headed, 'the Steward panel\'s header names the steward with one crown first and without the bell an older build stored in its name',
+        const headed = await until(async () => (await header()) === `${front.title} ${CROWN}`, 15000, 500);
+        check(!!headed, 'the Steward panel\'s header names the steward with one crown after the name and without the bell an older build stored in it',
           { header: await header(), stored: storedTitle(front.id) });
         await shot('steward-ticked');
 
         /* Renamed through both of Claude Code's rename boxes, on the tab and on the session list row, with marks typed
-           in every place: no mark gets into either box or into the stored title, and the tab and each row still start
-           with exactly one crown. */
-        const crowned = (label, title) => typeof label === 'string' && label.startsWith(`${CROWN} `) && (label.match(/\u{1F451}/gu) || []).length === 1
-          && !/\u2709|\u{1F6CE}/u.test(label) && titled(label.slice(CROWN.length + 1), title);
+           in every place: no mark gets into either box or into the stored title, and the tab and each row still show
+           exactly one crown, after the title. */
+        const crowned = (label, title) => typeof label === 'string' && label.endsWith(` ${CROWN}`) && (label.match(/\u{1F451}/gu) || []).length === 1
+          && !/\u2709|\u{1F4E9}|\u{1F6CE}/u.test(label) && titled(label.slice(0, -(CROWN.length + 1)), title);
         const viaTab = async (typed) => {
           await exec('claude-vscode.editor.open', front.id);
           await sleep(500);
@@ -2536,7 +2540,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             return storedTitle(front.id) === want && tab && crownedRows(rs, want) && { tab: tab.label, rows: rs };
           }, 20000, 500);
           check(!err && typeof held === 'string' && !MARK_RE.test(held) && !!done,
-            `renamed through ${how} with ${what} typed: the box held no mark, the title is stored without one, and the tab and each row show a single crown at the start`,
+            `renamed through ${how} with ${what} typed: the box held no mark, the title is stored without one, and the tab and each row show a single crown after the title`,
             { err, held, typed, stored: storedTitle(front.id), tabs: (await claudeTabs()).map((x) => x.label), rows: await rowsOf(front.id) });
         }
         await page.mouse.move(5, 880);
@@ -2636,7 +2640,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           try { heldT = await viaRow(target.id, `${ENVELOPE.trim()} ${target.title} ${ENVELOPE.trim()} ${CROWN}`); } catch (e) { errT = String((e && e.message) || e).split('\n')[0]; }
           const kept = !errT && await until(async () => {
             const tab = (await claudeTabs()).find((x) => titled(x.label.replace(ENVELOPE, ''), target.title)), rs = await envRows(target.id);
-            return storedTitle(target.id) === target.title && tab && tab.label.endsWith(ENVELOPE) && (tab.label.match(/\u2709/gu) || []).length === 1
+            return storedTitle(target.id) === target.title && tab && tab.label.endsWith(ENVELOPE) && (tab.label.match(/\u{1F4E9}|\u2709/gu) || []).length === 1
               && !tab.label.includes(CROWN) && rs.length >= 1 && rs.every((r) => r.envs === 1 && r.after && r.crowns === 0 && r.name === target.title) && { tab: tab.label, rows: rs };
           }, 20000, 500);
           check(!errT && typeof heldT === 'string' && !MARK_RE.test(heldT) && !!kept,
@@ -3926,12 +3930,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /* A steward whose stored name still ends in the bell an older build of this extension put after a title: everything
        Agent Plus draws of it - the notice, the count's hover, the list of the conversations that need you, the
-       Conversations view - names it with the crown first and no bell (src/claude-source.js, src/title-marks.js). */
+       Conversations view - names it with the crown after the name and no bell (src/claude-source.js, src/title-marks.js). */
     await step('a steward named with the old bell', async () => {
       const BELL = '\u{1F6CE}', CROWN = '\u{1F451}';
       const S = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6f7', title: 'Many conversations', days: 0,
         turns: [['Look after the other conversations, please.', 'I will keep an eye on them.']] };
-      const named = { title: `${CROWN} ${S.title}` };
+      const named = { title: `${S.title} ${CROWN}` };
       const stored = `${S.title} ${BELL}\uFE0F`;
       const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
       const table = path.join(dataDir, 'stewards.json'), plan = path.join(dataDir, `${S.id}.json`);
@@ -3978,7 +3982,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const told = await until(() => noticeOf(named), 60000, 250) || (await listedNotices()).find(about(named));
           const all = await needNotices();
           check(!!told && told.text === `"${named.title}" is waiting for you.` && !bells(all),
-            'Agent Plus\'s notice names the steward with the crown first and no bell', { notice: told, toasts: all, listed: told ? undefined : await listedNotices(), record: recordOf(S.id) });
+            'Agent Plus\'s notice names the steward with the crown after the name and no bell', { notice: told, toasts: all, listed: told ? undefined : await listedNotices(), record: recordOf(S.id) });
         }
         await shot('steward-old-bell-notice');
         await exec('notifications.clearAll');

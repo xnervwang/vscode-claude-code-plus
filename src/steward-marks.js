@@ -5,8 +5,8 @@
 'use strict';
 /*
  * Titles for a steward's tab (stewards are in src/stewards.js): its own title, the name the user gave it or else the
- * one Claude Code shows, with the steward crown before it; a tab whose conversation has a reply not read yet ends in
- * an envelope. The session list draws both apart from the title (src/page/84-row-marks.js), so the list's titles, and
+ * one Claude Code shows, with the steward crown after it; a tab whose conversation has a reply not read yet ends in
+ * an envelope, after the crown. The session list draws both apart from the title (src/page/84-row-marks.js), so the list's titles, and
  * the text Claude Code puts in its rename boxes, carry neither. How many conversations a steward manages is in the
  * Steward panel. Which marks there are and how they are taken off a title is src/title-marks.js.
  *
@@ -22,7 +22,7 @@ const marks = require('./title-marks');
 const MARK = marks.CROWN;
 const { ENVELOPE, withoutMarks } = marks;
 
-/** `own` with the crown before it. */
+/** `own` with the crown after it. */
 function stewardTitle(own) {
   return marks.withMarks(own, { steward: true });
 }

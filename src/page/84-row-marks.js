@@ -10,8 +10,9 @@
    * The list draws one dot per row, and its unread dot gives way to running, so a reply read late was not seen while
    * the conversation still ran. Here the two are apart: the dot is green while a turn runs, a green ring once only
    * background work runs, red while it waits for you, and absent once it has stopped; the envelope stands after the
-   * title and before the time, outside the title, so a long title cut short does not cut it. A steward's crown stands just before the title,
-   * outside it too, so the list's rename box, which is filled with the title, never holds one (src/title-marks.js).
+   * title and before the time, outside the title, so a long title cut short does not cut it. A steward's crown stands after the
+   * title and before the envelope, outside the title too, so the list's rename box, which is filled with the title, never
+   * holds one (src/title-marks.js).
    *
    * The extension works out each conversation's dot (src/activity.js) and sends the set, with the stewards' ids, with
    * the host's session states (an edit in src/webview.js). Both are held in a signal of the panel's own kind, so a row

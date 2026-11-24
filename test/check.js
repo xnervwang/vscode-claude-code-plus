@@ -7414,9 +7414,9 @@ console.log('\na panel whose bundle never arrives says so');
 
     const live = require('../src/webview').liveCss({}), off = require('../src/webview').liveCss({ enabled: false });
     if (live.includes('[class*="sessionItem_"]{--app-status-busy:#22c55e;--app-status-pending:#ef4444;}')
-        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;') && live.includes('[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;}') && live.includes('[class*="sessionItem_"]>[data-cce-crown]{flex:none;')
+        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;') && live.includes('[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;}') && live.includes('[class*="sessionItem_"]>[data-cce-crown]{order:1;flex:none;')
         && !off.includes('sessionItem_')) {
-      ok('the session list\'s dots turn green and red, and its envelope goes after the title and before the time');
+      ok('the session list\'s dots turn green and red, and a steward\'s crown and then the envelope go after the title and before the time');
     } else bad('the live stylesheet does not colour the list\'s dots as expected');
 
     const T = 'Fix the build';
@@ -10177,26 +10177,26 @@ console.log('\nthe Steward panel');
       } else bad(`the steward was waiting on ${JSON.stringify(got)}`);
     }
 
-    /* A steward's title in its tab and in the session list (src/steward-marks.js, src/title-marks.js): one crown first,
-       at most one envelope last, whatever a title carries; neither is ever stored. */
+    /* A steward's title in its tab and in the session list (src/steward-marks.js, src/title-marks.js): one crown after the
+       title, at most one envelope last, whatever a title carries; neither is ever stored. */
     {
       const sm = require('../src/steward-marks');
       const tm = require('../src/title-marks');
-      const C = '\u{1F451}', E = '\u2709\uFE0F', BELL = '\u{1F6CE}\uFE0F', BELL0 = '\u{1F6CE}';
+      const C = '\u{1F451}', E = '\u{1F4E9}', OLD = '\u2709\uFE0F', BELL = '\u{1F6CE}\uFE0F', BELL0 = '\u{1F6CE}';
       // What someone can leave in a rename box, or what an older build or Claude Code put in a title.
       const typed = ['Title', C + ' Title', C + ' ' + C + ' Title', 'Ti ' + C + ' tle', 'Title ' + C, 'Title ' + BELL, 'Title ' + BELL0,
-        C + ' Title ' + BELL, 'Title ' + E, E + ' Title ' + E + E, C + ' Title ' + E, '  ' + C + 'Title' + E + '  '];
+        C + ' Title ' + BELL, 'Title ' + OLD, E + ' Title ' + OLD + E, C + ' Title ' + E, '  ' + C + 'Title' + E + '  '];
       const bare = typed.map(tm.withoutMarks);
       const fixed = typed.map((t) => tm.withMarks(t, { steward: true, unseen: true }));
       const plain = typed.map((t) => tm.withMarks(t, {}));
       const count = (s, ch) => s.split(ch).length - 1;
       const wantBare = ['Title', 'Title', 'Title', 'Ti tle', 'Title', 'Title', 'Title', 'Title', 'Title', 'Title', 'Title', 'Title'];
-      if (JSON.stringify(bare) === JSON.stringify(wantBare) && fixed.every((t, i) => t === `${C} ${wantBare[i]} ${E}` && count(t, C) === 1 && count(t, '\u2709') === 1)
+      if (JSON.stringify(bare) === JSON.stringify(wantBare) && fixed.every((t, i) => t === `${wantBare[i]} ${C} ${E}` && count(t, C) === 1 && count(t, E) === 1 && !t.includes('\u2709'))
           && plain.every((t, i) => t === wantBare[i]) && tm.withoutMarks('') === '' && tm.withMarks(C, { steward: true }) === C
           && tm.withEnvelope('Fix ' + E + ' it', true) === 'Fix it ' + E && tm.withEnvelope('Fix it ' + E, false) === 'Fix it'
           && tm.withoutEnvelope(C + ' Fix ' + E) === C + ' Fix' && sm.MARK === C && sm.ENVELOPE === E) {
         ok('a title loses every crown, envelope and bell wherever it stands - deleted, doubled, in the middle, at the end, the old bell with or without its selector - '
-          + 'and is shown with exactly one crown first and one envelope last; the envelope part works on its own');
+          + 'the plain envelope of earlier builds included, and is shown with exactly one crown after the title and one envelope last; the envelope part works on its own');
       } else bad(`marks: ${JSON.stringify({ bare, fixed, plain })}`);
 
       const entries = [{ id: S(1), summary: C + ' Claude Code hover box ' + BELL, customTitle: C + ' Claude Code hover box ' + BELL },
@@ -10216,10 +10216,10 @@ console.log('\nthe Steward panel');
       const f = sm.tabTitle(C + ' ' + C + ' Kept the crown ' + C, b.kept, C + ' Kept the crown', 2, 'Kept the crown', true);
       const g = sm.tabTitle(f.title, f.kept, C + ' Kept the crown', 2, 'Kept the crown', false);
       const h = sm.tabTitle(g.title, g.kept, '', 0, 'Kept the crown', false);
-      if (a.title === C + ' Claude Code hover box' && b.title === a.title && c.title === 'Claude Code hover box' && c.kept === null
-          && d.title === C + ' Mine' && d.kept.original === 'Renamed by Claude Code' && e.title === 'Claude Code hover box'
-          && f.title === C + ' Kept the crown ' + E && g.title === C + ' Kept the crown' && h.title === 'Kept the crown' && h.kept === null) {
-        ok('a steward\'s tab reads crown, title: one crown first whatever the count, whatever the title carries, with an envelope last while a reply is unread, '
+      if (a.title === 'Claude Code hover box ' + C && b.title === a.title && c.title === 'Claude Code hover box' && c.kept === null
+          && d.title === 'Mine ' + C && d.kept.original === 'Renamed by Claude Code' && e.title === 'Claude Code hover box'
+          && f.title === 'Kept the crown ' + C + ' ' + E && g.title === 'Kept the crown ' + C && h.title === 'Kept the crown' && h.kept === null) {
+        ok('a steward\'s tab reads title, crown: one crown after the title whatever the count, whatever the title carries, with an envelope last while a reply is unread, '
           + 'and none once nothing is ticked; a new title from Claude Code is the one it goes back to, and an old bell is taken off');
       } else bad(`the tab titles were ${JSON.stringify([a, b, c, d, e, f, g, h])}`);
 
@@ -10228,9 +10228,9 @@ console.log('\nthe Steward panel');
       const u3 = sm.tabTitle(u2.title, u2.kept, '', 2, 'Fix the build', false);
       const u4 = sm.tabTitle('Renamed by Claude Code ' + E + E, u3.kept, '', 0, 'Fix the build', true);
       const u5 = sm.tabTitle(u4.title, u4.kept, '', 0, 'Fix the build', false);
-      if (u1.title === 'Fix the build ' + E && u2.title === C + ' Fix the build ' + E && u3.title === C + ' Fix the build'
+      if (u1.title === 'Fix the build ' + E && u2.title === 'Fix the build ' + C + ' ' + E && u3.title === 'Fix the build ' + C
           && u4.title === 'Renamed by Claude Code ' + E && u5.title === 'Renamed by Claude Code' && u5.kept === null) {
-        ok('a tab whose conversation has a reply not read yet ends in one envelope, after the title and the crown before it, and loses it once the reply is read; '
+        ok('a tab whose conversation has a reply not read yet ends in one envelope, after the title and the crown, and loses it once the reply is read; '
           + 'envelopes in a new title from Claude Code do not count');
       } else bad(`the envelope titles were ${JSON.stringify([u1, u2, u3, u4, u5])}`);
 
@@ -10243,7 +10243,7 @@ console.log('\nthe Steward panel');
       const allTab = sm.tabTitle('x', null, '', sm.size(st.read(allDir)[S(1)]));
       st.setManaged(S(1), [], {}, { dir: allDir, every: false });
       if (kept && kept.all === true && kept.manages.length === 0 && still === true && JSON.stringify(ids) === JSON.stringify([S(1).toLowerCase()])
-          && allTab.title === C + ' x' && st.read(allDir)[S(1)] === undefined && sm.stewardIds(st.read(allDir)).length === 0) {
+          && allTab.title === 'x ' + C && st.read(allDir)[S(1)] === undefined && sm.stewardIds(st.read(allDir)).length === 0) {
         ok('a steward with "all" set stays in the table with nothing open, keeps "all" when its list is rewritten, and keeps its crown');
       } else bad(`managing all: ${JSON.stringify([kept, still, ids, allTab, st.read(allDir)])}`);
     }
@@ -12887,17 +12887,17 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     };
     if (JSON.stringify(got) === JSON.stringify(want)) {
       ok('a row\'s dot is green while a turn runs, a green ring for background work only, red while it waits and absent once stopped, '
-        + 'a steward\'s crown follows the dot, before the title, and an envelope comes last for a reply not read yet whatever the dot; '
+        + 'a steward\'s crown comes after the dot and before the envelope, which comes last for a reply not read yet whatever the dot; '
         + 'a web session, or the extension off, keeps Claude Code\'s dot');
     } else bad(`row marks: ${JSON.stringify(got)}`);
   }
 
   /* A rename never stores a mark, whatever was typed, by whichever path it goes; the tab's rename box is filled without
-     one; and a steward renamed while keeping the crown shows one crown, first. */
+     one; and a steward renamed while keeping the crown shows one crown, after the title. */
   {
     const tm = require('../src/title-marks');
     const sm = require('../src/steward-marks');
-    const C = '\u{1F451}', E = '\u2709\uFE0F', BELL = '\u{1F6CE}\uFE0F';
+    const C = '\u{1F451}', E = '\u{1F4E9}', BELL = '\u{1F6CE}\uFE0F';
     const store = host.EDITS.find((e) => e.name === 'renamed titles carry no marks');
     const box = host.EDITS.find((e) => e.name === 'rename box filled without marks');
     const method = 'class K{constructor(){this.stored=[]}async renameSession(e,t,n){if(typeof e!=="string"||typeof t!=="string")'
@@ -12934,7 +12934,7 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
         const stored = k.stored.map((x) => x[1]);
         const skipped = results.map((r) => r.skipped);
         // The whole round, renaming without deleting the mark: the list's box holds the clean title, the person keeps a
-        // crown in front anyway, it is stored without it, and the tab and the list show one crown first.
+        // crown in front anyway, it is stored without it, and the tab and the list show one crown after the title.
         const listTitle = sm.cleaned([{ id: 's', summary: C + ' CSV export ' + BELL, customTitle: C + ' CSV export ' + BELL }])[0].summary;
         await k.renameSession('s', C + ' ' + listTitle + ' and budgets');
         const kept = k.stored[k.stored.length - 1][1];
@@ -12943,10 +12943,10 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
         if (JSON.stringify(stored) === JSON.stringify(['CSV export and budgets', 'Budgets', 'Ti tle', 'Plain', C + ' After the extension went', 'Thrown'])
             && JSON.stringify(skipped) === '[false,false,false,true,false,false,false]' && k.stored[1][2] === true
             && JSON.stringify(prefilled) === JSON.stringify(['Shown title', 'On disk'])
-            && listTitle === 'CSV export' && kept === 'CSV export and budgets' && tab === C + ' CSV export and budgets ' + E
-            && tabRead === C + ' CSV export and budgets') {
+            && listTitle === 'CSV export' && kept === 'CSV export and budgets' && tab === 'CSV export and budgets ' + C + ' ' + E
+            && tabRead === 'CSV export and budgets ' + C) {
           ok('a rename from the session list, from the tab\'s command or from a steward stores the name without any crown, envelope or bell, '
-            + 'and one left empty is not stored; the tab\'s rename box is filled without them; renaming without deleting the crown leaves one crown, first');
+            + 'and one left empty is not stored; the tab\'s rename box is filled without them; renaming without deleting the crown leaves one crown, after the title');
         } else bad(`renames stored ${JSON.stringify(stored)}, skipped ${JSON.stringify(skipped)}, prefilled ${JSON.stringify(prefilled)}, round ${JSON.stringify([listTitle, kept, tab, tabRead])}`);
       })().catch((e) => bad('the rename check threw: ' + e.message));
     }
@@ -12985,8 +12985,8 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8'), view = fs.readFileSync(path.join(__dirname, '..', 'src', 'steward-view.js'), 'utf8');
     const page = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-row-marks.js'), 'utf8');
     if (JSON.stringify(forms) === JSON.stringify([T, Cl, Cl, T]) && heard === 1 && typeof d.dispose === 'function' && typeof none.dispose === 'function'
-        && JSON.stringify(stripped) === JSON.stringify(['Fix', 'Fix', 'Fix']) && tab === '\u{1F451} Fix it ' + T && tabBack === '\u{1F451} Fix it ' + Cl
-        && cssOk && panel[0] === '&#x2709;&#xFE0E;' && panel[1] === '&#x2709;&#xFE0F;'
+        && JSON.stringify(stripped) === JSON.stringify(['Fix', 'Fix', 'Fix']) && tab === 'Fix it \u{1F451} ' + T && tabBack === 'Fix it \u{1F451} ' + Cl
+        && cssOk && panel[0] === '&#x2709;&#xFE0E;' && panel[1] === '&#x1F4E9;'
         && /envelope\.onEnvelopeChange\(vscode, \(\) => \{\s*try \{ if \(typeof globalThis\.__cceRefreshTabIcons === 'function'\) globalThis\.__cceRefreshTabIcons\(\);/.test(ext)
         && /named\.custom \|\| named\.ai, unseen, envelope\.envelope\(vscode\)\);/.test(ext)
         && /const themeWatch = envelope\.onEnvelopeChange\(vscode, \(\) => render\(\)\);/.test(view) && !/\\u2709/.test(page)) {
@@ -13009,13 +13009,13 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     const html = sv.body({ front: { id: 'f', title: 'F' }, rows: [], groups: [{ key: 'w:1', name: 'w', rows: [...all.values()].map((c) => Object.assign({ managed: true, processes: [] }, c)) }],
       managed: 5, hidden: 0, every: false });
     const dots = [...html.matchAll(/<span class="dot ([a-z]*)"/g)].map((m) => m[1]);
-    const envs = [...html.matchAll(/<\/a>\s*<span class="env"[^>]*>&#x2709;&#xFE0F;<\/span>/g)].length;
+    const envs = [...html.matchAll(/<\/a>\s*<span class="env"[^>]*>&#x1F4E9;<\/span>/g)].length;
     const shell = sv.shell('', 'n');
     const long = 'A title far too long for the row, which the panel cuts short with an ellipsis before the envelope'.repeat(2);
     const longHtml = sv.body({ front: { id: 'f', title: 'F' }, rows: [], groups: [{ key: 'w:1', name: 'w', rows: [Object.assign({ managed: false, processes: [] },
       all.get(S(5)), { title: long })] }], managed: 0, hidden: 0, every: false });
     const nameSpan = (/<a [^>]*class="name"[^>]*>([^<]*)<\/a>/.exec(longHtml) || [])[1] || '';
-    const cut = nameSpan === long && /<\/a>\s*<span class="env"[^>]*>&#x2709;&#xFE0F;<\/span>[\s\S]*<span class="when">/.test(longHtml)
+    const cut = nameSpan === long && /<\/a>\s*<span class="env"[^>]*>&#x1F4E9;<\/span>[\s\S]*<span class="when">/.test(longHtml)
       && /\.name \{[^}]*overflow: hidden; text-overflow: ellipsis;/.test(shell) && /\.env \{ flex: 0 0 auto;/.test(shell);
     if (cut && JSON.stringify(rows) === JSON.stringify(['working/working/-', 'background/background/u', 'prompt/waiting/-', 'idle/waiting/-', 'unread//u'])
         && JSON.stringify(dots) === JSON.stringify(['working', 'background', 'waiting', 'waiting', '']) && envs === 2
@@ -13109,12 +13109,12 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
       const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
       let o = {};
       try { o = JSON.parse(r.stdout); } catch (_) { o = { threw: r.stdout + r.stderr }; }
-      const steward = [['a', '\u{1F451} Many conversations', true], ['b', 'Plain', false]];
+      const steward = [['a', 'Many conversations \u{1F451}', true], ['b', 'Plain', false]];
       const want = { here: steward, all: steward, unmarked: [['a', 'Many conversations', false], ['b', 'Plain', false]],
         broken: [['a', 'Many conversations', false], ['b', 'Plain', false]] };
       if (JSON.stringify(o) === JSON.stringify(want)) {
         ok('the titles the source gives Agent Plus (its notices, status bar list and Conversations view) drop the bell, crown and envelope '
-          + 'a stored name carries, and a steward gets one crown first and steward: true');
+          + 'a stored name carries, and a steward gets one crown after its title and steward: true');
       } else bad(`source titles ${JSON.stringify(o)}`);
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
     {
@@ -13149,9 +13149,9 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
       rows: [row({ sessionId: 's', title: 'Other steward', steward: true }), row({ sessionId: 'p', title: 'Plain' })] }], hidden: 0, every: false });
     const shownNames = [...html.matchAll(/<a [^>]*class="name"[^>]*>([^<]*)<\/a>/g)].map((m) => m[1]);
     const free = svBody({ front: { id: 'f', title: 'Not yet' }, managed: 0, rows: [], groups: [], hidden: 0, every: false });
-    if (JSON.stringify(shownNames) === JSON.stringify(['\u{1F451} Other steward', 'Plain']) && html.includes('Managed by <b>\u{1F451} Many conversations</b>: 1')
+    if (JSON.stringify(shownNames) === JSON.stringify(['Other steward \u{1F451}', 'Plain']) && html.includes('Managed by <b>Many conversations \u{1F451}</b>: 1')
         && free.includes('Managed by <b>Not yet</b>: 0')) {
-      ok('the Steward panel draws one crown before a steward, in its rows and in its header, and none before a conversation that manages nothing');
+      ok('the Steward panel draws one crown after a steward\'s title, in its rows and in its header, and none with a conversation that manages nothing');
     } else bad(`steward panel names ${JSON.stringify(shownNames)} / ${html.slice(0, 200)} / ${free.slice(0, 120)}`);
     const extText = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
     if (/isSteward: \(id\) => enabled\(\) && !removed\(\) && stewardMarks\.stewardIds\(stewardTable\(\)\)\.includes\(String\(id\)\.toLowerCase\(\)\),/.test(extText)) {

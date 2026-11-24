@@ -297,7 +297,7 @@ async function askPermission(d, frame) {
 }
 /* This extension's marks: the crown, the envelope in either form, the old bell (src/title-marks.js). */
 const CROWN = '\u{1F451}';
-const MARK_RE = /\u{1F451}|\u{1F6CE}|\u2709/u;
+const MARK_RE = /\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709/u;
 const tabLabels = (d) => d.call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((x) => x.input
   && String(x.input.viewType || '').endsWith('claudeVSCodePanel')).map((x) => x.label);`, []);
 /* The texts of the Agent Plus notices on screen as toasts (its src/attention.js), or null while one is still sliding
@@ -1331,7 +1331,7 @@ const STEPS = [
   {
     name: 'steward-ticked', features: ['steward-marks', 'steward-panel'],
     expect: 'One conversation has been ticked in the Steward panel, so the conversation in front is now its steward: its tab\'s '
-      + 'title starts with a crown, one only, and the panel shows the tick. Nothing else in the tab bar changed. In the panel, '
+      + 'title ends with a crown, one only, and the panel shows the tick. Nothing else in the tab bar changed. In the panel, '
       + 'the rows show no blue dot.',
     unchanged: 'The Steward panel lists the same rows as before.',
     act: async (d) => {
@@ -1345,10 +1345,10 @@ const STEPS = [
   {
     name: 'steward-renamed', features: ['steward-rename', 'steward-marks'],
     expect: 'The steward conversation in front was renamed through Claude Code\'s own Rename Session Tab, typing a name that '
-      + 'kept a crown in front and added a second crown and the old bell at the end. Its tab now reads a crown, a space and '
-      + '"CSV export and budgets": exactly one crown, first, no bell and no envelope. In the session list, both rows of that '
-      + 'conversation show its pin, its dot, one crown and then "CSV export and budgets", with no crown or bell inside the '
-      + 'title. No rename box is left open.',
+      + 'kept a crown in front and added a second crown and the old bell at the end. Its tab now reads "CSV export and '
+      + 'budgets", a space and a crown: exactly one crown, after the title, no bell and no envelope. In the session list, both '
+      + 'rows of that conversation show its pin, its dot, "CSV export and budgets" and then one crown, with no crown or bell '
+      + 'inside the title. No rename box is left open.',
     unchanged: 'The other tabs and the Steward panel\'s tick are as before.',
     act: async (d) => {
       await d.exec('claude-vscode.editor.open', d.sid);
@@ -1369,7 +1369,7 @@ const STEPS = [
       const tab = labels.find((l) => l.includes('CSV export and budgets')) || '';
       if (MARK_RE.test(filled)) throw new Error(`the rename box was filled with a mark: "${filled}"`);
       if (stored !== 'CSV export and budgets') throw new Error(`the transcript stored "${stored}"`);
-      if (tab !== `${CROWN} CSV export and budgets`) throw new Error(`the tab reads "${tab}" (tabs: ${labels.join(' | ')})`);
+      if (tab !== `CSV export and budgets ${CROWN}`) throw new Error(`the tab reads "${tab}" (tabs: ${labels.join(' | ')})`);
       const rows = await list.evaluate(() => [...document.querySelectorAll('[class*="sessionItem_"]')].map((r) => r.innerText).filter((t) => t.includes('CSV export and budgets')));
       if (!rows.length || rows.some((t) => (t.match(/\u{1F451}/gu) || []).length !== 1)) throw new Error(`the list rows read ${JSON.stringify(rows)}`);
       return d.body();
@@ -1961,7 +1961,7 @@ const STEPS = [
       if (MARK_RE.test(held)) throw new Error(`the rename box held a mark: "${held}"`);
       if (stored !== LONG) throw new Error(`the transcript stored "${stored}"`);
       const tab = labels.find((l) => l.startsWith('Where the retry')) || '';
-      if (!/ \u2709[\uFE0E\uFE0F]$/u.test(tab) || /\u{1F451}/u.test(tab) || (tab.match(/\u2709/gu) || []).length !== 1) {
+      if (!/ (?:\u{1F4E9}|\u2709\uFE0E)$/u.test(tab) || /\u{1F451}/u.test(tab) || (tab.match(/\u{1F4E9}|\u2709/gu) || []).length !== 1) {
         throw new Error(`the tab reads "${tab}" (tabs: ${labels.join(' | ')})`);
       }
       return d.body();
@@ -1997,7 +1997,7 @@ const STEPS = [
       await d.sleep(8000);
       await d.away();
       const tab = (await tabLabels(d)).find((l) => l.startsWith('Where the retry')) || '';
-      if (!/ \u2709\uFE0F$/u.test(tab)) throw new Error(`the tab reads "${tab}", not ending in an envelope`);
+      if (!/ \u{1F4E9}$/u.test(tab)) throw new Error(`the tab reads "${tab}", not ending in an envelope`);
       return d.body();
     },
     undo: async (d) => {
