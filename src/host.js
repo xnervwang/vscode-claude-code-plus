@@ -366,8 +366,9 @@ const EDITS = [
   {
     name: 'session list leaves out background sessions',
     re: /(await this\.attachSessionPermissionModes\(([\w$]+)\),)\2\}/g,
-    to: (m, head, list) => `${head}await(async()=>{try{let h=globalThis.__cceListedSessions;`
-      + `if(typeof h!=="function")return ${list};let r=await h(${list},this.cwd);return Array.isArray(r)?r:${list}}catch(e){return ${list}}})()}`,
+    // Its own names carry the cce prefix: the list's name is the bundle's, and 2.1.331 calls it r.
+    to: (m, head, list) => `${head}await(async()=>{try{let cceH=globalThis.__cceListedSessions;`
+      + `if(typeof cceH!=="function")return ${list};let cceR=await cceH(${list},this.cwd);return Array.isArray(cceR)?cceR:${list}}catch(cceE){return ${list}}})()}`,
   },
 ];
 

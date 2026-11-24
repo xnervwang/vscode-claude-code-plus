@@ -9127,10 +9127,14 @@ console.log('\nbackground sessions left out of the session list');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 
   const he = host.EDITS.find((x) => x.name === 'session list leaves out background sessions');
-  const src = 'class S{cwd="/w";async attachSessionPermissionModes(e){}async buildSessionList(){let n=[{id:"a"},{id:"b"}];return this.onSessionsListed?.([]),await this.attachSessionPermissionModes(n),n}}';
-  const r = he ? applyEdits(src, [he]) : { error: 'no such edit' };
-  if (r.error) bad('the background-session edit did not apply: ' + r.error);
-  else {
+  /* The list carries whatever name the bundle gives it (n in 2.1.330, r in 2.1.331), so the patched code is run with
+     the names its own code could shadow as well. */
+  const listNames = ['n', 'r', 'h', 'e'];
+  const listed = listNames.map((name) => {
+    const src = `class S{cwd="/w";async attachSessionPermissionModes(e){}async buildSessionList(){let ${name}=[{id:"a"},{id:"b"}];`
+      + `return this.onSessionsListed?.([]),await this.attachSessionPermissionModes(${name}),${name}}}`;
+    const r = he ? applyEdits(src, [he]) : { error: 'no such edit' };
+    if (r.error) return 'the background-session edit did not apply: ' + r.error;
     // The patched function is async, and this suite is not, so it runs in a child process.
     const script = r.out + `;(async()=>{let seen=null;const run=async(h)=>{globalThis.__cceListedSessions=h;`
       + `return(await new S().buildSessionList()).map((x)=>x.id).join(",")};`
@@ -9138,10 +9142,12 @@ console.log('\nbackground sessions left out of the session list');
       + `const none=await run(undefined),broken=await run(()=>{throw new Error("x")}),odd=await run(()=>"not a list");`
       + `process.stdout.write(JSON.stringify([kept,seen,none,broken,odd]))})()`;
     const child = require('child_process').spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' });
-    if (child.stdout === JSON.stringify(['b', '/w', 'a,b', 'a,b', 'a,b'])) {
-      ok('the patched host hands its finished list and its folder to this extension, and keeps the list as it was when that fails or is missing');
-    } else bad(`the patched list was ${child.stdout || child.stderr}`);
-  }
+    return child.stdout || child.stderr;
+  });
+  if (listed.every((x) => x === JSON.stringify(['b', '/w', 'a,b', 'a,b', 'a,b']))) {
+    ok('the patched host hands its finished list and its folder to this extension, and keeps the list as it was when that fails or is missing, '
+      + 'whatever the bundle names the list');
+  } else bad(`the patched list was ${JSON.stringify(Object.fromEntries(listNames.map((n, i) => [n, listed[i]])))}`);
   /* Claude Code's own listing drops `claude -p` sessions unless its getter says to keep them, which it does only for
      claudeProcessWrapper; the patched getter also asks this extension. */
   {
