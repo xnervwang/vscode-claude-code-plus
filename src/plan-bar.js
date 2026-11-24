@@ -10,7 +10,7 @@
  *
  * A panel asks for its conversation's summary when it starts to show one and when the bar is switched back on. The
  * extension answers, and sends it again whenever Agent Plus reports that summary changed, to the panel showing that
- * conversation; a panel it cannot find by the conversation's id gets the message with the others, and each page keeps
+ * conversation; when no panel is found by the conversation's id, the message goes to every panel, and each page keeps
  * only its own conversation's. A click on the bar runs agentPlus.showWorkPlanOf, one on its red part
  * agentPlus.answerQuestionOf.
  *
@@ -27,8 +27,7 @@ const usable = (id) => typeof id === 'string' && id.length > 0 && id.length <= M
 
 /*
  * `on()` is true while claudeCodePlus.show.planBar is in effect; `sendTo(sessionId, message)` posts to the panel
- * showing that conversation and says whether one was found; `sendAll(message)` posts to every panel; `run(command,
- * arg)` runs a command.
+ * showing that conversation and says whether one was found.
  */
 function create({ on, sendTo, sendAll, run, log = () => {} }) {
   let core = null, sub = null, closed = false;
@@ -62,8 +61,8 @@ function create({ on, sendTo, sendAll, run, log = () => {} }) {
   };
   return {
     /* The agentPlus interface once this extension is registered with it, or null. A panel that asked before then was
-       answered with no summary and is sent its own now; every panel is also told the bar can be asked for, so that one
-       whose question came before this extension was listening asks again at once. */
+       answered with no summary and is sent its own now; every panel also gets cce_plan_bar_ready, so that one whose
+       question came before this extension was listening asks again at once. */
     attach(next) {
       unhook();
       core = next || null;
@@ -73,7 +72,6 @@ function create({ on, sendTo, sendAll, run, log = () => {} }) {
       if (usesCore()) { try { sendAll({ type: 'cce_plan_bar_ready' }); } catch (e) { log(`plan bar: ${(e && e.message) || e}`); } }
     },
     settingChanged() { follow(); },
-    /* A panel showing conversation `sessionId` asks for its summary. */
     ask(sessionId) {
       if (closed || !usable(sessionId) || !on()) return;
       remember(sessionId);

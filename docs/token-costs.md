@@ -1,6 +1,6 @@
 # What it costs in tokens
 
-Check the typical sizes of context additions, how token modes affect what Claude gets, what Claude Code Plus adds to every message or only occasionally, how the work plan skill is included in Claude Code's list of skills on every model call, and what costs no tokens. Back to the [README](../README.md).
+Back to the [README](../README.md).
 
 Claude Code Plus adds text to what Claude Code sends the model. All of it comes from the work plan plugin Claude Code Plus registers with Claude Code; what Claude Code Plus draws in VS Code sends nothing to the model. There are two exceptions. The extension itself posts the steward notice, and handoffs, to the steward conversation. When a command left running outside Claude Code is no longer running, the extension posts a notice to the conversation that started it. Text added to a conversation stays in context and goes with every later model call until compaction replaces the conversation with a summary. A token is about four characters of English.
 

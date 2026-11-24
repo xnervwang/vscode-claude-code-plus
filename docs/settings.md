@@ -1,6 +1,6 @@
 # Settings and commands
 
-Find the work plan settings, the setting that turns off each addition, and the extension's commands. Back to the [README](../README.md).
+Back to the [README](../README.md).
 
 ## Settings
 

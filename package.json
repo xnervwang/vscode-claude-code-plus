@@ -276,7 +276,7 @@
         "claudeCodePlus.show.planBar": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "When a Claude Code conversation has a work plan, show a bar directly above the input box with the number of open rows, the current row, and the number of questions waiting for your answer. Click the bar to see this conversation's plan in Agent Plus's Work plan view, or click the red \"to decide\" count to open its first waiting question in the Answer view. Turning it off stops the work, not only the drawing, and takes effect without a reload."
+          "markdownDescription": "When a Claude Code conversation has a work plan, show a bar directly above the input box that identifies the current row and shows counts for open rows and questions waiting for your answer. Click the bar to see this conversation's plan in Agent Plus's Work plan view, or click the red \"to decide\" count to open its first waiting question in the Answer view. Turning this setting off hides the bar, stops the panel from requesting a plan summary from the extension, and stops the extension from requesting summaries from Agent Plus or sending them to panels; turning it on or off takes effect without a reload."
         },
         "claudeCodePlus.show.openInTabOrSidebar": {
           "type": "boolean",

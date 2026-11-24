@@ -701,7 +701,7 @@ const STEPS = [
     act: async (d) => { await demoAt(d, CSV, { focus: true }); await hoverLabel(d, d.conv, '[data-cce-info]'); return d.editor(); },
     undo: (d) => rest(d, d.conv),
   },
-  /* The plan bar above the message box, from the demo conversation's plan. */
+  /* The bar above the message box, drawn from the demo conversation's plan. */
   {
     name: 'plan-bar', features: ['plan-bar'],
     expect: 'Right above the message box, a bar exactly as wide as the box: a list mark and "Plan" in bold; a short track of '
@@ -725,8 +725,8 @@ const STEPS = [
     name: 'plan-bar-hover', features: ['plan-bar'],
     expect: 'The mouse rests on the plan bar, whose border is drawn in the focus colour. A box next to it shows first the current '
       + 'row\'s whole title, "3.1.1 One amount for every month, or one per month", then "19 rows not done", then the open rows, '
-      + 'each with its number and a mark for its state in the colours of the track, the rows under another one indented below '
-      + 'it. Nothing in the box is cut off, and the box is wholly inside the window.',
+      + 'each with its number and a mark for its state in the colours of the track, each nested row indented below its '
+      + 'parent. Nothing in the box is cut off or outside the window.',
     unchanged: 'The bar reads as before.',
     act: async (d) => {
       await demoAt(d, CSV, { focus: true });

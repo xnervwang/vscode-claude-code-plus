@@ -5371,11 +5371,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /*
-     * The plan bar above the input box (src/page/96-plan-bar.js, src/plan-bar.js): drawn from the plan of the conversation
-     * the panel shows, in each state a plan can be in, compact in a narrow panel, gone without a plan and with
-     * claudeCodePlus.show.planBar off, redrawn when the plan changes, and as wide as the input box with the same height
-     * and the title in the same place however many rows the plan has. A click on it opens Agent Plus's Work plan view at
-     * this conversation, and one on its red part the Answer view at this conversation's question.
+     * The plan bar above the input box (src/page/96-plan-bar.js, src/plan-bar.js). It is drawn from the plan of the
+     * conversation the panel shows, in each state a plan can be in; it is compact in a narrow panel, and gone without a
+     * plan or with claudeCodePlus.show.planBar off; it is redrawn when the plan changes; and it stays as wide as the
+     * input box, with the same height and the title in the same place, however many rows the plan has. A click on it
+     * opens Agent Plus's Work plan view at this conversation, and a click on its red part opens the Answer view at this
+     * conversation's question.
      */
     await step('the plan bar', async () => {
       if (!conv) throw new Error('the conversation did not open');
@@ -5423,7 +5424,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const doing = await barIs((s) => s.shown && s.count === '4 open');
         check(!!doing && doing.beforeForm && same(doing.segments, ['doing', 'discussing', 'todo']) && doing.current === 'doing'
           && doing.title === '2.1 Write the CSV exporter' && doing.questions === '1 to decide' && !doing.compact,
-        'with a plan, a bar sits right above the input box: the open rows by state, 4 open, the deepest row being done as the current one, and 1 to decide in red',
+        'with a plan, a bar sits right above the input box: the open rows by state, 4 open, the deepest row being worked on as the current row, and 1 to decide in red',
         doing || await bar());
         await shot('plan-bar-doing');
         /* The input area sits over the bottom of the messages, and Claude Code keeps room under them for its height; the
@@ -5470,7 +5471,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           { nine: nine || null, many: many || await bar() });
         }
         const wide = sizes.map((x) => x.nine && Math.round(x.nine.bar.width));
-        check(!!wide[0] && !!wide[1] && wide[0] > wide[1] + 20, 'and the two widths measured are those of two different panels', wide);
+        check(!!wide[0] && !!wide[1] && wide[0] > wide[1] + 20, 'and the two measurements come from panels of different widths', wide);
         await layout(340 / full);
         const narrow = await barIs((s) => s.shown && s.compact);
         check(!!narrow && narrow.count === '120 open' && !narrow.segments.length && Math.abs(narrow.bar.width - narrow.form.width) <= 1,
@@ -5479,7 +5480,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('workbench.action.editorLayoutSingle');
         await exec('claude-vscode.editor.open', tab0.id);
 
-        /* Redrawn when the plan changes, and gone without one. */
         write([row('Export', 'doing'), row('Which month', 'waiting', { waitingOn: 'user', question: 'This month or last month?' }),
           row('Which format', 'discussing', { waitingOn: 'user', question: 'CSV or JSON?' })]);
         const two = await barIs((s) => s.shown && s.questions === '2 to decide');

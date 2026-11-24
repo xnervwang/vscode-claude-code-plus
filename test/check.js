@@ -11824,7 +11824,8 @@ console.log('\nanswering from the Conversations tab');
   {
     try {
       /* The plan bar in a panel (src/page/96-plan-bar.js, drawing with Agent Plus's src/page/04-plan-bar.js) against a
-         stand-in page: where it goes, what it asks for and keeps, its clicks, a new conversation and the switch. */
+         stand-in page: where it goes, what it asks for and keeps, what its clicks send, and how it handles a new
+         conversation and the switch. */
       const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
       const BAR = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '04-plan-bar.js'), 'utf8');
       const fragment = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '96-plan-bar.js'), 'utf8');
@@ -13942,13 +13943,13 @@ const repo = path.join(__dirname, '..');
       old.ask('S1');
       await old.open('S1', 'plan');
       eq([toPanel[toPanel.length - 1][1].summary, ran.length, oldAll], [null, 2, []],
-        'with an Agent Plus that lacks planSummary there is no summary, no panel is told the bar can be asked for, and a click does nothing');
+        'with an Agent Plus that lacks planSummary there is no summary, no panel is told it can ask now, and a click does nothing');
       const shownTo = [], told = [];
       const late = bars.create({ on: () => true, sendTo: (id, m) => { shownTo.push([id, m.summary]); return true; }, sendAll: (m) => told.push(m.type), run: async () => {} });
       late.ask('S1');
       late.attach(core);
       eq([shownTo, told], [[['S1', null], ['S1', { total: 4, done: 1 }]], ['cce_plan_bar_ready']],
-        'once registered with Agent Plus it sends a panel that asked before its summary, and tells every panel the bar can be asked for');
+        'once registered with Agent Plus it sends its summary to a panel that asked before then, and tells every panel it can ask now');
       const many = bars.create({ on: () => true, sendTo: () => true, sendAll: () => {}, run: async () => {} });
       for (let i = 0; i < bars.MAX_FOLLOWED + 5; i++) many.ask(`s-${i}`);
       eq([many.followed().length, many.followed()[0]], [bars.MAX_FOLLOWED, 's-5'], 'it follows the 200 conversations asked about most recently');
