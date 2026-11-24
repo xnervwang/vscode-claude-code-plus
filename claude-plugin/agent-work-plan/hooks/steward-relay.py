@@ -28,21 +28,21 @@ message into that conversation's input in the VS Code window that has it open an
 user's own message, approvals included. The window first looks for this command in the steward's transcript, so give
 the message in a here-document as above.
 
---rename gives the conversation a new title. --close closes its editor tab; the conversation is not deleted and can
-be opened again from the session list. A conversation that is working, waiting for an answer or running background
-work is closed only with --confirmed. --open starts a new conversation in the VS Code window whose first folder is
-<folder> (Claude Code starts a new conversation in a window's first folder) and sends it the message, then prints the new conversation's session id; if no window has the folder open, it says so.
+--rename gives the conversation a new title. --close closes its editor tab; the conversation is not deleted and can be
+opened again from the session list. A conversation that is working, waiting for an answer or running background work is
+closed only with --confirmed. --open starts a new conversation in the VS Code window whose first folder is <folder>,
+sends it the message and prints its session id, or says that no window has the folder open.
 --windows prints the open windows and their folders.
 
 --resume opens a conversation that no window shows, in an editor tab of the VS Code window whose first folder is the one
-Claude Code keeps the conversation under (Claude Code finds a window's stored conversations only there), and then sends it
-the message, if one is given. It is not done while a window
-shows the conversation or another process runs it; it says which. A conversation opened with --open or --resume is
-then ticked for this steward in the Steward panel, and the answer says so.
+Claude Code keeps the conversation under, since Claude Code finds a window's stored conversations only there, and then
+sends it the message, if one is given. It is not done while a window shows the conversation or another process runs it;
+it says which. A conversation opened with --open or --resume is then ticked for this steward in the Steward panel; the
+printed answer mentions the tick.
 
 --handoff is run from a conversation a steward manages, not from the steward: it gives a steward something the
 conversation thinks belongs elsewhere, as a notice that is not the user's message. It goes to the steward that has the
-conversation on its list, or, when none has, to the steward with All on; the answer names the steward it reached.
+conversation on its list, or, when none has, to the steward with All on.
 
 Prints what happened and exits 0 when it was done, 1 otherwise.
 """
@@ -135,8 +135,9 @@ def transcript(sid):
 
 
 def filed_under(name, folder):
-    """Whether `name`, a folder under projects/, is the one Claude Code keeps the conversations of `folder` under: every
-    character but a letter or digit becomes a hyphen, and past 200 characters Claude Code adds a hash of its own."""
+    """Whether Claude Code keeps the conversations of `folder` in `name`, a folder under projects/. Claude Code names
+    that folder by turning every character but a letter or digit into a hyphen, and past 200 characters it adds a hash
+    of its own."""
     fold = (lambda t: t.lower()) if sys.platform in ("win32", "darwin") else (lambda t: t)
     want, name = fold(re.sub(r"[^a-zA-Z0-9]", "-", folder or "")), fold(name or "")
     if not want or not name:
@@ -155,9 +156,9 @@ def cwds(text):
 
 
 def started_in(path):
-    """The folder a conversation belongs to: of the cwd its records carry, the first one whose folder name is the one the
-    transcript is kept under (a conversation resumed in another folder is copied there with its old records), from the
-    head of the file and then its tail; else the first one; or ''."""
+    """The folder a conversation belongs to. Its records carry cwd values, and this returns the first one Claude Code
+    would keep under the projects/ folder holding the transcript. A conversation resumed in another folder is
+    copied there with its old records."""
     name = os.path.basename(os.path.dirname(path))
     try:
         with open(path, "rb") as fh:
@@ -173,7 +174,7 @@ def started_in(path):
 
 def opens_here(path, w):
     """Whether Claude Code in window `w` finds the transcript at `path`: only under its first folder, or the home folder
-    for a window with none, by that path or the one its symbolic links lead to."""
+    for a window with none."""
     folders = listed(w.get("folders"))
     first = folders[0] if folders else os.path.expanduser("~")
     name = os.path.basename(os.path.dirname(path))

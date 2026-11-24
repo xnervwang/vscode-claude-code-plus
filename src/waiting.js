@@ -160,7 +160,8 @@ function transcriptTitles(file) {
   return out;
 }
 
-/** When the last assistant message of the main conversation in transcript `file` was written, in milliseconds, or 0. */
+/** When the transcript in `file` last got an assistant message in its main conversation, not a sub-agent's, in
+    milliseconds, or 0. */
 function lastReplyAt(file) {
   let fd;
   try {
@@ -207,7 +208,7 @@ function reader() {
       seen.set(file, { key, titles });
       return titles;
     },
-    /* The time of the conversation's last reply, read again only when the transcript has changed. */
+    /* lastReplyAt for the conversation, kept until its transcript changes. */
     replyAt(s) {
       const file = fileOf(s.sessionId), st = file && stat(file);
       if (!st) return 0;

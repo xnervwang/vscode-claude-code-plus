@@ -219,10 +219,9 @@ function oneAtATime(run, merge = (a, b) => Object.assign({}, a, b)) {
 }
 
 /*
- * Whether `dir`, the name of a folder under projects/, is the one Claude Code files the conversations of working
- * directory `folder` under: every character but a letter or digit becomes a hyphen, and a name longer than 200
- * characters is cut there and given a hash of Claude Code's own, so only its first 200 characters can be compared.
- * Where file names ignore case, so does Claude Code's lookup.
+ * Whether Claude Code files the conversations of working directory `folder` in `dir`, a folder under projects/. A name
+ * over 200 characters is cut at 200 and gets a hyphen and a hash this code does not compute. On Windows and macOS file
+ * names ignore case, and so does the match.
  */
 function filedUnder(dir, folder) {
   const fold = process.platform === 'win32' || process.platform === 'darwin' ? (t) => t.toLowerCase() : (t) => t;

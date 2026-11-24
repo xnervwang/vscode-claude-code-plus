@@ -2,11 +2,12 @@
 # Copyright (c) 2026, Xnerv Wang
 # All rights reserved.
 
-"""The stewards table as the hooks read it: stewards.json in this plugin's data directory, taken through the same rules
-as the extension takes it (settle in src/stewards.js), so that a table an older build wrote reads the same here.
+"""The stewards table: stewards.json in this plugin's data directory, read with the same rules the extension uses
+(settle in src/stewards.js), so that a table written by an older build reads the same here.
 
-One conversation has one steward at most, and a steward has none; only one steward has "all" on. An entry's "ticked" is
-the part of its list ticked by hand rather than added by "all"; it is written only for the steward with "all" on.
+A conversation has at most one steward, and a steward has no steward of its own; only one steward has "all" on. An
+entry's "ticked" is the part of its list ticked by hand rather than added by "all"; it is written only for the steward
+with "all" on.
 """
 import json
 import os
@@ -29,7 +30,7 @@ def _ids(value, not_):
 
 
 def entries_of(data):
-    """The entries of a parsed file, each {manages, ticked, names, at, all}, with ticked None when it is not written."""
+    """The entries of a parsed file, with `ticked` None when it is not written."""
     found = data.get("stewards") if isinstance(data, dict) else None
     out = {}
     for key, v in (found.items() if isinstance(found, dict) else []):
@@ -47,9 +48,10 @@ def entries_of(data):
 
 
 def settle(entries):
-    """The table as the rules have it: "all" stays only with the entry that changed last; then, oldest entry first, each
-    keeps what it manages but conversations that are stewards by then and ones another steward has, unless it ticked
-    them itself, which takes them from the earlier one; an entry left with something leaves every list it is on."""
+    """The table after the rules are applied. "all" stays only with the entry that changed last. Then each entry, oldest
+    first, keeps what it manages except conversations that are stewards by then and ones another steward has; one it
+    ticked itself it keeps, and the other steward loses it. An entry that keeps anything, or has "all", is a steward,
+    so it is taken off the list it was on."""
     order = sorted(entries, key=lambda s: (entries[s]["at"], s))
     every = ([s for s in order if entries[s]["all"]] or [""])[-1]
     out, holder = {}, {}
@@ -98,7 +100,8 @@ def read(directory):
 
 
 def manages(table, steward, sid):
-    """Whether `steward` manages `sid`: on its list, or through "all" when it is no steward and no one else has it."""
+    """Whether `steward` manages `sid`: `sid` is on its list, or `steward` has "all" on, `sid` is not a steward, and no
+    other steward has it."""
     t = table.get(steward)
     if not t:
         return False

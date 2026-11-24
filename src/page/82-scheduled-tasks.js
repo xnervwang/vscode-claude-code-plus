@@ -3,9 +3,9 @@
 // All rights reserved.
 
 // Sections added to the official agent map: the commands this session left running detached, its scheduled prompts, the
-// `claude -p` workers and the `claude --bg` sessions it started; the map's layout, which puts the conversation's own row
-// first and gives every section, Claude Code's two among them, a heading of the same kind; and the dots of the map's own
-// row and of the footer button that opens the map.
+// `claude -p` workers and the `claude --bg` sessions it started. Also the map's layout, which puts the conversation's
+// own row first and gives all sections the same kind of heading, and the dots on the map's own row and on the footer
+// button that opens the map.
 // Fragment of the in-page script - see README.md in this folder.
 
   // Everything here runs inside the panel's own render, so a throw would take the dialog - and on past evidence the
@@ -109,17 +109,16 @@
   /*
    * How the map looks. Claude Code's dialog draws the conversation's own row, its subagents as a tree beside that row,
    * and the commands it put in the background, each group under a line of plain text the size of the rows. This page
-   * draws its sections the way Claude Code draws a row - a card with a dot, a title on one line and one line under it -
-   * under a heading that reads as one: a label in capitals and a count, smaller and bolder than the cards, behind a thin
-   * line. Claude Code's two headings get the same look from attributes and the stylesheet, its text left in place.
+   * draws its rows as Claude Code draws a row: a card with a dot, a title and a line under it. Each section sits under
+   * a heading: a label in capitals and a count, smaller and bolder than the cards, behind a thin line. Claude Code's
+   * two headings get the same look from attributes and the stylesheet, its text left in place.
    *
-   * The stylesheet then makes the conversation's own row the first thing in the map, under a heading of its own, and
-   * puts every section after it, Claude Code's first. It does that only while the dialog has the shape it was written
-   * against - its content holding the tree, the tree a node, the node the conversation's row - which :has() tells; any
-   * other shape keeps Claude Code's order, with this page's sections above it.
+   * The stylesheet then moves the conversation's row to the top of the map, under a heading, and puts every section
+   * after it, Claude Code's first. It does that only while the dialog still has the shape it was written against, which
+   * the :has() selectors below check. Any other shape keeps Claude Code's order, with this page's sections above it.
    *
-   * An empty section is left out, as Claude Code leaves out its own background tasks when there are none; its "0 agents"
-   * is hidden for the same reason, since the conversation's row sits right under it.
+   * An empty section is left out; Claude Code does the same with its own background tasks. Its "0 agents" is hidden for
+   * the same reason, since the conversation's row sits right under it.
    *
    * Nothing of ours goes inside Claude Code's nodes: the sections come back from __cceSchedule as part of the panel's own
    * render, and its headings only get attributes and hover text.
@@ -130,7 +129,7 @@
   var MAP_CSS = [
     MAP_BOX + '{display:flex;flex-direction:column;align-items:flex-start;box-sizing:border-box;padding-right:8px}',
     MAP_TREE + ',' + MAP_NODE + ',' + MAP_BOX + '>[data-cce-map]{display:contents}',
-    // A column that scrolls would otherwise squeeze its items, down to nothing for one that clips what overflows.
+    // A column that scrolls would otherwise squeeze its items, down to nothing for an item that clips its overflow.
     MAP_BOX + '>*,' + MAP_NODE + '>*,' + MAP_BOX + '>[data-cce-map]>*{flex-shrink:0}',
     MAP_BOX + '>[data-cce-map]>[data-cce-map-me]{display:block;order:1}',
     MAP_NODE + '>[class*="rowMain_"]{order:2;position:relative;max-width:100%}',
@@ -192,7 +191,8 @@
     } catch (e) {}
   };
 
-  /* Claude Code's two headings, known by their words. Worded any other way, a heading is left as Claude Code draws it. */
+  /* Claude Code's two headings, recognized by their text. A heading with any other text is left as Claude Code draws
+     it. */
   var CC_HEADS = [
     { re: /^(\d+) agents? · (click an agent for details)$/, label: 'Subagents' },
     { re: /^(\d+) background tasks? · (click a task for details)$/, label: 'Background tasks' },
@@ -223,7 +223,7 @@
     } catch (e) {}
   };
   /* The map's render calls __cceSchedule before the panel has put its new nodes in, and their text changes in that same
-     render: the headings are read once it has, before the browser paints. */
+     render, so the headings are read after the panel has put the nodes in, before the browser paints. */
   var headsQueued = false;
   var queueHeads = function(){
     if (headsQueued) return;
@@ -238,16 +238,16 @@
     if (text) { props['aria-label'] = text; props.onMouseEnter = hintOn; props.onMouseLeave = hintOff; }
     return props;
   };
-  /* A heading: an optional command in a code font, which keeps its own case, the label and the count. */
+  /* Builds a heading from an optional command, set in a code font that keeps its case, the label and the count. */
   var mapHead = function(h, label, count, note, cmd){
     var kids = [];
     if (cmd) kids.push(h('code', { className: 'cce-map-cmd', children: [cmd] }));
     kids.push(h('span', { className: 'cce-map-label', children: [label] }), h('span', { className: 'cce-map-count', children: [String(count)] }));
     return h('div', hinted({ className: 'cce-map-head', 'data-cce-map-head': (cmd ? cmd + ' ' : '') + label, children: kids }, note));
   };
-  /* A card: dot is one of Claude Code's dot states (running, waiting, idle, failed). A card with a body opens it below
-     on a click, and has an arrow that says so. Its hover text ends with its second line, which a narrow side bar cuts
-     short. */
+  /* Builds a card. `o.dot` is one of Claude Code's dot states (running, waiting, idle, failed). A card with a body has
+     an arrow and opens the body below it when clicked. Its hover text ends with its second line, which a narrow side
+     bar cuts short. */
   var mapCard = function(h, o){
     var line = [h('span', { className: 'cce-map-dot', 'data-cce-map-dot': o.dot, children: [] }),
       h('span', { className: 'cce-map-text', children: [o.title] })];
@@ -527,8 +527,8 @@
   };
   var ourCounts = function(){
     mapRenders();
-    /* The panel's own sets are read on every call, cached or not: a render subscribes only to the signals it reads, and
-       one that read none of them would not be drawn again when the work they hold ends. */
+    /* The panel's own sets are read on every call, cached or not: a render subscribes only to the signals it reads, so
+       a render that skipped them would not run again when the tasks and helpers in them end. */
     var tasks = runningTasks(), helpers = runningHelpers();
     var now = Date.now();
     if (now - bgCountsAt < 500) { bgCounts.tasks = tasks; bgCounts.helpers = helpers; return bgCounts; }

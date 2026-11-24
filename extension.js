@@ -368,11 +368,12 @@ function start(context, log, renamed, handing = false) {
   });
   const uninstalling = () => standing() === 'uninstalling';
   const replaced = () => standing() === 'replaced';
-  /* Whether this window keeps what every window shares about running work: which conversation started which
-     background session, what runs now, and the ends of detached commands and background sessions with their notices.
-     A window running the installed build does, and, like the stewards table, so does one whose build was installed
-     over while no window runs the installed one (src/steward-view.js writesTable). Otherwise, while every window runs
-     an earlier build, a conversation hears of an end only once a window is reloaded, which can be hours later. */
+  /* Whether this window keeps the state all windows share about running work: which conversation started which
+     background session, what runs now, and the ends of detached commands and background sessions with their notices. A
+     window running the installed build keeps it. So does a window whose build an install has replaced, as long as no
+     window runs the installed build; the stewards table follows the same rule (src/steward-view.js writesTable).
+     Otherwise, while every window runs an earlier build, a conversation is told that its work ended only once a window
+     is reloaded, which can be hours later. */
   let keepsShared = () => false;
   const keepsWork = () => !uninstalling() && !removed() && (!replaced() || keepsShared());
 
@@ -408,8 +409,8 @@ function start(context, log, renamed, handing = false) {
   };
   /* Never after Remove, which has just taken these files out of Claude Code's folder: a scan finishing afterwards would
      put them back. */
-  /* A failed write is tried again a second later, up to five times, rather than waiting for the next change: what it
-     could not put out is owed (src/webview.js) and goes with the next try. */
+  /* A failed write is tried again a second later, up to five times, rather than waiting for the next change; a counter
+     the failed write could not move is moved by the next try (src/webview.js). */
   let liveAgain = 0, liveFails = 0;
   const writeLiveNow = () => {
     if (removed() || uninstalling() || replaced()) return;
@@ -442,7 +443,7 @@ function start(context, log, renamed, handing = false) {
   /* Where Claude Code's own command line can be found: its binary ships inside each install. */
   const claudeFolders = () => Array.from(new Set(ADAPTERS.flatMap((adapter) => installs(adapter))));
   /* A replaced window (running an older build than the installed one) still scans so its own tabs keep their green
-     dots, and writes what it found only by the rule of keepsWork. */
+     dots, and writes what it found only when keepsWork allows. */
   const scanBackground = () => {
     if (removed() || !enabled() || uninstalling() || switchedOff().includes('backgroundSessions')) return;
     const id = activeChat();
@@ -1083,8 +1084,8 @@ function start(context, log, renamed, handing = false) {
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceAnswerHook) delete globalThis.__cceAnswerHook; } });
   /*
    * Claude Code's own notices of a permission request, a question, a plan to review and auto mode's choice are left to
-   * Agent Plus while it tells of the same waits (src/waiting-for.js). The patched host puts the answer into each panel's
-   * HTML as it is built, and the panels already open are told whenever it changes.
+   * Agent Plus while Agent Plus shows notices of the same waits (src/waiting-for.js). The patched host puts the answer
+   * into each panel's HTML as it is built, and the panels already open are told whenever it changes.
    */
   let agentCore = null, waitsLeft = false;
   const decideWaits = () => {

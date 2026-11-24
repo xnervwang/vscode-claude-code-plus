@@ -28,10 +28,9 @@ function openCount(nodes) {
 }
 
 /*
- * The folder a conversation belongs to: of the `cwd` values its records carry, the first one whose folder name is the
- * one the transcript is filed under in projects/ (a conversation resumed in another folder is copied there with its old
- * records, whose `cwd` is the folder it was started in), read from the head and then from the tail of the file; else
- * the first one. Kept per file and size.
+ * The folder a conversation belongs to. Its records carry `cwd` values, and this takes the first one that Claude Code
+ * would file under the projects/ folder holding the transcript. A conversation resumed in another folder is copied
+ * there along with its old records, and their `cwd` is still the folder it was started in. Kept per file and size.
  */
 const cwdSeen = new Map();
 const TAIL_BYTES = 256 * 1024;

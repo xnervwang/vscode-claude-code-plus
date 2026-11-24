@@ -117,13 +117,13 @@ def managed_by(directory, sid):
 
 
 def stewards_of(directory, sid):
-    """The steward that has this conversation on its list, as a list of one, or []."""
+    """A one-item list with the steward that has this conversation on its list, or [] when none has."""
     return [s for s, e in steward_table.read(directory).items() if sid in e["manages"]]
 
 
 def watched():
-    """The line a managed conversation gets each turn. It names no steward: the window that delivers a handoff finds the
-    one that manages this conversation."""
+    """The line a managed conversation gets each turn. It names no steward: the window that delivers a handoff finds
+    this conversation's steward."""
     handoff = " ".join([shlex.quote(w) for w in launcher()] + [shlex.quote(RELAY), "--handoff"])
     return ("A steward conversation watches this one for the user through Claude Code Plus: it reads your work plan and "
             "latest reply, and speaks for the user by typing messages here, which come as the user's own. Do not send it "

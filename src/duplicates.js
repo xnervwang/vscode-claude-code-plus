@@ -25,10 +25,11 @@ const ALIVE_MS = 60000;
 const NO_PAGE_MS = 5 * 60000;
 /* A process counts as idle once neither its transcript nor its status has changed for this long. */
 const IDLE_MS = 2 * 60000;
-/* A VS Code server starts its extension host with this argument. The desktop app starts it as a utility process, whose
-   command line says --type=utility like its other helpers' and whose kind it learns only once started, so there the host
-   is known by the window entry it keeps under its own pid (src/steward-view.js). An entry is rewritten every minute while
-   its host runs; an older one may name a pid given to another process since. */
+/* A VS Code server starts its extension host with this argument. The desktop app starts it as a utility process: its
+   command line says --type=utility, as its other helpers' do, and the process learns it is the extension host only
+   after it starts. On the desktop the host is known instead by the window entry it keeps under its own pid
+   (src/steward-view.js). An entry is rewritten every minute while its host runs; an older one may name a pid given to
+   another process since. */
 const HOST_ARG = '--type=extensionHost';
 const ENTRY_FRESH_MS = 2 * 60000;
 const MAX_HOPS = 6;
@@ -45,7 +46,8 @@ function stat(proc, pid) {
 function args(proc, pid) {
   try { return fs.readFileSync(path.join(proc, String(pid), 'cmdline'), 'latin1').split('\0').join(' '); } catch (_) { return ''; }
 }
-/* The pid of the extension host above `pid`, or 0. `hosts` holds the pids of the hosts that keep a fresh window entry. */
+/* The pid of the extension host above `pid`, or 0. `hosts` is the set of extension host pids with a fresh window entry.
+   */
 function hostOf(pid, proc, hosts) {
   let p = pid;
   for (let i = 0; i < MAX_HOPS; i++) {

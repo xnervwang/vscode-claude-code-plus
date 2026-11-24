@@ -16,12 +16,13 @@
  * `resume` opens a stored conversation that no window shows, in an editor tab of the window whose first folder is the
  * one Claude Code files the conversation under (Claude Code looks for a window's conversations only there, src/
  * claude-files.js filedUnder), and then sends it `text` if there is any. `open` likewise goes to a window whose first
- * folder is `to`: Claude Code starts a new conversation in a window's first folder. It is refused while a window
- * shows the conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation
- * hands something it thinks belongs elsewhere to a steward that manages it (`from` is then the one asking, and `to` is
+ * folder is `to`, since Claude Code starts a new conversation there. It is refused while a window shows the
+ * conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation hands
+ * something it thinks belongs elsewhere to a steward that manages it (`from` is then the one asking, and `to` is
  * empty). A window showing its steward takes it and posts it, as a notice and never as the user's message, to the inbox
- * of the steward that has the conversation on its list, or, when none has, of the steward with "all" on; should a table
- * still name several, of the one the user last typed to, or the next one that can be reached.
+ * of the steward that has the conversation on its list, or, when none has, of the steward with "all" on. If a table
+ * still names several, the handoff goes to the one the user last typed to, or failing that to the next one that can be
+ * reached.
  *
  * Any process can write a request file. A window carries one out only if the conversation is one the steward manages
  * (for `open` and `resume`, only if the one asking is a steward; for `handoff`, only if a steward manages the one
@@ -29,9 +30,9 @@
  * with the action's flag, and at most once per call.
  *
  * A conversation a steward opened with `open` or `resume` is then ticked for it in stewards.json, as the user would
- * tick it in the Steward panel, by the window that opened it if that window may write the table (writesTable in
- * src/steward-view.js); a steward of all conversations too, which would otherwise wait for the next pass of the panel
- * in its own window. Nothing else a steward asks for changes whom it manages.
+ * tick it in the Steward panel. The window that opened it does this, if that window may write the table (writesTable in
+ * src/steward-view.js); a steward of all conversations gets the tick too, which would otherwise wait for the next pass
+ * of the panel in its own window. Nothing else a steward asks for changes whom it manages.
  *
  *   <plan dir>/relay/<id>.json          { id, steward, from, action, to, text, confirmed, at }   written by steward-relay.py
  *   <plan dir>/relay/<id>.taken-<pid>   the request, claimed by window <pid> with a rename
@@ -123,15 +124,14 @@ function readSent(dir, now) {
 
 /*
  * Carries out the requests in `planDir` for conversations this window shows, the `open` requests for its first folder,
- * the `resume` requests for a conversation Claude Code here can open (opensHere), and the `handoff` requests to a
- * steward it shows. deps: shownHere(id), folders() -> this window's folders, first first, stewards() -> the stewards
- * table (src/stewards.js), transcriptOf(id), deliver(id, text), rename(id, title), close(id, confirmed),
+ * the `resume` requests for a conversation that Claude Code in this window can open (opensHere), and the `handoff`
+ * requests to a steward it shows. deps: shownHere(id), folders() -> this window's folders, first first, stewards() ->
+ * the stewards table (src/stewards.js), transcriptOf(id), deliver(id, text), rename(id, title), close(id, confirmed),
  * open(folder, text) and resume(id, text) -> Promise<{ outcome, reason, sessionId, opened }> (open's sessionId is the
  * new conversation's, when known), manage(steward, id) to tick a conversation for the steward, which returns false when
- * this window may not, windows() -> the
- * windows' entries { pid, name, folders, sessions }, agents() -> Promise<{ records, error }> from `claude agents --json`,
- * records() -> the live session records and post(address, text) for a handoff, titleOf(id), pid, now(), and sleep(ms)
- * for tests. Returns the results it wrote.
+ * this window may not, windows() -> the windows' entries { pid, name, folders, sessions }, agents() -> Promise<{
+ * records, error }> from `claude agents --json`, records() -> the live session records and post(address, text) for a
+ * handoff, titleOf(id), pid, now(), and sleep(ms) for tests. Returns the results it wrote.
  */
 async function take(planDir, deps) {
   const dir = path.join(planDir, RELAY_DIR);
@@ -164,9 +164,9 @@ async function take(planDir, deps) {
 }
 
 /*
- * Whether Claude Code in a window with `folders` open finds the stored conversation `id`: it looks only under the
- * folder of the window's first folder (or of the home folder in a window with none), by that folder's path or the one
- * its symbolic links lead to.
+ * Whether Claude Code in a window with `folders` open finds the stored conversation `id`. It looks only in the
+ * projects/ folder named after the window's first folder (after the home folder in a window with none), going by that
+ * folder's path or by the path its symbolic links lead to.
  */
 function opensHere(id, folders, find) {
   const file = find ? find(id) : '';
@@ -219,11 +219,12 @@ async function heldElsewhere(id, deps, managed) {
 }
 
 /*
- * Opens a stored conversation in an editor tab here and, with `text`, sends it once a panel here shows it. deps:
- * open(id), shows(id) -> whether a panel here has the conversation and its page takes answers, tabOpen(id) -> whether a
- * tab here is for it, still loading or not, deliver(id, text) -> a send's result, sleep(ms) and now() for tests. A tab
- * must come within RESUME_SHOW_MS; once it has, the conversation may take up to RESUME_LOAD_MS to load. The result has
- * opened: true once a tab here is for it, also when the text was then not sent.
+ * Opens a stored conversation in an editor tab of this window and, given `text`, sends the text once a panel of this
+ * window shows the conversation. deps: open(id), shows(id) -> whether a panel here has the conversation and its page
+ * takes answers, tabOpen(id) -> whether this window has a tab for it, loaded or still loading, deliver(id, text) -> a
+ * send's result, sleep(ms) and now() for tests. A tab must appear within RESUME_SHOW_MS; once it has, the conversation
+ * may take up to RESUME_LOAD_MS to load. The result has opened: true as soon as a tab of this window holds the
+ * conversation, even if the text was not sent after that.
  */
 async function resume(id, text, deps) {
   const now = deps.now || Date.now;
@@ -310,8 +311,8 @@ function textFor(action, raw) {
   return text && text.length <= MAX_TEXT ? { text } : { why: `there is no text, or it is longer than ${MAX_TEXT} characters` };
 }
 
-/* Whether steward `steward` manages conversation `id`. A steward of all conversations manages all but other stewards
-   and those another steward has, even ones missing from its list for the moment. */
+/* Whether `steward` manages conversation `id`. A steward of all conversations manages all but other stewards and those
+   another steward has, even ones missing from its list for the moment. */
 const manages = (table, steward, id) => {
   const t = table[steward];
   return !!t && (t.manages.includes(id) || (t.all && id !== steward && !table[id] && !holderOf(table, id, steward)));

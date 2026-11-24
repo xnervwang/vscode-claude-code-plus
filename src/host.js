@@ -45,8 +45,8 @@ if (/<\/script/i.test(PANEL_TZ)) throw new Error('panel-tz.js must not contain a
 /* Read by the host at the moment a panel's HTML is built, so the setting reaches every panel opened after it changes.
    Unset counts as on: a panel restored before this extension has activated still gets the watch. */
 const LOAD_WATCH_OFF = '__cceNoLoadWatch';
-/* Read the same way: true while Claude Code's own notices of waits are left to Agent Plus (src/waiting-for.js), so a
-   panel opened then starts out knowing it (src/page/95-wait-notices.js). */
+/* Read the same way: true while Agent Plus, rather than Claude Code, shows the notices of waits (src/waiting-for.js),
+   so that a panel opened during that time knows it from the start (src/page/95-wait-notices.js). */
 const WAITS_LEFT_ON = '__cceWaitsAnnounced';
 
 const EDITS = [
@@ -97,13 +97,13 @@ const EDITS = [
   },
   /*
    * Messages from a panel meant for this extension: the panel's time zone, a conversation pinned or unpinned in the
-   * session list, a text color chosen for conversations there, archived conversations to delete, whether an answer
-   * from the Conversations tab was sent (src/page/91-answer.js), the info box asking for its conversation's
-   * process id (src/page/80-session-info.js), the panel's page getting focus (src/page/92-focus.js), the page
-   * saying it is still there (src/page/99-sweep.js, for src/duplicates.js), a conversation link clicked and a panel
-   * asking for the conversations it can link (src/page/93-steward-links.js and 95-conversation-links.js, for
-   * src/conversation-links.js), and the state a panel reports for its conversation with whether a turn runs and what it
-   * waits for beside it (src/webview.js, for src/activity.js and src/waiting-for.js).
+   * session list, a text color chosen for conversations there, archived ones to delete, whether an answer from the
+   * Conversations tab was sent (src/page/91-answer.js), the info box asking for its conversation's process id
+   * (src/page/80-session-info.js), the panel's page getting focus (src/page/92-focus.js), the page saying it is still
+   * there (src/page/99-sweep.js, for src/duplicates.js), a conversation link clicked and a panel asking for the
+   * conversations it can link (src/page/93-steward-links.js and 95-conversation-links.js, for
+   * src/conversation-links.js), and the state a panel reports for its conversation: whether a turn runs, and what the
+   * conversation waits for (src/webview.js, for src/activity.js and src/waiting-for.js).
    *
    * Every message a panel sends passes through the one function that logs it, before anything decides what the message
    * is, and Claude Code itself ignores all of these types. A global is how each reaches this extension - both run in one

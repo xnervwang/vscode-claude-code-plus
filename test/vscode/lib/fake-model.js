@@ -10,22 +10,21 @@
  * claudeCode.environmentVariables); the key it sends is fake and nothing checks it.
  *
  * A turn whose message contains ASK_TO_RUN is answered with a Bash tool call of RUN instead of text, so that Claude Code
- * stops to ask for permission to run it; the turn that carries the tool's result is answered with text again. One whose
- * message contains ASK_TO_BACKGROUND gets a Bash call of BG_RUN with run_in_background, so the turn can end while the
- * command still runs, and ASK_TO_BACKGROUND_LONG the same with BG_LONG_RUN, which runs for a quarter of an hour. One
- * whose message contains ASK_TO_DETACH gets a Bash call of DETACH_RUN, which leaves a program
- * running in a session of its own, outside Claude Code's account of its background work; ASK_TO_DETACH_SHORT the same with
- * DETACH_SHORT_RUN, which ends sooner. One whose message contains ASK_FOR_HELPER gets an Agent call run in the background, whose prompt is
- * HELPER_TASK; the helper's own turns are held until releaseHelper(), so it keeps running for as long as a test needs.
- * One whose message contains ASK_FOR_WORKER gets a Bash call of WORKER_RUN, which starts $HOME/fake-bin/claude as a
- * `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT). One whose message contains
+ * stops to ask for permission to run it; the turn that carries the tool's result is answered with text again. A message
+ * with ASK_TO_BACKGROUND gets a Bash call of BG_RUN with run_in_background, so the turn can end while the command still
+ * runs, and ASK_TO_BACKGROUND_LONG the same with BG_LONG_RUN, which runs for a quarter of an hour. ASK_TO_DETACH gets a
+ * Bash call of DETACH_RUN, which leaves a program running in a session of its own, outside Claude Code's account of its
+ * background work; ASK_TO_DETACH_SHORT the same with DETACH_SHORT_RUN, which ends sooner. ASK_FOR_HELPER gets an Agent
+ * call run in the background, whose prompt is HELPER_TASK; the helper's own turns are held until releaseHelper(), so it
+ * keeps running for as long as a test needs. ASK_FOR_WORKER gets a Bash call of WORKER_RUN, which starts
+ * $HOME/fake-bin/claude as a `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT).
  * ASK_FOR_BG_SESSION gets a Bash call of BG_SESSION_RUN, which starts a `claude --bg` session with the stand-in at
- * $HOME/fake-bg/claude (BG_SESSION_SCRIPT). One whose message contains ASK_FOR_BG_OUTPUT gets a Bash call of
- * BG_OUTPUT_RUN with run_in_background: the same launch after a wait, cut to the CLI's three hints by `tail -3`, so the
- * call's result names only the file the command writes, and the session starts well after that result. One whose
- * message contains ASK_FOR_CHOICE gets an AskUserQuestion call with CHOICE's question and options, so that Claude Code shows a choice box.
- * One whose message contains ASK_TO_PAUSE gets a Bash call of PAUSE_RUN, which Claude Code runs without asking; a
- * message typed while the turn runs is taken into the turn after that call's result.
+ * $HOME/fake-bg/claude (BG_SESSION_SCRIPT). ASK_FOR_BG_OUTPUT gets a Bash call of BG_OUTPUT_RUN with
+ * run_in_background: the same launch after a wait, cut to the CLI's three hints by `tail -3`, so the call's result names
+ * only the file the command writes, and the session starts well after that result. ASK_FOR_CHOICE gets an
+ * AskUserQuestion call with CHOICE's question and options, so that Claude Code shows a choice box. ASK_TO_PAUSE gets a
+ * Bash call of PAUSE_RUN, which Claude Code runs without asking; a message typed while the turn runs is taken into the
+ * turn after that call's result.
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
@@ -61,8 +60,8 @@ const BG_OUTPUT_RUN = 'sleep 15; "$HOME/fake-bg/claude" --bg "Write the weekly d
  * A stand-in for the CLI's `claude --bg`, a Node script at $HOME/fake-bg/claude, so that it runs the same on Linux,
  * macOS and Windows (where Claude Code's Bash tool is Git Bash). Asked for --bg, it writes the job's record under
  * ~/.claude/jobs/<id>/state.json as working, prints the CLI's `backgrounded · <id>` line and its three hints, and leaves
- * a process of its own running, with no terminal and in a process group of its own. That process writes a session record
- * of kind "bg" for the job, busy, keeps the job's record fresh, and after `seconds` records the job as done with a result,
+ * a process running detached from any terminal, in its own process group. That process writes a busy session record of
+ * kind "bg" for the job and keeps the job's record fresh; after `seconds` it records the job as done with a result,
  * removes its session record and exits. The session's own transcript says it is a `claude --bg` session.
  */
 const BG_SESSION_SCRIPT = (seconds) => `#!/usr/bin/env node
@@ -124,8 +123,8 @@ function sse(res, type, payload) {
 
 const LINK_ASK = /link to conversation ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 const LINK_TEXT = 'that conversation';
-/* A reply naming another conversation three ways, for the links the page makes of them: by its title as it stands, by
-   its title in corner brackets, and by the first 8 characters of its id. */
+/* A reply that names another conversation three ways for the page to link: by its title as it stands, by its title in
+   corner brackets, and by the first 8 characters of its id. */
 const NAME_ASK = /name the conversation ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) titled (.+?)\.?\s*$/i;
 const NAMED_REPLY = (id, title) => `${title} is the one. In brackets: \u300c${title}\u300d. By its short id: ${id.slice(0, 8)}.`;
 /* A reply given word for word, base64 in the message so that the message box takes it as typed: code fences, corner

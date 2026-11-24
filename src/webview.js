@@ -27,8 +27,8 @@
  *                      schedule even with no agent, a label that then does not read "0 agents" and a dot that is
  *                      green while any of its background work runs, and the conversation's own row in the map
  *                      drawn with the dot its tab has.
- *   open finished      The open of a conversation counts as finished in a background tab too, where the page gets
- *                      no animation frames, so a tab loaded behind others is still reopened after later reloads.
+ *   open finished      Opening a conversation counts as finished in a background tab too, where the page gets no
+ *                      animation frames, so a tab loaded behind others is still reopened after later reloads.
  *   wait notices       Two: Claude Code's own notice of a permission request (which also covers a question and a plan
  *                      to review) and of auto mode's Continue or Stop dialog is left out while Agent Plus tells of the
  *                      same waits (src/waiting-for.js); the panel's state report says what it waits for.
@@ -392,8 +392,8 @@ const METER_KEPT = '(typeof window.__cceMeterKept==="function"&&window.__cceMete
    (src/waiting-for.js reads it). `s` is the expression for the panel's session. */
 const WAIT_OF = (s) => `(()=>{try{let cceR=${s}.permissionRequests.value[0];if(cceR)return{tool:String(cceR.toolName??"")};`
   + `let cceD=${s}.userDialogRequests.value[0];if(cceD)return{dialog:String(cceD.dialogKind??"")}}catch(cceE){}return void 0})()`;
-/* The check the two notice edits insert: whether the page was told that Agent Plus tells of waits (95-wait-notices.js).
-   Without the page's function the notice is shown as in Claude Code. */
+/* The check the two notice edits insert: whether the page knows that Agent Plus shows the notices of waits
+   (95-wait-notices.js). Without the page's function the notice is shown as in Claude Code. */
 const WAITS_LEFT = '(typeof window.__cceWaitsAnnounced==="function"&&window.__cceWaitsAnnounced()===!0)';
 
 /* Regex source for a steward link; 93-steward-links.js accepts the same form. */
@@ -450,10 +450,10 @@ const EDITS = [
       + `||${state}&&${jsx}(${dot},{state:${state},ring:${where}!==void 0&&${state}!=="unread",title:${title}(${state},${where})})),`,
   },
   {
-    /* A rename typed in the session list's box is shown at once, before the title is stored, and the stored one replaces
-       it only when the list is next read back, which does not happen when the title stored is the one it had. So the
-       marks this extension draws are taken off what is shown too (84-row-marks.js), as the host takes them off what is
-       stored (src/host.js). */
+    /* A rename typed in the session list's box is shown at once, before the title is stored, and the stored one
+       replaces it only when the list is next read back; that read does not happen when the stored title has not
+       changed. So the marks this extension draws are taken off what is shown too (84-row-marks.js), as the host takes
+       them off what is stored (src/host.js). */
     name: 'session list renames show no marks',
     re: /renameSession\(([\w$]+),([\w$]+)\)\{this\.lastLocalRenameAt\.set\(\1,Date\.now\(\)\);/g,
     to: (m, id, title) => `${m}${title}=typeof window.__cceCleanTitle==="function"?window.__cceCleanTitle(${title}):${title};`,
@@ -471,8 +471,8 @@ const EDITS = [
   {
     /* Claude Code's notice that a conversation asks for permission to use a tool, which it shows for AskUserQuestion's
        question and ExitPlanMode's plan too, in the conversation's window while its panel is not on screen. While Agent
-       Plus tells of the same waits in the window the user is in, it is left out; otherwise it is shown as before. The
-       notice's own text and buttons are not touched. */
+       Plus shows notices of the same waits in the window the user is in, it is left out; otherwise it is shown as
+       before. The notice's own text and buttons are not touched. */
     name: 'permission notice left to Agent Plus',
     // Two shapes: from 2.1.331 the request goes through a function that waits a second and, while the panel's place
     // is hidden, names the conversation in the notice; before that, the notice was shown right where it was asked for.
@@ -561,25 +561,25 @@ const EDITS = [
     to: (m, head, set, anchor, next) => `${head}cceClearSelection:()=>{${set}(new Set),${anchor}(null)},${next}`,
   },
   {
-    /* A right-click on a row the list has not picked makes that row the list's selection (the set an action on several
-       rows works on). Claude Code's own items end it once they have run, but a menu closed with nothing picked keeps it,
-       drawn outlined for as long as the list stays open. The one handler that opens the list's menu and the Archived
-       sessions menu leaves a way to end the selection its right-click made; a selection there before the right-click
-       stays. */
+    /* Right-clicking a row the list has not picked makes that row the list's selection (the set an action on several
+       rows works on). Claude Code's own items end it once they have run, but a menu closed with nothing picked keeps
+       it, drawn outlined for as long as the list stays open. The one handler that opens the list's menu and the
+       Archived sessions menu leaves a way to end the selection its right-click made; a selection there before the
+       right-click stays. */
     name: 'row menu ends the selection it made',
     re: /(function ([\w$]+)\(([\w$]+),([\w$]+)\)\{if\(![\w$]+\|\|![\w$]+\)return;let ([\w$]+)=[\w$]+\(\4\);if\(!\5\)return;)(if\(\3\.preventDefault\(\),\3\.stopPropagation\(\),[\w$]+\(\4\)\)\{let [\w$]+=new Set\([\w$]+\),[\w$]+=([\w$]+)\.has\(\5\)\?\[\.\.\.\7\]\.filter\(\(([\w$]+)\)=>[\w$]+\.has\(\8\)\):\[\5\];if\(!\7\.has\(\5\)\)([\w$]+)\(new Set\(\[\5\]\)\),)/g,
     to: (m, head, fn, ev, item, key, rest, sel, x, set) => `${head}window.__cceMenuSelection=${sel}.has(${key})?void 0:()=>${set}((cceS)=>cceS.size===1&&cceS.has(${key})?new Set:cceS);${rest}`,
   },
   {
-    // The menu closing, by an item or not, ends a selection its right-click made.
+    // Closing the menu, with an item picked or not, ends that selection.
     name: 'row menu close ends the selection it made',
     re: /([\w$]+)&&([\w$]+)&&([\w$]+)\(([\w$]+),\{items:\2,x:\1\.x,y:\1\.y,onClose:\(\)=>([\w$]+)\(null\)\}\)/g,
     to: (m, menu, items, jsx, Menu, setMenu) => `${menu}&&${items}&&${jsx}(${Menu},{items:${items},x:${menu}.x,y:${menu}.y,onClose:()=>{${setMenu}(null);`
       + 'let cceE=window.__cceMenuSelection;window.__cceMenuSelection=void 0;if(typeof cceE==="function")cceE()}})',
   },
   {
-    /* A drag of a row the list has not picked makes it the selection too. A drop on a group ends it; a drag let go
-       anywhere else keeps it. The drag carries a way to end the selection it made. */
+    /* Dragging a row the list has not picked also makes it the selection. A drop on a group ends it; a drag let go
+       anywhere else keeps it. The drag's record holds a function (cceEnd) that ends the selection it made. */
     name: 'row drag remembers the selection it made',
     re: /if\(!([\w$]+)\.has\(([\w$]+)\)\)([\w$]+)\(new Set\(\[\2\]\)\),([\w$]+)\(\2\);(let ([\w$]+)=`\$\{Date\.now\(\)\.toString\(36\)\}[^]{0,300}?)([\w$]+)\.current=\{nonce:\6,keys:([\w$]+),sourceKey:\2\}/g,
     to: (m, sel, key, set, anchor, mid, nonce, ref, keys) => `if(!${sel}.has(${key}))${set}(new Set([${key}])),${anchor}(${key});${mid}`
@@ -729,8 +729,8 @@ const EDITS = [
      * This extension's part of the agent map, as the first child of the dialog's content: the heading over the
      * conversation's own row and a section for each kind of work Claude Code does not list (src/page/82-scheduled-tasks.js).
      *
-     * The page is handed the element factory from this scope, so it returns a real element tree rather than a string.
-     * Where the page is missing or fails, the child is null, which leaves the dialog as Claude Code draws it.
+     * The page gets the element factory from this scope and returns a real element tree with it. If the page is missing
+     * or fails, the child is null and the dialog stays as Claude Code draws it.
      *
      * The anchor is the panel's own title and its children array, with whatever props sit between them skipped: the
      * dialog's size and scrolling have been reshaped upstream before, and none of that changes where a child goes.
@@ -812,9 +812,9 @@ const EDITS = [
       + `?window.__cceMentionPlugins(${f}.rehypePlugins,${links}):${f}.rehypePlugins),`,
   },
   {
-    /* A reply's blocks are memoized, so the plugin above would run again only when a block's text changed. Each block is
-       also handed the revision the page moves when the conversations it can link, this panel's conversation or the
-       switch change (95-conversation-links.js), read in the reply's own render. */
+    /* A reply's blocks are memoized, so the plugin above would run again only when a block's text changed. Each block
+       also gets a revision number that the page bumps when the conversations it can link, this panel's conversation or
+       the switch change (95-conversation-links.js); the reply reads it in its own render. */
     name: 'conversation links redraw the reply',
     re: /([\w$]+)\.map\(\(([\w$]+),([\w$]+)\)=>([\w$]+)\(([\w$]+),\{source:\2,fileOpener:([\w$]+)\?\.fileOpener,/g,
     to: (m, list, block, i, h, comp, ctx) => `${list}.map((${block},${i})=>${h}(${comp},{cceMentions:(typeof window.__cceMentionsRev==="function"`
@@ -830,13 +830,13 @@ const EDITS = [
   },
   {
     /*
-     * The panel marks the open of a conversation unfinished as it starts to load it, and once two opens in a row were
+     * The panel marks opening a conversation unfinished when it starts to load it, and once two opens in a row were
      * left so, does not reopen that tab after a reload. It counts an open as finished 3 s after loading ends, waiting
      * first for two animation frames, so that the conversation has been drawn, unless the page is hidden. A webview in
      * a background tab gets no frames yet says it is visible, so a conversation that finished loading there stayed
      * unfinished until its tab was shown, and claudeCodePlus.loadRestoredTabs, which loads background tabs, had them
-     * refused at the third window start. When no frame has come after a second the wait goes on as for a hidden page;
-     * a page that is drawn has its two frames long before.
+     * refused at the third window start. If no frame has come within a second, the wait continues as it does for a
+     * hidden page; a page that is drawn gets its two frames long before that.
      */
     name: 'open counted finished without frames',
     re: /function ([\w$]+)\(([\w$]+)\)\{let ([\w$]+),([\w$]+),([\w$]+)=\(\)=>\{\3=void 0,\4=setTimeout\(\2,([\w$]+)\)\};if\(document\.visibilityState==="hidden"\)\5\(\);else \3=requestAnimationFrame\(\(\)=>\{\3=requestAnimationFrame\(\5\)\}\);return\(\)=>\{if\(\3!==void 0\)cancelAnimationFrame\(\3\);clearTimeout\(\4\)\}\}/g,
@@ -928,7 +928,8 @@ function readRev(rev) {
  * file another process holds open, and the panel fetches this image every few seconds.
  */
 const owedRev = new Map();
-/** Move one of the two counters, `w` or `h`, and any that a failed write still owes, keeping the other as it stands. */
+/** Moves one of the two counters, `w` or `h`, plus any move a failed write still owes; the other counter is left as
+    it is. */
 function bumpRev(rev, which) {
   const owed = new Set(owedRev.get(rev) || []);
   if (which) owed.add(which);

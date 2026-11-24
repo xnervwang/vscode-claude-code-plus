@@ -4,14 +4,15 @@
 
 'use strict';
 /*
- * The conversations a Claude Code panel can link to where a reply names them (src/page/95-conversation-links.js), and
- * what a click on such a link opens.
+ * Which conversations a Claude Code panel turns into links when a reply names them (src/page/95-conversation-links.js),
+ * and what a click on such a link opens.
  *
- * The list is Agent Plus's, of every agent, when it offers one (allConversations in its docs/protocol.md): what its
- * Conversations view reads anyway, machine-wide and this window's. An Agent Plus without it leaves this extension's own
- * Claude Code conversations. Every panel is sent the list when it changes, and a panel that opens later asks for it. A
- * click goes to agentPlus.openConversation, which brings the conversation forward in the window that shows it, offers to
- * open it here when no window does, and opens it through its own agent, so a Codex conversation opens in Codex.
+ * When Agent Plus offers allConversations (its docs/protocol.md), the list comes from it: the conversations of every
+ * agent that its Conversations view reads anyway, those running on this machine and those shown in this window. With
+ * an Agent Plus that lacks it, the list is the Claude Code conversations this extension finds itself. Every panel is
+ * sent the list when it changes, and a panel that opens later asks for it. A click goes to agentPlus.openConversation,
+ * which brings the conversation forward in the window that shows it, offers to open it here when no window does, and
+ * opens it through its own agent, so a Codex conversation opens in Codex.
  *
  * Nothing is read or sent while claudeCodePlus.show.conversationLinks is off. No editor API here: the tests load it
  * directly.
@@ -27,7 +28,7 @@ const OWN_LABEL = 'Claude Code';
 
 const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 
-/* What a panel is sent of one conversation; one without a usable id is dropped. */
+/* The entry a panel gets for one conversation, or null when its id is unusable. */
 function entryOf(c, sourceId, label) {
   if (!c || typeof c.sessionId !== 'string' || !c.sessionId || c.sessionId.length > 200) return null;
   const at = typeof c.lastActiveAt === 'number' ? c.lastActiveAt : Date.parse(c.lastActiveAt || '');
@@ -51,10 +52,10 @@ function entries(list, sourceId = '', label = '') {
 }
 
 /*
- * `on()` says whether the setting is on; `own()` resolves to this extension's Claude Code conversations, for an Agent
- * Plus without allConversations; `send(message)` posts to every panel; `open(target)` runs agentPlus.openConversation;
- * `openOwn(sessionId)` opens a Claude Code conversation when there is no Agent Plus to ask. `every(fn, ms)` replaces
- * setInterval, in tests.
+ * `on()` is true while claudeCodePlus.show.conversationLinks is in effect; `own()` resolves to this extension's Claude
+ * Code conversations, for an Agent Plus without allConversations; `send(message)` posts to every panel; `open(target)`
+ * runs agentPlus.openConversation; `openOwn(sessionId)` opens a Claude Code conversation when there is no Agent Plus to
+ * ask. `every(fn, ms)` replaces setInterval, in tests.
  */
 function create({ on, own, send, open, openOwn, log = () => {}, every = setInterval, pollMs = OWN_POLL_MS }) {
   let core = null, sub = null, list = [], key = '', rev = 0, closed = false, asking = null, poll = null, polling = false;
@@ -104,7 +105,6 @@ function create({ on, own, send, open, openOwn, log = () => {}, every = setInter
     /* The setting changed, or this extension's own conversations did. */
     refresh() { if (on() && !usesCore()) fromOwn(false); else follow(); },
     settingChanged() { follow(); },
-    /* A panel asked for the list. */
     ask() {
       if (closed || !on()) return undefined;
       if (usesCore()) { if (!sub) follow(); fromCore(true); return undefined; }

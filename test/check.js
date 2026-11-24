@@ -696,9 +696,10 @@ function checkEdits(adapter, src, label) {
   if (adapter.name === 'Claude Code panel') { checkReplyShape(src, label); checkRowIds(src, label); if (!r.error) checkWaitNotices(r.out, label); }
 }
 
-/* Every notice the panel shows with a View button, only while it is not on screen, is one of a wait, and each is left to
-   Agent Plus while it tells of waits (src/waiting-for.js). A build with a third would show it beside Agent Plus's. From
-   2.1.331 one function shows that notice for each wait it is given, so each call to it counts as one notice. */
+/* The panel's notices with a View button, shown only while the conversation is off screen, are all notices of a wait,
+   and each is left to Agent Plus while Agent Plus shows the notices of waits (src/waiting-for.js). A build with a third
+   such notice would show it beside Agent Plus's. From 2.1.331 one function shows that notice for each wait it is given,
+   so each call to it counts as one notice. */
 function checkWaitNotices(out, label) {
   let shown = out.split('"info",["View"],!0)').length - 1;
   const left = out.split('(' + webview.WAITS_LEFT + '?void 0:').length - 1;
@@ -708,7 +709,7 @@ function checkWaitNotices(out, label) {
     const own = out.slice(0, out.indexOf(webview.MARK)), name = shows[1].replace(/\$/g, '\\$');
     shown += own.split(new RegExp(`(?<![\\w$.])${name}\\(`)).length - 1 - 2;
   }
-  if (shown === 2 && left === 2) ok(`${label}: both of the panel's notices of a wait are left to Agent Plus while it tells of them`);
+  if (shown === 2 && left === 2) ok(`${label}: while Agent Plus shows the notices of waits, the panel leaves both of its own to it`);
   else bad(`${label}: ${shown} notices with a View button, ${left} of them left to Agent Plus (expected 2 and 2)`);
 }
 
@@ -907,7 +908,7 @@ console.log('\nthe model pill comparison');
     ['a reply from a different model than the one picked', 'claude-opus-5', 'global.anthropic.claude-opus-5-5[1m]', true],
   ];
   if (before(strip, cases[0][1], { resolvedModel: cases[0][2] }) === true) {
-    ok('the unpatched comparison does call the Bedrock pair different, which is the bug being fixed');
+    ok('the unpatched comparison does call the Bedrock pair different, the bug this edit fixes');
   } else bad('the unpatched comparison no longer shows the bug, so this rule may be fixing nothing');
   for (const [what, served, pick, want] of cases) {
     const got = after(strip, served, { resolvedModel: pick });
@@ -1501,8 +1502,8 @@ console.log('\nreply efforts');
   }
 
   /* A revision image that could not be replaced, as Windows refuses while the panel has it open: the stylesheet or the
-     efforts beside it were written already, so the same content again must still move the counter, or the panel never
-     loads them. Seen in CI on Windows, where a switch turned back on did not reach the panel. */
+     effort file next to it had already been written, so the next write of the same content must still move the counter,
+     or the panel never loads them. Seen in CI on Windows, where a switch turned back on did not reach the panel. */
   {
     const inst2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-rev-owed-'));
     const realRename = fs.renameSync;
@@ -1525,7 +1526,8 @@ console.log('\nreply efforts');
       webview.writeEffort(inst2, sid, '#cce-effort{--cce-effort:"x"}\n');
       const r0 = rev();
       const threw = (f) => { try { f(); return false; } catch (_) { return true; } };
-      /* Refused every time through the write's own tries, which on Windows include waits for the file to be let go. */
+      /* Every rename is refused, including the retries the write makes on Windows while it waits for the file to be
+         released. */
       refuse = Infinity;
       const liveThrew = threw(() => webview.writeLive(inst2, { enabled: true, userColor: '#90EE90' }));
       refuse = 0;
@@ -1553,7 +1555,7 @@ console.log('\nreply efforts');
     const liveFn = (/const writeLiveNow = \(\) => \{[\s\S]*?\n  \};/.exec(extLive) || [''])[0];
     if (/catch \(e\) \{[\s\S]*setTimeout\(\(\) => \{[^}]*writeLiveNow\(\)/.test(liveFn)) {
       ok('a live refresh that failed is tried again on a timer, not only at the next change');
-    } else bad('a failed live refresh waits for the next change of settings or sessions before it is tried again');
+    } else bad('extension.js retries a failed live refresh only at the next change of settings or sessions');
   }
 
   /* The whole way through, in a browser: the revision probe sees the height, the page loads its conversation's file,
@@ -2087,8 +2089,9 @@ console.log('\nbackground sessions');
   }
 
   /* A launch run as a background command: its result names only the file the command prints into, so the launch is read
-     from that file, also once it is written after the result, and by a window started afterwards. A file outside the
-     conversation's own folder, or named by a command that did not run in the background, is not read. */
+     from that file. The file is read even when the command writes it after the result, and a window started afterwards
+     reads it too. A file outside the conversation's own folder, or named by a command that did not run in the
+     background, is not read. */
   {
     const SIDB = 'abababab-1111-2222-3333-444444444444';
     const tB = path.join(proj, SIDB + '.jsonl');
@@ -2132,7 +2135,7 @@ console.log('\nbackground sessions');
     else {
       const [beforeB, afterB] = stepsB;
       if (!beforeB.ids.includes('5a5a5a5a') && afterB.ids.includes('5a5a5a5a') && JSON.stringify(afterB.outputs) === JSON.stringify([outB])) {
-        ok('a launch run as a background command is found in the file its result names, once the command has written it, and the file is kept to be read again');
+        ok('a launch run as a background command is found once the command has written the file its result names, and the file is kept to be read again');
       } else bad(`a background launch gave ${JSON.stringify(stepsB)}`);
       if (!afterB.ids.includes('6b6b6b6b') && !afterB.ids.includes('7c7c7c7c')) {
         ok('an output file outside the conversation\'s own folder, or named by a command that did not run in the background, is not read');
@@ -2381,7 +2384,7 @@ console.log('\nbackground sessions');
     const want = { running: 'running', 'waiting for you': 'waiting', done: 'idle', stopped: 'failed', failed: 'failed' };
     const pairs = metas.map((m, i) => [m, dots[i]]);
     if (['running', 'waiting for you', 'done'].every((w) => metas.includes(w)) && pairs.every(([m, d]) => want[m] === d)) {
-      ok(`each session's card has the dot of its state and says the state (${[...new Set(metas)].join(', ')})`);
+      ok(`each session's card shows its state, as a dot and in words (${[...new Set(metas)].join(', ')})`);
     } else bad(`state dots: ${JSON.stringify(pairs)}`);
   }
   if (flat.includes('claude attach 1a2b3c4d') && flat.includes('claude logs 5e6f7a8b')) {
@@ -2676,8 +2679,8 @@ console.log('\nworkers in the agent map, and the dots that follow background wor
 
 /* The agent map's look, the page side: a heading over the conversation's own row, a section per kind of work with a
    heading of its own (a label and a count), every row in Claude Code's card form, empty sections left out, and Claude
-   Code's two headings given the same look from their own words - and left alone when worded otherwise. The host side:
-   the title a detached command's card carries. */
+   Code's two headings given the same look when they keep their own wording, and left alone when they do not. The host
+   side: the title a detached command's card carries. */
 console.log('\nthe agent map: headings, sections and cards');
 {
   const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
@@ -2718,8 +2721,8 @@ console.log('\nthe agent map: headings, sections and cards');
       { session: SID, id: '9c0d1e2f', name: 'third', state: 'stopped', endedAt: Date.now() - 120000 }] });
   same(JSON.parse(Buffer.from(prop(sheet, '--cce-detached'), 'base64').toString('utf8'))[0].title, 'perl -e \u2026 cache-relay:demo:',
     'the title rides in the stylesheet with the command');
-  /* A stand-in document: the dialog's two headings as Claude Code words them, one it words otherwise, and one tagged
-     before whose words have since changed. */
+  /* A stand-in document: Claude Code's two dialog headings in its own wording, a heading worded some other way, and one
+     tagged earlier whose text has changed since. */
   const node = (text, attrs = {}) => ({ textContent: text, attrs, getAttribute: (k) => (k in attrs ? attrs[k] : null),
     setAttribute: (k, v) => { attrs[k] = String(v); }, removeAttribute: (k) => { delete attrs[k]; } });
   const heads = [node('2 agents · click an agent for details'), node('1 background task · click a task for details'),
@@ -7017,8 +7020,8 @@ console.log('\na conversation opened while its deletion is being confirmed');
 }
 
 /* Links to other conversations, wired up in extension.js (src/conversation-links.js): against an Agent Plus that offers
-   allConversations, what every panel is sent, what a panel asking gets, where a click and the URI handler go, and the
-   switch stopping the subscription. */
+   allConversations, the list every panel is sent and the one a panel gets when it asks, where a click and the URI
+   handler go, and the switch stopping the subscription. */
 console.log('\nconversation links, wired up at activation');
 {
   const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
@@ -8891,7 +8894,7 @@ console.log('\ntext colors in the session list');
     const rule = denv.appended[0] && denv.appended[0].textContent;
     if (JSON.stringify(carried) === JSON.stringify([[A, 2]]) && absent === null && before === 0
         && rule === `[class*="sessionItem_"][id$="${A}"]::after{content:"\u00b7 2 processes";order:1;flex:none;white-space:nowrap;color:var(--vscode-errorForeground,#f14c4c);font-weight:normal}`) {
-      ok('a conversation run by several processes is marked after its title, outside it and never shrunk, in every session-list row that shows it, through the stylesheet');
+      ok('a conversation run by several processes gets a mark after its title in every session-list row that shows it, drawn by the stylesheet outside the title and never shrunk');
     } else bad(`the mark on a conversation run twice: ${JSON.stringify([carried, absent, before, rule])}`);
   }
 
@@ -8979,9 +8982,10 @@ console.log('\ntext colors in the session list');
       ok('picking a text color from either list\'s menu ends the selection the right-click made');
     } else bad(`picking a text color left the selection calls ${JSON.stringify(senv.sel)}`);
   }
-  /* A right-click or a drag on a row the list has not picked makes that row the selection; it ends with that menu or that
-     drag, however they end, and a selection that was there before them stays. The source is the shape of the list's
-     handlers; the state is kept as React keeps it: a handler reads the last render's, and its updates land after it. */
+  /* A right-click or a drag on a row the list has not picked makes that row the selection; it ends with that menu or
+     that drag, however they end, and a selection that was there before them stays. The source is the shape of the
+     list's handlers. State is kept the way React keeps it: a handler sees the state of the last render, and its updates
+     take effect after it returns. */
   {
     const gestureEdits = ['row menu ends the selection it made', 'row menu close ends the selection it made',
       'row drag remembers the selection it made', 'row drag end ends the selection it made'].map((n) => [n, webview.EDITS.find((x) => x.name === n)]);
@@ -8994,7 +8998,7 @@ console.log('\ntext colors in the session list');
       + 'function menu(){return Ir&&eh&&m(SHt,{items:eh,x:Ir.x,y:Ir.y,onClose:()=>Yi(null)})}';
     const missing = gestureEdits.filter(([, e]) => !e).map(([n]) => n);
     const gr = missing.length ? { error: `no edit named ${missing.join(', ')}` } : applyEdits(handlers, gestureEdits.map(([, e]) => e));
-    if (gr.error) bad('the edits that end a selection a right-click or a drag made did not apply: ' + gr.error);
+    if (gr.error) bad('the edits that end the selection made by a right-click or a drag did not apply: ' + gr.error);
     else {
       const R1 = 'aaaaaaaa-0000-4000-8000-000000000001', R2 = 'aaaaaaaa-0000-4000-8000-000000000002', R3 = 'aaaaaaaa-0000-4000-8000-000000000003';
       let sel = new Set(), menuState = null, queued = [];
@@ -9022,7 +9026,7 @@ console.log('\ntext colors in the session list');
       const want = { menuMade: [R1], menuClosed: [], archivedClosed: [], pickedBefore: [R1, R2], changedSince: [R1, R3], dragMade: [R2], dragEnded: [],
         dragPicked: [R1, R2] };
       if (JSON.stringify(got) === JSON.stringify(want)) {
-        ok('a row a right-click or a drag made the selection stays selected only until that menu closes or that drag ends, in the list and in Archived sessions; a selection there before them, or changed since, stays');
+        ok('when a right-click or a drag selects a row, it stays selected only until the menu closes or the drag ends, in the list and in Archived sessions; a selection made before, or changed since, stays');
       } else bad(`the selection a right-click or a drag made: ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
     }
   }
@@ -9576,7 +9580,7 @@ console.log('\nconversations whose background sessions are busy');
   if (/i && i\.state === 'idle' && bgWorking\.has\(i\.sessionId\) \? Object\.assign\(\{\}, i, \{ state: 'running' \}\)/.test(ext)
       && /globalThis\.__cceRefreshTabIcons\(\)/.test(ext) && /globalThis\.__cceSendSessionStates\(\)/.test(ext)
       && /await background\.workingNow\(\{ write: keepsWork\(\) \}\)/.test(ext)) {
-    ok('an idle conversation with work still running is reported as running, and a replaced window writes link files only by the rule of keepsWork');
+    ok('an idle conversation with work still running is reported as running, and a replaced window writes link files only when keepsWork allows it');
   } else bad('extension.js does not mark conversations whose background sessions are busy');
   if (/log\.appendLine\('work running: ' \+ \(\[\.\.\.next\]\.map/.test(ext) && /work running: a scan took/.test(ext)) {
     ok('each change of the conversations with work running is logged, and a slow scan');
@@ -9613,9 +9617,9 @@ console.log('\nloading restored tabs');
     ok('it runs only with claudeCodePlus.loadRestoredTabs on, which is off by default');
   } else bad('claudeCodePlus.loadRestoredTabs is not declared off by default, or extension.js does not check it before loading tabs');
 
-  /* The panel's wait before it counts the open of a conversation as finished, as 2.1.330 writes it, run against a clock
-     this check moves by hand: `frameEvery` ms between animation frames until `framesUntil`, or none at all, as in a
-     background tab. */
+  /* How long the panel waits before it treats opening a conversation as finished, in 2.1.330's code, run against a fake
+     clock that this check advances itself: `frameEvery` ms between animation frames until `framesUntil`, or none at
+     all, as in a background tab. */
   const WAIT = 'function aUn(e){let t,n,i=()=>{t=void 0,n=setTimeout(e,sUn)};if(document.visibilityState==="hidden")i();'
     + 'else t=requestAnimationFrame(()=>{t=requestAnimationFrame(i)});return()=>{if(t!==void 0)cancelAnimationFrame(t);clearTimeout(n)}}';
   const rule = webview.EDITS.find((e) => e.name === 'open counted finished without frames');
@@ -9638,12 +9642,12 @@ console.log('\nloading restored tabs');
   };
   const unpatched = runWait(WAIT);
   if (!unpatched.fired.length) {
-    ok('as Claude Code writes it, the wait never ends in a page that gets no animation frames, which is the bug being fixed');
+    ok('as Claude Code writes it, the wait never ends in a page that gets no animation frames, the bug this edit fixes');
   } else bad(`the unpatched wait ended at ${unpatched.fired} ms with no frames, so the edit may be fixing nothing`);
   const patched = rule ? WAIT.replace(rule.re, rule.to) : null;
   if (rule) rule.re.lastIndex = 0;
   if (!patched || patched === WAIT) {
-    bad('no panel edit lets the open of a conversation count as finished in a page that gets no animation frames');
+    bad('no panel edit lets opening a conversation count as finished in a page that gets no animation frames');
   } else {
     const cases = [
       ['no frames at all, as in a background tab', {}, [4000]],
@@ -9908,8 +9912,9 @@ console.log('\nthe Steward panel');
       } else bad(`a conversation leaving every window: ${JSON.stringify([e.keptAway, e.goneLater])}`);
     }
 
-    /* Which window writes the stewards table (writesTable in src/steward-view.js): one running the installed build
-       does; one whose build was installed over does only while no live window says it runs the installed build. */
+    /* Which window writes the stewards table (writesTable in src/steward-view.js). A window running the installed build
+       writes it. A window still running a build that has since been replaced writes it only while no live window
+       reports running the installed build. */
     {
       const sv = require('../src/steward-view');
       const E = (installed, build = 'new') => (installed === undefined ? { pid: 1 } : { pid: 1, installed, build });
@@ -9927,11 +9932,12 @@ console.log('\nthe Steward panel');
       const wrong = typeof sv.writesTable !== 'function' ? cases.map((c) => c[0])
         : cases.filter(([, mine, others, want]) => sv.writesTable(mine, others) !== want).map((c) => c[0]);
       if (!wrong.length) {
-        ok('the stewards table is written by a window running the installed build, and by one whose build was installed over only while no live window runs the installed build');
+        ok('the stewards table is written by a window running the installed build, and by a window still on a replaced build only while no live window runs the installed build');
       } else bad(`which window writes the stewards table came out wrong for: ${wrong.join('; ')}`);
 
-      /* A replaced window that shows a steward of all conversations: a conversation a window's entry lists is added
-         within one pass while no window runs the installed build, and not once one does, when the panel says why. */
+      /* A replaced window that shows a steward of all conversations adds a conversation a window's entry lists within
+         one pass while no window runs the installed build. Once a window does, it adds nothing, and its panel says why.
+         */
       const rdir = path.join(root, 'plans-replaced');
       const wdir = path.join(rdir, 'windows');
       fs.mkdirSync(wdir, { recursive: true });
@@ -9979,9 +9985,10 @@ console.log('\nthe Steward panel');
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`], { encoding: 'utf8', timeout: 30000 }));
       if (out2.error) bad('the replaced window\'s panel threw: ' + out2.error);
       else {
-        /* The same rule decides whether the window keeps what every window shares about running work: which conversation
-           started which background session, what runs now, and the ends with their notices. Otherwise, with every window
-           on an earlier build, a conversation hears of an end only once a window is reloaded. */
+        /* The same rule decides whether the window keeps the state all windows share about running work: which
+           conversation started which background session, what is running now, and the work that has ended, with the
+           notices sent for it. Otherwise, with every window on an earlier build, a conversation is told that its work
+           ended only once a window is reloaded. */
         const extEnds = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
         const gate = (/const keepsWork = \(\) => ([^;]*);/.exec(extEnds) || [])[1] || '';
         const uses = ['const write = keepsWork();\n    background.scan(id, { write })', 'background.workingNow({ write: keepsWork() })',
@@ -9989,12 +9996,12 @@ console.log('\nthe Steward panel');
         const missing = uses.filter((u) => !extEnds.includes(u));
         if (JSON.stringify(out2.keeps) === JSON.stringify([true, false, true]) && /keepsShared\(\)/.test(gate) && /!replaced\(\) \|\|/.test(gate)
             && !missing.length && !/if \(!replaced\(\)[^\n]*\) (noteDetached|shareWorking)\(/.test(extEnds)) {
-          ok('a window whose build was installed over keeps noting the background sessions a conversation starts, what runs, and the ends with their notices, '
+          ok('a window still on a replaced build keeps noting the background sessions a conversation starts, what is running, and the work that has ended, with the notices sent for it, '
             + 'while no window runs the installed build, and leaves them once one does');
         } else bad(`shared records of running work in a replaced window: keepsShared gave ${JSON.stringify(out2.keeps)}, the gate is "${gate}", missing ${JSON.stringify(missing)}`);
         if (JSON.stringify(out2.alone) === JSON.stringify([S(2), S(9)].sort()) && out2.own.build === 'old' && out2.own.installed === false
             && !/earlier build/.test(out2.quiet)) {
-          ok('a window whose build was installed over, with no window running the installed build, adds to its steward of all conversations one that a window\'s entry lists, '
+          ok('a window still on a replaced build, with no window running the installed build, adds a conversation that a window\'s entry lists to its steward of all conversations, '
             + 'and its own entry says which build it runs and that it is not the installed one');
         } else bad(`a replaced window alone gave ${JSON.stringify({ alone: out2.alone, own: out2.own, quiet: /earlier build/.test(out2.quiet) })}`);
         const line = (h) => (/<p class="stale">([\s\S]*?)<\/p>/.exec(h) || [])[1] || '';
@@ -10037,8 +10044,9 @@ console.log('\nthe Steward panel');
       st.setManaged(C(1), [C(2)], {}, { dir: d3, now: 1 });
       const t3 = st.setManaged(C(5), [C(2), C(6)], {}, { dir: d3, now: 2 });
       if (same(list(t3, C(1)), [C(2)]) && same(list(t3, C(5)), [C(6)])) ok('a conversation one steward ticked is not ticked for another');
-      else bad(`ticking one another steward has gave ${JSON.stringify(t3)}`);
-      // 4: one steward with All; it takes only what nobody ticked, and a tick takes from it what it has through All.
+      else bad(`ticking a conversation that another steward has gave ${JSON.stringify(t3)}`);
+      // 4: one steward with All. All gives it only what nobody ticked, and a tick elsewhere takes away what it had
+      // only through All.
       const d4 = fresh('one-all');
       st.setManaged(C(1), [C(8), C(10)], {}, { dir: d4, now: 1, every: true, ticked: [C(10)] });
       const t4a = st.setManaged(C(7), [C(11)], {}, { dir: d4, now: 2, every: true });
@@ -10046,7 +10054,7 @@ console.log('\nthe Steward panel');
       const t4c = st.setManaged(C(1), [C(8), C(9), C(10), C(12)], {}, { dir: d4, now: 4, every: true });
       if (t4a[C(7)] && t4a[C(7)].all === false && t4a[C(1)].all === true && same(list(t4b, C(9)), [C(8)]) && same(list(t4b, C(1)), [C(10)])
           && same(list(t4c, C(1)), [C(10), C(12)]) && same(t4c[C(1)].ticked, [C(10)])) {
-        ok('All stays with the steward that has it while another asks for it; a tick takes from it a conversation it has through All but not one it ticked, and it does not take back one another steward has');
+        ok('All stays with the steward that has it while another asks for it; another steward\'s tick takes from it a conversation it has only through All, but not one it ticked itself, and it does not take back one another steward has');
       } else bad(`one steward with All gave ${JSON.stringify([t4a, t4b, t4c])}`);
 
       /* Reading a table an older build wrote. */
@@ -10072,14 +10080,14 @@ console.log('\nthe Steward panel');
           && same(list(settled.tickBeatsAll, C(1)), [C(6)]) && same(list(settled.tickBeatsAll, C(2)), [C(7)])
           && same(Object.keys(settled.mutual), [C(1)])) {
         ok('reading an older table: the steward of all keeps 18 of its 19 and the one also ticked elsewhere stays there; a steward leaves every list; All stays with the steward that changed last; '
-          + 'of two ticks the later wins, a tick wins over All, and of two stewards that tick each other the earlier stays one');
+          + 'the later of two ticks wins, a tick wins over All, and when two stewards tick each other the earlier one stays a steward');
       } else bad(`reading older tables gave ${JSON.stringify(settled)}`);
       const dm = fresh('migrate');
       fs.writeFileSync(path.join(dm, st.FILE), JSON.stringify(fixtures.user));
       const wrote = has && st.migrate(dm), again = has && st.migrate(dm);
       const after = JSON.parse(fs.readFileSync(path.join(dm, st.FILE), 'utf8')).stewards;
       if (wrote === true && again === false && after[C(1)] && same(after[C(1)].ticked, []) && after[C(1)].manages.length === 18 && same(after[C(2)].manages, [C(25)])) {
-        ok('the window that may write the table writes the settled one back once, with what the steward of all ticked itself, which is nothing');
+        ok('the window that may write the table writes the settled one back once, with nothing recorded as ticked by the steward of all');
       } else bad(`migrating the user's table gave ${JSON.stringify({ wrote, again, after })}`);
       /* The hooks read the same. */
       const hooksDir = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
@@ -10135,7 +10143,7 @@ console.log('\nthe Steward panel');
             && /\bdisabled\b/.test(boxOf(p, C(3))) && why(boxOf(p, C(3)), 'Managed by Docs steward')
             && !/\bdisabled\b/.test(boxOf(p, C(5))) && why(boxOf(p, C(5)), 'Managed by Night steward through All; ticking it here moves it to this conversation')
             && /data-why="Night steward has All on"/.test(every(p)) && /\bdisabled\b/.test(every(p)) && !/<label class="every"[^>]*title=/.test(every(p))) {
-          ok('in another steward\'s panel a steward\'s box is greyed, so is one another steward ticked, and the All switch while another steward has All on, each saying why on hover');
+          ok('in a steward\'s panel, the boxes of other stewards and of conversations another steward ticked are greyed, and so is the All switch while another steward has All on, each saying why on hover');
         } else bad(`the panel beside other stewards drew ${JSON.stringify({ two: boxOf(p, C(2)), three: boxOf(p, C(3)), five: boxOf(p, C(5)), every: every(p) })}`);
         /* The row itself says who manages it, the steward's name a link to its conversation; so does the All switch. */
         const by = (h, id) => {
@@ -10148,12 +10156,12 @@ console.log('\nthe Steward panel');
             && by(p, C(5)) === `managed by <a href="#" data-open="${C(4)}">Night steward</a> through All`
             && everyBy(p) === `on for <a href="#" data-open="${C(4)}">Night steward</a>`
             && by(r, C(3)) === `managed by <a href="#" data-open="${C(2)}">Docs and site steward</a>`) {
-          ok('each such row names, on the row itself, the steward that manages it or that it is a steward, the All switch names the steward that has All on, '
-            + 'each name a link to that steward\'s conversation, and a renamed steward\'s new name shows at the next pass');
+          ok('each such row shows the name of the steward that manages it, or says that it is a steward; the All switch names the steward that has All on; '
+            + 'each name is a link to that steward\'s conversation, and a renamed steward\'s new name shows at the next pass');
         } else bad(`the rows named their stewards as ${JSON.stringify({ two: by(p, C(2)), three: by(p, C(3)), five: by(p, C(5)), every: everyBy(p), renamed: by(r, C(3)) })}`);
         if (!panel.refused[C(1)] && same(list(panel.took, C(1)), [C(5)]) && same(list(panel.took, C(4)), []) && panel.took[C(4)].all === true
             && same(list(panel.took, C(2)), [C(3)])) {
-          ok('and those clicks change nothing, while ticking one the steward of all has only through All moves it to this one');
+          ok('and those clicks change nothing, while ticking a conversation that the steward of all has only through All moves it to this steward');
         } else bad(`clicking in the panel beside other stewards gave ${JSON.stringify({ refused: panel.refused, took: panel.took })}`);
       }
     }
@@ -10367,7 +10375,7 @@ console.log('\nthe Steward panel');
         ok('a steward\'s call that reaches its transcript a moment after the request is found by reading the transcript again, not refused');
       } else bad(`a call written late: ${JSON.stringify(relayed)}`);
       if (results && results[R('a')] === 'submitted' && results[R('b')] === 'refused' && results[R('c')] === 'refused') {
-        ok('a steward of all conversations reaches one no list holds at the moment, but not another steward nor one another steward has');
+        ok('a steward of all conversations reaches one that no list holds at the moment, but not a steward, nor a conversation another steward has');
       } else bad(`a steward of all: ${JSON.stringify(results)}`);
       /* The script the steward runs: it leaves the request and prints the answer a window writes back. */
       const script = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
@@ -10466,9 +10474,9 @@ console.log('\nthe Steward panel');
           && results[R('a')][1] === 'submitted' && results[R('a')][3] === true && results[R('b')][1] === 'notReceived' && results[R('b')][3] === false
           && left.includes(R(5) + '.json') && left.includes(R('c') + '.json') && !left.includes(R(4) + '.json')) {
         ok('a window renames, closes and opens for the steward that ran the script so, gives the new conversation\'s id back and ticks it for that steward, '
-          + 'a steward of all conversations too, though not after an open that failed, '
+          + 'even a steward of all conversations, but not after an open that failed, '
           + 'leaves an open for a folder that is not its first folder (Claude Code starts a new conversation there) to another window, and refuses a close not confirmed in the command, a title the steward did not send, '
-          + 'an open from a conversation that is no steward and an action there is none of');
+          + 'an open from a conversation that is not a steward, and an unknown action');
       } else bad(`steward actions gave ${JSON.stringify(acted)}`);
 
       /* The script's new options: the action and confirmation in the request, the new id printed, and the open windows. */
@@ -10592,8 +10600,8 @@ console.log('\nthe Steward panel');
         ok('a resume or handoff request counts only with a call whose line runs the script with that flag, and such a call is no plain send');
       } else bad(`resume and handoff calls read ${JSON.stringify(flagged)}`);
 
-      /* Which window takes a resume: the one where Claude Code finds the conversation, whose first folder is the one the
-         conversation is kept under. */
+      /* A resume opens in the window where Claude Code can find the conversation: the one whose first folder is the
+         folder the conversation is kept under. */
       const find = (id) => (fs.existsSync(T(id)) ? T(id) : '');
       const inside = [relay.opensHere(S(4), [proj], find), relay.opensHere(S(4), [proj, elsewhere], find), relay.opensHere(S(4), [elsewhere, proj], find),
         relay.opensHere(S(4), [sub], find), relay.opensHere(S('b'), [proj], find), relay.opensHere(S(5), [proj], find),
@@ -10610,7 +10618,7 @@ console.log('\nthe Steward panel');
           && JSON.stringify(names) === JSON.stringify([true, true, false, true, false])) {
         ok('a resume is for the window whose first folder is the one the conversation is kept under, also through a symbolic link, '
           + 'and a conversation resumed in another folder belongs to that one, though its first records say where it was started; '
-          + 'not for a window with that folder second, one with a folder above or below it, another folder, nor a conversation with no transcript');
+          + 'and not for a window that has that folder second, a window whose folder is above or below it or is another folder, nor for a conversation with no transcript');
       } else bad(`folder matching for a resume: ${JSON.stringify({ inside, through, linked, moved: transcriptCwd(T(S('d'))), names })}`);
       if (!linked) note('symbolic links could not be made here, so matching through one was not checked');
 
@@ -10660,7 +10668,7 @@ console.log('\nthe Steward panel');
           && o.loading.r.outcome === 'uncertain' && o.loading.r.opened === true && o.loading.waited >= relay.RESUME_LOAD_MS
           && /^its tab here opened, but the conversation had not loaded within 180 seconds$/.test(o.loading.r.reason)) {
         ok('a resumed conversation is opened once and sent the text only after its panel shows it; text the panel did not take is tried again '
-          + 'for a while, an unclear send is not, and with no text opening is all; a long one whose tab is open gets minutes to load, '
+          + 'for a while, an unclear send is not retried, and with no text it is only opened; a long one whose tab is open gets minutes to load, '
           + 'and with no tab at all it is given up after half a minute');
       } else bad(`resuming in a window: ${JSON.stringify(o)}`);
 
@@ -10722,9 +10730,9 @@ console.log('\nthe Steward panel');
           && /^refused: the claude --bg job abcd1234 holds it \(blocked\)/.test(why(f[R(7)])) && f[R(8)] && f[R(8)].outcome === 'submitted'
           && /^refused: that call has already been carried out/.test(why(g[R(9)])) && /^refused: it could not be checked that no other process runs it: claude was not found/.test(why(g[R('e')]))) {
         ok('a window opens a conversation for any steward that ran --resume for it, with no tick needed, and then ticks it for that steward, '
-          + 'a steward of all conversations too, but not when it did not open nor when this window may not write the table; it leaves one started in another folder to another window, '
-          + 'and refuses one another process or window runs, one asked by no steward, one asked without that call, the same call twice, '
-          + 'and any while it cannot ask claude agents');
+          + 'including a steward of all conversations, unless it did not open or this window may not write the table; it leaves one started in another folder to another window, '
+          + 'and refuses one that another process or window runs, one asked for by a conversation that is not a steward, one the steward has not run --resume for, the same call twice, '
+          + 'and any request while it cannot ask claude agents');
       } else bad(`resume requests gave ${JSON.stringify({ did: took.did, first: Object.fromEntries(Object.entries(f).map(([k, v]) => [k, why(v) + (v.ticked ? ' ticked' : '')])), again: g, left: took.left, error: took.error })}`);
 
       /* Handoffs: to one steward of the conversation, the one the user typed to last, or the next that can be reached. */
@@ -10781,9 +10789,9 @@ console.log('\nthe Steward panel');
           && first.endsWith('What it wrote:\n' + moved)
           && !hr[D(5)] && gave.left.includes(D(5) + '.json')
           && /^refused: the conversation asking has not run steward-relay\.py --handoff with this text/.test(hr[D(6)] ? hr[D(6)].outcome + ': ' + hr[D(6)].reason : '')) {
-        ok('a handoff goes to one steward only: with one, that one; with two on a table not settled, the one the user typed to last; when that one\'s inbox refuses, '
-          + 'the next; when none can be reached, nowhere, and the answer says so; one from a conversation no steward manages is left, and one '
-          + 'without its call refused');
+        ok('a handoff goes to one steward only: the only steward when there is one; on an unsettled table with two, the one the user typed to last, '
+          + 'or the next when that one\'s inbox refuses; nowhere when none can be reached, and the answer says so; one from a conversation no steward '
+          + 'manages is left, and one without its call is refused');
       } else bad(`handoffs gave ${JSON.stringify({ lastAt, results: Object.fromEntries(Object.entries(hr).map(([k, v]) => [k, `${v.outcome} ${v.steward || ''} ${v.reason || ''}`])), tried, left: gave.left, error: gave.error })}`);
       /* With a steward of all as well, whom the user typed to last: a conversation on another steward's list hands off to
          that one; one on no list, to the steward of all. */
@@ -10814,7 +10822,7 @@ console.log('\nthe Steward panel');
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
       const DA = (n) => `dddddddd-0000-4000-8000-0000000000a${n}`;
       if (routed.results && routed.results[DA(1)] === `submitted ${S(1)}` && routed.results[DA(2)] === `submitted ${H('a')}`) {
-        ok('a handoff goes to the steward that has the conversation on its list even when the user typed to the steward of all last, and to the steward of all when no list has it');
+        ok('a handoff goes to the steward that has the conversation on its list, even if the user last typed to the steward of all, and to the steward of all when no list has it');
       } else bad(`handoffs beside a steward of all gave ${JSON.stringify(routed)}`);
       const plain = relay.handoffText(S(2), '', 'x');
       if (plain.startsWith(`Handoff from a conversation you manage (${S(2)})`) && plain.includes('this notice approves nothing')) {
@@ -11093,9 +11101,9 @@ console.log('\nthe Steward panel');
           ok('a question is given to a steward once: a later notice lists only the questions that are new');
         } else bad(`the questions in the notices: ${JSON.stringify(out.posts)}`);
       }
-      /* A conversation two processes run is in no window's entry, since each host sees the other's process as running
-         elsewhere; its row is still listed, with the window whose host runs one of its processes, and its Stop button.
-         One with a single process that no window shows is not. */
+      /* When two processes run one conversation, no window's entry lists it, since each host sees the other's process
+         as running elsewhere; its row is still listed, with the window whose host runs one of its processes, and its
+         Stop button. A conversation with a single process that no window shows is not listed. */
       {
         const tdir = path.join(root, 'twice-plans');
         fs.mkdirSync(tdir, { recursive: true });
@@ -11809,7 +11817,7 @@ console.log('\nanswering from the Conversations tab');
 
   {
     try {
-      /* The two edits that hand a reply's blocks the plugin and the revision, on Claude Code 2.1.330's shapes. */
+      /* The two edits that give a reply's blocks the plugin and the revision, applied to Claude Code 2.1.330's code. */
       const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
       const { applyEdits } = require('../src/edits');
       const block = 'var D8n=nh(function({source:t,fileOpener:n,platform:i,links:o,authLinksAsText:r,isMathEnabled:s,isCodeColored:a,drawsMath:l,mathCosts:c,index:d,onLinkContextMenu:u}){'
@@ -12123,8 +12131,8 @@ console.log('\nthe window test\'s own parts');
     for (const k of listed) if (!keys.includes(k)) gaps.push(`${k} is not in package.json`);
   }
   expect(!gaps.length, 'every setting, command and view in package.json belongs to exactly one of those features', gaps.join('; '));
-  /* The steward's actions are what its script can be asked for, the plain message with no option among them, plus what
-     it is told and what its links do. Each is a feature with a step here, and with a step of the window test that CI runs
+  /* The steward's actions: each request its script takes, the plain message with no option among them, plus the notices
+     it gets and what its links do. Each is a feature with a step here, and with a step of the window test that CI runs
      (test/vscode/ui.js), which asserts it in code. */
   const featureFile = JSON.parse(fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look-features.json'), 'utf8'));
   const relayScript = fs.readFileSync(path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py'), 'utf8');
@@ -12158,8 +12166,9 @@ console.log('\nthe window test\'s own parts');
   const strayWindow = featureList.flatMap((f) => (f.window === undefined ? [] : Array.isArray(f.window) && f.window.length ? f.window : [''])
     .filter((w) => !windowSteps.includes(w)).map((w) => `${f.id}: "${w}"`));
   expect(windowSteps.length > 10 && !strayWindow.length, 'and every window step a feature names is a step of test/vscode/ui.js', strayWindow.join(', '));
-  /* The same for Agent Plus's, against the Agent Plus found: the copy installed beside this one (VSCODE_EXTENSIONS, as
-     run.js runs this), AGENT_WORK_PLAN_DIR, or its checkout beside this repository. */
+  /* The same check for Agent Plus's settings, commands and views, read from the Agent Plus it finds: the copy installed
+     beside this one (VSCODE_EXTENSIONS, as run.js runs this), AGENT_WORK_PLAN_DIR, or its checkout beside this
+     repository. */
   const apUsed = { settings: [], commands: [], views: [] };
   for (const f of featureList) for (const kind of Object.keys(apUsed)) apUsed[kind].push(...(((f.agentPlus || {})[kind]) || []));
   const apOther = JSON.parse(fs.readFileSync(path.join(__dirname, 'vscode', 'ui-look-features.json'), 'utf8')).agentPlusOther || [];
@@ -12179,7 +12188,7 @@ console.log('\nthe window test\'s own parts');
     for (const k of all) if (!apListed.includes(k)) apGaps.push(`${k} of Agent Plus is not listed`);
     for (const [kind, keys] of Object.entries(apUsed)) for (const k of keys) if (!has[kind].includes(k)) apGaps.push(`${k} is not one of Agent Plus's ${kind}`);
     for (const o of apOther) if (!all.includes(o.key)) apGaps.push(`${o.key} is not Agent Plus's`);
-  } else note('no Agent Plus found to hold the feature list\'s Agent Plus settings, commands and views against');
+  } else note('no Agent Plus found to check the feature list\'s Agent Plus settings, commands and views against');
   expect(!apGaps.length, `and every setting, command and view of Agent Plus${apPkg ? ` ${apPkg.version}` : ''} is listed once: under a feature that uses it, or in agentPlusOther with why it is not this extension's`,
     apGaps.join('; '));
   const lookMd = (() => { try { return fs.readFileSync(path.join(__dirname, 'vscode', 'LOOK.md'), 'utf8'); } catch (_) { return null; } })();
@@ -12508,7 +12517,8 @@ const eqWait = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.str
     [['waiting_input', { tool: 'Bash' }], ['waiting_input', { dialog: 'auto_mode_continue' }], ['running', 'none']],
     'the panel reports the tool of the permission request in front of it, or the kind of its dialog, with the state that makes the dot red');
 
-  /* The two notices, shaped as in 2.1.330, with the page's answer true, false and missing. */
+  /* The panel's two notices of a wait as 2.1.330 builds them, each run with the page's __cceWaitsAnnounced answering
+     true, answering false, or not there. */
   const perm = 'function eWt({permissionRequest:e,session:t}){if(t.showNotification(RLt(e),"info",["View"],!0),e.toolName===FW.toolName)return 1;return 0}';
   const auto = 'class S extends B{constructor(){super();let i;Zt(()=>{let r=this.userDialogRequests.value.find((s)=>s.dialogKind===Vk);if(r===void 0||r===i)return;'
     + 'i=r,this.showNotification("Auto mode is waiting for you to choose Continue or Stop","info",["View"],!0)})}}';
@@ -12551,7 +12561,7 @@ const eqWait = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.str
   eqWait([pageWith(true), pageWith(false)], [[true, false, false, false], [false, true, true, true]],
     'the page starts from what its HTML says and follows the extension\'s word after that');
 
-  /* The panel's HTML says it when the panel is built while the notices are left to Agent Plus. */
+  /* A panel built while its notices are left to Agent Plus says so in its HTML. */
   const edit = host.EDITS.find((e) => e.name === 'panel load watch');
   const tpl = 'return`<head>\n        <meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'nonce-${U}\'; ${j};">\n\n'
     + '        <meta name="viewport" content="width=device-width, initial-scale=1.0">\n        <link href="${K}" rel="stylesheet">\n      </head>`';
@@ -12563,7 +12573,8 @@ const eqWait = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.str
     [true, false, false], 'a panel built while the notices are left to Agent Plus says so in its HTML, with its nonce, ahead of the bundle');
 }
 
-/* The source gives Agent Plus what a waiting conversation waits for, and says which conversations this window shows. */
+/* The source passes Agent Plus the `waitingFor` of each conversation that waits, and says which conversations this
+   window shows. */
 {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-claude-waits-')));
   try {
@@ -12604,7 +12615,7 @@ const eqWait = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.str
       && /claude\.invalidate\(\);\n\s+decideWaits\(\);/.test(ext) && /agentCore = r\.core;\n\s+decideWaits\(\);/.test(ext)
       && /noteWait\(sessionId, wait, farewell\);/.test(ext)) {
     ok('the extension asks Agent Plus once registered, on a change of its notices\' settings and on every tick, and tells the panels when the answer changes');
-  } else bad('extension.js does not decide and pass on whether the notices of waits are left to Agent Plus as expected');
+  } else bad('extension.js does not decide, or does not pass on, whether Agent Plus shows the notices of waits as expected');
 }
 
 console.log('\nwhat a conversation is doing: its dot, its envelope, and the fields Agent Plus reads');
@@ -12655,13 +12666,13 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
           && fresh === whole && answered === Date.parse(at(40)) && afterReject === answered
           && r.at(path.join(dir, 'none.jsonl')) === 0 && r.at('') === 0) {
         ok('the user\'s last message is the last one typed, a message typed during a turn and an answer on a question card included; '
-          + 'other tool results, notices, messages from other sessions, hook text and summaries are not, and a line written in two pieces is read whole');
+          + 'other tool results, notices, messages from other sessions, hook text and summaries are not; a line written in two pieces is read as one line');
       } else bad(`last user message: ${JSON.stringify([first, again, notTyped, half, whole, fresh, answered, afterReject].map((t) => t && new Date(t).toISOString()))}`);
       /* So a question a plan row put to the user earlier in a turn, answered on a card later in it, no longer makes the dot red. */
       const asked = { title: 't', state: 'waiting', waitingOn: 'user', question: 'Which config?', asked: Date.parse(at(35)) };
       if (act.freshQuestion([asked], answered) === false && act.freshQuestion([asked], whole) === true) {
         ok('a plan\'s question answered on a question card in the same turn is not fresh any more, and one not answered still is');
-      } else bad('a plan question answered on a card in the same turn still counts as fresh, or one not answered does not');
+      } else bad('a plan question answered on a card in the same turn, or one left unanswered, was judged wrongly');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
@@ -12809,7 +12820,7 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     }
 
     /* A rename typed in the list's box: the list shows it at once (renameSession below is Claude Code 2.1.330's opening),
-       and with the edit it shows it without the marks, as src/title-marks.js stores it. */
+       and with the edit the shown name has no marks, as src/title-marks.js stores it. */
     {
       const list = 'var Store={lastLocalRenameAt:new Map(),sessions:{value:[]},async renameSession(e,t){this.lastLocalRenameAt.set(e,Date.now());'
         + 'let n=this.sessions.value.find((o)=>o.sessionId.value===e);if(n)n.summary.value=t;return t}};';
@@ -13127,7 +13138,7 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
         const extText2 = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
         if (JSON.stringify(got) === JSON.stringify([Date.parse('2026-11-22T10:00:05.000Z'), 0, 0])
             && /if \(reply > 0\) out\.lastReplyAt = reply;/.test(srcText) && /replyAt: readTitles\.replyAt,/.test(extText2)) {
-          ok('each conversation the source lists carries lastReplyAt, its last reply\'s time, which a rename or a hook\'s text written later does not move');
+          ok('each conversation the source lists carries lastReplyAt, and a rename or a hook\'s text written later leaves it as it was');
         } else bad(`lastReplyAt: ${JSON.stringify(got)}`);
       } finally { fs.rmSync(rdir, { recursive: true, force: true }); }
     }
@@ -13705,7 +13716,7 @@ const repo = path.join(__dirname, '..');
       await c.open('codex', 's1');
       eq([sent.map((m) => [m.rev, m.list.map((x) => x.sessionId)]), opened, ownCalls],
         [[[1, ['S1']], [2, ['S1', 'S2']], [2, ['S1', 'S2']]], [{ sourceId: 'codex', sessionId: 'S1', title: 'Fix the login redirect', cwd: '/w' }], 0],
-        'with Agent Plus\'s list the panels are sent every agent\'s conversations once each, again only when one comes, goes or is renamed and when a panel asks, and a click opens through agentPlus.openConversation with the title and folder');
+        'with Agent Plus\'s list the panels are sent every agent\'s conversations once each, sent again only when one appears, goes away or is renamed, or when a panel asks; a click opens through agentPlus.openConversation with the title and folder');
       on = false;
       c.settingChanged();
       const n = sent.length;
@@ -13729,7 +13740,7 @@ const repo = path.join(__dirname, '..');
         links.entries(Array.from({ length: links.MAX_LISTED + 5 }, (_, i) => ({ sessionId: `s-${i}` }))).length],
       [[['codex', 'Codex', 'S1', 300, '/w', Date.parse('2026-11-22T10:00:00Z')], ['claude-code', 'Claude Code', 'S1', 11, '', 0],
         ['claude-code', 'Claude Code', 'S2', 10, '', 0]], links.MAX_LISTED],
-      'what a panel is sent: a conversation without a usable id is left out, each is listed once per agent, a title is cut at 300 characters, a date string is read as a time, an agent and its label come from the list or else are this extension\'s own, and at most 2000 are sent');
+      'what a panel is sent: no conversation without a usable id, each conversation once per agent, titles cut at 300 characters, date strings read as times, the agent and its label from the list or else this extension\'s own, and at most 2000 entries');
       const polls = [], polled = [];
       let running = [{ sessionId: 's-a', title: 'First one', lastActiveAt: 1 }];
       const later = links.create({ on: () => true, own: async () => running, send: (m) => polled.push(m.list.map((x) => x.sessionId)),
@@ -13742,7 +13753,7 @@ const repo = path.join(__dirname, '..');
       later.attach({ features: [] });
       eq([polls.length, polls[0][1], polled], [2, links.OWN_POLL_MS, [['s-a'], ['s-a'], ['s-a', 's-b'], ['s-a', 's-b']]],
         'and that list is read again every 15 seconds, so a conversation that starts running later is sent too, with one timer at a time');
-    } catch (e) { bad(`what the extension sends the panels threw: ${(e && e.stack) || e}`); }
+    } catch (e) { bad(`the check of what the extension sends the panels threw: ${(e && e.stack) || e}`); }
   }
 
   /* The image files a reply shows: read only when they are images, by their bytes, and small enough. */
@@ -14095,13 +14106,13 @@ const repo = path.join(__dirname, '..');
       const r = await lm.keepMarks(async () => { await null; host = ['k3']; screen = new Set(['k2']); return 2; },
         { held, onScreen: (k) => screen.has(k), set: mark });
       eq([r.result, r.back, set, oneTurn, reads[0]], [2, ['k1', 'k4'], ['k1', 'k4'], true, ['k1', 'k2', 'k3', 'k4']],
-        'a mark held before the loading and gone after it is set again if its conversation is not on screen then, and not if it is; a mark kept is left alone; all are set in one turn');
+        'a mark held before the loading and gone after it is set again unless its conversation is on screen then; a mark kept is left alone; all are set in one turn');
       host = ['k5'];
       set.length = 0;
       turnOver = false;
       const failed = await lm.keepMarks(async () => { host = []; throw new Error('no such group'); }, { held, onScreen: () => false, set: mark })
         .then(() => null, (e) => e.message);
-      eq([failed, set], ['no such group', ['k5']], 'a loading that fails still gets its marks back, and the failure goes on to the caller');
+      eq([failed, set], ['no such group', ['k5']], 'when the loading fails, the marks are still set back, and the error is passed on to the caller');
       set.length = 0;
       let ran = false;
       const none = await lm.keepMarks(async () => { ran = true; return 0; }, { held: () => null, onScreen: () => false, set: mark });
@@ -14172,7 +14183,7 @@ const repo = path.join(__dirname, '..');
     const chosen = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_FOR_CHOICE}.` }] })).text);
     const choiceInput = JSON.parse(chosen[2].delta.partial_json);
     eq([chosen[1].content_block.name, choiceInput.questions.length, choiceInput.questions[0].question, choiceInput.questions[0].options.map((o) => o.label)],
-      ['AskUserQuestion', 1, fakeModel.CHOICE.question, fakeModel.CHOICE.options], 'a message asking to be asked gets an AskUserQuestion call with one question and its options');
+      ['AskUserQuestion', 1, fakeModel.CHOICE.question, fakeModel.CHOICE.options], 'a message asking for a choice gets an AskUserQuestion call with one question and its options');
     const counted = await post('/v1/messages/count_tokens', { messages: [] });
     const other = await post('/v1/models', {});
     eq([counted.status, JSON.parse(counted.text).input_tokens > 0, other.status], [200, true, 404], 'it counts tokens, and answers nothing else');

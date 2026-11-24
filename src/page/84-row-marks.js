@@ -59,8 +59,8 @@
     return where ? where + ' \u2014 ' + ROW_DOT_TEXT[dot] : ROW_DOT_TEXT[dot];
   };
   // The character is the stylesheet's (src/webview.js), which picks the form for the theme from the body's class.
-  /* A title typed in the list's rename box without the marks drawn with titles (TITLE_MARKS, from src/webview.js), as
-     src/title-marks.js withoutMarks takes them off: wherever each stands, the spaces around it joined into one. */
+  /* Removes from a title typed in the list's rename box the marks this extension draws with titles (TITLE_MARKS, from
+     src/webview.js), the way withoutMarks in src/title-marks.js does. */
   window.__cceCleanTitle = function(t){
     try {
       if (typeof t !== 'string') return t;

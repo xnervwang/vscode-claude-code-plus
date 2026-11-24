@@ -24,8 +24,8 @@
  * "manages" equal to every conversation open in a VS Code window that is no steward and that no other steward has
  * ticked (src/steward-view.js). "ticked" is the part of "manages" ticked by hand, or opened by the steward itself, rather
  * than added by "all"; it is written only for the steward with "all" on, since every other steward's list is all ticked.
- * A tick wins over "all": a conversation the steward with "all" on has only through "all" goes to another steward that
- * ticks it.
+ * A tick wins over "all": when another steward ticks a conversation that the steward with "all" on has only because of
+ * "all", the conversation moves to the steward that ticked it.
  *
  * Every reader takes the file through settle(), whatever wrote it, so a table an older build wrote with a conversation on
  * two lists, a steward on a list, or "all" on twice reads the same in every window and hook; the window that may write
@@ -68,13 +68,13 @@ function entriesOf(d) {
 
 /*
  * The table as the rules have it, from `entries` (entriesOf). "all" stays on for only one steward, the one whose entry
- * changed last; the others keep their lists, all of it then counting as ticked. A steward without "ticked" has ticked
- * all it manages, except the one with "all" on, whose list then all came through "all". Then the entries are taken in
- * the order they changed, the oldest first, as the ticks were made: each keeps what it manages but a conversation that
- * is a steward by then, and one another steward has unless it ticked that one itself, which a later tick takes away
- * from an earlier one; one it has only through "all" it keeps only if nobody else has it. An entry left with something
- * becomes a steward and leaves every list it is on, which can leave another entry with nothing; an entry with nothing,
- * and "all" off, is no steward.
+ * changed last; the others keep their lists, and each of those lists then counts as ticked. A steward without "ticked"
+ * has ticked everything it manages, unless it is the one with "all" on: then its whole list counts as coming from
+ * "all". The entries are then taken oldest first, the order the ticks were made in. Each keeps what it manages except a
+ * conversation that is a steward by then, and except one another steward has, unless it ticked that one itself; a later
+ * tick takes a conversation away from an earlier steward. A conversation it has only through "all" it keeps only if
+ * nobody else has it. An entry that keeps anything becomes a steward and leaves every list it is on, and the entry it
+ * leaves may end up with nothing. An entry with nothing and "all" off is no steward.
  */
 function settle(entries) {
   const order = Object.keys(entries).sort((a, b) => (entries[a].at - entries[b].at) || (a < b ? -1 : a > b ? 1 : 0));
@@ -128,15 +128,16 @@ function write(table, dir) {
   writeAtomic(path.join(dir, FILE), JSON.stringify({ version: 1, stewards: out }, null, 1) + '\n');
 }
 
-/* What a table says, in one string: the same for two tables that differ only in order or in what they leave out. */
+/* A table's content as one string. Two tables that differ only in key order or in the fields they leave out give the
+   same string. */
 const meaning = (t) => JSON.stringify(Object.keys(t).sort().map((id) => {
   const v = t[id];
   return [id, v.manages, v.all ? (v.ticked || []).filter((c) => v.manages.includes(c)) : null,
     Object.keys(v.names).sort().map((c) => [c, v.names[c]]), v.at, !!v.all];
 }));
 
-/** Writes the settled table back when it says something else than the file, as one an older build wrote can. Returns
-    whether it wrote. Only a window that may write the table calls it. */
+/** Writes the settled table back when it differs from what the file holds, as a file an older build wrote can. Returns
+    true when it wrote the file. Only a window allowed to save the table calls it. */
 function migrate(dir = planDir()) {
   const d = parse(dir);
   if (!d) return false;
@@ -161,11 +162,11 @@ const everyOf = (table, but = '') => Object.keys(table).find((s) => s !== but &&
 
 /**
  * Sets what `steward` manages to `list`, with the titles in `names`. `every` turns "all" on or off; without it the
- * setting stays. With "all" on, `ticked` is the part of `list` ticked by hand (by default what was ticked before); with
- * it off, the whole list is. Left out of the list: conversations that are stewards and ones another steward ticked; "all"
- * stays off while another steward has it on. Ticking a conversation another steward has only through "all" takes it from
- * that one, and a steward that comes to manage something leaves every other list. An empty list removes the steward
- * from the table unless "all" is on. Returns the table as written.
+ * setting stays. With "all" on, `ticked` lists the conversations in `list` that were ticked by hand (by default, those
+ * ticked before); with it off, the whole list counts as ticked. Left out of the list: conversations that are stewards
+ * and ones another steward ticked; "all" stays off while another steward has it on. Ticking a conversation another
+ * steward has only through "all" takes it from that one, and a steward that comes to manage something leaves every
+ * other list. An empty list removes the steward from the table unless "all" is on.
  */
 function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked } = {}) {
   const all = read(dir);

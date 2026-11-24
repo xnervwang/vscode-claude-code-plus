@@ -9,23 +9,24 @@
  *
  *   the patch      both of Claude Code's patched files are written on the first start and VS Code says to reload; the
  *                  tab bar keeps the one Claude button, Claude Code's own, before the reload and after it
- *   session list   Claude Code's session list as the patch changes it: New in tab and New in sidebar, a pin and the dates
- *                  on every row, the right-click menu's Resume in tab, Resume in sidebar and Text color, a pin clicked,
- *                  the hover text of a row, and claude --bg, claude -p and daemon sessions left out, and the first two
- *                  listed once claudeCodePlus.hideBackgroundSessions is off
+ *   session list   Claude Code's session list as the patch changes it: New in tab and New in sidebar, a pin and the
+ *                  dates on every row, the Resume in tab, Resume in sidebar and Text color items of the right-click
+ *                  menu, clicking a pin, the hover text of a row, and claude --bg, claude -p and daemon sessions left
+ *                  out, with the first two listed once claudeCodePlus.hideBackgroundSessions is off
  *   a tab          a conversation resumed in a tab: its title, the times on every message and reply, the bar on your
  *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
- *   the dots       the filled dot on the tab's logo while a turn sent through fake-model.js runs, and on both its session
- *                  list rows; the envelope after the tab's title once its reply lands with the tab in the background, after
- *                  the name and before the time on its rows and whole when a narrow side bar cuts the name short, Agent
- *                  Plus's notice that it finished and its count in the status bar; the red dot while Claude Code waits for
- *                  permission to run a command, with no notice and no count for the conversation in front; no blue
+ *   the dots       the filled dot on the tab's logo while a turn sent through fake-model.js runs, and on both its
+ *                  session list rows; the envelope after the tab's title once its reply lands with the tab in the
+ *                  background, after the name and before the time on its rows, and still whole when a narrow side bar
+ *                  cuts the name short, Agent Plus's notice that it finished and its count in the status bar; the red
+ *                  dot while Claude Code waits for permission to run a command, with no notice and no count for the
+ *                  conversation in front; no blue
  *   the agent map's sections
- *                  with nothing running, the conversation's own row alone under a heading of its own; then a helper, a
- *                  command in the background and a scheduled prompt, each section after that row under a heading in
- *                  capitals with its count and a line above it, Claude Code's two headings among them; each card of
- *                  this extension's a dot, a title line and a line under it; Claude Code's rows still there and still
+ *                  with nothing running, only the conversation's row, under its own heading; then a helper, a command
+ *                  in the background and a scheduled prompt, each section after that row under a heading in capitals
+ *                  with its count and a line above it, Claude Code's two headings among them; each card of this
+ *                  extension's a dot, a title line and a line under it; Claude Code's rows still there and still
  *                  opening their dialogs, and its Stop still stopping the command
  *   work left running
  *                  the green ring, hollow in the middle, kept after the turn ends while a command it put in the background
@@ -34,15 +35,16 @@
  *                  agents button's count and green dot and the agent map's own row, grey again once the work has ended;
  *                  the detached program in the agent map, and the notice once it is gone;
  *                  on Linux, a `claude -p` worker left running under a detached shell beside a command in the
- *                  background: the agents button's dot green and its label counting both once, the map listing the
- *                  worker by name in place of its shell and its own row a green ring, all grey once both have ended;
+ *                  background: the agents button with a green dot and a label that counts each of them once, the map
+ *                  listing the worker by name in place of its shell and its own row a green ring, until both end and
+ *                  all of it turns grey;
  *                  a claude --bg session the conversation starts (a stand-in of the CLI, on every platform): the
  *                  agents button's 1 bg and its green dot, the tab's ring, the map's row, the notice of its end, 1 bg
  *                  done and grey, and the setting that leaves it out; and one it launches from a command it put in the
  *                  background, piped through tail, with the CLI's words in that command's output file only: the same
  *                  1 bg, ring and row, and 1 bg done with the ring gone once it has ended
  *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
- *                  Dismiss, Open bringing the conversation forward, the count, and no notice with each of the
+ *                  Dismiss and its count, Open bringing the conversation forward, and no notice with either of the
  *                  agentPlus.notifications settings off; a question put while the turn runs: no notice, no count and a
  *                  green dot until the turn ends, then all three
  *   a question answered in its turn
@@ -51,35 +53,37 @@
  *                  counting it; answered on a question card later in the turn, or typed while the turn runs and taken
  *                  into it, no red dot, and for the card no wait in Agent Plus
  *   conversation links
- *                  another conversation named in a reply by its title, in corner brackets and by its short id: a link for
- *                  each, drawn by Claude Code's own link component, its hover label, a click bringing its tab forward,
- *                  and none while claudeCodePlus.show.conversationLinks is off; with a source registered with Agent Plus
- *                  from the helper as another agent: a full id in prose linked, none in a code block and only the id in
- *                  inline code, not the conversation's own title or id, not a placeholder title, a reply linked once the
- *                  conversation it names is listed, a panel opened later linking too, and that agent's own open on a click
- *   the steward    the Steward panel, a steward's crown on its tab, on every session list row and in the panel's
- *                  header, the bell an older build stored left out, renames through both of Claude Code's rename
+ *                  another conversation named in a reply by its title, in corner brackets and by its short id: a link
+ *                  for each, drawn by Claude Code's own link component, its hover label, a click bringing its tab
+ *                  forward, and none while claudeCodePlus.show.conversationLinks is off; with a source registered with
+ *                  Agent Plus from the helper as another agent: a full id in prose is linked, an id in a code block is
+ *                  not, in inline code only the id is linked, the conversation's own title and id and a placeholder
+ *                  title are not, a reply that gets its link once the conversation it names is listed, the same link in
+ *                  a panel opened later, and a click opening the conversation in that agent's own view
+ *   the steward    the Steward panel, a steward's crown on its tab, on every session list row and in the panel's header
+ *                  with no bell even where an older build stored one, renames through both of Claude Code's rename
  *                  boxes with marks typed anywhere, a managed conversation's dot and envelope in the panel while it
  *                  works, has a reply unread, waits for permission and runs work in the background, and each of the
  *                  steward's requests: a message passed on, a rename, close (refused while busy without --confirmed),
- *                  --windows, a new conversation, one reopened (refused while another process runs it or no window
- *                  has its folder, and ticked again), a handoff, a notice, a second steward's crown, and a link;
- *                  on Linux, a conversation two processes run: the marks, and Stop the old process
+ *                  --windows, a new conversation, one reopened (refused while another process runs it or no window has
+ *                  its folder, and ticked again), a handoff, a notice, a second steward's crown, and a link. On Linux,
+ *                  also a conversation two processes run: the marks, and Stop the old process
  *   restored tabs  after a reload, a Claude Code tab behind another left unloaded, and loaded with
- *                  claudeCodePlus.loadRestoredTabs on, the tab in front still in front; two such tabs with replies not
- *                  read keep their envelopes, on the tabs, the session list rows and in the host's marks, through a
- *                  reload with the setting on; a restored tab first clicked 45 s after a reload loads and takes a message;
- *                  through three reloads with the setting on, each background tab still opens its conversation rather
- *                  than Claude Code's notice that it was not reopened
- *   two windows    a second window of the same VS Code on a folder of its own: a conversation open there comes to
- *                  the front, in that window, from the first window's Steward panel and from a steward's link, and no
- *                  copy of it opens; a link to one open nowhere says so; its title in a reply in the first window, linked
- *                  and clicked, does the same; once that window has reloaded with the
- *                  conversation's tab restored behind another and not loaded, deleting it from the first window is
- *                  refused and names the second
+ *                  claudeCodePlus.loadRestoredTabs on, the tab that was in front staying in front; two such tabs with
+ *                  replies not read keep their envelopes, on the tabs, the session list rows and in the host's marks,
+ *                  through a reload with the setting on; a restored tab first clicked 45 s after a reload loads and
+ *                  takes a message; through three reloads with the setting on, each background tab still opens its
+ *                  conversation rather than Claude Code's notice that it was not reopened
+ *   two windows    a second window of the same VS Code on a folder of its own: a conversation open there comes to the
+ *                  front, in that window, from the first window's Steward panel and from a steward's link, and no copy
+ *                  of it opens; a link to a conversation open nowhere reports that; its title in a reply in the first
+ *                  window, linked and clicked, does the same; once that window has reloaded with the conversation's tab
+ *                  restored behind another and not loaded, deleting it from the first window is refused and names the
+ *                  second
  *   one steward    two stewards in two windows: a steward's box is greyed in the other's panel, one that becomes a
- *                  steward leaves the other's list, one a steward ticked is greyed for the other, and All is on for one
- *                  steward only and takes only what the other has not ticked; each greyed control's hover label says why
+ *                  steward leaves the other's list, a conversation one steward ticked is greyed for the other, and All
+ *                  is on for one steward only and takes only what the other has not ticked; each greyed control's hover
+ *                  label says why
  *   closed, sidebar, archived
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
@@ -88,15 +92,15 @@
  *   the old bell   a steward whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
  *                  its list of what needs you and its Conversations view name it with the crown first and no bell
  *   the focused window
- *                  a conversation of a second window that starts to wait: the window with the focus shows the notice,
+ *                  a conversation of a second window that starts to wait: the focused window shows the notice,
  *                  the other does not, and both count it
  *   what it waits for
- *                  a permission prompt behind another editor of the window with the focus: no notice at all, and
- *                  Claude Code's own back with Agent Plus's waiting notices off; in a second window, a permission prompt
- *                  and a question each named in one notice in the window with the focus and none from Claude Code, Open
- *                  bringing that window forward; both at once a notice each, Open on each bringing its own conversation
- *                  forward; two waits while no window has the focus shown once, a notice each, in the first window to
- *                  get it
+ *                  a permission prompt behind another editor of the focused window: no notice at all, and Claude
+ *                  Code's own back with Agent Plus's waiting notices off; in a second window, a permission prompt and a
+ *                  question each named in one notice in the focused window and none from Claude Code, Open
+ *                  bringing that window forward; both at once: a notice for each, and Open on each brings its own
+ *                  conversation forward; two waits that start while no window has the focus are shown once, a notice
+ *                  for each, in the first window to get the focus
  *   token mode     each of Agent Plus's token modes in turn: Show Status, the status bar, the information box, the hooks'
  *                  settings, Claude Code's list of plugins, the notice for a feature's own setting, what the fake model
  *                  receives, a detached command's end, and the four settings in the Settings editor
@@ -109,7 +113,7 @@
  *   rows no longer open
  *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
  *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn picked or
- *                  highlighted, and only the one in a tab in front drawn as that one
+ *                  highlighted, and only the conversation in a tab in front drawn as the current one
  *   removal        last: Remove from Claude Code restores both files, and turning the extension on puts the patch back
  *   self-check     no page of a Claude Code panel drew the warning that its messages are no longer found, all through the run
  *
@@ -228,18 +232,18 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /*
    * Agent Plus's notices of conversations that need the user (its src/attention.js), each as what it says: its text and
    * the labels of its buttons. A notice shows as a toast at first and moves to the notification list after a while, and
-   * Agent Plus never takes one back. They are told from other notices by what they say and offer, so a change of their
-   * look is a change in these helpers only.
+   * Agent Plus never takes one back. These helpers recognize them by their text and button labels, so a change to how
+   * they look needs changes here only.
    */
   const NEED = (n) => / (finished|is waiting for you)\.$/.test(n.text) || (n.buttons.includes('Dismiss') && n.buttons.includes('Open'));
   const notificationItems = (p, where) => p.evaluate((where) => [...document.querySelectorAll(`${where} .notification-list-item`)].filter((n) => n.offsetParent).map((n) => {
     const m = n.querySelector('.notification-list-item-message');
     return { text: m ? m.innerText.replace(/\s+/g, ' ').trim() : '', buttons: [...n.querySelectorAll('.monaco-button')].map((b) => b.innerText.trim()).filter(Boolean) };
   }), where).catch(() => []);
-  /* The notices of that kind showing as toasts in the window of `p`. */
+  /* The toasts among them in the window of `p`. */
   const needNotices = async (p = page) => (await notificationItems(p, '.notifications-toasts')).filter(NEED);
-  /* The notices of that kind in the notification list of the window of `p` (whose extension host has `folder` open),
-     toasts included: the list is opened to read it, and closed again. `kind` picks other notices. */
+  /* All of them in the notification list of the window of `p` (whose extension host has `folder` open), toasts
+     included: the list is opened to read it, and closed again. `kind` picks other notices. */
   const listedNotices = async (p = page, folder, kind = NEED) => {
     await call('await vscode.commands.executeCommand("notifications.showList"); return true;', undefined, 60000, folder);
     /* Drawn once the list is open and holds its items, or says it has none. */
@@ -256,14 +260,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /* Claude Code's own notices of a wait, which its panel shows in the conversation's window while the panel is not on
      screen, with a View button (src/waiting-for.js). */
   const CC_WAIT = (n) => /^(Claude is requesting permission to |Claude is asking you a question|Claude has finished a plan|Auto mode is waiting for you)/.test(n.text);
-  /* Those of them in the window of `p`, as toasts or in its list. */
+  /* Claude Code's own notices of waits in the window of `p`: its toasts, or else its notification list. */
   const ccWaitNotices = async (p = page, folder) => {
     const shown = (await notificationItems(p, '.notifications-toasts')).filter(CC_WAIT);
     return shown.length ? shown : listedNotices(p, folder, CC_WAIT);
   };
   /* Whether the Agent Plus this run installed names what a conversation waits for, shows no notice of a conversation the
      window with the focus shows, and keeps what comes while no window has the focus: its 'waitingFor' feature. Without
-     it, Claude Code's own notices of waits stay, and the steps expect what such an Agent Plus does. */
+     it, Claude Code's own notices of waits stay, and the steps expect that. */
   const apWaits = (() => {
     try {
       const dir = fs.readdirSync(profile.exts).find((n) => n.startsWith('xnervwang.agent-plus-'));
@@ -277,7 +281,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const testFocus = (on, folder) => call('if (arg === null) delete globalThis.__agentPlusTestFocused; else globalThis.__agentPlusTestFocused = arg; return true;',
     on, 60000, folder);
   /* What each window of Agent Plus wrote to the folder they share, for a failure's details: its items' activity and
-     reason, and what it noted it told the user of. And what a window's extension host makes of its focus. */
+     reason, and which of them it recorded as already told to the user. Also what a window's extension host makes of its
+     focus. */
   const attentionFiles = () => {
     const dir = path.join(profile.home, '.agent-work-plan', 'attention');
     try {
@@ -286,8 +291,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       });
     } catch (_) { return null; }
   };
-  /* Each change of what each window's file says of conversation `id` (its activity and reason), with the time since this
-     started, until stop() returns them. */
+  /* Records the activity and reason that each window's file gives for conversation `id` every time they change, with
+     the time since recording started; stop() returns the records. */
   const fileTimeline = (id) => {
     const dir = path.join(profile.home, '.agent-work-plan', 'attention'), t0 = Date.now(), seen = [], last = new Map();
     const timer = setInterval(() => {
@@ -309,8 +314,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /* Whether VS Code counts the window whose extension host has `folder` open as the one with the focus. */
   const focused = (folder) => call('return vscode.window.state.focused;', undefined, 60000, folder).catch(() => null);
   /* This window brought to the front, once VS Code counts it as focused; Agent Plus shows its notices only then. Under
-     xvfb-run there is no window manager, and a window counts as focused only once something has focused it so. The
-     test stage's environment has no other VS Code's VSCODE_IPC_HOOK_CLI (lib/env.js). */
+     xvfb-run there is no window manager, and a window counts as focused only after something focuses it. The test
+     stage's environment has no other VS Code's VSCODE_IPC_HOOK_CLI (lib/env.js). */
   const focusWindow = async () => {
     if ((await focused()) === true) return true;
     win.frontWindow(exe, profile.user, profile.folder, process.env);
@@ -321,8 +326,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /* Presses `label` on the toast of the notice about `t`. */
   const pressNotice = (t, label, p = page) => p.locator('.notifications-toasts .notification-list-item').filter({ hasText: `"${t.title}"` }).first()
     .locator('.monaco-button').filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) }).first().click({ timeout: 5000 });
-  /* Agent Plus's count in the status bar of the conversations that need the user, in the window of `p`; null while it is
-     hidden. */
+  /* In the window of `p`, the number Agent Plus shows in the status bar for the conversations that need the user; null
+     while it is hidden. */
   const needCount = (p = page) => p.evaluate(() => {
     const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.attention$/.test(x.id));
     return e && e.offsetParent ? { n: Number((/\d+/.exec(e.innerText) || ['-1'])[0]), text: e.innerText.trim(), label: e.getAttribute('aria-label') || '' } : null;
@@ -343,7 +348,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     }
     return out;
   };
-  /* Each change of what attentionOf says of `id`, with the time since this started, until stop() returns them. */
+  /* Records every change of attentionOf(`id`), with the time since recording started; stop() returns the records. */
   const attentionTimeline = (id) => {
     const t0 = Date.now(), seen = [];
     let last = '';
@@ -360,9 +365,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
      (REFRESH_MS in its src/views.js, 30 s), and this extension's list waits on `claude agents --json`, read again
      after 30 s (src/claude-source.js). Two refreshes. */
   const SEEN_MS = 60000;
-  /* How long Agent Plus takes to show a notice once it has seen what the notice is about, from the copy this run
-     installed: it gathers changes for BATCH_MS, and holds back one of a reply left unread until it has been so for
-     STABLE_MS. */
+  /* The delay before Agent Plus shows a notice after it sees the change behind it, read from the copy this run
+     installed: it gathers changes for BATCH_MS, and holds back the notice of an unread reply until the reply has stayed
+     unread for STABLE_MS. */
   const noticeDelay = (() => {
     try {
       const dir = fs.readdirSync(profile.exts).find((n) => n.startsWith('xnervwang.agent-plus-'));
@@ -370,8 +375,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       return { waiting: a.BATCH_MS, finished: a.STABLE_MS + a.BATCH_MS };
     } catch (_) { return { waiting: 2000, finished: 7000 }; }
   })();
-  /* The notices about `t` that show up within the time Agent Plus takes to show one of `kind`, as toasts or in the
-     list: asked once something else says Agent Plus has seen the state such a notice would be about. */
+  /* The notices about `t` that appear, as toasts or in the list, within the time Agent Plus takes to show one of
+     `kind`. Call it only after something shows that Agent Plus has seen the state the notice would report. */
   const noticesWithin = async (t, kind = 'waiting', p = page, folder) => {
     let n = null;
     await until(async () => { n = await noticeOf(t, p); return !!n; }, (noticeDelay[kind] || 7000) + 2500, 250);
@@ -466,7 +471,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const filled = (shape) => !!shape && shape.middle >= 0.75;
   const ringed = (shape) => !!shape && shape.middle <= 0.25;
   /* The crop of the logo on the tab whose label starts with `label`, how many pixels of each dot colour it holds, and the
-     shape of its green dot; null while that tab is not in sight on the tab bar. */
+     shape of its green dot, or null if the tab bar does not show that tab. */
   const tabLogo = async (label) => {
     const tab = page.locator('.tabs-container .tab').filter({ hasText: label.slice(0, 16) }).first();
     const box = await tab.boundingBox().catch(() => null);
@@ -604,7 +609,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     return { row: at(r), name: at(name), envelope: at(env), time: at(time), cut: !!name && cut(name),
       form: env ? getComputedStyle(env, '::after').content : '', envelopes: r.querySelectorAll('[data-cce-envelope]').length };
   }, t.id).catch(() => null);
-  /* The envelope after the name and before the time, whole. */
+  /* Whether the envelope comes after the name and before the time, and is not cut. */
   const envelopeBetween = (p) => !!p && !!p.name && !!p.envelope && !!p.time && p.envelopes === 1 && p.envelope[0] >= p.name[1] - 0.5
     && p.envelope[1] <= p.time[0] + 0.5 && p.envelope[1] - p.envelope[0] >= 8 && p.envelope[1] <= p.row[1];
   /* A press on the empty bottom of the list, which takes the focus off its rows and does nothing else. */
@@ -616,10 +621,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   };
   /*
    * Every row of the session list as a person sees it, by what the list's own styles draw: the class it gives the
-   * conversation it counts as in front, the class of the rows picked for an action on several at once, the row the arrow
-   * keys are on, the keyboard focus, the background and the outline, and whether the row's buttons show. These are the
-   * rows of the list's own row component, whose id ends in the session id: the list's, OPEN SESSIONS' and RECENTLY
-   * CLOSED's, and those of the list a conversation's page opens from its header.
+   * conversation it counts as in front, the class of the rows selected together for a multi-row action, the row the
+   * arrow keys are on, the keyboard focus, the background and the outline, and whether the row's buttons show. These
+   * are the rows of the list's own row component, whose id ends in the session id: the list's, OPEN SESSIONS' and
+   * RECENTLY CLOSED's, and those of the list a conversation's page opens from its header.
    */
   const rowLooks = (frame = list) => frame.evaluate(() => [...document.querySelectorAll('button[class*="sessionItem_"][id]')].map((r) => {
     const s = getComputedStyle(r), buttons = r.querySelector('[class*="sessionActions_"]');
@@ -635,11 +640,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   })).catch(() => []);
   /* A row drawn other than plain: with a background, an outline or its buttons showing. */
   const drawnRow = (r) => r.background !== 'rgba(0, 0, 0, 0)' || !!r.outline || r.buttons;
-  /* The rows of `looks` drawn wrong while the conversations `open` (ids) are open and Claude Code counts `front` (an id,
-     or null) as the one in front: a row of a conversation open nowhere drawn as the one in front, as picked or as the
-     row the arrow keys are on, or drawn other than plain while it is not where the keyboard focus is (a list with the
-     focus draws that row as it draws the row under the mouse); and a row drawn as the one in front for another
-     conversation, or not drawn so for that one. */
+  /* The rows of `looks` drawn wrong, given the ids of the open conversations in `open` and the conversation Claude Code
+     counts as in front in `front` (an id, or null). A row is wrong when its conversation is open nowhere and it is
+     drawn as the one in front, as picked or as the row the arrow keys are on, or drawn other than plain away from the
+     keyboard focus (a list with the focus draws that row as it draws the row under the mouse). A row is also wrong when
+     it is drawn as the one in front but is not `front`, or is `front` and is not drawn so. */
   const misdrawn = (looks, open, front) => looks.filter((r) => r.id
     && ((!open.includes(r.id) && (r.active || r.selected || r.highlighted || (!r.focus && drawnRow(r)))) || r.active !== (r.id === front)));
 
@@ -655,7 +660,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
     return { user: of('[class*="userMessage_"]'), reply: of('[data-testid="assistant-message"]'), all: document.querySelectorAll('[data-cce-ts]').length };
   });
-  /* The footer's agents button: its dot's state, its label and the colour its dot is drawn in. */
+  /* Reads the footer's agents button: the state and colour of its dot, and its label. */
   const GREEN = `rgb(${DOTS.running.join(', ')})`;
   const footer = (frame = conv) => frame.evaluate(() => {
     const b = document.querySelector('button[data-agents-dot]');
@@ -669,7 +674,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     return { text: document.body.innerText.slice(-3000), own: own ? { state: own.getAttribute('data-status-dot'),
       ring: /statusDotElsewhere/.test(own.className), border: s.borderTopColor, background: s.backgroundColor } : null };
   });
-  /* The agent map opened from the footer's button, what `read` makes of it, and the map closed again. */
+  /* Opens the agent map from the footer's button, returns what `read` finds in it, and closes the map. */
   const inMap = async (read, frame = conv) => {
     await frame.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
     const got = await until(async () => { const m = await mapState(frame); return read(m) || null; }, 10000, 500);
@@ -1083,7 +1088,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!await until(() => model.turns() > turns, 30000, 300), 'a message sent from the tab reaches the fake model', model.seen.slice(-3));
       const running = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d.waiting === 0 && d; }, 20000, 500);
       check(!!running, 'while the turn runs the tab\'s logo carries the green dot', await dotsOn(t.label));
-      check(!!running && filled(running.shape) && running.blue === 0, 'a filled one, green in its middle too, and nothing of it blue', running);
+      check(!!running && filled(running.shape) && running.blue === 0, 'a filled dot, green in the middle too, with no blue in it', running);
       const listRunning = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
       check(!!listRunning && listRunning.blue === 0, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
       const rowRunning = [await listDotState(tab0), await listDotState(tab0, true)];
@@ -1094,7 +1099,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       if (running && green) base.compare('tab-dot-running', green.png);
       /* Agent Plus tells of a reply left unread only in a conversation it has seen working. */
       const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'working' && a; }, SEEN_MS, 300);
-      check(!!working, 'Agent Plus has the conversation working, in the folder its windows share', attentionOf(tab0.id));
+      check(!!working, 'Agent Plus sees the conversation working, in the folder its windows share', attentionOf(tab0.id));
       /* The tab's group is locked by Claude Code, so the file is opened into that group by name. */
       await openNotes(t.column);
       const hidden = await until(async () => { const x = (await claudeTabs()).find((y) => y.label === t.label); return x && !x.active; }, 5000, 200);
@@ -1112,7 +1117,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       if (apWaits) {
         const countedFirst = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 30000, 300);
         const none = countedFirst ? await noticesWithin(tab0, 'finished') : null;
-        check(!!countedFirst && !none.length, 'Agent Plus counts the reply left unread in a tab behind another editor of the window with the focus, and shows no notice of it there',
+        check(!!countedFirst && !none.length, 'Agent Plus counts the reply left unread in a tab hidden behind another editor, in the window with the focus, and shows no notice of it there',
           { count: countedFirst || await needCount(), notices: none, agentPlus: timeline() });
       } else {
         const told = await until(() => noticeOf(tab0), 30000, 250) || (await listedNotices()).find(about(tab0));
@@ -1146,7 +1151,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await page.bringToFront().catch(() => {});
       const read = await until(async () => { const d = await dotsOn(t.label); return d && d.running === 0 && !(await claudeTabs()).some((y) => y.label.endsWith(ENVELOPE)) && d; }, 20000, 500);
       check(!!read, 'and bringing the tab to the front clears it', { dots: await dotsOn(t.label), windowFocused: await call('return vscode.window.state.focused;') });
-      check(!!await until(async () => (await needCount()) === null, 15000, 300), 'and Agent Plus counts it no longer', await needCount());
+      check(!!await until(async () => (await needCount()) === null, 15000, 300), 'and Agent Plus no longer counts it', await needCount());
       /* A notice is never taken back; these would otherwise lie over the panel's buttons. */
       await exec('notifications.clearAll');
       const after = await stampsIn(conv);
@@ -1180,11 +1185,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const listWaiting = await until(async () => { const d = await listDot(tab0); return d && d.waiting >= 4 && d; }, 10000, 500);
       check(!!listWaiting && listWaiting.blue === 0, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
       /* The conversation in front of the window that has the focus is the one the user is looking at, so Agent Plus
-         neither tells of it nor counts it. Asked once Agent Plus has written that it has it waiting there. */
+         neither tells of it nor counts it. Checked only after Agent Plus has written that it sees the conversation
+         waiting in front. */
       const inSight = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'waiting' && a.front && a; }, 20000, 300);
       const quiet = inSight ? await noticesWithin(tab0) : null;
       check(!!inSight && !quiet.length && (await needCount()) === null,
-        'Agent Plus, which has it waiting in front of the window with the focus, shows no notice of it and counts nothing',
+        'Agent Plus sees it waiting in the front tab of the window with the focus, so it shows no notice of it and counts nothing',
         { agentPlus: attentionOf(tab0.id), notices: quiet, count: await needCount() });
       await shot('tab-dot-waiting');
       const red = await tabLogo(t.label);
@@ -1199,11 +1205,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /* A command the conversation put in the background keeps its dot green after the turn is over: found in /proc on
        Linux, and on macOS and Windows from what Claude Code's Stop hook tells the work plan plugin. */
-    /* The agent map's layout, on every platform, while the conversation has had no background work yet: alone, then the
-       conversation's own row on top under a heading of its own, and after it a section for each kind of work, each
-       behind a thin line, its heading a label and a count: here a helper, a command in the background and a scheduled
-       prompt. Claude Code's two headings get that look from their own words, its rows stay and still open their details,
-       and its Stop still stops the command. */
+    /* The agent map's layout on every platform, for a conversation that has had no background work yet: first with
+       nothing else in it, then with the conversation's row at the top under its own heading and, after it, a section
+       for each kind of work, with a thin line above it and a heading that gives a label and a count: here a helper, a
+       command in the background and a scheduled prompt. Claude Code's own two headings are found by their words and
+       given the same look; its rows stay, each opening its details on a click. */
     await step('the agent map\'s sections', async () => {
       if (!conv) throw new Error('the conversation did not open');
       const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
@@ -1282,7 +1288,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(cardsInForm(look) && look.cards.length === 1 && look.cards[0].title === prompt && look.cards[0].dot === 'idle',
           'the scheduled prompt is a card in the form of Claude Code\'s: a dot, its title on one line and one line under it', look && look.cards);
         check(!!look && look.sideways !== null && look.sideways <= 0, 'nothing in the map runs past its right edge', look && look.sideways);
-        /* Claude Code's rows still open their details: the helper's, the conversation's, and the command's, whose Stop ends it. */
+        /* Claude Code's own rows, for the helper, the conversation and the command, still open their details, and the
+           command's Stop still ends it. */
         for (const [hasText, name] of [['Look through the notes', 'the helper\'s'], [tab0.title.slice(0, 20), 'the conversation\'s']]) {
           await conv.locator('[role="dialog"] button[class*="row_"]').filter({ hasText }).first().click({ timeout: 5000 });
           const opened = await until(async () => { const d = await dialogs(); return d.length >= 2 && d; }, 5000, 200);
@@ -1302,7 +1309,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const f = await footer(), d = await dotsOn(t.label);
         return status() === 'idle' && d && d.running === 0 && (!f || !/\b[1-9]\d* (agent|task|timer)s?\b/.test(f.label)) && { f, d };
       }, 120000, 1000);
-      check(!!cleared, 'once the helper has finished and the conversation has answered, nothing is left counted', { footer: await footer(), dots: await dotsOn(t.label), status: status() });
+      check(!!cleared, 'once the helper has finished and the conversation has answered, nothing is counted any more', { footer: await footer(), dots: await dotsOn(t.label), status: status() });
     });
 
     await step('work left running after a turn', async () => {
@@ -1336,7 +1343,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       /* Claude Code runs a command it takes for read-only, such as sleep, without asking. */
       const asking = await until(() => conv.evaluate((cmd) => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes(cmd), BG_RUN), 8000, 500);
       if (asking) {
-        note('Claude Code asked before running the command, so the tab came to the front to answer it, and the envelope of a turn ended out of sight was not looked at');
+        note('Claude Code asked before running the command, so the tab came to the front to answer it, and the envelope after a turn that ended out of sight was not checked');
         await page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first().click();
         await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
         hidden = false;
@@ -1355,13 +1362,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         rowRing || [await listDotState(tab0), await listDotState(tab0, true)]);
       if (hidden) {
         const both = await until(async () => (await claudeTabs()).find((y) => y.label.endsWith(ENVELOPE) && titled(y.label.replace(ENVELOPE, ''), tab0.title)), 15000, 500);
-        check(!!both, 'the turn having ended out of sight with work left running, the tab\'s title ends in an envelope beside the ring', await claudeTabs());
+        check(!!both, 'after the turn ended out of sight with work still running, the tab\'s title ends in an envelope beside the ring', await claudeTabs());
         const listBoth = await until(async () => (await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${tab0.id}"] [data-cce-envelope]`).count()) === 1, 10000, 500);
         check(!!listBoth && envelopeBetween(await rowParts(tab0)), 'and both its rows in the session list have the envelope, after the name and before the time', await rowParts(tab0));
-        /* A conversation whose work still runs has not finished, so Agent Plus does not tell of it yet. */
+        /* While its background work runs, the conversation has not finished, so Agent Plus shows no notice for it yet.
+           */
         const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'background' && a; }, 20000, 300);
         const early = working ? await noticesWithin(tab0, 'finished') : null;
-        check(!!working && !early.length, 'Agent Plus, which has it running background work, shows no notice of it yet', { agentPlus: attentionOf(tab0.id), notices: early });
+        check(!!working && !early.length, 'Agent Plus sees it running background work, so it shows no notice of it yet', { agentPlus: attentionOf(tab0.id), notices: early });
         await shot('tab-dot-background-unread');
         await page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first().click();
         const read = await until(async () => { const d = await dotsOn(t.label); return !(await claudeTabs()).some((y) => y.label.endsWith(ENVELOPE)) && d && ringed(d.shape) && d; }, 20000, 500);
@@ -1430,7 +1438,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
         check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
         const pill = await until(async () => { const f = await footer(); return f && f.dot === 'running' && /\b1 agent\b/.test(f.label) && f; }, 20000, 500);
-        check(!!pill && pill.colour === GREEN, 'the agents button counts the helper as 1 agent, its dot the tabs\' green', await footer());
+        check(!!pill && pill.colour === GREEN, 'the agents button counts the helper as 1 agent, and its dot is the tabs\' green', await footer());
         if (pill) {
           const map = await inMap((m) => m.own && m.own.ring && m);
           check(!!map.got && map.got.own.state === 'running' && map.got.own.border === GREEN, 'and the agent map\'s own row has the green ring', map.last && map.last.own);
@@ -1556,7 +1564,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const card = listed && listed.sec.cards.find((c) => c.title === WORKER_NAME);
         check(!!card && listed.sec.head.count === '1' && card.dot === 'running' && /^pid \d+ · started /.test(card.meta) && card.hint === `claude -p session ${WORKER} · running\n${card.meta}`
           && cardsInForm({ cards: listed.sec.cards }) && !mapSection(listed.look, 'Detached commands'),
-          'the agent map lists the worker under claude -p SESSIONS 1 by name, with its pid and start, its session id and state on hover, and not the shell that holds it',
+          'the agent map lists the worker by name under claude -p SESSIONS 1, with its pid and start time and its session id and state on hover, and does not list the shell it runs in',
           listed ? listed.sec : await mapLook());
         const own = listed && listed.m.own;
         check(!!own && own.state === 'running' && own.ring && own.border === GREEN, 'the map\'s own row has a green ring', own);
@@ -1682,7 +1690,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const result = () => conv.evaluate(() => [...document.querySelectorAll('details pre')].some((p) => p.textContent.includes('The nightly report is written')));
         const over = await until(async () => { const m = await map(), sec = mapSection(await mapLook(), 'claude --bg sessions');
           return sec && sec.cards.length === 1 && sec.cards[0].dot === 'idle' && sec.cards[0].meta.startsWith('done') && await result() && { m, sec }; }, 10000, 500);
-        check(!!over && !!over.m.own && over.m.own.state === 'idle' && !over.m.own.ring, 'the map keeps it, done, a grey dot, with its result, and the map\'s own row is grey',
+        check(!!over && !!over.m.own && over.m.own.state === 'idle' && !over.m.own.ring, 'the map keeps it as done, with a grey dot and its result, and the map\'s own row is grey',
           over ? { sec: over.sec, own: over.m.own } : await map());
         await shot('agent-map-bg-done');
         await page.keyboard.press('Escape');
@@ -1818,7 +1826,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /* What makes a conversation wait for the user besides a permission prompt: a question its plan put to the user since
-       the user last wrote, and a choice box. Each makes its dot red, and Agent Plus tells of it in a notice and counts it
+       the user last wrote, and a choice box. Each makes its dot red, and Agent Plus shows a notice for it and counts it
        in the status bar while the user is not looking at it, as its agentPlus.notifications settings allow. */
     await step('what needs you', async () => {
       if (!conv) throw new Error('the conversation did not open');
@@ -1830,7 +1838,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const show = async () => { await tab().click(); return until(inFront, 10000, 200); };
       const plan = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${tab0.id}.json`);
       const had = fs.existsSync(plan) ? fs.readFileSync(plan, 'utf8') : null;
-      /* A row of the plan waiting on the user with a question put now, or the same row done. */
+      /* Writes a plan row that waits on the user with a question asked now, or marks that row done. */
       const question = (open) => {
         const now = new Date().toISOString();
         fs.mkdirSync(path.dirname(plan), { recursive: true });
@@ -1870,7 +1878,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!counted, 'and counts it in the status bar as 1', counted || await needCount());
         if (apWaits) {
           const none = counted ? await noticesWithin(tab0) : null;
-          check(!!counted && !none.length, 'and, the tab being in the window with the focus, shows no notice of it', { notices: none });
+          check(!!counted && !none.length, 'and, since the tab is in the window with the focus, shows no notice of it', { notices: none });
         }
         await shot('needs-you-question');
         /* Open on the notice, which brings the conversation forward. */
@@ -1882,15 +1890,16 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           note('the notice had left the screen for the notification list before Open could be pressed, so the tab was brought forward by a click');
           await show();
         }
-        check(!!await uncounted(), 'and with the conversation in front, Agent Plus counts it no longer', await needCount());
+        check(!!await uncounted(), 'and with the conversation in front, Agent Plus stops counting it', await needCount());
         check(!!(await dotsOn(t.label) || {}).waiting, 'while the dot stays red, the question being still open', await dotsOn(t.label));
         question(false);
-        check(!!await clear(), 'the question answered in the plan, the dot goes', await dotsOn(t.label));
+        check(!!await clear(), 'once the question is answered in the plan, the dot goes', await dotsOn(t.label));
         await exec('notifications.clearAll');
 
-        /* A question the plan puts while the turn still runs reaches the user in the reply that turn ends with, so until
-           the turn ends the conversation is not waiting for them: no notice, no count, and the dot stays green. Asked
-           once Agent Plus's Conversations entry counts the question, so Agent Plus has read it. */
+        /* A question the plan asks while the turn still runs reaches the user in the reply at the end of that turn, so
+           the conversation is not waiting for the user until the turn ends: no notice, no count, and the dot stays
+           green. Checked once Agent Plus's Conversations entry counts the question, which shows that Agent Plus has
+           read it. */
         model.hold();
         const turnsAsk = model.turns();
         const timeline = attentionTimeline(tab0.id);
@@ -1948,8 +1957,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await uncounted();
         await setNotify('waiting', null);
 
-        /* With agentPlus.notifications.enabled off: neither a notice nor a count. Asked once Agent Plus's Conversations
-           entry counts the question, so Agent Plus has read it. */
+        /* With agentPlus.notifications.enabled off: neither a notice nor a count, checked once the Conversations entry
+           counts the question, as above. */
         await setNotify('enabled', false);
         question(true);
         await red();
@@ -1962,7 +1971,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await setNotify('enabled', null);
         await show();
 
-        /* With agentPlus.notifications.finished off: a reply that lands unread is counted, and no notice. */
+        /* With agentPlus.notifications.finished off, a reply that lands unread is counted, and no notice is shown. */
         await setNotify('finished', false);
         model.hold();
         const turns = model.turns();
@@ -1980,10 +1989,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!countedUnread && !notFinished.length, 'with agentPlus.notifications.finished off, a reply that lands unread is counted, and no notice says it finished',
           { tab: unread, count: countedUnread || await needCount(), notices: notFinished });
         await show();
-        check(!!await uncounted(), 'and once the tab is in front it is counted no longer', await needCount());
+        check(!!await uncounted(), 'and once the tab is in front, Agent Plus no longer counts it', await needCount());
         await setNotify('finished', null);
 
-        /* A choice box, with the tab in front of the focused window: red, and nothing from Agent Plus. */
+        /* A choice box with the tab in front of the focused window: the dot turns red, and Agent Plus shows nothing. */
         const before = model.seen.length;
         await conv.locator('[contenteditable][role="textbox"]').first().click();
         await page.keyboard.type(`Please ${ASK_FOR_CHOICE}.`);
@@ -2005,7 +2014,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!rowsChoose, 'and so are both its rows in the session list', rowsChoose || [await listDotState(tab0), await listDotState(tab0, true)]);
         const inSight = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'waiting' && a.front && a; }, 20000, 300);
         const none = inSight ? await noticesWithin(tab0) : null;
-        check(!!inSight && !none.length && (await needCount()) === null, 'Agent Plus, which has it waiting in front of the window with the focus, shows no notice and counts nothing',
+        check(!!inSight && !none.length && (await needCount()) === null, 'Agent Plus sees it waiting in the front tab of the window with the focus, so it shows no notice and counts nothing',
           { agentPlus: attentionOf(tab0.id), notices: none, count: await needCount() });
         await shot('needs-you-choice');
         if (shown) {
@@ -2267,7 +2276,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           return sec && sec.head.count === '1' && sec.cards.length === 1 && sec.cards[0].title === prompt && sec.cards[0].meta === 'every 5 min · never fired' && folded && sec;
         }, 10000, 500);
         check(!!listed && cardsInForm({ cards: listed.cards }) && listed.cards[0].dot === 'idle',
-          'the agent map lists it under SCHEDULED PROMPTS 1, a card with a grey dot, its prompt as the title and when it fires, the whole prompt in the folded card', listed || await mapLook());
+          'the agent map lists it under SCHEDULED PROMPTS 1, a card with a grey dot, titled by its prompt and saying when it fires, with the whole prompt in the folded card', listed || await mapLook());
         await shot('agent-map-scheduled');
         await page.keyboard.press('Escape');
       }
@@ -2424,7 +2433,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         { boxes, groups, windows: readAll(path.join(dataDir, 'windows')).map((w) => w.sessions),
           running: readAll(path.join(profile.home, '.claude', 'sessions')).map((r) => [r.sessionId, r.kind, r.status]) });
       await shot('steward-panel');
-      /* The title a conversation's transcript stores last, or ''. */
+      /* The last title stored in a conversation's transcript, or ''. */
       const storedTitle = (id) => {
         let text = '';
         try { text = fs.readFileSync(transcriptOf({ id }), 'utf8'); } catch (_) { return ''; }
@@ -2440,8 +2449,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const recFile = path.join(profile.home, '.claude', 'sessions', `${r.pid}.json`);
           try { fs.writeFileSync(recFile, JSON.stringify(Object.assign({}, r, { name: belledName }))); } catch (_) { /* the process rewrote it */ }
         }
-        /* One of the test conversations that has an editor tab: an earlier step can leave one in the sidebar, which closing
-           and the tab checks below need it not to be. */
+        /* A test conversation that has an editor tab. An earlier step can leave one in the sidebar, and closing it and
+           the tab checks below need it in a tab. */
         const tabbed = await claudeTabs();
         const inTab = (id) => { const t = threads.find((x) => x.id === id); return !!t && tabbed.some((x) => titled(x.label.replace(ENVELOPE, ''), t.title)); };
         const chosen = (boxes.find(([id]) => inTab(id)) || boxes[0])[0];
@@ -2470,16 +2479,17 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!crownRows && others.every((rs) => rs.every((r) => r.crowns === 0)),
           'and each of its rows in the session list, in OPEN SESSIONS and below, has one crown, before the title and not in it; no other row has one',
           { steward: crownRows || (list && await rowsOf(front.id)), others });
-        /* The Steward panel's header names the steward with its crown, and without the bell its stored name carries. */
+        /* The Steward panel's header shows the steward's name with its crown and without the bell stored in that
+           name. */
         const header = () => frame.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : null; });
         const headed = await until(async () => (await header()) === `${CROWN} ${front.title}`, 15000, 500);
         check(!!headed, 'the Steward panel\'s header names the steward with one crown first and without the bell an older build stored in its name',
           { header: await header(), stored: storedTitle(front.id) });
         await shot('steward-ticked');
 
-        /* Renamed through Claude Code's own two rename boxes, the tab's and the session list row's, with marks typed in
-           every place: neither box is filled with a mark, the title is stored without any, and the tab and each row still
-           show exactly one crown, first. */
+        /* Renamed through both of Claude Code's rename boxes, on the tab and on the session list row, with marks typed
+           in every place: no mark gets into either box or into the stored title, and the tab and each row still start
+           with exactly one crown. */
         const crowned = (label, title) => typeof label === 'string' && label.startsWith(`${CROWN} `) && (label.match(/\u{1F451}/gu) || []).length === 1
           && !/\u2709|\u{1F6CE}/u.test(label) && titled(label.slice(CROWN.length + 1), title);
         const viaTab = async (typed) => {
@@ -2526,7 +2536,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             return storedTitle(front.id) === want && tab && crownedRows(rs, want) && { tab: tab.label, rows: rs };
           }, 20000, 500);
           check(!err && typeof held === 'string' && !MARK_RE.test(held) && !!done,
-            `renamed through ${how} with ${what} typed: the box held no mark, the title is stored without one, and the tab and each row show one crown, first`,
+            `renamed through ${how} with ${what} typed: the box held no mark, the title is stored without one, and the tab and each row show a single crown at the start`,
             { err, held, typed, stored: storedTitle(front.id), tabs: (await claudeTabs()).map((x) => x.label), rows: await rowsOf(front.id) });
         }
         await page.mouse.move(5, 880);
@@ -2588,7 +2598,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
           /* The managed conversation, in a tab behind the steward's, as the Steward panel's row shows it: a filled green
              dot while a turn runs, an envelope once its reply has landed unread, a red dot while it waits for permission,
-             and a green ring while only work it put in the background runs. */
+             and a green ring while nothing but its background work runs. */
           const GREEN = `rgb(${DOTS.running.join(', ')})`, RED = `rgb(${DOTS.waiting.join(', ')})`;
           const panelRow = (id) => frame.evaluate((id) => {
             const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row');
@@ -2610,10 +2620,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const unread = await rowIs((r) => !r.dot && r.env === ENVELOPE.trim());
           check(!!unread, 'once its reply lands with its tab behind another, the row has no dot and ends in the envelope', await panelRow(target.id));
           await shot('steward-row-unread');
-          /* Renamed through its session list row while the reply is unread, with envelopes and a crown typed: the title is
-             stored without them, its tab ends in one envelope, and its rows have one envelope after the title. */
-          /* The row's marks come before its title in the page and the envelope is drawn after it, so where it stands is read
-             from the screen. Rows in a folded section have no box. */
+          /* While the reply is unread, the conversation is renamed through its session list row with envelopes and a
+             crown typed into the name: the title is stored without them, its tab ends in one envelope, and its rows
+             have one envelope after the title. */
+          /* The row's marks come before its title in the page and the envelope is drawn after it, so the test reads its
+             position from the screen. Rows in a folded section have no box. */
           const envRows = (id) => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"], [class*="sessionItem_"]:has([data-cce-pin="${id}"])`)]
             .filter((r) => r.getClientRects().length).map((r) => {
               const name = r.querySelector('span[class*="sessionName_"]'), envs = [...r.querySelectorAll('[data-cce-envelope]')];
@@ -2629,7 +2640,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               && !tab.label.includes(CROWN) && rs.length >= 1 && rs.every((r) => r.envs === 1 && r.after && r.crowns === 0 && r.name === target.title) && { tab: tab.label, rows: rs };
           }, 20000, 500);
           check(!errT && typeof heldT === 'string' && !MARK_RE.test(heldT) && !!kept,
-            'renamed through its row with envelopes and a crown typed while its reply is unread: the title is stored without them, and its tab and rows show one envelope, last',
+            'renamed through its row with envelopes and a crown typed while its reply is unread: the title is stored without them, and its tab and rows show a single envelope at the end',
             { errT, heldT, stored: storedTitle(target.id), tabs: (await claudeTabs()).map((x) => x.label), rows: await envRows(target.id) });
           await front2();
 
@@ -2666,11 +2677,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             }
             return r && r.dot === 'background' && r.ring === GREEN && r.fill !== GREEN && r;
           }, 60000, 1000);
-          check(!!ringRow, 'once its turn has ended with a command still running in the background, the row has a green ring, hollow in the middle', await panelRow(target.id));
+          check(!!ringRow, 'once its turn has ended with a command still running in the background, the row has a green ring, not a filled dot', await panelRow(target.id));
           await shot('steward-row-background');
 
-          /* A handoff, run from the managed conversation: it reaches the steward that manages it, as a notice that is not
-             the user's message, through the steward's inbox. */
+          /* A handoff run from the managed conversation reaches its steward through the steward's inbox, as a notice
+             that is not the user's message. */
           const handed = model.seen.length;
           const handText = 'The user asked here for the release notes, which belong in another conversation.';
           const handoff = await actAs(target.id, ['--handoff'], handText);
@@ -2680,8 +2691,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           } else {
             check(handoff.startsWith('Handed off to the steward ') && handoff.includes(`(${front.id})`) && !!await until(arrivedHand, 30000, 1000),
               'a managed conversation hands something off: the answer names the steward, which gets it as a notice from Claude Code Plus', { handoff, seen: model.seen.slice(handed).map((x) => (x.ask || '').slice(0, 160)) });
-            /* Claude Code draws no row for what arrives through the inbox, so the turn the handoff starts begins at no
-               message on the page; its reply's duration still runs from the handoff, not from the last message typed. */
+            /* Claude Code draws no row for what arrives through the inbox, so the turn that the handoff starts has no
+               message on the page to begin at; its reply's duration still runs from the handoff, not from the last
+               message typed. */
             const replyTo = () => {
               let recs = [];
               try { recs = fs.readFileSync(transcriptOf(front), 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (_) { return {}; } }); } catch (_) { return null; }
@@ -2692,7 +2704,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             };
             const answer = await until(replyTo, 30000, 500);
             const page2 = answer ? await conversation(front, 30000) : null;
-            /* The reply's first line, found by its time, and the duration on it as the page writes one (75-turn-stats.js dur). */
+            /* The reply's first line, found by its time, and the turn duration the page writes on it (75-turn-stats.js
+               dur). */
             const stampOf = () => page2 ? page2.evaluate((at) => {
               const fmt = (ms) => { const d = new Date(ms), p = (n) => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
               return [...document.querySelectorAll('[data-testid="assistant-message"] [data-cce-ts]')].map((e) => e.getAttribute('data-cce-ts').replace(/\u2060/g, ''))
@@ -2732,8 +2745,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             const managed = await until(() => {
               try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(newId); } catch (_) { return false; }
             }, 10000, 300);
-            /* A title of its own: Claude Code counts a closed tab it remembers as shown while another tab has its label, and a
-               new conversation's tab is labelled Claude Code, as is the empty one a step before leaves. */
+            /* The new conversation gets a title of its own, because Claude Code counts a closed tab it remembers as
+               shown while another tab has its label, and a new conversation's tab is labelled Claude Code, as is the
+               empty one an earlier step leaves. */
             const ownTitle = await act(['--rename', newId], 'A new piece of work');
             check(/^Renamed\./.test(ownTitle), 'the steward gives the new conversation a title', { ownTitle });
             /* With a turn of the new conversation running, closing it needs --confirmed. */
@@ -2748,7 +2762,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               }
             } finally { model.release(); }
             check(!!managed && /^Not done: busy: it is working/.test(refusedClose) && /^Closed: /.test(closed),
-              'the new conversation is the steward\'s; while it works, closing it is refused without --confirmed, and done with it', { managed, idleNew, refusedClose, closed });
+              'the new conversation is the steward\'s; while it works, closing it is refused unless --confirmed is given, and goes ahead with it', { managed, idleNew, refusedClose, closed });
             /* With its tab closed no window shows that conversation, so the steward opens it again and passes it a
                message. Its process and this window's list of what it shows can take a moment to let it go. */
             if (/^Closed: /.test(closed)) {
@@ -2756,13 +2770,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
                  sends what its input holds. */
               const later = 'Carry on where you left off, please.\nStart with the tests.';
               const manages = (id) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(id); } catch (_) { return null; } };
-              /* Unticked first, from the line the panel shows for ticked conversations no window has open, so that the tick
-                 the resume gives is seen to be given. */
+              /* Unticked first, with the button the panel shows when ticked conversations are open in no window, so
+                 that the test sees the resume tick it again. */
               const drop = frame.locator('button[data-act="drop-hidden"]').first();
               const offered = await until(() => drop.isVisible().catch(() => false), 30000, 500);
               if (offered) await drop.click();
               const unticked = offered && await until(() => manages(newId) === false, 10000, 300);
-              check(!!unticked, 'the Steward panel says a ticked conversation is open in no window, and its Untick button unticks it', { offered, manages: manages(newId) });
+              check(!!unticked, 'the Steward panel says a ticked conversation is open in no window, and its Untick button removes the tick', { offered, manages: manages(newId) });
               /* What this window's panels show, less what Claude Code knows runs in another process (shownList in extension.js). */
               const shownHere = () => call(`if (typeof globalThis.__cceSessionsShown !== 'function') return null;
                 const away = typeof globalThis.__cceSessionsElsewhere === 'function' ? globalThis.__cceSessionsElsewhere() : [];
@@ -2781,7 +2795,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
                 const refusedResume = running ? await act(['--resume', newId], later) : '';
                 const shown = await shownHere();
                 check(!!running && new RegExp(`^Not done: process ${other.pid} runs it`).test(refusedResume) && Array.isArray(shown) && !shown.includes(newId),
-                  'while another process runs a conversation, the steward is refused opening it, told which process, and no tab opens', { refusedResume, shown, cli });
+                  'while another process runs a conversation, the steward\'s request to open it is refused with the process named, and no tab opens', { refusedResume, shown, cli });
               } finally { model.release(); }
               if (other) await until(() => !liveRecords().some((r) => r.pid === other.pid), 30000, 500);
               let resumed = '';
@@ -2802,7 +2816,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               await exec('claude-vscode.editor.open', front.id);
               const boxOf = () => frame.evaluate((id) => { const b = document.querySelector(`input[data-id="${id}"]`); return b ? b.checked : null; }, newId);
               const tickedBox = await until(async () => (await boxOf()) === true, 45000, 500);
-              check(manages(newId) === true && !!tickedBox, 'and it is ticked: stewards.json has it again, and so does its box in the Steward panel', { manages: manages(newId), box: await boxOf() });
+              check(manages(newId) === true && !!tickedBox, 'and it is ticked again: stewards.json lists it, and its box in the Steward panel is ticked', { manages: manages(newId), box: await boxOf() });
               await shot('steward-resume');
               if (/^Opened/.test(resumed)) {
                 const twice = await act(['--resume', newId], later);
@@ -2822,14 +2836,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               fakeHome.writeThreads(profile.home, outsideFolder, [outside]);
               const away2 = await act(['--resume', outside.id]);
               check(/^Not done: no open VS Code window has its folder, .*, as its first folder/.test(away2) && !(await shownHere() || []).includes(outside.id),
-                'a conversation started in a folder no window has open is not opened, in this window or any other', { away2 });
+                'a conversation started in a folder no window has open is opened in no window', { away2 });
               const tabsBefore = (await claudeTabs()).length;
               /* The script refuses before it writes any request, so nothing can open afterwards. */
               const below = await act(['--resume', inside.id]);
               check(/^Not done: no open VS Code window has its folder, .*, as its first folder/.test(below) && !(await shownHere() || []).includes(inside.id)
                 && (await claudeTabs()).length === tabsBefore,
                 'and so is one started in a folder below this window\'s folder, which Claude Code\'s panel would show as an empty tab: no tab opens', { below, tabs: await claudeTabs() });
-              /* Claude Code itself, asked to open it here, shows an empty tab: the reason for the refusal. */
               await exec('claude-vscode.editor.open', inside.id);
               const direct = await conversation(inside, 20000);
               note(`a conversation started in a folder below this window's, opened with claude-vscode.editor.open: ${direct ? 'it loads' : 'it does not load'}`);
@@ -2841,8 +2854,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           }
           await shot('steward-actions');
           /* A second steward: the managed conversation ticks another conversation in its own panel, where the first
-             steward's box is greyed, since a steward is managed by none. Becoming a steward takes it off the first steward's
-             list, and in the first steward's panel its row then shows one crown, and the other rows none. */
+             steward's box is greyed, since no steward can be managed. Becoming a steward takes it off the first
+             steward's list, and in the first steward's panel its row then shows one crown, and the other rows none. */
           await exec('claude-vscode.editor.open', target.id);
           const box2 = frame.locator(`input[data-id="${front.id}"]`).first();
           const other2 = frame.locator(`input[data-id]:not([disabled]):not([data-id="${front.id}"])`).first();
@@ -2861,7 +2874,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             const n = await names(), others = Object.entries(n).filter(([id]) => id !== target.id);
             return n[target.id] === `${CROWN} ${target.title}` && others.length && others.every(([, t]) => !t.includes(CROWN)) && n;
           }, 30000, 500);
-          check(!!isSteward2 && !!shown2, 'in the first steward\'s panel, a second steward\'s row shows one crown before its title, and the rows of conversations that are no steward show none',
+          check(!!isSteward2 && !!shown2, 'in the first steward\'s panel, a second steward\'s row shows one crown before its title, and the rows of conversations that are not stewards show none',
             { ticked2: !!ticked2, isSteward2: !!isSteward2, names: await names() });
           await shot('steward-two-stewards');
           await exec('claude-vscode.editor.open', target.id);
@@ -2941,9 +2954,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     } });
 
     /* Two Claude Code processes under VS Code's extension host for one conversation, as after a window went away while
-       its extension host stayed: the conversation's own tab, and then its CLI started from the extension host the way the
-       panel starts it (stream-json, entry point claude-vscode), idle. Stop the old process then stops the tab's, the older.
-       A process is tied to its extension host through /proc, so on Linux only. */
+       its extension host stayed: the conversation's own tab, and then its CLI started from the extension host the way
+       the panel starts it (stream-json, entry point claude-vscode), idle. Clicking Stop the old process then stops the
+       tab's process, the older one. A process is tied to its extension host through /proc, so on Linux only. */
     await step('a conversation run by two processes', async () => {
       if (process.platform !== 'linux') { note('a conversation\'s processes are tied to their extension host through /proc, so this runs on Linux only'); return; }
       const t = threads[1], front = threads[0];
@@ -2961,7 +2974,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           globalThis.__cceTestSecond = k; return k.pid;`, { bin: claudeCli(), id: t.id, cwd: profile.folder,
           env: Object.assign(modelEnv(), { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' }) });
         const two = await until(() => of(t.id).some((r) => r.pid === pid) && of(t.id).length === 2 && of(t.id), 30000, 500);
-        check(!!own && !!two, 'its tab runs the conversation, and so does its CLI started after it from the extension host as the panel starts it', of(t.id));
+        check(!!own && !!two, 'its tab runs the conversation, and so does a second CLI the test starts afterwards from the extension host, the way the panel starts one', of(t.id));
         const older = own ? own.pid : 0;
         await exec('claude-vscode.editor.open', front.id);
         await openList();
@@ -2988,8 +3001,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const said = await until(async () => (await toasts()).find((x) => /^Stopped process \d+ of that conversation\./.test(x)) || '', 15000, 300);
           const gone = await until(() => !of(t.id).some((r) => r.pid === older) && of(t.id).length === 1, 20000, 300);
           check(said === `Stopped process ${older} of that conversation.` && !!gone, 'clicked, it stops the older process and says which, and the other runs on', { said, left: of(t.id) });
-          /* The process left is the one started here as the panel starts one, which no window's panel shows, so the
-             conversation can leave the Steward panel altogether. */
+          /* The process left running is the one this test started the way the panel starts one. No window's panel shows
+             it, so the conversation can leave the Steward panel altogether. */
           const cleared = await until(async () => { const r = await rowNow(), m = await mark(); return (!r || (!r.twice && !r.stop)) && m.every((x) => !/processes/.test(x.mark)); }, 45000, 1000);
           check(!!cleared, 'and the marks go from the panel and the session list', { row: await rowNow(), list: await mark() });
         }
@@ -3039,10 +3052,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     const setLoad = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('loadRestoredTabs', arg, vscode.ConfigurationTarget.Global); return true;`, v);
     const loaded = (t) => conversation(t, 1000).then((f) => !!f, () => false);
     /*
-     * Claude Code's page marks the open of a conversation unfinished in its webview state (unfinishedOpen) as it starts
-     * to load it, until 3 s after it has, and does not reopen a tab after a reload once two opens in a row were left
-     * unfinished. The opens left unfinished in the pages of the window, read through this extension's copy of
-     * acquireVsCodeApi, which hands out the page's one handle again (src/panel-load-watch.js).
+     * Claude Code's page notes in its webview state (unfinishedOpen) that the opening of a conversation is unfinished,
+     * from when it starts to load it until 3 s after it has loaded, and does not reopen a tab after a reload once two
+     * opens in a row were left unfinished. The opens left unfinished in the pages of the window, read through this
+     * extension's copy of acquireVsCodeApi, which hands out the page's one handle again (src/panel-load-watch.js).
      */
     const openUnfinished = () => Promise.all(page.frames().map((f) => f.evaluate(() => {
       const a = globalThis.acquireVsCodeApi;
@@ -3050,9 +3063,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const s = a().getState();
       return s && s.unfinishedOpen ? `${String(s.unfinishedOpen.sessionId).slice(-12)} x${s.unfinishedOpen.count}` : null;
     }).catch(() => null))).then((x) => x.filter(Boolean));
-    /* A reload once every page has finished its open, done once this extension is active again and `front`'s page has
-       drawn its conversation. `before` runs as soon as the new extension host is up. Returns the helper's record of that
-       host, whose `at` is when it started. */
+    /* Reloads the window once every page has finished opening its conversation, and returns once this extension is
+       active again and `front`'s page has drawn its conversation. `before` runs as soon as the new extension host is
+       up. Returns the helper's record of that host; its `at` is the time the host started. */
     const reloadAndWait = async (front, before) => {
       if (!await until(async () => !(await openUnfinished()).length, 30000, 300)) {
         note(`a page still had an open unfinished 30 s on, before a reload: ${(await openUnfinished()).join(', ')}`);
@@ -3098,10 +3111,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /*
      * A record the test keeps in the extension host from the moment watchHost() is called: each change of the window's
-     * tabs (each group's labels, the tab in front starred), each change of the conversations Claude Code's host marks
-     * unread, as it sends them with the open conversations, and each change of the conversations whose state the host
-     * has, which a page reports as it loads. Called right after a reload, before claudeCodePlus.loadRestoredTabs can run,
-     * which is 8 s after this extension starts at the earliest.
+     * tabs (each group's labels, the tab in front starred), each change of the set of conversations Claude Code's host
+     * marks unread, which it sends with the open conversations, and each change of the set whose state the host has,
+     * which a page reports as it loads. watchHost() runs right after a reload, before claudeCodePlus.loadRestoredTabs
+     * can run, which is 8 s after this extension starts at the earliest.
      */
     const watchHost = () => call(`
       const w = globalThis.__cceTestWatch = { t0: Date.now(), tabs: [], unread: [], states: [] };
@@ -3160,14 +3173,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       return true;`);
     /* The tabs in front in each entry of the tab record, by label without the envelope. */
     const frontsIn = (rec) => rec.map(([, v]) => v.split(/ \|{1,2} /).filter((s) => s.startsWith('*')).map((s) => s.slice(1).replace(ENVELOPE, '')));
-    /* Whether the tab record shows each of `behind` in front at some point, and `front` in front after the last of them. */
+    /* Whether the tab record has each tab of `behind` come to the front at some point, and `front` back in front after
+       the last of them. */
     const eachShownThenBack = (rec, behind, front) => {
       const fronts = frontsIn(rec);
       const at = (t) => fronts.map((f, i) => (f.some((l) => titled(l, t.title)) ? i : -1)).filter((i) => i >= 0);
       const last = Math.max(...behind.map((t) => { const i = at(t); return i.length ? i[i.length - 1] : Infinity; }));
       return Number.isFinite(last) && at(front).some((i) => i > last);
     };
-    /* The conversations Claude Code's host marks unread now, as it sends them with the open conversations. */
+    /* The conversations Claude Code's host marks unread now. */
     const hostUnread = () => call(`
       const own = globalThis.__cceStatesHook, send = globalThis.__cceSendSessionStates;
       if (typeof own !== 'function' || typeof send !== 'function') return null;
@@ -3189,9 +3203,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /*
      * Claude Code clears a conversation's unread mark when its page reports the conversation while its tab is in front,
-     * and claudeCodePlus.loadRestoredTabs shows each background tab for a moment. A conversation whose reply was not read
-     * when the window reloaded must have its envelope on its tab, on its session list rows and in the host's marks once
-     * the tabs have been loaded, even when each page reported while its tab was in front (holdInFront).
+     * and claudeCodePlus.loadRestoredTabs shows each background tab for a moment. A conversation whose reply was not
+     * read when the window reloaded must still have its envelope in every place envelopesOf checks once the tabs have
+     * been loaded, even when each page reported while its tab was in front (holdInFront).
      */
     await step('restored tabs keep their envelopes', async () => {
       const [front, ...behind] = threads;
@@ -3205,7 +3219,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
       const groups = (await tabs()).filter((g) => g.tabs.some((x) => x.view === PANEL_VIEW));
       check(groups.length === 1, 'the three conversations share one editor group, the last opened in front', await tabs());
-      /* One at a time, each once the host has it, with what each call returned and what the host had right after. */
+      /* Each conversation behind is marked unread in turn, the next only once the host holds the mark, with what each
+         call returned and the host's marks right after. */
       const marks = [];
       for (const t of behind) {
         const said = await call('return globalThis.__cceSetUnread(arg, true);', t.id);
@@ -3217,7 +3232,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!marked, 'the two conversations behind the one in front, marked unread, show the envelope on their tabs, their rows and in the host\'s marks',
         { now: marked || await envelopesNow(behind), marks });
 
-      /* Without the setting, as a reference: what a reload alone keeps. */
+      /* First, without the setting, what a reload alone keeps, for comparison. */
       await reloadAndWait(front);
       await openList();
       const kept = await until(async () => { const e = await envelopesNow(behind); return e.every(everywhere) && e; }, 30000, 500);
@@ -3232,7 +3247,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }, 90000, 500);
       const pages = ran ? await until(async () => (await Promise.all(behind.map(loaded))).every(Boolean), 60000, 1000) : false;
       check(!!ran && !!pages && ran.holds.length === behind.length,
-        'with claudeCodePlus.loadRestoredTabs on, the reload brings each background tab to the front once, held there, then the front tab back, and both pages load',
+        'with claudeCodePlus.loadRestoredTabs on, the reload brings each background tab to the front once and holds it there, then brings the front tab back, and both pages load',
         { pages, record: (await watched()) || 'no record' });
       if (ran && ran.holds.some((h) => !h.cleared)) note(`a tab held in front lost no mark in 15 s, so this run does not show what the loading clears: ${JSON.stringify(ran.holds)}`);
       await openList();
@@ -3249,7 +3264,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         + `\n        unread: ${JSON.stringify(rec.unread.map(([ms, ids]) => [ms, ids.map((id) => id.slice(-2))]))}`
         + `\n        states: ${JSON.stringify(rec.states.map(([ms, ids]) => [ms, ids.map((id) => id.slice(-2))]))}`
         + `\n        holds: ${JSON.stringify(rec.holds)}, loader finished at ${rec.loaded} ms`);
-      check(!!inFront && titled(inFront.label.replace(ENVELOPE, ''), front.title), 'and the tab in front at the reload is in front again', await claudeTabs());
+      check(!!inFront && titled(inFront.label.replace(ENVELOPE, ''), front.title), 'and the tab that was in front before the reload comes back to the front', await claudeTabs());
       await shot('restored-tabs-envelopes');
       for (const t of behind) await call('return globalThis.__cceSetUnread(arg, false);', t.id);
       await setLoad(undefined);
@@ -3274,7 +3289,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await sleep(Math.max(0, host.at + LATE_MS - Date.now()));
       const rec = await watched();
       const neverShown = !!rec && !frontsIn(rec.tabs).some((f) => f.some((l) => titled(l, late.title)));
-      check(notYet && neverShown, `the tab behind the one in front has not been shown or loaded ${LATE_MS / 1000} s after the reload`, { notYet, record: rec });
+      check(notYet && neverShown, `the background tab has not been shown or loaded ${LATE_MS / 1000} s after the reload`, { notYet, record: rec });
       await exec('notifications.clearAll');
       const label = ((await claudeTabs()).find((x) => titled(x.label.replace(ENVELOPE, ''), late.title)) || {}).label;
       if (!label) throw new Error(`"${late.title}" has no tab`);
@@ -3302,8 +3317,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await shot('restored-tab-late');
     });
 
-    /* Each Claude Code page of the window: its open still unfinished, as its webview state has it, whether it says it did
-       not reopen a conversation, and its text. */
+    /* Each Claude Code page of the window: whether its webview state still marks the opening of its conversation
+       unfinished, whether it says it did not reopen a conversation, and its text. */
     const pageStates = () => Promise.all(page.frames().map((f) => f.evaluate(() => {
       const a = globalThis.acquireVsCodeApi;
       if (typeof a !== 'function' || !/api = orig\(\)/.test(String(a))) return null;
@@ -3318,7 +3333,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /*
-     * Claude Code's page counts the open of a conversation unfinished until 3 s after it has loaded, waiting for two
+     * Claude Code's page treats opening a conversation as unfinished until 3 s after it has loaded, waiting for two
      * frames first when the page is in sight, and does not reopen a tab once two opens in a row were left unfinished.
      * claudeCodePlus.loadRestoredTabs shows each background tab for a moment, so through reload after reload each tab
      * must still open its conversation.
@@ -3567,11 +3582,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* A steward reopens a stored conversation in the window whose first folder Claude Code keeps it under, and nowhere
-       else. A second window opens a workspace whose folders are R, then this window's own folder A, then Q. Conversation
-       Z was started in A and later resumed in R, so its transcript is kept under R's folder of projects while its first
-       record still names A: it opens in the second window, and this one starts no new conversation. One kept under Q,
-       which no window has first, is refused at once and opens nowhere. */
+    /* A steward reopens a stored conversation in the window whose first folder is the one Claude Code stores it under,
+       and nowhere else. A second window opens a workspace whose folders are R, then this window's own folder A, then Q.
+       Conversation Z was started in A and later resumed in R, so its transcript is kept under R's folder of projects
+       while its first record still names A: it opens in the second window, and this one starts no new conversation. One
+       kept under Q, which no window has first, is refused at once and opens nowhere. */
     await step('a steward reopening a conversation in the window of its folder', async () => {
       const front = threads[0];
       const base = path.dirname(profile.folder);
@@ -3610,8 +3625,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           kid.stdin.end(input || '');
         }).then((said) => { answered(said); return said; });
       };
-      /* What this window has before: its Claude Code tabs, the transcripts under its folder, and the conversations its
-         processes run. */
+      /* What this window has before the step: its Claude Code tabs, the transcripts under its folder, and the
+         conversations its processes run. */
       const sessionsNow = () => liveRecords().map((r) => r.sessionId);
       const transcriptsOf = (folder) => { try { return fs.readdirSync(path.join(profile.home, '.claude', 'projects', folderName(folder))).sort(); } catch (_) { return []; } };
       /* The steward: the conversation in front, ticking one other in the Steward panel. */
@@ -3651,12 +3666,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }, 60000, 1000);
         const sent = await until(() => { try { return fs.readFileSync(zFile, 'utf8').includes(words); } catch (_) { return false; } }, 60000, 1000);
         check(!!entryB && said.startsWith(`Opened: the conversation was opened in an editor tab in the VS Code window "${entryB.name}"`) && !!tabB && !!drawn && !!sent,
-          'a conversation started in A and resumed in R opens in the window whose first folder is R, which shows it, the answer names that window, and the message reaches it',
+          'a conversation started in A and resumed in R opens in the window whose first folder is R; that window shows it, the answer names the window, and the message reaches the conversation',
           { said, entryB: entryB && entryB.name, tabB, drawn: !!drawn, sent: !!sent });
         await shotB();
         const runningAfter = sessionsNow().filter((id) => !runningA.includes(id) && id !== Z.id);
         check((await claudeTabs()).length === tabsA && JSON.stringify(transcriptsOf(profile.folder)) === JSON.stringify(filesA) && !runningAfter.length,
-          'and this window, whose first folder is the one the conversation\'s first record names, gets no tab, no new conversation and no new transcript',
+          'and this window, whose first folder is the folder named in the conversation\'s first record, gets no tab, no new conversation and no new transcript',
           { tabs: [tabsA, (await claudeTabs()).length], newTranscripts: transcriptsOf(profile.folder).filter((n) => !filesA.includes(n)), runningAfter });
         const tabsB = (await call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).length;`, undefined, 60000, folderR));
         const refused = await act(['--resume', W.id], 'Pick it up again, please.');
@@ -3671,14 +3686,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         if (panel) await panel.locator('button[data-act="none"]').click().catch(() => {});
         await exec('workbench.action.closePanel');
       }
-      /* The second window's screenshot, taken while it is open. */
       async function shotB() { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-reopen-in-window-b.png`) }).catch(() => {}); }
     });
 
-    /* Two stewards in two windows, one conversation for each steward at most: a steward cannot be ticked by another (1),
-       one that becomes a steward leaves the other's list (2), one a steward ticked is greyed in the other's panel (3), and
-       All is on for one steward only, which takes only what the other has not ticked (4). Each greyed control says why
-       in a hover label. */
+    /* Two stewards in two windows, one steward for each conversation at most: a steward cannot be ticked by another
+       (1), a conversation that becomes a steward leaves the other steward's list (2), a conversation one steward ticked
+       is greyed in the other's panel (3), and All is on for one steward only, which takes only what the other has not
+       ticked (4). Each greyed control says why in a hover label. */
     await step('one steward for each conversation', async () => {
       const SA = threads[0], X = threads[1];
       const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
@@ -3700,7 +3714,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         return b ? { checked: b.checked, disabled: b.disabled, why: (l && l.dataset.why) || '' } : null;
       }).catch(() => null);
       const header = (f) => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; }).catch(() => '');
-      /* What a row says of the steward that manages it, and where its link leads. */
+      /* The text a row shows about its steward, and which conversation its link opens. */
       const byIn = (f, id) => f.evaluate((id) => {
         const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'), by = li && li.querySelector('.by');
         const link = by && by.querySelector('a[data-open]');
@@ -3782,11 +3796,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'and so is the box of the conversation that steward ticked, whose hover label names that steward', { box: x || await boxIn(panelB, X.id), label: xLabel });
         await shotB('one-steward-greyed-in-b');
 
-        /* The rows say it too: X's names its steward, a link that brings that steward's conversation up in window A. */
+        /* X's row names its steward too, as a link that brings that steward's conversation up in window A. */
         const xBy = await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${SA.title}` && b; }, 20000, 500);
         const saBy = await byIn(panelB, SA.id);
         check(!!xBy && xBy.to === SA.id && !!saBy && saBy.text === 'a steward',
-          'in B\'s panel the row of the conversation that steward ticked names the steward that manages it, with a link to it, and the steward\'s own row says it is a steward',
+          'in B\'s panel, the row of the conversation that steward ticked shows its steward\'s name as a link, and the steward\'s own row says it is a steward',
           { x: xBy || await byIn(panelB, X.id), sa: saBy });
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
@@ -3796,12 +3810,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           .some((l) => titled(l.replace(/^\S+ /u, ''), SA.title));
         check(!!upInA && !copyInB, 'clicked, the steward\'s name brings that steward\'s conversation to the front in window A, which shows it, and opens no copy in B',
           { tabsA: await claudeTabs(), copyInB });
-        /* The name follows a rename. */
+        /* Renaming the steward changes the name the rows show. */
         const NEW = 'Look after the inventory sync work';
         await renameInA(SA, NEW);
         renamed = true;
         const followed = await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${NEW}` && b; }, 60000, 1000);
-        check(!!followed, 'and once that steward is renamed, the row names it by its new name', await byIn(panelB, X.id));
+        check(!!followed, 'and after that steward is renamed, the row shows its new name', await byIn(panelB, X.id));
         await shotB('one-steward-names-in-b');
         await exec('claude-vscode.editor.open', SA.id);
         await renameInA(SA, SA.title);
@@ -3820,7 +3834,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const allOn = await until(() => table()[SA.id] && table()[SA.id].all === true && table()[SA.id], 10000, 300);
         const q2InA = await until(async () => { const b = await boxIn(panelA, Q2.id); return b && b.disabled && !b.checked && b; }, 20000, 500);
         check(!!allOn && !allOn.manages.includes(Q2.id) && !!q2InA && q2InA.why === `Managed by ${Q1.title}`,
-          'turned to All, the first steward takes only conversations the other has not ticked: the other\'s is greyed in its panel and names that steward', { all: allOn, box: q2InA || await boxIn(panelA, Q2.id) });
+          'with All turned on, the first steward takes only conversations the other has not ticked: the other\'s is greyed in its panel and names that steward', { all: allOn, box: q2InA || await boxIn(panelA, Q2.id) });
         await shot('one-steward-all-in-a');
         const sw = await until(async () => { const e = await everyIn(panelB); return e && e.disabled && e.why === `${SA.title} has All on` && e; }, 60000, 500);
         const swLabel = sw ? await hovered(pageB, panelB, 'label.every') : '';
@@ -3852,7 +3866,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const theme = (name) => call('await vscode.workspace.getConfiguration().update("workbench.colorTheme", arg, vscode.ConfigurationTarget.Global); return true;', name);
       const kind = () => call('return vscode.window.activeColorTheme.kind;');
       const tabEnds = (form) => until(async () => (await claudeTabs()).find((x) => x.label.endsWith(form) && titled(x.label.replace(form, ''), tab0.title)), 30000, 500);
-      /* The character each of the conversation's rows in the session list draws its envelope with. */
+      /* For each of the conversation's rows in the session list, the character its envelope is drawn with. */
       const listForms = () => list.evaluate((id) => [...document.querySelectorAll('[class*="sessionItem_"]')]
         .filter((r) => (r.closest('[data-cce-open-sessions]') && r.id.endsWith(id)) || (!r.closest('[data-cce-section]') && r.querySelector(`[data-cce-pin="${id}"]`)))
         .map((r) => { const e = r.querySelector('[data-cce-envelope]'); return e ? getComputedStyle(e, '::after').content : null; }), tab0.id).catch(() => []);
@@ -3867,11 +3881,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await exec('workbench.action.closeAuxiliaryBar');
       try {
         await theme('Default Light Modern');
-        check(!!await until(async () => (await kind()) === 1, 15000, 300), 'VS Code takes Default Light Modern, a light theme', await kind());
+        check(!!await until(async () => (await kind()) === 1, 15000, 300), 'VS Code takes Default Light Modern', await kind());
         await exec('claude-vscode.editor.open', tab0.id);
         const frame = await conversation(tab0, 60000);
         if (!frame) throw new Error('the conversation did not open');
-        /* A reply that lands while another conversation is in front of it, which the Steward panel is then about. */
+        /* A reply that lands while another conversation is in front, so the Steward panel shows that other one. */
         model.hold();
         const turns = model.turns();
         try {
@@ -3884,7 +3898,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         } finally { model.release(); }
         const lit = await tabEnds(ENVELOPE_TEXT);
         check(!!lit, 'a reply that lands with the tab in the background ends its title in the envelope\'s text form', await claudeTabs());
-        /* A reload in an earlier step made the list's page anew. */
+        /* A reload in an earlier step replaced the list's page, so the list is opened again. */
         check(!!await openList(), 'the session list opens', null);
         const rows = await listIn(ENVELOPE_TEXT);
         check(!!rows, 'and both its rows in the session list draw the envelope in that form', await listForms());
@@ -3952,13 +3966,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const now = new Date().toISOString();
         fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick which conversation goes first', state: 'waiting', waitingOn: 'user',
           question: 'Which one first?', asked: now, opened: now, since: now }] }, null, 2));
-        /* `claude agents --json`, where Agent Plus hears of a running conversation, is read at most every 30 s. The
+        /* Agent Plus learns of running conversations from `claude agents --json`, which is read at most every 30 s. The
            steward's tab is behind the other in the window with the focus, so an Agent Plus with 'waitingFor' shows no
-           notice of it there, and its count is where its name is read. */
+           notice of it there, and its name is read from the hover of its count. */
         if (apWaits) {
           const seen = await until(async () => { const c = await needCount(); return c && c.n >= 1 && c; }, 60000, 300);
           const none = seen ? await noticesWithin(named) : null;
-          check(!!seen && !none.length && !bells(await needNotices()), 'Agent Plus counts the waiting steward and shows no notice of it in the window that shows it',
+          check(!!seen && !none.length && !bells(await needNotices()), 'Agent Plus counts the waiting steward, and the window where its tab is open shows no notice of it',
             { count: seen || await needCount(), notices: none, record: recordOf(S.id) });
         } else {
           const told = await until(() => noticeOf(named), 60000, 250) || (await listedNotices()).find(about(named));
@@ -3982,9 +3996,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await page.keyboard.press('Escape');
         check(!!picks && picks.some((r) => r.startsWith(named.title)) && !bells(picks), 'and so does the list of the conversations that need you', picks);
         await exec('agentPlus.showConversations');
-        /* The Conversations view hears of a running conversation through `claude agents --json`, which a window reads at
-           most every 30 s and may take from another window's list up to 20 s old, while the notice and the count above
-           can come from the panel at once. */
+        /* The Conversations view learns of a running conversation through `claude agents --json`, which a window reads
+           at most every 30 s and may take from another window's list up to 20 s old, while the notice and the count
+           above can come from the panel at once. */
         const rows = await until(() => page.evaluate((t) => {
           const panel = document.getElementById('workbench.parts.panel');
           const all = panel ? [...panel.querySelectorAll('.monaco-list-row')].map((r) => (r.innerText || r.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim()) : [];
@@ -4044,7 +4058,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await until(async () => (await focused()) === true && (await focused(folderC)) !== true, 15000, 300);
         }
         /* Which windows VS Code counts as focused. Under xvfb-run, and on the CI's macOS and Windows runners, a window it has
-           counted as focused once can stay so, and the one opened last took the focus on opening. */
+           counted as focused once can stay so, and the window opened last took the focus when it opened. */
         const wins = [{ name: 'first', p: page, folder: undefined, focused: await focused() }, { name: 'second', p: pageC, folder: folderC, focused: await focused(folderC) }];
         if (!(wins[0].focused === true && wins[1].focused !== true)) {
           note(`bringing the first window forward left VS Code counting ${JSON.stringify(wins.map((x) => [x.name, x.focused]))} as focused, so each window is held to that`);
@@ -4054,8 +4068,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const now = new Date().toISOString();
         fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick the retention period', state: 'waiting', waitingOn: 'user',
           question: 'Keep 7 or 30 days?', asked: now, opened: now, since: now }] }, null, 2));
-        /* `claude agents --json`, where Agent Plus hears of a running conversation, is read at most every 30 s; both
-           counts showing say Agent Plus has it waiting. */
+        /* `claude agents --json` is read at most every 30 s, as above; both counts showing means Agent Plus has the
+           conversation waiting. */
         const counts = await until(async () => { const a = await needCount(), c = await needCount(pageC); return a && c && a.n === 1 && c.n === 1 && [a, c]; }, SEEN_MS, 300);
         check(!!counts, 'both windows count the waiting conversation in the status bar', [await needCount(), await needCount(pageC)]);
         const shows = wins.filter((x) => x.focused === true), quiet = wins.filter((x) => x.focused !== true);
@@ -4072,7 +4086,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await shot('notice-in-focused-window');
         for (const x of quiet) {
           const there = counts ? await noticesWithin(Z, 'waiting', x.p, x.folder) : null;
-          check(!!counts && !there.length, `the ${x.name} window, which VS Code does not count as focused, shows none`, { there });
+          check(!!counts && !there.length, `the ${x.name} window shows none, as VS Code does not count it as focused`, { there });
         }
       } finally {
         fs.rmSync(plan, { force: true });
@@ -4083,30 +4097,30 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* What a conversation waits for, in Agent Plus's notices, which take the place of Claude Code's own (src/waiting-for.js
-       and Agent Plus's src/attention.js). A permission prompt in a tab behind another editor of the window with the focus
-       gives no notice at all, only the red dot and the count; with Agent Plus's waiting notices off, Claude Code's own
-       notice comes back. In a second window, a permission prompt and a question each give one Agent Plus notice in the
-       window with the focus, naming the tool or saying it is a question, and none from Claude Code in either window;
-       Open brings the second window forward with the prompt on screen. Both starting to wait at once give a notice each,
-       and Open on each brings its own conversation forward. What starts to wait while no window has the focus is shown
-       once, a notice for each conversation, in the first window to get the focus, and the other then shows nothing more.
-       Which window has the focus is said to Agent Plus by the step itself (testFocus). With an Agent Plus without
-       'waitingFor', only Claude Code's own notice is checked, which stays. */
+    /* What a conversation waits for, in Agent Plus's notices, which take the place of Claude Code's own
+       (src/waiting-for.js and Agent Plus's src/attention.js). A permission prompt in a tab hidden behind another
+       editor, in the window with the focus, gives no notice at all, only the red dot and the count; with Agent Plus's
+       waiting notices off, Claude Code's own notice comes back. In a second window, a permission prompt and a question
+       each give one Agent Plus notice in the window with the focus, naming the tool or saying it is a question, and
+       none from Claude Code in either window; Open brings the second window forward with the prompt on screen. When
+       both start to wait at once, each gets its own notice, and Open on each brings its own conversation forward. What
+       starts to wait while no window has the focus is shown once, a notice for each conversation, in the first window
+       to get the focus, and the other then shows nothing more. The step itself tells Agent Plus which window has the
+       focus (testFocus). With an Agent Plus without 'waitingFor', only Claude Code's own notice is checked, which
+       stays. */
     await step('notices of what a conversation waits for', async () => {
       if (!conv) throw new Error('the conversation did not open');
       const setNotify = (k, v) => call(`await vscode.workspace.getConfiguration('agentPlus').update(arg[0], arg[1] === null ? undefined : arg[1],
         vscode.ConfigurationTarget.Global); return true;`, [`notifications.${k}`, v]);
       const ASK_TEXT = /Allow this bash command\?/;
       const BASH_NOTICE = 'Claude is requesting permission to use Bash';
-      /* A message typed into the conversation of `frame`, in the window of `p`. */
       const say = async (frame, p, text) => {
         await frame.locator('[contenteditable][role="textbox"]').first().click();
         await p.keyboard.type(text);
         await p.keyboard.press('Enter');
       };
-      /* No on the permission prompt in `frame`, and the prompt gone. A notice at the bottom right can lie over the
-         panel's buttons, so the caller clears them first. */
+      /* Answers No on the permission prompt in `frame` and waits for the prompt to go. A notice at the bottom right can
+         lie over the panel's buttons, so the caller clears them first. */
       const refuse = async (frame) => {
         await frame.locator('button, [role="button"]').filter({ hasText: /^\s*3\s*No\s*$/ }).first().click({ timeout: 5000 });
         return until(() => frame.evaluate((re) => !new RegExp(re).test(document.body.innerText), ASK_TEXT.source), 15000, 500);
@@ -4137,7 +4151,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('notifications.clearAll');
         if (apWaits) {
           const told = await until(async () => (await waitsLeft(cv)) === true, 20000, 300);
-          check(told, 'the conversation\'s page has been told that Claude Code\'s notices of waits are left to Agent Plus', { page: await waitsLeft(cv) });
+          check(told, 'the conversation\'s page knows that Agent Plus, not Claude Code, shows the notices of waits', { page: await waitsLeft(cv) });
         }
         const one = await askBehind();
         const counted = one.red && await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, SEEN_MS, 300);
@@ -4145,7 +4159,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const none = counted ? await noticesWithin(tab0) : null;
           const cc = await ccWaitNotices();
           check(!!one.red && !!counted && !none.length && !cc.length,
-            'a permission prompt in a tab behind another editor of the window with the focus gives no notice, neither Agent Plus\'s nor Claude Code\'s, and its dot is red and Agent Plus counts it',
+            'a permission prompt in a tab hidden behind another editor, in the window with the focus, gives no notice from Agent Plus or Claude Code; its dot is red, and Agent Plus counts it',
             { asked: one.asked, red: one.red, count: counted || await needCount(), agentPlus: none, claudeCode: cc });
         } else {
           const cc = await until(async () => (await ccWaitNotices()).find((n) => n.text.startsWith(BASH_NOTICE)), 20000, 300);
@@ -4234,8 +4248,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await sleep(800);
           return refuse(frame);
         };
-        /* After Open on a notice about `c`: the label of the second window's tab in front once it is `c`'s with text
-           matching `shows` on screen in `frame`, and which window is in front. */
+        /* After Open on a notice about `c`: once the second window's tab in front is `c`'s and `frame` shows text
+           matching `shows`, the label of that tab and which window is in front. */
         const forward = async (c, frame, shows) => {
           const tab = await until(async () => {
             const label = await inD('const t = vscode.window.tabGroups.activeTabGroup.activeTab; return t ? t.label : "";');
@@ -4266,8 +4280,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         };
         /* Once Z and Y are answered: no window reports either waiting any more (a window hears of another window's
            conversations through `claude agents`, which it reads at most every 30 s), and the turns the answers started
-           have ended; Agent Plus tells of a finished turn some seconds later, and that notice is let come and cleared, so
-           that it is not taken for one of the next. */
+           have ended; Agent Plus tells of a finished turn some seconds later, and the step waits for that notice and clears
+           it, so that it is not taken for one of the next. */
         const quiet = async () => {
           const settled = await until(() => [Z, Y].every((c) => { const a = attentionOf(c.id); return !a || a.activity !== 'waiting'; }), SEEN_MS + 15000, 500);
           await until(() => [Z, Y].every((c) => { const a = attentionOf(c.id); return !a || a.activity !== 'working'; }), 60000, 500);
@@ -4280,7 +4294,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await until(() => inD('const mine = vscode.extensions.getExtension("xnervwang.claude-code-plus"); return !!(mine && mine.isActive);'), 60000, 1000);
           await inD('await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar"); return true;');
           const zf = await openIn(Z), yf = await openIn(Y);
-          check(!!zf && !!yf, 'the second window shows two conversations of its folder in tabs', null);
+          check(!!zf && !!yf, 'the second window shows two conversations from its folder in tabs', null);
           if (!zf || !yf) return;
           await testFocus(true);
           await testFocus(false, folderD);
@@ -4329,7 +4343,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await exec('notifications.clearAll');
           await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
 
-          /* Both start to wait at once, with the first window focused. */
+          /* Both at once, while the first window has the focus. */
           const settledOne = await quiet();
           check(!!settledOne, 'the question answered, no window reports either conversation waiting', { files: attentionFiles() });
           await sendAllBehind([[Z, zf, `Please ${ASK_TO_RUN} now.`], [Y, yf, `Please ${ASK_FOR_CHOICE} now.`]]);
@@ -4340,7 +4354,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           }, SEEN_MS, 300);
           const pairHere = (await needNotices()).filter((x) => about(Z)(x) || about(Y)(x)), pairThere = (await needNotices(pageD)).filter((x) => about(Z)(x) || about(Y)(x));
           check(!!pair && pair.every((n) => ['Open', 'Dismiss'].every((b) => n.buttons.includes(b))) && pairHere.length === 2 && !pairThere.length,
-            'two conversations of the second window that start to wait at once give two notices in the window with the focus, one for each, each with Open and Dismiss, and none in the second window',
+            'two conversations of the second window that start to wait at once give two notices in the focused window, one per conversation with Open and Dismiss on each, and none in the second window',
             { asked: [zNow, yNow], notices: pair, here: pairHere, there: pairThere, onScreen: pair ? undefined : await notificationItems(page, '.notifications-toasts'),
               files: pair ? undefined : attentionFiles() });
           await shot('wait-notices-two-at-once');
@@ -4362,7 +4376,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await testFocus(true);
           await exec('notifications.clearAll');
 
-          /* Both start to wait while no window has the focus. */
           const settledBoth = await quiet();
           check(!!settledBoth, 'both answered, no window reports either waiting', { files: attentionFiles() });
           await testFocus(false);
@@ -4370,8 +4383,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const zAgain = await sendBehind(Z, zf, `Please ${ASK_TO_RUN} once more.`, ASK_TEXT);
           const yAgain = await sendBehind(Y, yf, `Please ${ASK_FOR_CHOICE} again.`, /Which config should I change\?/);
           const bothSeen = zAgain && yAgain && await until(() => { const a = attentionOf(Z.id), b = attentionOf(Y.id); return a && b && a.activity === 'waiting' && b.activity === 'waiting'; }, SEEN_MS, 300);
-          /* Asked for as long as Agent Plus takes to show a notice once it has seen the wait: what it keeps meanwhile is
-             not drawn anywhere. */
+          /* The notices are polled for as long as Agent Plus takes to show one after it has seen the wait, since what
+             it holds back meanwhile is not drawn anywhere. */
           const awayNotices = await until(async () => { const n = [...await needNotices(), ...await needNotices(pageD)].filter((x) => about(Z)(x) || about(Y)(x)); return n.length ? n : null; },
             noticeDelay.waiting + 2500, 250) || [];
           check(!!bothSeen && !awayNotices.length, 'while no window has the focus, two conversations that start to wait give no notice', { seen: bothSeen, notices: awayNotices });
@@ -4728,7 +4741,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await exec('workbench.action.closeActiveEditor');
     });
 
-    /* The same version of this extension, a build that differs in one file, installed over the running copy, as
+    /* A build of the same version of this extension that differs in one file is installed over the running copy, as
        installing a build locally does: every open window then runs a build that is no longer the installed one until it
        reloads. A steward of all conversations in window A still gains the conversation it opens; once A has reloaded it
        keeps the stewards table, and window B, still on the earlier build, leaves it alone and says so. */
@@ -4769,8 +4782,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }, 30000, 500);
       const staleLine = (f) => f.evaluate(() => { const p = document.querySelector('p.stale'); return p ? { text: p.innerText.replace(/\s+/g, ' ').trim(), button: !!p.querySelector('button[data-act="reload"]') } : null; });
 
-      /* Window A: the conversation in front set to All in the Steward panel, once the panel is about that conversation:
-         it follows the tab in front at its next pass, and a click before then is for the one in front before. */
+      /* Window A: once the Steward panel is about the conversation in front, that conversation is set to All. The panel
+         follows the tab in front at its next pass; a click before then would go to the conversation that was in front
+         earlier. */
       const headed = (f, t) => until(() => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; })
         .then((h) => h.includes(t.title.slice(0, 30))).catch(() => false), 20000, 300);
       for (const t of threads.slice(1, 3)) { await exec('claude-vscode.editor.open', t.id); await sleep(800); }
@@ -4806,7 +4820,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const listedB = await until(() => { const e = entryOf(folderS); return e && e.sessions.includes(P.id) && e; }, 30000, 500);
         check(!!listedB, 'B shows a conversation of its own, which its entry lists', entryOf(folderS) || null);
 
-        /* The install, as run.js installs the extension, of the same package with one line added to its README. */
+        /* Installs the same package with one line added to its README, the way run.js installs the extension. */
         const extDir = path.join(profile.exts, fs.readdirSync(profile.exts).find((n) => /^xnervwang\.claude-code-plus-\d/.test(n)));
         const stamp = () => { try { return JSON.parse(fs.readFileSync(path.join(extDir, 'package.json'), 'utf8')).__metadata.installedTimestamp || 0; } catch (_) { return 0; } };
         const was = stamp();
@@ -4856,7 +4870,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           }
           const started = Date.now();
           const job = f && await until(() => jobs().find((j) => !jobsBefore.includes(j)), 30000, 500);
-          check(!!job, 'with every window on the build installed over, the conversation in front of A starts a claude --bg session',
+          check(!!job, 'with every window still on the replaced build, the conversation in front of A starts a claude --bg session',
             { frame: !!f, asks: model.seen.slice(from).map((x) => (x.ask || '').slice(0, 120)) });
           if (job) {
             const notice = /notice, not a message from the user: news of a `claude --bg` session this conversation started/;
@@ -4878,7 +4892,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const quietA = await staleLine(panel);
         const eA = entryOf(profile.folder), eB = entryOf(folderS);
         check(/^Opened: /.test(opened) && /It is now ticked for you in the Steward panel\./.test(opened) && !!gained && !!rowOn && !quietA,
-          'with every window on the build installed over, the steward of all gains the conversation it opened at once: the script says it is ticked, stewards.json has it, and its panel shows it ticked, with no word of a reload',
+          'with every window still on the replaced build, the steward of all gains the conversation it opened at once: the script reports the tick, stewards.json lists the conversation, and the panel shows it ticked without asking for a reload',
           { opened, gained: !!gained, row: rowOn || (newId && await boxOf(panel, newId)), line: quietA, manages: (table()[front.id] || {}).manages });
         check(!!eA && eA.installed === false && !!eB && eB.installed === false && typeof eA.build === 'string' && eA.build.length > 0 && eA.build === eB.build,
           'both windows\' entries say they run the same build, and not the installed one', { a: eA && [eA.build, eA.installed], b: eB && [eB.build, eB.installed] });
@@ -4890,8 +4904,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const eA2 = await until(() => { const e = entryOf(profile.folder); return e && e.installed === true && e; }, 30000, 500);
         check(!!eA2 && eA2.build !== (entryOf(folderS) || {}).build, 'after its reload A\'s entry says it runs the installed build, another than B\'s', { a: entryOf(profile.folder), b: entryOf(folderS) });
 
-        /* B, still on the earlier build, leaves the table to A: a tick in its panel is not saved, and it says so. The tick is
-           for a conversation of A's that the steward has through All, which runs again once its tab is in front. */
+        /* Window B still runs the earlier build and leaves the table to A, so a tick in B's panel is not saved, and the
+           panel says so. The tick is for a conversation of A's that the steward has through All, which runs again once
+           its tab is in front. */
         await exec('claude-vscode.editor.open', threads[1].id);
         await conversation(threads[1], 60000).catch(() => null);
         await exec('claude-vscode.editor.open', front.id);
@@ -4976,7 +4991,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const behind = await until(async () => (await claudeTabs()).find((x) => titled(x.label, L.title)), 30000, 500);
       await exec('claude-vscode.editor.open', tab0.id);
       const inFront = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 15000, 300);
-      check(!!behind && !!inFront, 'the conversation to name is open in a tab behind the one in front', await claudeTabs());
+      check(!!behind && !!inFront, 'the conversation the reply will name is open in a background tab', await claudeTabs());
       const panel = await conversation(tab0).catch(() => null) || conv;
       const MENTION = `vscode://xnervwang.claude-code-plus/open?session=${L.id}&source=claude-code`;
       const linksNow = () => panel.evaluate((href) => {
@@ -5022,15 +5037,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /*
-     * The session list's rows as each way of opening and closing conversations leaves them, read as a person sees them:
-     * no row of a conversation open nowhere is drawn picked, as the row the arrow keys are on or as the one in front, or
-     * other than plain unless it holds the keyboard focus, and the rows of the conversation in a tab in front are drawn as
-     * that one. The ways: a row clicked and its tab closed in front; two
-     * opened and the first closed behind the second; one brought forward from OPEN SESSIONS and closed; one opened in the
-     * sidebar from its page's own list, which then starts a new conversation; one opened with the arrow keys and Enter; a
-     * row picked with a modifier click before another is opened; a row's menu closed with nothing picked; one opened from
-     * its menu; a row dragged and let go over no group. Tabs are closed by their close buttons, as a person closes them;
-     * a click there leaves the keyboard focus where it was.
+     * The session list's rows as each way of opening and closing conversations leaves them, read as a person sees them.
+     * A row of a conversation that is open nowhere must not be drawn as picked, as the row the arrow keys are on or as
+     * the one in front, and must be drawn plain unless it holds the keyboard focus; the rows of the conversation in the
+     * tab in front are drawn as the one in front. The ways: a row clicked and its tab closed in front; two opened and
+     * the first closed behind the second; one brought forward from OPEN SESSIONS and closed; one opened in the sidebar
+     * from its page's own list, which then starts a new conversation; one opened with the arrow keys and Enter; a row
+     * picked with a modifier click before another is opened; a row's menu closed with nothing picked; one opened from
+     * its menu; a row dragged and let go over no group. Tabs are closed with their close buttons, and a click there
+     * leaves the keyboard focus where it was.
      */
     await step('rows of conversations no longer open', async () => {
       const [A, B, C] = threads;
@@ -5045,9 +5060,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await tab.locator('.tab-actions .action-label').first().click({ timeout: 5000 });
         if (!await until(async () => !(await tabOf(t)), 15000, 300)) throw new Error(`the tab of "${t.title}" did not close`);
       };
-      /* The pointer onto a spot of the list that is no row, a section's header found in the page: in a short window a
-         full list reaches its bottom, so no fixed spot is sure to be free of rows. The pointer stays in the list, since a
-         page is told the pointer left a row only when the pointer moves within the page. */
+      /* Moves the pointer onto a spot of the list outside the rows, a section header found in the page: in a short
+         window a full list reaches its bottom, so no fixed spot is sure to be free of rows. The pointer stays in the
+         list, since a page is told the pointer left a row only when the pointer moves within the page. */
       const pointerOffRows = async () => {
         const box = await (await list.frameElement()).boundingBox();
         const at = await list.evaluate(() => {
@@ -5056,10 +5071,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             .filter((r) => r.height > 0 && r.top >= 0 && r.bottom <= innerHeight).map((r) => [r.left + Math.min(40, r.width / 2), r.top + r.height / 2]);
           return [...heads, [8, 8], [innerWidth - 8, 8]].find(free) || null;
         });
-        if (!at) throw new Error('the list has no spot off its rows to rest the pointer on');
+        if (!at) throw new Error('the list has no empty spot outside its rows for the pointer');
         await page.mouse.move(box.x + at[0], box.y + at[1]);
       };
-      /* The keyboard focus into the list as the view's own command puts it there, which no click on a row does. */
+      /* Puts the keyboard focus into the list with the view's own command, which no click on a row does. */
       const focusList = async () => {
         await exec('workbench.view.extension.claude-sessions-sidebar');
         const inList = () => list.evaluate(() => document.hasFocus() && !!document.activeElement && document.activeElement !== document.body);
@@ -5072,8 +5087,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await pointerOffRows();
         const ids = open.map((t) => t.id), f = front ? front.id : null;
         let looks = [];
-        /* Closing a tab adds a row to Recently closed and moves the rows below it, which can bring one under the resting
-           pointer; the pointer is moved off again rather than the row counted as drawn. */
+        /* Closing a tab adds a row to Recently closed and moves the rows below it, which can bring one under the
+           resting pointer. The test then moves the pointer off again instead of counting how that row is drawn. */
         const ok = await until(async () => {
           looks = await rowLooks();
           if (looks.some((r) => r.hover)) await pointerOffRows();
@@ -5081,7 +5096,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }, 15000, 300);
         await shot(`rows-no-longer-open-${++n}`);
         looked.push({ n, what, open: ids, front: f, looks });
-        check(!!ok, `${what}: no row is drawn for a conversation open nowhere, and only ${front ? `"${front.title}"` : 'no conversation'} is drawn as the one in front`,
+        check(!!ok, `${what}: no row of a conversation that is open nowhere is drawn other than plain, and only ${front ? `"${front.title}"` : 'no conversation'} is drawn as the one in front`,
           misdrawn(looks, ids, f).map((r) => ({ ...r, open: ids.includes(r.id) })));
       };
       const way = async (name, fn) => {
@@ -5105,7 +5120,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         if (!await until(async () => (await rowLooks()).filter((r) => r.where === 'list').length >= threads.length, 30000, 500)) {
           throw new Error('the list did not draw its rows');
         }
-        /* A selection an earlier step left: Escape in the list ends it, as it does for a person. */
+        /* A selection an earlier step left: Escape in the list ends it. */
         await focusList();
         await page.keyboard.press('Escape');
 
@@ -5212,8 +5227,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         });
         /*
          * The list lets a row be dragged only while it is not archived, and an earlier step can leave one archived. The
-         * drag is let go on another row of the list, which takes no drop, two rows away: let go outside the list's page,
-         * the page is never told the drag ended.
+         * drag ends on another row of the list two rows away, which takes no drop; a drag let go outside the list's
+         * page never tells the page that it ended.
          */
         await way('a drag', async () => {
           let dragged = null;
@@ -5239,7 +5254,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             await page.mouse.up();
             if (during.some((r) => r.id === t.id && r.selected)) { dragged = t; break; }
           }
-          if (!dragged) note('no drag started here: no dragged row was picked while the drag lasted');
+          if (!dragged) note('no drag started here: no row was picked while the drag lasted');
           await after(`a row dragged and let go over no group${dragged ? `, "${dragged.title}"` : ''}`, [], null);
         });
         fs.writeFileSync(path.join(out, 'rows-no-longer-open.json'), JSON.stringify(looked, null, 1));
@@ -5251,9 +5266,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /* More of the links to other conversations, with a conversation source registered with Agent Plus from the test
-       helper and used by nothing else: it lists what the step puts in its list, tells Agent Plus when that changes, and
-       records what Agent Plus asks it to open. Its conversations are kept outside the window's folders, so Agent Plus's
-       views do not show them. Registered here, it stands for another agent such as Codex. */
+       helper and used by nothing else: it lists the conversations the step gives it, tells Agent Plus when they change,
+       and records what Agent Plus asks it to open. Its conversations are kept outside the window's folders, so Agent
+       Plus's views do not show them. Registered here, it stands for another agent such as Codex. */
     await step('conversation links: ids, code, own and placeholder titles, late and another agent', async () => {
       const AGENT = 'cce-test-agent', elsewhere = path.join(path.dirname(profile.folder), 'test-agent-elsewhere');
       const Z = { sessionId: 'feedf00d-1111-4222-8333-444444444444', title: 'Tune the cache of the pricing service', cwd: elsewhere,
@@ -5270,7 +5285,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         st.registration = r.registration;
         return { accepted: r.accepted, code: r.code, features: ap.features };`, { id: AGENT, list: [Q] });
       check(!!reg && reg.accepted && (reg.features || []).includes('allConversations'),
-        'a source standing for another agent registers with Agent Plus, which offers every agent\'s conversations', reg);
+        'a source standing for another agent registers with an Agent Plus that offers every agent\'s conversations', reg);
       try {
         await exec('claude-vscode.editor.open', tab0.id);
         const panel = await conversation(tab0);
@@ -5281,8 +5296,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await page.keyboard.press('Enter');
           return until(() => panel.evaluate((m) => [...document.querySelectorAll('[data-testid="assistant-message"]')].some((r) => r.textContent.includes(m)), marker), 30000, 300);
         };
-        /* The links in the reply that holds `marker`: each with its text, its conversation and agent, and whether it is in
-           a code block or in inline code. */
         const linksIn = (marker) => panel.evaluate((m) => {
           const r = [...document.querySelectorAll('[data-testid="assistant-message"]')].filter((x) => x.textContent.includes(m)).pop();
           if (!r) return null;
@@ -5293,7 +5306,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }, marker);
         const ofZ = (l) => (l || []).filter((x) => x.session === Z.sessionId && x.source === AGENT);
 
-        /* A reply drawn while the conversation it names is not known yet. */
+        /* A reply that names a conversation no agent has listed yet. */
         const LATE = 'not in the list yet';
         check(!!await say(`${Z.title} is ${LATE}.`, LATE), 'the fake model gave the reply naming a conversation no agent lists yet');
         await sleep(4000);
@@ -5303,12 +5316,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!before && !ofZ(before).length && !!after && after[0].text === Z.title,
           'a reply naming a conversation not listed yet has no link to it, and gets one once its agent lists it, without a reload', { before, after });
 
-        /* Ids in prose and in code, the conversation's own title and id, and a placeholder title. */
         const RULES = 'Placeholder:';
         const text = `Its full id is ${Z.sessionId} here. Own: ${tab0.title}, \u300c${tab0.title}\u300d and ${tab0.id}. `
           + `${RULES} \u300c(untitled)\u300d and (untitled), but ${Q.sessionId} by its id.\n\n\`\`\`\n${Z.title}\n${Z.sessionId}\n\`\`\`\n\n`
           + `In inline code: \`${Z.title}\` and \`${Z.sessionId}\`.`;
-        check(!!await say(text, RULES), 'the fake model gave the reply with ids, code, the conversation\'s own name and a placeholder');
+        check(!!await say(text, RULES), 'the fake model\'s reply holds ids, code, the conversation\'s own name and a placeholder');
         const l = await until(async () => { const x = await linksIn(RULES); return x && x.some((y) => y.session === Q.sessionId) ? x : null; }, 30000, 500) || await linksIn(RULES) || [];
         const prose = ofZ(l).filter((x) => !x.code && !x.pre && x.text === Z.sessionId);
         check(prose.length === 1, 'a full session id in the prose of a reply is a link to its conversation', l);
@@ -5316,9 +5328,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'in a code block neither the title nor the id is linked, and in inline code only the id is', l);
         check(!l.some((x) => x.session === tab0.id) && prose.length === 1, 'the conversation\'s own title and id are not linked, in the same reply where another\'s id is', l);
         check(!l.some((x) => /^\(untitled\)$/.test(x.text)) && l.filter((x) => x.session === Q.sessionId && x.text === Q.sessionId).length === 1,
-          'a conversation titled (untitled) is not linked by that title, and is by its id', l);
+          'a conversation titled (untitled) is linked by its id, not by that title', l);
 
-        /* The other agent's conversation: its label and its open. */
         const link = panel.locator(`[data-testid="assistant-message"] a[href="vscode://xnervwang.claude-code-plus/open?session=${Z.sessionId}&source=${AGENT}"]`).first();
         let tip = '';
         for (let i = 0; i < 3 && !tip; i++) {
@@ -5334,10 +5345,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const opened = await until(async () => { const o = await call('return globalThis.__cceTestAgent.opened;'); return o && o.length ? o : null; }, 15000, 300);
         check(!!opened && opened.length === 1 && opened[0].sessionId === Z.sessionId && opened[0].title === Z.title && opened[0].cwd === elsewhere
           && (await claudeTabs()).length === tabsBefore,
-          'clicked, it goes through agentPlus.openConversation to that agent\'s own open, with its title and folder, and opens no Claude Code tab', { opened, tabs: await claudeTabs() });
+          'clicked, it goes through agentPlus.openConversation to that agent\'s own way of opening it, with its title and folder, and opens no Claude Code tab', { opened, tabs: await claudeTabs() });
         await shot('conversation-links-another-agent');
 
-        /* A panel opened after the list was sent, showing a conversation whose earlier reply names Z. */
+        /* A panel opened after the list was sent. Its conversation has an earlier reply that names Z. */
         const P = { id: 'c0ffee12-4b5e-4f60-8a71-92b3c4d5e6a2', title: 'Ask who tunes the pricing cache', days: 0,
           turns: [['Who tunes the pricing cache?', `That is ${Z.title}, the other agent's conversation.`]] };
         fakeHome.writeThreads(profile.home, profile.folder, [P]);
@@ -5345,7 +5356,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const late = await conversation(P).catch(() => null);
         const inP = late ? await until(() => late.evaluate((h) => !!document.querySelector(`[data-testid="assistant-message"] a[href="${h}"]`),
           `vscode://xnervwang.claude-code-plus/open?session=${Z.sessionId}&source=${AGENT}`), 30000, 500) : false;
-        check(!!inP, 'a panel opened after the list was sent links the conversation its earlier reply names');
+        check(!!inP, 'a panel opened after the list was sent also links the conversation named in its earlier reply');
         await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
           && x.label && arg.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, P.title);
       } finally {
@@ -5354,8 +5365,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /* Last, since every step before needs the patch. Remove from Claude Code restores both files, and after a reload the
-       session list is Claude Code's own; turning the extension on again puts the patch back, as the suite run after this
-       stage expects. */
+       session list is Claude Code's own. Turning the extension on again puts the patch back, which the suite run after
+       this stage expects. */
     await step('removing the patch', async () => {
       const allAre = (st, want) => !!st && st.targets.length === 2 && st.targets.every(([, x]) => x === want);
       const plainList = () => frameWhere(() => [...document.querySelectorAll('button')].some((b) => b.innerText.trim() === 'New session')
@@ -5384,7 +5395,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!await frameWhere(() => !!document.querySelector('[data-cce-new-session]'), 60000), 'and after a reload the session list has this extension\'s buttons again');
     });
 
-    /* Last, as it is about the whole run. */
     await step('no self-check warning', async () => {
       check(!warned.size, 'no page of a Claude Code panel drew the warning that its messages are no longer found, at any point of the run', [...warned.values()]);
     });

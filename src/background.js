@@ -65,9 +65,9 @@ const WORKER_NEEDLES = ['claude -p', 'claude --print', 'claude --resume', 'claud
   .map((s) => Buffer.from(s, 'utf8'));
 const MAX_WORKERS = 50;
 const NEEDLES = [BG_FLAG, MARK, ...HINT_NEEDLES, ...ALONE_NEEDLES, ...WORKER_NEEDLES];
-/* A launch run as a background command (run_in_background) prints into a file of its own, which its result names; the
-   transcript gets only that. The file is read on every pass while it may still be written, up to a day, and these many
-   at most per conversation. */
+/* A Bash call that starts a `claude --bg` session as a background command (run_in_background) prints into its own file.
+   The command's result names that file, and the result is all the transcript gets. The file is read on every pass while
+   it may still be written. */
 const OUTPUT_AT = /Output is being written to: (\S+\.output)\b/;
 const OUTPUT_MS = 24 * 3600 * 1000;
 const MAX_OUTPUTS = 20;
@@ -276,10 +276,10 @@ function readChunk(data, ran, jobs, seen, workers, outputs) {
 }
 
 /*
- * Reads the output files of background launches (`outputs`: file -> when the call was made) for the CLI's words, as a
- * transcript's tool result is read, and returns those still worth reading again: a day after the call, or once the
- * file is gone, it is dropped. Claude Code keeps such a file in a folder named after the conversation, so a path
- * without the conversation's id in it is not read; one that has not changed since the last pass is not read again.
+ * Reads the output files of background launches (`outputs`: file -> when the call was made) for what the CLI printed,
+ * the way a transcript's tool result is read, and returns those still worth reading again: a file is dropped a day
+ * after the call, or once it is gone. Claude Code keeps such a file in a folder named after the conversation, so a path
+ * without the conversation's id in it is skipped.
  */
 const outputRead = new Map();
 function readOutputs(session, outputs, jobs, seen, now) {

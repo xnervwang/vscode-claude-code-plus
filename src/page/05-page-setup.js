@@ -288,9 +288,9 @@
   var offCache = {};
   /* The pins the stylesheet carries (83-session-pins.js), decoded once per stylesheet like the two above. */
   var pinsCache = null;
-  /* A signal of the panel's own kind, read by every isOff: a render subscribes only to what it reads, and the parts the
-     switches turn off - the session list's sections, dates and buttons among them - are drawn from the panel's state,
-     which a new stylesheet does not touch. It moves when a stylesheet turns a switch that was asked for on or off. */
+  /* A signal read by every isOff. A render subscribes only to what it reads. The session list's sections, dates and
+     buttons, and the other parts the switches turn off, are drawn from the panel's state, which a new stylesheet does
+     not change. The signal is bumped when a new stylesheet flips a switch that isOff has read since the last one. */
   var switchTick = null;
   var switchRenders = function(){
     if (!switchTick && typeof window.__cceSignal === 'function') switchTick = window.__cceSignal(0);

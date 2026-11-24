@@ -111,12 +111,12 @@ function runningSessions(root = claudeDir(), alive = (pid) => { try { process.ki
   return out;
 }
 
-/* How old a window's entry may be before its window counts as gone (src/window-entries.js). */
+/* A window whose entry is older than this counts as gone. */
 const WINDOW_STALE_MS = windowEntries.STALE_MS;
 
 /*
- * The conversations other windows show, as session id -> the names of those windows, from the entries each window
- * writes in `planDir`/windows (src/steward-view.js).
+ * Session id -> the names of the other windows that show that conversation. Each window's Steward view writes an entry
+ * in `planDir`/windows (src/steward-view.js).
  */
 const shownElsewhere = (planDir, { self, now, alive } = {}) => windowEntries.shownElsewhere(planDir, { self, now, alive, id: SESSION });
 

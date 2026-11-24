@@ -193,10 +193,10 @@ const commandOf = (args) => oneLine(argvOf(args));
  * - Another shell's -c string is the command it runs, so it follows the shell's name.
  * - With perl -e, python -c or node -e, the program text says nothing at a glance and fills the line; the last argument
  *   after it that is not an option is named instead, which for a relay or a server is usually its own name.
- * - `timeout` is named with the command it limits.
- * - Otherwise the first argument that is not an option, which for an interpreter is its script.
+ * - `timeout` is followed by the command it limits.
+ * - Otherwise the first argument that is not an option.
  *
- * A path is named by its last part, and each part is cut to TITLE_PART characters.
+ * A path shows only its last part. Each part is cut to TITLE_PART characters.
  */
 const INLINE = new Set(['-e', '-E', '-c', '--eval']);
 const TITLE_PART = 60;
@@ -204,7 +204,7 @@ const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '\u2026' : s);
 const firstLine = (s) => cut(String(s).split('\n').map((l) => l.trim()).filter(Boolean)[0] || '', TITLE_PART);
 const pathPart = (s) => (/[\\/]/.test(s) && !/\s/.test(s) ? path.basename(s.replace(/[\\/]+$/, '')) || s : s);
 const argPart = (s) => cut(pathPart(s), TITLE_PART);
-/* The command a Bash tool shell was given, from its -c string; null when the string is not one of those. */
+/* The command a Bash tool shell was given, from its -c string; null for any other -c string. */
 const evaled = (c) => {
   if (!SNAPSHOT.test(c)) return null;
   const e = /\beval '((?:[^']|'\\'')*)'/.exec(c);

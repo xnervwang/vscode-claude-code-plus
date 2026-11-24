@@ -48,9 +48,10 @@ const OTHER_THREADS = [
     turns: [['Rename the columns of the billing export.', 'Renamed them in export/billing.sql and in its two readers.']] },
 ];
 
-/* Transcripts as Claude Code's CLI writes them for `claude --bg`, for `claude -p` and for one of its daemon sessions, each
-   a copy of the last of THREADS with the first record's entry point and session kind changed. This extension leaves all
-   three out of the session list while claudeCodePlus.hideBackgroundSessions is on, and with it off lists the first two. */
+/* Transcripts as Claude Code's CLI writes them for a `claude --bg` session, a `claude -p` run and a daemon session.
+   Each copies the last of THREADS and changes the first record's entry point and session kind. This extension leaves
+   all three out of the session list while claudeCodePlus.hideBackgroundSessions is on; with it off, it lists the first
+   two. */
 const BACKGROUND = [
   { head: '5b0d1c2e-9a8f-4c6b-8d7e-', entry: '"entrypoint":"cli","sessionKind":"bg"', title: 'Nightly report run in the background', listedWhenShown: true },
   { head: '6c1e2d3f-0b9a-4d7c-9e8f-', entry: '"entrypoint":"sdk-cli"', title: 'Weekly digest written by claude -p', listedWhenShown: true },
@@ -184,7 +185,7 @@ function write(home, { folder, now = Date.now() }) {
     return file;
   });
   const t = THREADS[THREADS.length - 1], src = fs.readFileSync(files[files.length - 1], 'utf8');
-  /* Every record id of the conversation copied starts with its session id's first 24 characters. */
+  /* Every record id of the copied conversation starts with the first 24 characters of its session id. */
   const background = BACKGROUND.map((b) => {
     const id = b.head + t.id.slice(24), file = path.join(dir, `${id}.jsonl`);
     fs.writeFileSync(file, src.split(t.id.slice(0, 24)).join(b.head).split('"entrypoint":"claude-vscode"').join(b.entry).split(t.title).join(b.title));
@@ -211,10 +212,10 @@ function writeThreads(home, folder, threads, now = Date.now()) {
   return threads;
 }
 
-/* Appends to the transcript in `file` an assistant record whose only content is a Bash tool call running `command`.
-   It hangs off the transcript's last message, as Claude Code's own records do: a record with no parent is a new
-   leaf, and Claude Code reopening the conversation would show only that record. The function returned appends the
-   call's result, given the command's output. */
+/* Appends an assistant record to the transcript in `file`, holding only a Bash tool call that runs `command`. It hangs
+   off the transcript's last message, as Claude Code's own records do: a record with no parent is a new leaf, and Claude
+   Code reopening the conversation would show only that record. It returns a function that appends the call's result,
+   given the command's output. */
 function appendToolCall(file, { sessionId, cwd, uuid, toolId, command, description }) {
   let parentUuid = null;
   for (const line of fs.readFileSync(file, 'utf8').split('\n').reverse()) {

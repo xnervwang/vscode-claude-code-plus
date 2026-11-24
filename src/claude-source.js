@@ -10,9 +10,9 @@
  *                    stopped ones (src/conversations.js), states from the patched host (src/host.js); for Agent Plus's
  *                    notices, every running one on the machine (listAllConversations). Each carries `activity`
  *                    ('working', 'background', 'waiting' or 'stopped', src/activity.js), `unseen` (the host's mark of a
- *                    reply not read yet) and `lastUserAt` (when the user last wrote to it, in milliseconds, when known),
- *                    from which Agent Plus decides its notices; `state` stays for builds of it that predate them; a
- *                    waiting one also carries `waitingFor` (src/waiting-for.js)
+ *                    reply not read yet) and `lastUserAt` (the time, in milliseconds, of the user's last message to it,
+ *                    if known). Agent Plus decides its notices from these three. `state` is still sent for Agent Plus
+ *                    builds older than them. A waiting one also carries `waitingFor` (src/waiting-for.js)
  *   open             in this window, or in the window that shows the conversation (src/steward-view.js open)
  *   plans            <session id>.json in the companion plugin's data directory (src/workplan.js)
  *   focus            a change of the host's activeSessionId; a panel's onDidChangeViewState; sessionForTab(); and the
@@ -96,8 +96,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   lastUserAt(sessionId)           optional: when the user last wrote to it, in milliseconds, or 0 when unknown
  *   activeChat()                    the host's activeSessionId, or ''
  *   canDeliver(sessionId)           whether a panel in this window shows it, in a tab or the sidebar
- *   waitingFor(sessionId)           optional: what this window's panel last reported in front of it, { tool } or
- *                                   { dialog }, or null
+ *   waitingFor(sessionId)           optional: the request or dialog this window's panel last reported showing,
+ *                                   { tool } or { dialog }, or null
  *   hand(sessionId, text, key)      gives the answer to the panel; its result comes back through answered()
  *   sentSince(sessionId, text, ms)  optional: Promise of 'sent', 'queued' or '' from the transcript (src/sent-check.js)
  *   log(line)                       optional
@@ -145,7 +145,7 @@ function createClaudeSource(deps) {
     return waitingFor.fromPanel(raw) || waitingFor.fromAgents(s.waitingFor);
   };
   /* The title as every view shows it: without the marks an older build or a rename box left in the stored name, and
-     with the crown first for a steward (src/title-marks.js). `steward` says the same to a view that draws it itself. */
+     with the crown first for a steward (src/title-marks.js). A view that draws the crown itself reads `steward`. */
   const listed = (s, on, live, unread) => {
     const steward = stewardOf(s.sessionId);
     const out = {
@@ -266,8 +266,9 @@ function createClaudeSource(deps) {
       const { records, error } = await freshAgents();
       if (!records) { const none = []; none.problem = error; return none; }
       const all = waiting.foreground(waiting.merge(records), deps.isBackground ? { isBackground: deps.isBackground } : undefined);
-      /* `claude agents` is read at most every half minute, and a conversation opened since is missing from it. A panel of
-         this window that shows one stands in for it until then: it is this window that knows what it waits for. */
+      /* `claude agents` is read at most every half minute, and a conversation opened since is missing from it. Until
+         then, a panel of this window that shows such a conversation stands in for it; that panel reports what the
+         conversation waits for. */
       for (const [id] of deps.live()) {
         if (all.has(id) || !SESSION.test(String(id))) continue;
         let here = false;

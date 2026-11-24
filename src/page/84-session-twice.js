@@ -6,9 +6,9 @@
 // Fragment of the in-page script - see README.md in this folder.
 
   // The host puts them in the live stylesheet as [[session ID, number of processes], ...] (src/duplicates.js). The mark
-  // is a rule, like a text color (84-session-colors.js), so no node of ours goes into the list's rows: the row's own
-  // ::after, placed with the envelope's order between the title and the time and never shrunk, so that a long title cut
-  // short does not cut the mark off with it.
+  // is a CSS rule, so this page adds no node to the list's rows. It is the row's own ::after, given the envelope's
+  // order so that it sits between the title and the time, and it never shrinks: a long title that is cut short does not
+  // cut the mark off with it.
   var TWICE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   var twiceStyle = null;
   var paintTwice = function(){

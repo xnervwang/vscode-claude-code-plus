@@ -2,17 +2,17 @@
 // Copyright (c) 2026, Xnerv Wang
 // All rights reserved.
 
-// Links to other conversations in replies: a conversation's title or session id in a reply opens that conversation.
+// Links in replies: another conversation's title or session id becomes a link that opens it.
 // Fragment of the in-page script - see README.md in this folder.
 
   /*
-   * The extension sends the conversations it knows of, of every agent Agent Plus lists (cce_conversations, src/
+   * The extension sends the conversations it knows of, from every agent Agent Plus lists (cce_conversations, src/
    * conversation-links.js). Claude Code renders a reply's markdown through react-markdown, and the panel's own rehype
    * plugins get one more here (the edit "conversation links in replies", src/webview.js): it puts a link where the tree
    * names a conversation (agentPlusKit.linkMentionsTree), so the link is drawn by Claude Code's own link component and
    * nothing is written into the panel's nodes. The link's address is the steward's form with the agent's id after it;
-   * a click on it is caught in 93-steward-links.js. A reply's blocks are kept from one render to the next, so a change
-   * of the list, of this panel's conversation or of the switch moves a signal the reply reads (__cceMentionsRev), and
+   * a click on it is caught in 93-steward-links.js. A reply's blocks are kept from one render to the next, so when the
+   * list, this panel's conversation or the switch changes, a signal the reply reads (__cceMentionsRev) is bumped and
    * each of its blocks is rendered again.
    */
   var MENTION_HREF = 'vscode://xnervwang.claude-code-plus/open?session=';
@@ -50,19 +50,19 @@
     };
   };
 
-  // Called by each block of a reply for its rehype plugins; `links` is 'text' where Claude Code draws links as text.
+  // Called by each block of a reply for its rehype plugins; nothing is added where Claude Code renders links as plain
+  // text (`links` is 'text').
   window.__cceMentionPlugins = function(plugins, links){
     try {
       if (links === 'text' || isOff('conversationLinks') || !mentionKnown.length) return plugins;
       return (Array.isArray(plugins) ? plugins : []).concat([mentionPlugin]);
     } catch (e) { return plugins; }
   };
-  // Read by the reply around those blocks, so that it renders them again when what they link changes.
   window.__cceMentionsRev = function(){
     try { return mentionRenders(); } catch (e) { return 0; }
   };
 
-  /* Each sweep: the conversation of this panel and the switch, against what the blocks were last drawn with. */
+  /* On each sweep, compares this panel's conversation and the switch with what the blocks were last drawn with. */
   var mentionsFollow = function(){
     var seen = (isOff('conversationLinks') ? 'off' : 'on') + '\n' + mentionSelf();
     if (seen !== mentionSeen) { if (mentionSeen) mentionRedraw(); mentionSeen = seen; }

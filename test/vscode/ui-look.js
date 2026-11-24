@@ -13,12 +13,11 @@
  * CI, and calls no model itself. With step names it runs only those; --features prints which steps show each feature of
  * ui-look-features.json and opens no window.
  *
- * Each step is { name, features, expect, unchanged, act, undo, only }. act puts the window into a state and returns the area
- * the step is about; expect says what a person should see there and what must not be there; unchanged says what must
- * look as it did just before the step; undo, when there is one, takes back what act left open; only, when there is one,
- * names the platforms the step runs on, and the others skip it. Notifications are left
- * on screen: one that should not be there is a finding. The root folder differs from readme-shots.js's, so the two can
- * run at once with different --cache folders.
+ * Each step is { name, features, expect, unchanged, act, undo, only }. act puts the window into a state and returns the
+ * area the step is about. expect is what a person should see there, and what must not be there; unchanged is what
+ * must look as it did just before the step; undo takes back what act left open; only names the platforms the step runs
+ * on. A step may leave out undo and only. Notifications are left on screen: one that should not be there is a finding.
+ * The root folder differs from readme-shots.js's, so the two can run at once with different --cache folders.
  *
  * <out>/look.json lists the steps run, each with: name, features, expect, unchanged (null when the step that ran before
  * it is not the one it was written to follow), image (<name>.jpg, the step's area), full (<name>.full.jpg, the whole
@@ -65,9 +64,9 @@ const off = (key) => ({
   undo: async (d) => { await setting(d, key, undefined); await d.sleep(1500); },
 });
 
-/* The demo conversation in front, its last reply naming the conversation `t` by its title and by its title in corner
-   brackets (lib/fake-model.js), and the links the page made of them on screen. A conversation is linked while it runs,
-   so one that no longer does is opened in its tab first. */
+/* The demo conversation in front, its last reply naming the conversation `t` twice, by its title alone and in corner
+   brackets (lib/fake-model.js), and the links the page made of them on screen. A conversation is linked only while it runs,
+   so a stopped one is first opened in its tab. */
 const mentionLinks = (d, t) => d.conv.locator(`[data-testid="assistant-message"] a[href^="vscode://xnervwang.claude-code-plus/open?session=${t.id}&source="]`);
 async function toMentions(d, t, ask) {
   await d.exec('claude-vscode.editor.open', d.sid);
@@ -301,14 +300,15 @@ const CROWN = '\u{1F451}';
 const MARK_RE = /\u{1F451}|\u{1F6CE}|\u2709/u;
 const tabLabels = (d) => d.call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((x) => x.input
   && String(x.input.viewType || '').endsWith('claudeVSCodePanel')).map((x) => x.label);`, []);
-/* The texts of Agent Plus's notices showing as toasts (its src/attention.js), once none of them is still moving in. */
+/* The texts of the Agent Plus notices on screen as toasts (its src/attention.js), or null while one is still sliding
+   in. */
 const needToasts = (d) => d.page.evaluate(() => {
   const items = [...document.querySelectorAll('.notifications-toasts .notification-list-item')].filter((n) => n.offsetParent);
   if (items.some((n) => n.closest('.notification-toast-container').getAnimations({ subtree: true }).some((a) => a.playState === 'running'))) return null;
   return items.map((n) => ((n.querySelector('.notification-list-item-message') || {}).innerText || '').replace(/\s+/g, ' ').trim());
 }).catch(() => null);
-/* Whether Agent Plus's windows have written that they see conversation `id` working (its src/attention.js): it tells of a
-   reply left unread only in a conversation it has seen so. */
+/* Whether an Agent Plus window has written down conversation `id` as working (its src/attention.js). Agent Plus tells
+   of a reply left unread only in a conversation it has seen working. */
 function seenWorking(d, id) {
   const dir = path.join(d.profile.home, '.agent-work-plan', 'attention');
   let names = [];
@@ -319,7 +319,8 @@ function seenWorking(d, id) {
 }
 /* How long Agent Plus can take to see a conversation's new activity: two of its 30 s refreshes (ui.js says why). */
 const SEEN_MS = 60000;
-/* Agent Plus's count in the status bar of the conversations that need you, as a box, or null while it is hidden. */
+/* The box of the number Agent Plus shows in the status bar for the conversations that need you, or null while it is
+   hidden. */
 const needCountBox = (d) => d.page.evaluate(() => {
   const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.attention$/.test(x.id));
   if (!e || !e.offsetParent) return null;
@@ -327,10 +328,10 @@ const needCountBox = (d) => d.page.evaluate(() => {
   return { x: r.left, y: r.top, width: r.width, height: r.height, text: e.innerText.trim() };
 });
 /*
- * Another window of this machine reporting `items` to Agent Plus, which reads every window's file in the folder they share
- * (its src/attention.js), so this window tells of them as of conversations in that window. A file not rewritten for a
- * minute is a window that has gone, and a conversation seen waiting there is not told of again for two minutes, so each
- * step gives its own session ids.
+ * Another window of this machine reporting `items` to Agent Plus, which reads every window's file in the folder they
+ * share (its src/attention.js), so this window treats them as conversations of that other window. A file not rewritten
+ * for a minute is a window that has gone, and for two minutes Agent Plus gives no second notice for a conversation it
+ * saw waiting there, so each step gives its own session ids.
  */
 const OTHER_WINDOW = 'look-0000000a.json';
 const attentionDir = (d) => path.join(d.profile.home, '.agent-work-plan', 'attention');
@@ -347,7 +348,7 @@ const noOtherWindow = (d) => { try { fs.unlinkSync(path.join(attentionDir(d), OT
 /* Says to Agent Plus whether this window has the focus: lib/window.js starts it with AGENT_PLUS_TEST_FOCUS=1. null gives
    the word back to VS Code. */
 const testFocus = (d, on) => d.call('if (arg === null) delete globalThis.__agentPlusTestFocused; else globalThis.__agentPlusTestFocused = arg; return true;', on);
-/* The notice toasts, padded, once `want` (a text, or a list of them) are all among them. */
+/* The area of the notice toasts, with padding, once every text in `want` (one text or a list) is among the toasts. */
 async function noticeArea(d, want) {
   const wanted = [].concat(want);
   if (!await d.until(async () => { const t = (await needToasts(d)) || []; return wanted.every((w) => t.includes(w)); }, 20000, 300)) {
@@ -365,7 +366,7 @@ async function noticeArea(d, want) {
   const pad = 24, x = Math.max(0, b.x - pad), y = Math.max(0, b.y - pad);
   return { x, y, width: Math.min(b.w, b.x + b.width + pad) - x, height: Math.min(b.h, b.y + b.height + pad) - y };
 }
-/* A notice of one conversation of another window waiting for `waitingFor`. */
+/* A step for the notice that a conversation in another window is waiting, for the reason `waitingFor`. */
 const waitNotice = (sessionId, title, waitingFor, said) => ({
   act: async (d) => {
     await d.exec('notifications.clearAll');
@@ -375,8 +376,8 @@ const waitNotice = (sessionId, title, waitingFor, said) => ({
   },
   undo: async (d) => { noOtherWindow(d); await d.exec('notifications.clearAll'); await testFocus(d, null); await d.sleep(1500); },
 });
-/* Two conversations of another window that start to wait while no window has the focus, and the notices once this one
-   has it again, which `said` lists. */
+/* Two conversations of another window that start to wait while no window has the focus, and the notices (listed in
+   `said`) that appear once this window has it again. */
 const replayNotice = (a, b, said) => ({
   act: async (d) => {
     await d.exec('notifications.clearAll');
@@ -428,7 +429,7 @@ async function live(d) {
   else { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
   return d.liveFrame;
 }
-/* The file of conversation `id`'s transcript. */
+/* The transcript file of conversation `id`. */
 function transcriptFile(d, id) {
   const projects = path.join(d.profile.home, '.claude', 'projects');
   for (const dir of fs.readdirSync(projects)) {
@@ -466,8 +467,8 @@ async function stewardPanel(d) {
   return frame;
 }
 const stewardsFile = (d) => path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
-/* The demo conversation in front with the Steward panel open, while the first of the other two conversations is a
-   steward with All on that ticked the second. */
+/* Opens the Steward panel on the demo conversation while the first of the other two conversations is a steward that has
+   All on and ticked the second. */
 async function greyedPanel(d) {
   const [t1, t2] = d.threads.slice(1);
   for (const t of [t1, t2]) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
@@ -483,7 +484,7 @@ async function greyedPanel(d) {
   d.greyed = frame;
   return frame;
 }
-/* The demo conversation in front with the Steward panel open, and `ids` ticked in it. */
+/* Brings the demo conversation to the front and ticks `ids` in its Steward panel. */
 async function stewardOf(d, ids) {
   await d.exec('claude-vscode.editor.open', d.sid);
   await d.sleep(1000);
@@ -519,8 +520,8 @@ const MAP_SCHEDULES = [
 ];
 /* Whether `frame` shows the agent map. */
 const mapShown = (frame) => frame.evaluate(() => [...document.querySelectorAll('[role="dialog"] h3')].some((h) => h.textContent.trim() === 'Agent map' && !!h.offsetParent));
-/* Opens the agent map of `frame`'s conversation: with the footer's agents button where there is one, and with /tasks,
-   which opens it too, where there is not. `ready`, a regular expression, is what the map's text must match first. */
+/* Opens the agent map of `frame`'s conversation: with the footer's agents button where there is one, and otherwise with
+   /tasks, which also opens it. `ready`, a regular expression, is what the map's text must match first. */
 async function openMap(d, frame, ready) {
   if (!await mapShown(frame)) {
     const button = frame.locator('button[data-agents-dot]').first();
@@ -537,7 +538,8 @@ async function openMap(d, frame, ready) {
     if (!await d.until(has, 60000, 500)) throw new Error(`the agent map did not show ${ready} within 60 s`);
   }
   await d.sleep(1200);
-  /* Through the page first, so that a card the dialog opened under the mouse is told the mouse has left it. */
+  /* Moves the pointer off inside the page first, so that a card the dialog opened under it gets its mouse-leave event.
+     */
   await rest(d, frame);
   await d.away();
 }
@@ -607,7 +609,7 @@ const STEPS = [
     expect: 'A conversation in an editor tab with its tool rows shown (rows headed Bash, Read, Edit, Write and the like, with IN '
       + 'and OUT boxes). Each of your own messages is a box with a colored bar down its left edge and starts with a date and '
       + 'time. Every row of a reply starts with a small grey date and time: a thinking row, a text row, and each tool row, where '
-      + 'the time reads start->end (two times joined by an arrow) on a line of its own above the tool\'s name. The first row of '
+      + 'the time is the tool\'s start and end joined by an arrow, on a line of its own above the tool\'s name. The first row of '
       + 'each reply also shows, after its time, how long the turn had taken, the model and its effort (for example "22s . '
       + 'opus-5-5 xhigh"). A narrow column of buttons runs down the right edge and covers no letters. No warning banner from '
       + 'the page. ' + (LINUX ? 'The tab\'s logo carries a green ring at its top right, hollow in the middle rather than a filled '
@@ -620,8 +622,8 @@ const STEPS = [
   {
     name: 'token-mode-notice', features: ['token-mode'],
     expect: 'The notice that asked which token mode to use (shown at the bottom right, or by now moved into the list of '
-      + 'notifications) has been answered: its Choose a Mode... button opened the list of modes, and All features, the one '
-      + 'selected in it, was taken. The notice and the list are gone, nothing covers the panel\'s footer, the list of '
+      + 'notifications) has been answered: its Choose a Mode... button opened the list of modes. '
+      + 'The notice and the list are gone, nothing covers the panel\'s footer, the list of '
       + 'notifications is closed, and the token mode entry in the status bar still says All.',
     unchanged: 'The side bar, the tab bar and the conversation look as before.',
     act: async (d) => {
@@ -639,7 +641,7 @@ const STEPS = [
       await btn.click();
       const list = () => d.page.evaluate(() => { const q = document.querySelector('.quick-input-widget'); return !!q && !!q.offsetParent && /All features/.test(q.innerText); });
       if (!await d.until(list, 10000, 300)) throw new Error('Choose a Mode... opened no list of the modes');
-      /* The list opens with the mode in use, All features, selected. */
+      /* The list opens with the mode in use selected: All features. */
       await d.page.keyboard.press('Enter');
       await d.until(async () => !(await list()), 5000, 300);
       await d.exec('notifications.hideList').catch(() => {});
@@ -833,8 +835,8 @@ const STEPS = [
     name: 'agent-map', features: ['agent-map'],
     expect: 'The agent map, opened from the footer\'s button that counts background work ('
       + (LINUX ? '"1 detached . 1 timer"' : '"1 timer"') + '). At the top a small bold heading THIS CONVERSATION and the '
-      + 'conversation\'s own card, which starts with ' + (LINUX ? 'a green ring, hollow in the middle, since the detached command runs.'
-        : 'a grey dot, since a scheduled prompt runs nothing until it is due.')
+      + 'conversation\'s own card, which starts with ' + (LINUX ? 'a green ring rather than a filled dot: the detached command is running.'
+        : 'a grey dot, since nothing runs yet and the scheduled prompt is not due.')
       + ' Then, each after a thin line and each headed in capitals with a count badge: '
       + (LINUX ? 'DETACHED COMMANDS 1, a card with a green dot titled "sleep 1800" and its process id, start time and running time under it; ' : '')
       + 'SCHEDULED PROMPTS 1, a card with a grey dot, the start of its prompt ("Every Monday morning, ...") and "0 9 * * 1 . never fired" '
@@ -974,7 +976,7 @@ const STEPS = [
     name: 'off-detached', features: ['agent-map'], ...off('claudeCodePlus.show.detachedCommands'),
     expect: 'The chart is drawn again in the reply. The footer\'s button for background work '
       + (LINUX ? 'no longer counts the detached command: it says only "1 timer"' : 'says "1 timer", as before')
-      + ' (or is gone if nothing else is counted), and its dot is grey, since a scheduled prompt runs nothing until it is due.',
+      + ' (or is gone if nothing else is counted), and its dot is grey, since a scheduled prompt alone does not turn it green.',
     unchanged: 'The conversation above the message box is as before.',
     area: async (d) => { await demoAt(d, '', { focus: true }); await toImage(d); return d.editor(); },
   },
@@ -1019,7 +1021,7 @@ const STEPS = [
       + 'hollow), a title, and the last-active time followed by dates such as "09/05->09/16"; one title is drawn in blue. '
       + 'The open conversation is listed twice, under OPEN SESSIONS and among the rows below, and both copies are highlighted; '
       + 'no other row looks selected or outlined. Titles are readable and none overlaps a pin or a date. '
-      + (LINUX ? 'Both rows of the open conversation start with a small green ring, hollow in the middle; no other row has a dot'
+      + (LINUX ? 'Both rows of the open conversation start with a small green ring, not a filled dot; no other row has a dot'
         : 'No row has a dot: nothing runs')
       + ', and no row has a blue dot or an envelope.',
     unchanged: 'The editor shows the same conversation as before.',
@@ -1089,10 +1091,10 @@ const STEPS = [
   },
   {
     name: 'session-menu-closed', features: ['session-selection'],
-    expect: 'The session list after the right-click menu of the row "Add a dry-run flag to the cleanup script", whose conversation '
-      + 'is not open, was closed with Escape and nothing picked, and the editor then took the keyboard focus. That row looks like '
-      + 'the other rows of conversations that are not open: no tint, no outline, no lighter background and no pencil or archive '
-      + 'buttons on it. Only the open conversation\'s two copies (under OPEN SESSIONS and among the rows) are highlighted.',
+    expect: 'The session list after Escape closed the right-click menu of the row "Add a dry-run flag to the cleanup script", '
+      + 'whose conversation is not open, with nothing picked. The editor then took the keyboard focus. That row looks like the '
+      + 'other rows of conversations that are not open, with no tint, outline or lighter background, and without the pencil and '
+      + 'archive buttons. Only the open conversation\'s two copies (under OPEN SESSIONS and among the rows) are highlighted.',
     unchanged: 'The rows are the same and in the same order as before, and the title made green stays green.',
     act: async (d) => {
       const list = await sessionList(d);
@@ -1109,8 +1111,8 @@ const STEPS = [
   {
     name: 'session-drag-let-go', features: ['session-selection'],
     expect: 'The session list after the row "Why does the nightly export skip archived rows?" was dragged down a little and let go '
-      + 'over the empty space below the rows, on no group. The row is back in its place and looks like the other rows of '
-      + 'conversations that are not open: no tint and no outline. Only the open conversation\'s two copies are highlighted.',
+      + 'over the empty space below the rows, on no group. The row is back in its place, with no tint and no '
+      + 'outline, the same as the rows of other conversations that are not open. Only the open conversation\'s two copies are highlighted.',
     unchanged: 'The rows are the same and in the same order as before.',
     act: async (d) => {
       const list = await sessionList(d);
@@ -1211,7 +1213,7 @@ const STEPS = [
       await showArchived(d, list, id);
       await rowPick(d, list, id, 'Delete session');
       const said = () => d.page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].some((e) => /^Not deleted:/.test(e.innerText)));
-      if (!await d.until(said, 15000, 300)) throw new Error('no notice that it was not deleted appeared within 15 s');
+      if (!await d.until(said, 15000, 300)) throw new Error('within 15 s no notice said that the conversation was not deleted');
       await d.sleep(800);
       await d.away();
       return d.body();
@@ -1380,14 +1382,14 @@ const STEPS = [
       await d.sleep(800);
     },
   },
-  /* What a steward does for the conversations it manages, each through its script as the steward runs it, and the mark
-     on a conversation that two processes run. The last undo leaves the Steward panel closed, the extra tabs gone and the
-     first tab without its crown, as the work-plan step expects. */
+  /* What a steward does for the conversations it manages, each request made through steward-relay.py as a steward would
+     make it, and the mark on a conversation that two processes run. The last undo closes the Steward panel and the
+     extra tabs and takes the crown off the first tab, which is the state the work-plan step starts from. */
   {
     name: 'steward-relayed', features: ['steward-send'],
-    expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. Its last message of yours reads '
-      + '"Please check the export query once more, then stop.": the demo conversation, its steward, passed it on and Claude '
-      + 'Code Plus typed it in, so it is drawn like any message you typed, and the fake model\'s reply follows it.',
+    expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. The last message in it from you '
+      + 'reads "Please check the export query once more, then stop.". The demo conversation, which is its steward, passed it on '
+      + 'and Claude Code Plus typed it in, so it is drawn like any message you typed; the fake model\'s reply follows it.',
     unchanged: null,
     act: async (d) => {
       for (const t of d.threads.slice(1)) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
@@ -1444,8 +1446,8 @@ const STEPS = [
   },
   {
     name: 'steward-closed', features: ['steward-close'],
-    expect: 'The steward asked to close the conversation that waits for permission; without the user\'s confirmation that was '
-      + 'refused, and with it the tab was closed. "Why does the nightly export skip archived rows?" has no tab any more. The '
+    expect: 'The steward asked to close the conversation that waits for permission. The first request, without the user\'s '
+      + 'confirmation, was refused; the second, with it, closed the tab. "Why does the nightly export skip archived rows?" has no tab any more. The '
       + 'Steward panel says one ticked conversation is not open in any VS Code window, with a button to untick it.',
     unchanged: 'The steward conversation is as before.',
     act: async (d) => {
@@ -1509,9 +1511,8 @@ const STEPS = [
     name: 'steward-handoff', features: ['steward-handoff'],
     expect: 'The demo conversation, the steward, is in front, after "Why does the nightly export skip archived rows?" handed '
       + 'something off to it through Claude Code Plus. Claude Code draws no row for what arrives through its inbox, so the '
-      + 'handoff itself is not on screen: the conversation ends with the fake model\'s reply to it, with no message of yours '
-      + 'before it, and that reply\'s first line gives a duration of a few seconds, not the time since the last message you '
-      + 'typed.',
+      + 'handoff itself is not on screen: the conversation ends with the fake model\'s reply to it. No message of yours comes '
+      + 'before that reply, and its first line says the turn took a few seconds, not the time since you last typed.',
     unchanged: null,
     act: async (d) => {
       const t = d.threads[1];
@@ -1577,8 +1578,8 @@ const STEPS = [
     },
     {
       name: `steward-greyed-all${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The same Steward panel in the ${tone} theme. The mouse rests on the greyed "All, including new ones" switch at the top right, and a `
-        + 'hover label near it reads "Why does the nightly export skip archived rows? has All on". The label is readable and not cut off at the panel\'s edge.',
+      expect: `The mouse rests on the greyed "All, including new ones" switch at the top right of the Steward panel, still in the ${tone} theme, and a `
+        + 'hover label near it reads "Why does the nightly export skip archived rows? has All on".',
       unchanged: 'The rows of the Steward panel are as in the step before.',
       act: async (d) => {
         const frame = d.greyed || await greyedPanel(d);
@@ -1593,7 +1594,7 @@ const STEPS = [
     },
     {
       name: `steward-managed-by${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The same Steward panel in the ${tone} theme, with the mouse away. Each greyed row says on the row itself why: after its title, the row of `
+      expect: `The same Steward panel in the ${tone} theme, with the mouse away. Each greyed row shows its reason after its title: the row of `
         + '"Add a dry-run flag to the cleanup script" reads "managed by Why does the nightly export skip archived rows?", the name in link colour, and '
         + 'the row of "Why does the nightly export skip archived rows?" reads "a steward". Beside the greyed "All, including new ones" switch, "on for '
         + 'Why does the nightly export skip archived rows?" with the name in link colour, cut short with an ellipsis if it does not fit. All of it readable, nothing overlapping.',
@@ -1613,7 +1614,7 @@ const STEPS = [
       name: `steward-managed-by-narrow${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
       expect: `The panel area moved to the right side of the window, in the ${tone} theme, so the Steward panel is narrow. The rows' titles and the `
         + 'steward names after them are cut short with an ellipsis where they do not fit, and nothing wraps onto a second line or overlaps. The mouse '
-        + 'rests on the cut steward name of "Add a dry-run flag to the cleanup script"\'s row, and a hover label shows the whole of it: "Managed by Why '
+        + 'rests on the cut-short steward name in the row of "Add a dry-run flag to the cleanup script", and a hover label shows the whole of it: "Managed by Why '
         + 'does the nightly export skip archived rows?".',
       unchanged: null,
       act: async (d) => {
@@ -1674,8 +1675,8 @@ const STEPS = [
   },
   {
     name: 'session-twice', features: ['session-twice'],
-    expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once: the one its '
-      + 'tab started, and a second one started later as the panel starts one. In the session list in the side bar, each of its rows ends with "2 '
+    expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once. '
+      + 'In the session list in the side bar, each of its rows ends with "2 '
       + 'processes" in red after the title. In the Steward panel at the bottom, its row says "2 processes" and has a "Stop '
       + 'the old process" button. Nothing overlaps.',
     unchanged: null,
@@ -1848,9 +1849,9 @@ const STEPS = [
     name: 'live-unread', features: ['unread-envelope', 'dot-stopped', 'open-sessions', 'need-you-notices'],
     expect: 'A reply landed while the conversation\'s tab was in the background, behind a text file (notes.txt) opened in the '
       + 'same group: that tab\'s logo has no dot, and its title ends in a white envelope. Its row under OPEN SESSIONS in the '
-      + 'side bar has no dot either and shows the envelope after the title and before the time, with the title not running '
-      + 'into it, and the row\'s time lined up with the other rows\' times. No red or blue dot anywhere. No notification at '
-      + 'the bottom right: the conversation is in this window, so Agent Plus only counts it (the next step).',
+      + 'side bar has no dot either and shows the envelope after the title and before the time; the title does not run '
+      + 'into it, and the row\'s time lines up with the other rows\'. No red or blue dot anywhere. No notification at '
+      + 'the bottom right: Agent Plus only counts a conversation in this window, as the next step shows.',
     unchanged: 'The tab bar has the same Claude Code tabs as before, plus notes.txt.',
     act: async (d) => {
       const frame = await live(d);
@@ -1872,14 +1873,14 @@ const STEPS = [
         throw new Error(`Agent Plus did not count the conversation in 30 s: ${JSON.stringify(await needCountBox(d))}`);
       }
       const said = `"${d.threads[0].title}" finished.`;
-      if (await d.until(async () => ((await needToasts(d)) || []).includes(said), 9000, 300)) throw new Error('Agent Plus told of a conversation this window shows');
+      if (await d.until(async () => ((await needToasts(d)) || []).includes(said), 9000, 300)) throw new Error('Agent Plus showed a notice for a conversation this window shows');
       return d.body();
     },
   },
   {
     name: 'need-you-count', features: ['need-you-notices'],
     expect: 'A close-up of the status bar around Agent Plus\'s entry for the conversations that need you: it shows a bell and the '
-      + 'number 1, for the one conversation whose reply is not read yet. It is readable and does not overlap the entries beside it.',
+      + 'number 1.',
     unchanged: 'The window is as before.',
     act: async (d) => {
       const b = await d.until(() => needCountBox(d), 15000, 300);
@@ -1910,25 +1911,26 @@ const STEPS = [
   },
   {
     name: 'wait-notice-tool', features: ['wait-notices'],
-    expect: 'At the bottom right, one notification from Agent Plus: "Deploy the staging stack" is waiting for you to approve Bash., '
-      + 'with an Open and a Dismiss button, wholly inside the window and readable. The conversation is in another window. No '
-      + 'notification from Claude Code saying it is requesting permission.',
+    expect: 'At the bottom right, one notification from Agent Plus with an Open and a Dismiss button. '
+      + 'It reads: "Deploy the staging stack" is waiting for you to approve Bash. The conversation is in another window. '
+      + 'No notification from Claude Code saying it is requesting permission.',
     unchanged: 'The editor and the side bar are as before.',
     ...waitNotice(LOOK_ID(1), 'Deploy the staging stack', { kind: 'permission', tool: 'Bash' }, '"Deploy the staging stack" is waiting for you to approve Bash.'),
   },
   {
     name: 'wait-notice-question', features: ['wait-notices'],
-    expect: 'At the bottom right, one notification from Agent Plus: "Pick the region for the new cluster" has a question for you., '
-      + 'with an Open and a Dismiss button, wholly inside the window and readable. No notification from Claude Code.',
+    expect: 'At the bottom right, one notification from Agent Plus with an Open and a Dismiss button, wholly inside the window and '
+      + 'readable. It reads: "Pick the region for the new cluster" has a question for you. No notification from Claude Code.',
     unchanged: 'The editor and the side bar are as before.',
     ...waitNotice(LOOK_ID(2), 'Pick the region for the new cluster', { kind: 'question' }, '"Pick the region for the new cluster" has a question for you.'),
   },
   {
     name: 'wait-notice-replay', features: ['wait-notices'],
-    expect: 'Two conversations of another window started to wait while no VS Code window had the focus; this window got it back. '
-      + 'At the bottom right, two notifications from Agent Plus, one above the other, one for each conversation: "Rotate the signing '
-      + 'keys" is waiting for you to approve Edit. and "Choose the import config" has a question for you., each with its own Open '
-      + 'and Dismiss button, both wholly inside the window and readable, neither covering the other. No notification naming both.',
+    expect: 'While no VS Code window had the focus, two conversations of another window started to wait; then this window got the focus back. '
+      + 'At the bottom right, two notifications from Agent Plus, one above the other, each with its own '
+      + 'Open and Dismiss button. One reads: "Rotate the '
+      + 'signing keys" is waiting for you to approve Edit. The other reads: "Choose the import config" has a question for you. No '
+      + 'notification naming both.',
     unchanged: 'The editor and the side bar are as before.',
     ...replayNotice({ sessionId: LOOK_ID(3), title: 'Rotate the signing keys', waitingFor: { kind: 'permission', tool: 'Edit' } },
       { sessionId: LOOK_ID(4), title: 'Choose the import config', waitingFor: { kind: 'question' } },
@@ -1975,9 +1977,9 @@ const STEPS = [
   {
     name: 'live-background', features: ['dot-background', 'unread-envelope', 'open-sessions'],
     expect: 'A turn that put a command in the background ("sleep 40") ended while the conversation\'s tab was behind notes.txt: '
-      + 'the tab\'s logo carries a green ring, hollow in the middle, and its title ends in a white envelope, so both show at '
+      + 'the tab\'s logo carries a green ring, not a filled dot, and its title ends in a white envelope, so both show at '
       + 'once. Its row under OPEN SESSIONS starts with the same green ring and has the envelope after the title, before the time. '
-      + 'Agent Plus does not count it in the status bar or tell of it while its work still runs.',
+      + 'Agent Plus does not count it in the status bar or show a notice for it while its work still runs.',
     unchanged: 'The tab bar has the same tabs as before; notes.txt is in front.',
     act: async (d) => {
       const frame = await live(d);
@@ -2165,8 +2167,8 @@ const STEPS = [
   {
     name: 'live-work-map', only: ['linux'], features: ['agent-map', 'dot-background'],
     expect: 'The agent map, opened from that button. At the top THIS CONVERSATION and the conversation\'s own card (its title, '
-      + 'with the tokens in context), which starts with a green ring, hollow in the middle. After it BACKGROUND TASKS 1, the '
-      + 'command\'s card (sleep 40) with a filled green dot of the same green, and a section headed "claude -p SESSIONS" with a '
+      + 'with the tokens in context), which starts with a green ring. After it BACKGROUND TASKS 1, the '
+      + 'command\'s card (sleep 40) with a filled dot in the same green as the ring, and a section headed "claude -p SESSIONS" with a '
       + 'count badge 1: a card with a green dot, release-notes-worker, and its process id, start and running time. No card lists '
       + 'a detached command or the shell that started the worker.',
     unchanged: 'The conversation behind the map is as before.',
@@ -2222,12 +2224,12 @@ const STEPS = [
   },
   /* A `claude --bg` session the conversation started, through the stand-in of lib/fake-model.js (BG_SESSION_SCRIPT): the
      agents button and the map while it runs, once it has finished and the conversation has answered the notice of its
-     end, and with the setting that lists such sessions off. */
+     end, and once the setting that lists such sessions is turned off. */
   {
     name: 'live-bg-running', features: ['background-sessions', 'agent-map'],
     expect: 'A close-up of the footer under the message box. The conversation started a session with claude --bg and its turn '
-      + 'has ended; the session still runs. The agents button reads "1 bg" and the small dot at its start is a filled green '
-      + 'dot, not grey. The button is whole and does not overlap the buttons beside it.',
+      + 'has ended; the session still runs. The agents button reads "1 bg" and the small dot at its start is filled and green, '
+      + 'not grey.',
     unchanged: 'The conversation is as before, with one more short exchange at its end.',
     act: async (d) => {
       const frame = await live(d);
@@ -2247,10 +2249,10 @@ const STEPS = [
   },
   {
     name: 'live-bg-map', features: ['background-sessions', 'agent-map'],
-    expect: 'The agent map, opened from that button. A section headed "claude --bg SESSIONS" ("claude --bg" in a code font) '
+    expect: 'Clicking that button opens the agent map. A section headed "claude --bg SESSIONS" ("claude --bg" in a code font) '
       + 'with a count badge 1 holds one card: a green dot, nightly-report, and under it "running", for how long and its '
-      + 'eight-digit job id. The conversation\'s own card, first under THIS CONVERSATION, starts with a green ring, hollow in '
-      + 'the middle. Nothing in the map overlaps.',
+      + 'eight-digit job id. The conversation\'s own card, first under THIS CONVERSATION, starts with a green ring, '
+      + 'not a filled dot. Nothing in the map overlaps.',
     unchanged: 'The conversation behind the map is as before.',
     act: async (d) => {
       const frame = await live(d);
@@ -2265,9 +2267,9 @@ const STEPS = [
   {
     name: 'live-bg-ended', features: ['background-sessions', 'detached-end-notices'],
     expect: 'The conversation once the claude --bg session has finished. Claude Code Plus has told it so through its inbox, '
-      + 'for which Claude Code draws no row: at its end comes the fake model\'s reply to that notice, with no message of '
-      + 'yours before it, and its first line gives a duration of a few seconds, not the minutes since the last message you '
-      + 'typed. In the footer the agents button reads "1 bg done" and its dot is grey, not green; the tab\'s logo has no '
+      + 'and Claude Code draws no row for that: the conversation ends with the fake model\'s reply to the notice. No message '
+      + 'of yours comes before that reply, and the reply\'s first line says the turn took a few seconds, not the minutes since '
+      + 'you last typed. In the footer the agents button reads "1 bg done" and its dot is grey, not green; the tab\'s logo has no '
       + 'green ring.',
     unchanged: 'The conversation is as before, with that reply at its end.',
     act: async (d) => {
@@ -2310,7 +2312,7 @@ const STEPS = [
     unchanged: 'The conversation is as before.',
     act: async (d) => {
       const frame = await live(d);
-      /* The close-up is of where the button stands now, which it leaves. */
+      /* The close-up is taken where the button is now, since turning the setting off removes it. */
       const was = await frame.locator('button[data-agents-dot]').first().boundingBox().catch(() => null);
       await setting(d, 'claudeCodePlus.show.backgroundSessions', false);
       await d.until(async () => { const b = await agentsButton(frame); return !b || !/\bbg\b/.test(b.label); }, 15000, 500);
@@ -2337,10 +2339,10 @@ const STEPS = [
     name: 'agent-plus-status', features: ['agent-plus-status'],
     expect: 'After Agent Plus: Show Status, the Output panel at the bottom shows Agent Plus\'s lines: its version and protocol, '
       + '"Extensions using it" naming xnervwang.claude-code-plus, and a line beginning "Source claude-code: Claude Code, from '
-      + 'xnervwang.claude-code-plus, plans in" followed by a folder. The lines are readable and none is cut off.',
+      + 'xnervwang.claude-code-plus, plans in" followed by a folder.',
     unchanged: 'The editor and the side bar are as before.',
     act: async (d) => {
-      /* Show Status of the step before would lie over the panel. */
+      /* The notice from the previous step's Show Status would otherwise cover the panel. */
       await d.exec('notifications.clearAll');
       const lines = await d.call('return await vscode.commands.executeCommand("agentPlus.showStatus");');
       if (!Array.isArray(lines) || !lines.some((l) => /^Source claude-code: Claude Code, from xnervwang\.claude-code-plus, plans in /.test(l))) {
@@ -2612,7 +2614,7 @@ const STEPS = [
   {
     name: 'light-envelope', features: ['light-envelope', 'light-theme', 'unread-envelope', 'need-you-notices'],
     expect: 'In the light theme, a reply landed while the conversation "Where the retry delay..." was behind notes.txt: its tab\'s '
-      + 'title ends in an envelope drawn as a dark outline on the light tab, clearly readable, not a white or faint shape; '
+      + 'title ends in an envelope drawn as a dark outline on the light tab, not a white or faint shape; '
       + 'its rows in the session list show the same dark envelope after the title, before the time. No colour emoji envelope anywhere. '
       + 'No notification at the bottom right: the conversation is in this window, so Agent Plus only counts it, with a 1 in the status bar.',
     unchanged: 'The session list is as before, apart from the envelopes.',
@@ -2637,7 +2639,8 @@ const STEPS = [
       await d.away();
       const tab = (await tabLabels(d)).find((l) => l.startsWith('Where the retry')) || '';
       if (!tab.endsWith(' \u2709\uFE0E')) throw new Error(`the tab reads "${tab}", not ending in the envelope's text form`);
-      /* The Steward panel's envelope is held to the theme by ui.js, where another conversation is in front. */
+      /* The envelope in the Steward panel is checked against the theme in ui.js, which has another conversation in
+         front. */
       const list = await sessionList(d);
       await d.away();
       const forms = await list.evaluate((id) => [...document.querySelectorAll('[class*="sessionItem_"]')]
@@ -2648,7 +2651,7 @@ const STEPS = [
         throw new Error(`Agent Plus did not count the conversation in 30 s: ${JSON.stringify(await needCountBox(d))}`);
       }
       if (await d.until(async () => ((await needToasts(d)) || []).some((x) => / finished\.$/.test(x) && x.includes('Where the retry delay')), 9000, 300)) {
-        throw new Error('Agent Plus told of a conversation this window shows');
+        throw new Error('Agent Plus showed a notice for a conversation this window shows');
       }
       return d.body();
     },
@@ -2656,24 +2659,24 @@ const STEPS = [
   },
   {
     name: 'light-wait-notice-tool', features: ['wait-notices', 'light-theme'],
-    expect: 'In the light theme, at the bottom right, one notification from Agent Plus: "Deploy the staging stack" is waiting for '
-      + 'you to approve Bash., with Open and Dismiss, readable against the light background and wholly inside the window.',
+    expect: 'In the light theme, at the bottom right, one notification from Agent Plus with Open and Dismiss. '
+      + 'It reads: "Deploy the staging stack" is waiting for you to approve Bash.',
     unchanged: 'The editor and the side bar are as before.',
     ...waitNotice(LOOK_ID(11), 'Deploy the staging stack', { kind: 'permission', tool: 'Bash' }, '"Deploy the staging stack" is waiting for you to approve Bash.'),
   },
   {
     name: 'light-wait-notice-question', features: ['wait-notices', 'light-theme'],
-    expect: 'In the light theme, at the bottom right, one notification from Agent Plus: "Pick the region for the new cluster" has '
-      + 'a question for you., with Open and Dismiss, readable against the light background.',
+    expect: 'In the light theme, at the bottom right, one notification from Agent Plus with Open and Dismiss. '
+      + 'It reads: "Pick the region for the new cluster" has a question for you.',
     unchanged: 'The editor and the side bar are as before.',
     ...waitNotice(LOOK_ID(12), 'Pick the region for the new cluster', { kind: 'question' }, '"Pick the region for the new cluster" has a question for you.'),
   },
   {
     name: 'light-wait-notice-replay', features: ['wait-notices', 'light-theme'],
     expect: 'In the light theme, after the window got the focus back: at the bottom right, two notifications from Agent Plus, one '
-      + 'above the other: "Rotate the signing keys" is waiting for you to approve Edit. and "Choose the import config" has a question '
-      + 'for you., each with its own Open and Dismiss, readable against the light background, wholly inside the window and neither '
-      + 'covering the other. No notification naming both.',
+      + 'above the other, each with its own Open and Dismiss. '
+      + 'One reads: "Rotate the signing keys" is waiting for you to approve Edit. The other reads: '
+      + '"Choose the import config" has a question for you. No notification naming both.',
     unchanged: 'The editor and the side bar are as before.',
     ...replayNotice({ sessionId: LOOK_ID(13), title: 'Rotate the signing keys', waitingFor: { kind: 'permission', tool: 'Edit' } },
       { sessionId: LOOK_ID(14), title: 'Choose the import config', waitingFor: { kind: 'question' } },
@@ -2682,8 +2685,8 @@ const STEPS = [
   {
     name: 'light-conversation-links', features: ['light-theme', 'conversation-links'],
     expect: 'The light theme. The last reply in the demo conversation names "Add a dry-run flag to the cleanup script" twice, on its '
-      + 'own and inside corner brackets, and both are drawn as links in the light theme\'s link colour, readable against the light '
-      + 'background, like any other link Claude Code draws in a reply.',
+      + 'own and inside corner brackets, and both are drawn like any other link Claude Code draws in a reply, readable against the '
+      + 'light background.',
     unchanged: 'Still the light theme.',
     act: async (d) => { await toMentions(d, d.threads[2], false); await d.away(); return d.editor(); },
   },
@@ -2691,22 +2694,22 @@ const STEPS = [
     name: 'light-work-plan', features: ['light-theme', 'work-plan-view'],
     expect: 'Agent Plus\'s work plan view in the light theme: the state marks and titles readable against the light background.',
     unchanged: 'The editor is as before.',
-    /* The demo conversation in front, the one with a plan; the step before left another there. */
+    /* The demo conversation in front, the one with a plan; the previous step left another conversation there. */
     act: async (d) => { await demoAt(d, ''); await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.away(); return d.sidebar(); },
     undo: async (d) => { await theme(d, 'Default Dark Modern'); await d.sleep(2000); },
   },
 
-  /* The agent map, one state at a time, in the conversation "Why does the nightly export skip archived rows?" (the second
-     fake one) in a tab: alone, with a command in the background, a claude -p worker, claude --bg sessions, a command left
-     running detached and two scheduled prompts, each added to what the step before left; a helper in a third
-     conversation on its own; then all of it at once with a helper as well, in both themes, and in the secondary side
-     bar. Nothing started here ends within a quarter of an hour, so no picture waits on an ending; the last step stops it
-     all. */
+  /* The agent map, one state at a time, in the conversation "Why does the nightly export skip archived rows?" (the
+     second fake one) in a tab: alone, with a command in the background, a claude -p worker, claude --bg sessions, a
+     command left running detached and two scheduled prompts, each added to what the previous step left; a helper in a
+     third conversation on its own; then everything at once, in both themes and in the secondary side bar. Nothing
+     started here ends within a quarter of an hour, so no picture has to wait for something to end; the last step stops
+     it all. */
   {
     name: 'map-alone', features: ['agent-map'],
     expect: 'The agent map, opened with /tasks, of a conversation that has no background work. Under the dialog\'s title '
       + '"Agent map" a small bold heading in capitals, THIS CONVERSATION, and under it the conversation\'s own card: a grey '
-      + 'dot, its title on one line, the model and the tokens in context on a second. Nothing else: no "0 agents" line above '
+      + 'dot, its title, and under it the model and the tokens in context. Nothing else: no "0 agents" line above '
       + 'or below the card, no empty heading, no divider.',
     unchanged: 'The window is in the dark theme again; the conversation behind the map is the one named above.',
     act: async (d) => {
@@ -2735,11 +2738,11 @@ const STEPS = [
   },
   {
     name: 'map-worker', only: ['linux'], features: ['agent-map'],
-    expect: 'The same map once the conversation has also started a claude -p worker. After BACKGROUND TASKS comes another '
-      + 'thin line and a heading reading "claude -p SESSIONS", with "claude -p" in lower case in a code font, and a count '
+    expect: 'With a claude -p worker also started, the map has another thin line after BACKGROUND TASKS and '
+      + 'a heading reading "claude -p SESSIONS", with "claude -p" in lower case in a code font, and a count '
       + 'badge "1". Its card: a green dot, release-notes-worker on one line, and on a second its process id, when it started '
       + 'and how long it has run. No card shows the shell that started the worker.',
-    unchanged: 'The conversation behind the map has one more exchange at its end.',
+    unchanged: 'Behind the map, the conversation ends with one more exchange than in the step before.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
       const bin = path.join(d.profile.home, 'fake-bin');
@@ -2753,8 +2756,8 @@ const STEPS = [
   },
   {
     name: 'map-bg', features: ['agent-map', 'background-sessions'],
-    expect: 'The same map once the conversation has started two claude --bg sessions, the first already finished. A section '
-      + 'headed "claude --bg SESSIONS" ("claude --bg" in a code font), count badge "2", holds two nightly-report cards: the '
+    expect: 'After the conversation has started two claude --bg sessions, the first already finished, the map has a section '
+      + 'headed "claude --bg SESSIONS" ("claude --bg" in a code font), count badge "2", with two nightly-report cards: the '
       + 'running one with a filled green dot and "running", how long and an eight-digit job id on its second line; the '
       + 'finished one with a grey dot and "done", when it finished and its job id. Each card has a small arrow at the end of '
       + 'its title line, pointing right.',
@@ -2781,9 +2784,9 @@ const STEPS = [
   {
     name: 'map-detached', only: ['linux'], features: ['agent-map'],
     expect: 'The same map once a command has been left running detached in the conversation\'s name: a section headed '
-      + 'DETACHED COMMANDS, count badge "1", comes right after BACKGROUND TASKS. Its card has a green dot, a title naming '
-      + 'the program and the argument that tells what it is ("perl -e ... cache-relay:demo"), not the whole command line, and '
-      + 'a second line with its process id, when it started and how long it has run.',
+      + 'DETACHED COMMANDS, count badge "1", comes right after BACKGROUND TASKS. Its card has a green dot, a title made of '
+      + 'the program and the argument that identifies what it runs ("perl -e ... cache-relay:demo") rather than the whole '
+      + 'command line, and a second line with its process id, start time and running time.',
     unchanged: 'The conversation behind the map is as before, but for one more reply at its end, with no message of yours before it: '
       + 'the answer to the notice Claude Code Plus sends when the first claude --bg session has finished.',
     act: async (d) => {
@@ -2798,8 +2801,8 @@ const STEPS = [
   {
     name: 'map-scheduled', features: ['agent-map'],
     expect: 'The same map once the conversation has two scheduled prompts: a section headed SCHEDULED PROMPTS, count badge '
-      + '"2", after DETACHED COMMANDS where there is one. Each card has a grey dot (a scheduled prompt runs nothing until it '
-      + 'is due), the start of its prompt as its title, cut with an ellipsis, and a second line saying when it fires and when '
+      + '"2", after DETACHED COMMANDS where there is one. Each card has a grey dot (nothing runs before its '
+      + 'prompt is due), the start of its prompt as its title, cut with an ellipsis, and a second line saying when it fires and when '
       + 'it last fired: "every 20 min . last fired 7 min ago" and "daily at 9:30 . never fired".',
     unchanged: 'The conversation behind the map is as before, but it may have one more reply at its end, with no message of yours '
       + 'before it: the answer to the notice Claude Code Plus sends when the first claude --bg session has finished.',
@@ -2833,10 +2836,10 @@ const STEPS = [
   {
     name: 'map-busy', features: ['agent-map', 'background-sessions'],
     expect: 'The agent map of the first conversation once it has also started a helper: everything at once. From the top: '
-      + 'THIS CONVERSATION and its card; then, each after a thin line and each with a count badge: SUBAGENTS 1, BACKGROUND '
+      + 'THIS CONVERSATION and its card; then these sections, each with a thin line above it and a count badge: SUBAGENTS 1, BACKGROUND '
       + 'TASKS 1, ' + (LINUX ? 'DETACHED COMMANDS 1, ' : '') + 'SCHEDULED PROMPTS 2, ' + (LINUX ? 'claude -p SESSIONS 1, ' : '')
-      + 'claude --bg SESSIONS 2. Every card has the same form: a dot, a title on one line, a second dimmer line. The headings '
-      + 'stand out from the cards: smaller, bold, in capitals. Nothing overlaps, nothing is cut off at the right edge.',
+      + 'claude --bg SESSIONS 2. Every card has a dot, a title on one line and a second, dimmer line. The headings are '
+      + 'smaller than the card text, bold and in capitals. Nothing overlaps, nothing is cut off at the right edge.',
     unchanged: 'The first conversation is in front again.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
@@ -2866,9 +2869,9 @@ const STEPS = [
   },
   {
     name: 'map-opened-prompt', features: ['agent-map'],
-    expect: 'The same map with the first scheduled prompt\'s card clicked open: under it the whole prompt in a box ("Check '
-      + 'whether the nightly build has finished, and report the tests that failed."), its arrow pointing down; the other '
-      + 'cards closed.',
+    expect: 'Clicked open, the first scheduled prompt\'s card shows the whole prompt in a box under it ("Check whether the '
+      + 'nightly build has finished, and report the tests that failed."), and its arrow points down; the other cards are '
+      + 'closed.',
     unchanged: 'The map is open again with the session card closed.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
@@ -2881,8 +2884,7 @@ const STEPS = [
   {
     name: 'map-agent-detail', features: ['agent-map'],
     expect: 'The helper\'s card in the map clicked: Claude Code\'s own dialog for that agent is open over the map, with a back '
-      + 'arrow, the title "Look through the notes" next to a green dot, and what the helper is doing. Clicking a card of '
-      + 'Claude Code\'s still opens its details.',
+      + 'arrow, the title "Look through the notes" next to a green dot, and what the helper is doing.',
     unchanged: 'The map is closed and opened again behind that dialog.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
@@ -2897,9 +2899,8 @@ const STEPS = [
   },
   {
     name: 'map-busy-light', features: ['agent-map', 'light-theme'],
-    expect: 'The busiest map of map-busy in the light theme: the same headings, count badges, dividers and cards, all '
-      + 'readable against the light background; the dots visible; the count badges legible.',
-    unchanged: 'The conversation behind the map is the same, in the light theme.',
+    expect: 'The map of the map-busy step in the light theme: the same headings, count badges, dividers and cards.',
+    unchanged: 'The conversation behind the map is the same.',
     act: async (d) => {
       await theme(d, 'Default Light Modern');
       await d.sleep(2500);
@@ -2911,11 +2912,10 @@ const STEPS = [
   },
   {
     name: 'map-sidebar-light', features: ['agent-map', 'light-theme', 'narrow-panel'],
-    expect: 'The same conversation reopened in the secondary side bar (narrow, on the right), with a helper and a command '
-      + 'in the background started there again, and its agent map open, in the light theme. The same sections as in '
+    expect: 'The light theme. The same conversation, reopened in the secondary side bar (narrow, on the right), has started a '
+      + 'helper and a command in the background there again, and its agent map is open. The same sections as in '
       + 'map-busy-light, but SUBAGENTS 2: besides the new helper, the one started while the conversation was in a tab, stopped '
-      + 'when that tab closed, with a red dot. In the narrow width the cards\' second lines may end in an ellipsis (each card\'s hover text holds the whole line); cards no wider than the side bar or the map scrolls sideways; headings, badges '
-      + 'and dividers readable; nothing overlaps.',
+      + 'when that tab closed, with a red dot. In the narrow width the cards\' second lines may end in an ellipsis (each card\'s hover text holds the whole line); cards no wider than the side bar or the map scrolls sideways.',
     unchanged: 'The tab of that conversation is gone from the editor.',
     act: async (d) => {
       const t = mapThread(d);
@@ -2944,8 +2944,8 @@ const STEPS = [
   },
   {
     name: 'map-sidebar-end', features: ['agent-map', 'light-theme', 'narrow-panel'],
-    expect: 'The same side bar map scrolled to its end: the last sections and their cards, inside the side bar\'s width or '
-      + 'with the map scrolling sideways; no card cut in half at the bottom without a way to scroll to it.',
+    expect: 'The same side bar map scrolled to its end: the last sections and their cards; '
+      + 'no card cut in half at the bottom without a way to scroll to it.',
     unchanged: 'The side bar shows the same map, scrolled.',
     act: async (d) => {
       if (!d.mapSide) throw new Error('the conversation is not open in the side bar');
@@ -2962,7 +2962,7 @@ const STEPS = [
   {
     name: 'map-sidebar', features: ['agent-map', 'narrow-panel'],
     expect: 'The same side bar map in the dark theme.',
-    unchanged: 'The window is in the dark theme; the side bar shows the same conversation.',
+    unchanged: 'The side bar shows the same conversation.',
     act: async (d) => {
       await theme(d, 'Default Dark Modern');
       await d.sleep(2500);

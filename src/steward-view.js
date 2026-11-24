@@ -63,8 +63,8 @@ const MAX_ASKS = 3;
 const MAX_ASK = 300;
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-/* Agent Plus's page helpers (src/page/03-kit.js), whose hover label the page draws for a control that says why it is
-   greyed: VS Code draws a webview's own title tooltips outside the page, slowly and not over a disabled control. */
+/* Agent Plus's page helpers (src/page/03-kit.js). The page uses their hover label to say why a control is greyed, since
+   VS Code draws a webview's own title tooltips outside the page, slowly and not over a disabled control. */
 const KIT = fs.readFileSync(path.join(__dirname, 'page', '03-kit.js'), 'utf8');
 
 /* The titles of a plan's rows in progress, depth first. */
@@ -181,12 +181,12 @@ function alive(pid) {
 
 /*
  * Whether this window writes the stewards table. A window running the installed build does, as it writes every shared
- * file. One whose build was installed over (mine.replaced) leaves shared files to the windows running the installed
- * build, but until one of them is open nobody else keeps the table: a steward set to All would gain nothing and no tick
- * would be saved. So it writes the table while no live window's entry (`others`, src/window-entries.js) says it runs the
- * installed build. An entry naming this window's own build (mine.build) is not believed: that build is no longer the
- * installed one, and an entry says so only at its window's next pass after an install. A window of a build older than
- * this rule says nothing, and does not write the table either.
+ * file. A window whose build was replaced by a later install (mine.replaced) leaves shared files to the windows running
+ * the installed build, but until one of them is open nobody else keeps the table: a steward set to All would gain
+ * nothing and no tick would be saved. So it writes the table while no live window's entry (`others`,
+ * src/window-entries.js) says it runs the installed build. An entry that names this window's own build (mine.build) is
+ * ignored: that build is no longer the installed one, and an entry says so only at its window's next pass after an
+ * install. Builds older than this rule leave that out of their entries, and their windows never write the table.
  */
 function writesTable(mine, others) {
   if (mine.canWrite) return true;
@@ -211,7 +211,7 @@ function grouped(rows, wins, front) {
   return [...groups.values()].sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
 }
 
-/* The window whose extension host runs one of the processes of a conversation two or more processes run, or undefined.
+/* For a conversation that two or more processes run, the window whose extension host runs one of them, or undefined.
    Such a conversation is in no window's entry: each host sees the other process as running elsewhere and leaves it out
    of what it shows (shownList in extension.js), yet its row is where the old process is stopped. */
 function hostWindow(c, wins) {
@@ -349,23 +349,23 @@ function shell(list, nonce) {
 
 /*
  * deps: activeChat(), freshAgents() -> { records }, readPlan(id), titles(s), since(s), live(), unread(), reveal(id),
- * optionally activity(id) and question(id) for a conversation's dot (src/activity.js),
- * shownHere(id) -> whether this window shows that conversation's panel, canWrite() -> whether this window may write
- * shared files, canShare() -> whether it may still publish its own entry and take relay requests (true also in a window
- * whose build has been replaced, which keeps showing its conversations until it is reloaded), replaced() -> whether
- * that, and nothing else, is what keeps it from writing them (see writesTable), build() -> { code, installed } for its
- * entry: the digest of the code it runs (src/build-digest.js) and whether that is the installed build, offerReload(text)
- * to say what it cannot do with a Reload Window button, reload() to reload the window, enabled(), log(message),
- * home, dir (the plan directory), windowName(), windowFolders() and shownList()
- * for this window's name, folders and the conversations it shows, and optionally isBackground(id, cwd), records() ->
- * the live session records, alive(pid), post(address, text) in place of stewards.post, changed(), called once the
- * table of stewards has been rewritten here, focusWindow(), which brings this window to the front, transcriptOf(id), and
- * deliver(id, text), which types text into the conversation's message input here (src/relay.js), rename(id, title),
- * close(id, confirmed), open(folder, text) and resume(id, text) for a steward's other requests (src/relay.js), with
- * agentsFresh() -> Promise<{ records, error }> from a fresh `claude agents --json` before a resume, readState(id) for
- * a `claude --bg` session's state (src/background.js), duplicates() for the conversations run by several processes
- * and stopDuplicate(id) to stop the old one (src/duplicates.js), pageAt() for the time of a page's last heartbeat, and
- * otherFront() -> { agent, title } while another agent's conversation tab is in front (src/other-agents.js), or null.
+ * optionally activity(id) and question(id) for a conversation's dot (src/activity.js), shownHere(id) -> whether this
+ * window shows that conversation's panel, canWrite() -> whether this window may write shared files, canShare() ->
+ * whether it may still publish its own entry and take relay requests (true also in a window whose build has been
+ * replaced, which keeps showing its conversations until it is reloaded), replaced() -> whether a replaced build is the
+ * only reason it may not write them (see writesTable), build() -> { code, installed } for its entry: the digest of the
+ * code it runs (src/build-digest.js) and whether that is the installed build, offerReload(text) to say what it cannot
+ * do with a Reload Window button, reload(), enabled(), log(message), home, dir (the plan directory), windowName(),
+ * windowFolders() and shownList() for this window's name, folders and the conversations it shows, and optionally
+ * isBackground(id, cwd), records() -> the live session records, alive(pid), post(address, text) in place of
+ * stewards.post, changed(), which runs once this window has rewritten the stewards table, focusWindow(), which brings
+ * this window to the front, transcriptOf(id), and deliver(id, text), which types text into the conversation's message
+ * input here (src/relay.js), rename(id, title), close(id, confirmed), open(folder, text) and resume(id, text) for a
+ * steward's other requests (src/relay.js), with agentsFresh() -> Promise<{ records, error }> from a fresh
+ * `claude agents --json` before a resume, readState(id) for a `claude --bg` session's state (src/background.js),
+ * duplicates() for the conversations run by several processes and stopDuplicate(id) to stop the old one
+ * (src/duplicates.js), pageAt() for the time of a page's last heartbeat, and otherFront() -> { agent, title } while
+ * another agent's conversation tab is in front (src/other-agents.js), or null.
  */
 function create(vscode, deps) {
   deps = Object.assign({ isBackground: bgSessions.isBackground, records: () => liveRecords(), post: stewards.post, alive, readState,
@@ -413,13 +413,13 @@ function create(vscode, deps) {
     return { front: front ? { id: front, title } : null, other, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
       every, everyBy: everyBy ? nameOf(everyBy, all) : '', everyById: everyBy, envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
   };
-  /* A conversation's title for the panel's words about it. */
+  /* The title the panel uses when its text names a conversation. */
   const nameOf = (id, all = last) => (all.get(id) && all.get(id).title)
     || titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: id, name: '', cwd: '' }, deps.titles({ sessionId: id }), () => deps.readPlan(id))) || id;
   /*
-   * Why the box of conversation `id` in the panel of `front` cannot be ticked, as { lock: true, why }, or a word about
-   * it that does not stop a tick: a steward is managed by none (lock), one another steward ticked stays with it (lock),
-   * and one another steward has only through All goes to the steward that ticks it.
+   * Why the box of conversation `id` in the panel of `front` cannot be ticked, as { lock: true, why }, or a note that
+   * does not stop a tick. A steward cannot be managed (lock). A conversation another steward ticked stays with that
+   * steward (lock). One that another steward has only through All goes to whichever steward ticks it (a note, no lock).
    */
   const lockOf = (table, id, front, all) => {
     if (table[id]) return { lock: true, why: 'This conversation is a steward, and a steward is not managed by another', by: 'a steward', byId: '' };
@@ -449,7 +449,8 @@ function create(vscode, deps) {
     .concat(windowEntries.others(deps.dir, { now, alive: deps.alive }).map((w) => ({ pid: w.pid, name: w.name, folders: w.folders, sessions: w.sessions })));
   const writes = () => writesTable({ canWrite: deps.canWrite(), replaced: deps.replaced(), build: (deps.build() || {}).code || '' },
     windowEntries.others(deps.dir, { alive: deps.alive }));
-  /* Said once per window when a change made in the panel is not saved; the panel's own line says it all along. */
+  /* Said once per window when a change made in the panel is not saved; the panel shows a line about it the whole time.
+     */
   let toldStale = false;
   const tellStale = () => {
     if (toldStale) return;
@@ -500,8 +501,8 @@ function create(vscode, deps) {
     if (changed) deps.changed();
   };
 
-  /* `shown` is the list the page has, or null when it needs the whole page. `again` sends it even when unchanged, to
-     put back a box the reader clicked that was not saved. */
+  /* `shown` is the list the page has, or null when it needs the whole page. `again` sends it even when unchanged, so
+     that a box the user clicked goes back to its state when the click was not saved. */
   const render = (again = false) => {
     if (!view || !view.visible) return;
     const other = deps.otherFront();
@@ -814,7 +815,7 @@ function create(vscode, deps) {
     },
     refresh() { render(); },
     open,
-    /* Whether this window keeps the files every window shares, by the rule of writesTable. */
+    /* Whether this window keeps the files every window shares; writesTable decides. */
     keepsShared: () => writes(),
     _gather: gather, _model: model, _notify: notify, _pass: pass, _onMessage: onMessage, _takeRequest: takeRequest, _syncEvery: syncEvery,
     _takeRelays: takeRelays, _writes: writes, _last: () => last,

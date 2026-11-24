@@ -4,19 +4,19 @@
 
 'use strict';
 /*
- * What a waiting conversation waits for, in the words of Agent Plus's protocol (a conversation's `waitingFor`), and
+ * The reason a conversation is waiting, in the words of Agent Plus's protocol (a conversation's `waitingFor`), and
  * whether Claude Code's own notice of such a wait is left to Agent Plus.
  *
- * A panel reports what is in front of it with its state (src/webview.js, the state report): the tool of the permission
- * request it shows, or the kind of the dialog it shows. Claude Code asks AskUserQuestion's question and shows
- * ExitPlanMode's plan through the same permission request, so those two tools are a question and a plan to review. A
- * window whose panel does not show the conversation has only `claude agents`, whose waitingFor is a phrase for a kind of
- * wait, grouped here the way the CLI's own status groups them; it never names the tool.
+ * A panel's state report (src/webview.js) says what is in front of it: the tool of the permission request it shows, or
+ * the kind of the dialog it shows. Claude Code shows the user both an AskUserQuestion question and an ExitPlanMode plan
+ * through a permission request, so a request for AskUserQuestion counts as a question and one for ExitPlanMode as a
+ * plan to review. A window whose panel does not show the conversation has only `claude agents`, whose waitingFor is a
+ * phrase for a kind of wait, grouped here the way the CLI's own status groups them; it never names the tool.
  *
  * Claude Code's panel shows its own notice when a permission request arrives, or auto mode's Continue or Stop dialog,
- * in the conversation's window and only while the panel is not on screen. Agent Plus tells of the same waits in the
- * window the user is in, so while it does (src/core-link.js announcesWaits) the panel leaves its own out; a panel that
- * cannot tell, or an Agent Plus that does not announce, keeps Claude Code's notice.
+ * in the conversation's window and only while the panel is not on screen. Agent Plus shows notices of the same waits in
+ * the window the user is in, and while it does so (src/core-link.js announcesWaits) the panel leaves its own notice
+ * out; a panel that cannot tell, or an Agent Plus that does not announce, keeps Claude Code's notice.
  */
 const QUESTION_TOOL = 'AskUserQuestion';
 const PLAN_TOOL = 'ExitPlanMode';
@@ -37,14 +37,14 @@ function fromPanel(raw) {
   return null;
 }
 
-/* A `claude agents` record's waitingFor as a reason; null for a phrase this does not know. */
+/* The reason for a `claude agents` record's waitingFor phrase, or null for a phrase not in AGENTS. */
 function fromAgents(text) {
   const kind = typeof text === 'string' ? AGENTS[text.trim()] : undefined;
   return kind ? { kind } : null;
 }
 
-/* Whether this window's panels leave Claude Code's notices of waits out: only while this extension runs and Agent Plus,
-   with which its source is registered, says it tells of them. */
+/* Whether this window's panels hide Claude Code's own notices of waits: only while this extension runs and the Agent
+   Plus its source is registered with says that it shows those notices itself. */
 function leftToAgentPlus({ core = null, on = true, announcesWaits }) {
   if (!core || !on) return false;
   try { return announcesWaits(core) === true; } catch (_) { return false; }

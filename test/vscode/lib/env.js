@@ -6,13 +6,13 @@
 /*
  * The environment of the VS Code that run.js starts, which every process it starts inherits.
  *
- * Dropped: the variables a VS Code that runs this script sets (ELECTRON_RUN_AS_NODE would start VS Code as plain Node,
- * and VSCODE_IPC_HOOK_CLI would send an install to that other VS Code), LD_LIBRARY_PATH (VS Code brings its own
- * libraries), and those that steer Claude Code's CLI: run from inside a Claude Code session, as on a developer's machine,
- * they would send the window's turns to that session's provider and messaging socket. CODEX_HOME goes too, or the Codex
- * extensions of a demo window would read and write the developer's own Codex folder. run.js's own CLAUDE_CODE_PLUS_UI_*
- * are kept. HOME and the folders derived from it go in the temporary root, and so does XDG_RUNTIME_DIR, where the CLI
- * makes its sockets.
+ * Dropped: the variables VS Code sets when it runs this script (with ELECTRON_RUN_AS_NODE the demo VS Code starts as
+ * plain Node, and with VSCODE_IPC_HOOK_CLI an install goes to the VS Code running the script), LD_LIBRARY_PATH (VS Code
+ * brings its own libraries), and those that steer Claude Code's CLI, which inside a Claude Code session on a
+ * developer's machine would send the window's turns to that session's provider and messaging socket. CODEX_HOME goes
+ * too, or the Codex extensions of a demo window would read and write the developer's own Codex folder. run.js's own
+ * CLAUDE_CODE_PLUS_UI_* are kept. HOME and the folders derived from it go in the temporary root, and so does
+ * XDG_RUNTIME_DIR, where the CLI makes its sockets.
  */
 const path = require('path');
 

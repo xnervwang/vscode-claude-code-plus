@@ -124,10 +124,11 @@ function writeSettings(user, model, extra = {}) {
 
 /*
  * Opens the window on the pack's first Claude Code conversation, with `root` as the run's temporary folder (emptied
- * first) and `salt` for the copied conversations' session ids. `settings` are added to the window's settings.
- * `prepare`, when given, is called with { home, folder, projects, threads } once the demo files are written and before
- * the window opens. `core`, when given, is an Agent Plus .vsix to install in place of the marketplace's. Returns the page,
- * the helpers below, and close(), which closes the window, the fake model and the demo's sleep.
+ * first) and `salt` for the copied conversations' session ids. `settings` holds extra entries for the window's
+ * settings.json. `prepare`, when given, is called with { home, folder, projects, threads } once the demo files are
+ * written and before the window opens. `core`, when given, is an Agent Plus .vsix to install in place of the
+ * marketplace's. Returns the page, the helpers below, and close(), which closes the window and the fake model and stops
+ * the demo's `sleep`.
  */
 async function open({ pack, vsix, core, cache, root, salt, settings, prepare }) {
   const manifest = JSON.parse(fs.readFileSync(path.join(pack, 'pack.json'), 'utf8'));
@@ -184,7 +185,7 @@ async function open({ pack, vsix, core, cache, root, salt, settings, prepare }) 
     w = await win.open({ exe, profile: p, env, playwright, log: path.join(root, 'vscode-window.log') });
     const { page, call } = w;
     /* Codex Plus installs its work plan plugin into the run's own Codex folder and then asks, in a modal dialog that holds
-       every click, to trust the plugin's hooks; it is answered as on a machine where they are trusted. */
+       every click, to trust the plugin's hooks; the script clicks Trust them. */
     let trustSaid = false;
     trustTick = setInterval(() => {
       page.evaluate(() => {
@@ -231,7 +232,7 @@ async function open({ pack, vsix, core, cache, root, salt, settings, prepare }) 
     }, text);
     const sideTo = (to) => win.sideTo(page, to);
     /* The window brought to the front, once VS Code counts it as focused: Agent Plus shows its notices only in the
-       focused window, and under xvfb-run a window is focused only once something has focused it so. */
+       focused window, and under xvfb-run a window counts as focused only after something focuses it. */
     const front = async () => {
       if (await call('return vscode.window.state.focused;') === true) return true;
       win.frontWindow(exe, p.user, p.folder, env);

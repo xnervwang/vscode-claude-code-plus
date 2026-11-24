@@ -100,9 +100,9 @@ function freshQuestion(nodes, since) {
 
 /*
  * The time of a transcript line if it is a message the user typed, else 0. Tool results, hook output, task
- * notifications, messages from other sessions and compaction summaries are not, except the answers the user gave on a
- * question card (AskUserQuestion): the question they answer can be one a plan row put to the user earlier in the same
- * turn. A message typed while a turn ran and taken into that turn is a queued_command attachment from a human.
+ * notifications, messages from other sessions and compaction summaries give 0. Answers on a question card
+ * (AskUserQuestion) count as typed, since the card may carry a question from a plan row earlier in the same turn. A
+ * message the user types during a turn is recorded as a queued_command attachment with a human origin.
  */
 function typedAt(line) {
   if (!line.includes('"user"') && !line.includes('"queued_command"')) return 0;
