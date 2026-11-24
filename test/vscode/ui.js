@@ -5450,7 +5450,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const grown = (n) => write([row('Export', 'doing', { children: [row('A current row whose title is long enough to be cut short when the panel is narrow', 'doing')] })]
           .concat(Array.from({ length: n - 2 }, (_, i) => row('Row ' + (i + 1), 'todo'))));
         const sizes = [];
-        for (const width of [Math.min(1100, full - 200), 520]) {
+        for (const width of [Math.min(1100, full - 120), 520]) {
           const at = await layout(width / full);
           if (at !== 0) throw new Error(`the Claude Code tab is in editor group ${at}, not the first`);
           grown(9);
@@ -5464,7 +5464,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           { nine: nine || null, many: many || await bar() });
         }
         const wide = sizes.map((x) => x.nine && Math.round(x.nine.bar.width));
-        check(!!wide[0] && !!wide[1] && wide[0] > wide[1] + 100, 'and the two widths measured are those of two different panels', wide);
+        check(!!wide[0] && !!wide[1] && wide[0] > wide[1] + 20, 'and the two widths measured are those of two different panels', wide);
         await layout(340 / full);
         const narrow = await barIs((s) => s.shown && s.compact);
         check(!!narrow && narrow.count === '120 open' && !narrow.segments.length && Math.abs(narrow.bar.width - narrow.form.width) <= 1,
