@@ -37,6 +37,7 @@ const bgEnds = require('./src/bgends');
 const stoppedWork = require('./src/stoppedwork');
 const replyImages = require('./src/reply-images');
 const conversationLinks = require('./src/conversation-links');
+const planBars = require('./src/plan-bar');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
 const { transcriptOf, projectsDir, writeAtomic } = require('./src/claude-files');
@@ -1036,6 +1037,20 @@ function start(context, log, renamed, handing = false) {
   globalThis.__cceConversationsAskHook = () => { links.ask(); };
   context.subscriptions.push({ dispose: () => { delete globalThis.__cceOpenConversationHook; delete globalThis.__cceConversationsAskHook; } });
   context.subscriptions.push(claude.source.onDidChangeConversations(() => links.refresh()));
+  /* The plan bar above each panel's input box (src/plan-bar.js): the summary a panel asks for, sent to it again when
+     Agent Plus says it changed, and the bar's two clicks. */
+  const planBar = planBars.create({
+    on: () => !removed() && !uninstalling() && !switchedOff().includes('planBar'),
+    sendTo: (id, m) => typeof globalThis.__cceToPanel === 'function' && globalThis.__cceToPanel(id, m) === true,
+    sendAll: (m) => { if (typeof globalThis.__cceToAllPanels === 'function') globalThis.__cceToAllPanels(m); },
+    run: (command, arg) => Promise.resolve(vscode.commands.executeCommand(command, arg))
+      .catch((e) => log.appendLine('plan bar: ' + ((e && e.message) || e))),
+    log: (m) => log.appendLine(m),
+  });
+  context.subscriptions.push(planBar);
+  globalThis.__ccePlanAskHook = (id) => { planBar.ask(id); };
+  globalThis.__ccePlanOpenHook = (id, part) => { planBar.open(id, part).catch((e) => log.appendLine('plan bar: ' + ((e && e.message) || e))); };
+  context.subscriptions.push({ dispose: () => { delete globalThis.__ccePlanAskHook; delete globalThis.__ccePlanOpenHook; } });
   /* vscode://xnervwang.claude-code-plus/open?session=<id>, the link a steward gives for a conversation it names; a link
      the page made for another agent's conversation also says which (&source=). */
   context.subscriptions.push(vscode.window.registerUriHandler({
@@ -1101,7 +1116,7 @@ function start(context, log, renamed, handing = false) {
   if (typeof vscode.workspace.onDidGrantWorkspaceTrust === 'function') context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(decideWaits));
   context.subscriptions.push({ dispose: () => { delete globalThis[host.WAITS_LEFT_ON]; } });
   coreLink.link(vscode, claude.source, { name: 'the Claude Code source', log: (m) => log.appendLine(m) }).then((r) => {
-    if (!r.registered) { links.attach(null); return; }
+    if (!r.registered) { links.attach(null); planBar.attach(null); return; }
     const { registration } = r;
     log.appendLine(`registered with Agent Plus ${r.core.version || ''}`.trim());
     if (closing) { registration.dispose(); return; }
@@ -1111,6 +1126,7 @@ function start(context, log, renamed, handing = false) {
     decideWaits();
     claude.refocus();
     links.attach(r.core);
+    planBar.attach(r.core);
   }).catch((e) => log.appendLine('registering with Agent Plus: ' + ((e && e.message) || e)));
   /*
    * Following the conversation has to be immediate, so the patched field calls this the moment it is written. Waiting
@@ -1989,6 +2005,7 @@ function start(context, log, renamed, handing = false) {
     } else if (e.affectsConfiguration(BRIEF_SETTING)) claude.changed();
     if (modeChanged) followTokenMode();
     if (e.affectsConfiguration(PREFIX + 'show.conversationLinks')) links.settingChanged();
+    if (e.affectsConfiguration(PREFIX + 'show.planBar')) planBar.settingChanged();
     if (e.affectsConfiguration(HIDE_BG_SETTING)) {
       try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the list catches up on its next read */ }
     }

@@ -296,6 +296,7 @@ const SWITCHES = [
   'sessionIdSearch',  // the session list's search also matching part of a session ID
   'sessionColors',    // a conversation's text color in the session list, and Text color in its menu
   'conversationLinks', // another conversation's title or session id in a reply drawn as a link that opens it
+  'planBar',          // the line above the input box saying where the conversation's work plan stands
 ];
 
 /** The live stylesheet for one set of settings. */

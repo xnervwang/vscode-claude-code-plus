@@ -4,7 +4,7 @@ Find the work plan settings, the setting that turns off each addition, and the e
 
 ## Settings
 
-Open `Claude Code Plus: Settings` for all 42 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
+Open `Claude Code Plus: Settings` for all 43 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
 
 **Work plan settings**
 

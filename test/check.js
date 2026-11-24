@@ -11823,6 +11823,135 @@ console.log('\nanswering from the Conversations tab');
 
   {
     try {
+      /* The plan bar in a panel (src/page/96-plan-bar.js, drawing with Agent Plus's src/page/04-plan-bar.js) against a
+         stand-in page: where it goes, what it asks for and keeps, its clicks, a new conversation and the switch. */
+      const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+      const BAR = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '04-plan-bar.js'), 'utf8');
+      const fragment = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '96-plan-bar.js'), 'utf8');
+      class N {
+        constructor(tag, attrs = {}) { this.tagName = tag.toUpperCase(); this.attrs = Object.assign({}, attrs); this.childNodes = []; this.parentNode = null;
+          this.style = { cssText: '', display: '' }; this.className = ''; this.listeners = {}; this._text = ''; this.innerHTML = ''; }
+        get parentElement() { return this.parentNode; }
+        get firstChild() { return this.childNodes[0] || null; }
+        get nextSibling() { const k = this.parentNode ? this.parentNode.childNodes : []; return k[k.indexOf(this) + 1] || null; }
+        appendChild(c) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; this.childNodes.push(c); return c; }
+        insertBefore(c, ref) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; const i = this.childNodes.indexOf(ref); this.childNodes.splice(i < 0 ? this.childNodes.length : i, 0, c); return c; }
+        removeChild(c) { const i = this.childNodes.indexOf(c); if (i >= 0) this.childNodes.splice(i, 1); c.parentNode = null; return c; }
+        setAttribute(k, v) { this.attrs[k] = String(v); }
+        getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+        set textContent(v) { this.childNodes = []; this._text = String(v); }
+        get textContent() { return this._text + this.childNodes.map((c) => c.textContent).join(''); }
+        addEventListener(k, f) { (this.listeners[k] = this.listeners[k] || []).push(f); }
+        closest(sel) { for (let n = this; n; n = n.parentNode) if (sel === 'form' && n.tagName === 'FORM') return n; return null; }
+        getBoundingClientRect() { return { left: 0, top: 0, width: 640, height: 26, bottom: 26 }; }
+        fire(type) { const ev = { type, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} };
+          for (let n = this; n && !ev.stopped; n = n.parentNode) for (const f of n.listeners[type] || []) f(ev); }
+        find(cls) { for (const c of this.childNodes) { if ((' ' + c.className + ' ').includes(' ' + cls + ' ')) return c; const d = c.find(cls); if (d) return d; } return null; }
+      }
+      const make = (off = {}) => {
+        const sent = [], listeners = {};
+        const head = new N('head'), body = new N('body'), wrapper = new N('div'), form = new N('form'), send = new N('button');
+        body.appendChild(wrapper); wrapper.appendChild(new N('div', { banner: '1' })); wrapper.appendChild(form); form.appendChild(send);
+        const s = { sid: 'S1', on: true, input: true };
+        const document = { head, body, documentElement: head, defaultView: {}, createElement: (t) => new N(t),
+          querySelector: (sel) => (sel === 'SEND' && s.input ? send : null) };
+        const env = { window: { addEventListener: (t, f) => { listeners[t] = f; } }, document, SEND: 'SEND', setTimeout, clearTimeout, Date, out: {},
+          acquireVsCodeApi: () => ({ postMessage: (m) => sent.push(m) }), sigValue: (n) => (n === 'sessionId' ? s.sid : undefined),
+          isOff: (k) => !!off[k], isOn: () => s.on };
+        new vm.Script(`(function(){${BAR}\n${fragment}\n;out.ensure = ensurePlanBar; out.wire = wirePlanBar;})()`, { filename: '96-plan-bar.js' }).runInNewContext(env);
+        const tell = (sessionId, summary) => listeners.message({ data: { type: 'from-extension', message: { type: 'cce_plan_bar', sessionId, summary } } });
+        const ready = () => listeners.message({ data: { type: 'from-extension', message: { type: 'cce_plan_bar_ready' } } });
+        const bar = () => wrapper.childNodes.find((c) => c.getAttribute('data-agent-plus-plan-bar') === '1') || null;
+        return { env, sent, tell, ready, bar, wrapper, form, s, asks: () => sent.filter((m) => m.type === 'cce_plan_bar_ask').map((m) => m.sessionId) };
+      };
+      const SUM = { total: 4, done: 1, counts: { done: 1, doing: 2, discussing: 1 }, questions: 1, allDone: false,
+        current: { number: '2.1', title: 'Write the CSV exporter', state: 'doing', dim: false }, open: [] };
+      const p = make();
+      p.env.out.wire();
+      p.env.out.ensure();
+      const placed = p.bar();
+      same([p.asks(), !!placed && placed.nextSibling === p.form, placed && placed.style.display], [['S1'], true, 'none'],
+        'a panel showing a conversation asks for its summary, and the bar goes in right before the input\'s form, hidden until one comes');
+      p.tell('S2', SUM);
+      const other = p.bar().style.display;
+      p.tell('S1', SUM);
+      same([other, p.bar().style.display, p.bar().find('apb-count').textContent, p.bar().find('apb-q').textContent], ['none', '', '3 open', '1 to decide'],
+        'a summary of another conversation is not this panel\'s; its own is drawn');
+      p.env.out.ensure();
+      p.env.out.ensure();
+      same(p.asks(), ['S1'], 'and once it has one it does not ask again');
+      {
+        const slow = make(), stamps = [];
+        slow.env.out.wire();
+        slow.env.Date = { now: () => stamps[stamps.length - 1] };
+        for (const at of [1000, 1500, 2100, 3200, 4300, 5400, 6500, 9000, 16600, 17000]) { stamps.push(at); slow.env.out.ensure(); }
+        const before = slow.asks().length;
+        stamps.push(17200);
+        slow.ready();
+        const ready = slow.asks().length;
+        slow.tell('S1', SUM);
+        slow.ready();
+        stamps.push(40000); slow.env.out.ensure();
+        same([before, ready, slow.asks().length], [6, 7, 7],
+          'with no answer it asks once a second five times and then every ten seconds, at once when the extension says it is ready, and no more once an answer came');
+      }
+      p.bar().fire('click');
+      p.bar().find('apb-q').fire('click');
+      same(p.sent.filter((m) => m.type === 'cce_plan_bar_open'), [{ type: 'cce_plan_bar_open', sessionId: 'S1', part: 'plan' }, { type: 'cce_plan_bar_open', sessionId: 'S1', part: 'answer' }],
+        'a click on the bar asks for the work plan view at this conversation, one on its red part for the Answer view');
+      p.wrapper.insertBefore(new N('div', { banner: '2' }), p.form);
+      p.env.out.ensure();
+      same(p.bar().nextSibling === p.form, true, 'a banner the panel puts between the bar and the form moves the bar back next to the form');
+      p.s.sid = 'S3';
+      p.env.out.ensure();
+      same([p.asks(), p.bar().style.display], [['S1', 'S3'], 'none'], 'another conversation in the panel: the old summary is dropped and the new one asked for');
+      p.tell('S3', null);
+      same(p.bar().style.display, 'none', 'a conversation with no plan has no bar');
+      const off = {}, q = make(off);
+      q.env.out.wire();
+      q.env.out.ensure();
+      q.tell('S1', SUM);
+      off.planBar = true;
+      q.env.out.ensure();
+      const gone = q.bar(), askedOff = q.asks().length;
+      q.env.out.ensure();
+      off.planBar = false;
+      q.env.out.ensure();
+      same([gone, askedOff, q.asks(), !!q.bar()], [null, 1, ['S1', 'S1'], true],
+        'with claudeCodePlus.show.planBar off the bar is taken out and nothing is asked; turned on again it asks afresh');
+      q.s.on = false;
+      q.env.out.ensure();
+      const offAll = q.bar();
+      q.s.on = true;
+      q.env.out.ensure();
+      q.tell('S1', SUM);
+      const backAll = q.bar() && q.bar().style.display;
+      q.s.input = false;
+      q.env.out.ensure();
+      same([offAll, backAll, q.bar() && q.bar().style.display], [null, '', 'none'],
+        'with the extension switched off it goes too and comes back with it, and while there is no input box it is hidden');
+    } catch (e) { bad(`the plan bar in a panel threw: ${(e && e.stack) || e}`); }
+  }
+
+  {
+    try {
+      /* The plan bar's two messages in the patched host (src/host.js, panel messages). */
+      const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+      const edit = host.EDITS.find((e) => e.name === 'panel messages');
+      const r = require('../src/edits').applyEdits('function eT($,J){let Q=`Received message from webview: ${bl0(J)}`;$.info(Q)}', [edit]);
+      const got = [];
+      const henv = { bl0: (m) => JSON.stringify(m), __ccePlanAskHook: (s) => got.push(['ask', s]), __ccePlanOpenHook: (s, part) => got.push(['open', s, part]) };
+      henv.globalThis = henv;
+      vm.createContext(henv);
+      if (!r.error) vm.runInContext(r.out + ';eT({info(){}},{type:"cce_plan_bar_ask",sessionId:"s1"});eT({info(){}},{type:"cce_plan_bar_ask"});'
+        + 'eT({info(){}},{type:"cce_plan_bar_open",sessionId:"s1",part:"answer"});eT({info(){}},{type:"cce_plan_bar_open",sessionId:"s1",part:"x"});', henv);
+      same([r.error || '', got], ['', [['ask', 's1'], ['open', 's1', 'answer'], ['open', 's1', 'plan']]],
+        'in the patched host, a panel asking for its plan summary and a click on its plan bar each reach their hook, a click on anything but the red part as the bar');
+    } catch (e) { bad(`the plan bar's messages in the host threw: ${(e && e.stack) || e}`); }
+  }
+
+  {
+    try {
       /* The two edits that give a reply's blocks the plugin and the revision, applied to Claude Code 2.1.330's code. */
       const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
       const { applyEdits } = require('../src/edits');
@@ -13761,6 +13890,70 @@ const repo = path.join(__dirname, '..');
       eq([polls.length, polls[0][1], polled], [2, links.OWN_POLL_MS, [['s-a'], ['s-a'], ['s-a', 's-b'], ['s-a', 's-b']]],
         'and that list is read again every 15 seconds, so a conversation that starts running later is sent too, with one timer at a time');
     } catch (e) { bad(`the check of what the extension sends the panels threw: ${(e && e.stack) || e}`); }
+  }
+
+  console.log('\nthe plan bar, what the extension sends the panels');
+  {
+    try {
+      /* The summaries a panel's plan bar is sent and where its clicks go (src/plan-bar.js). */
+      const bars = require('../src/plan-bar');
+      const toPanel = [], toAll = [], ran = [];
+      let listener = null, on = true, found = true, subs = 0;
+      const summaries = { S1: { total: 3, done: 1 }, S2: null };
+      const core = { features: ['planSummary'], planSummary: (src, id) => (src === 'claude-code' && id in summaries ? summaries[id] : null),
+        onDidChangePlanSummary: (fn) => { subs++; listener = fn; return { dispose: () => { listener = null; } }; } };
+      const b = bars.create({ on: () => on, sendTo: (id, m) => { if (found) toPanel.push([id, JSON.parse(JSON.stringify(m))]); return found; },
+        sendAll: (m) => toAll.push(JSON.parse(JSON.stringify(m))), run: async (c, a) => ran.push([c, a]) });
+      b.ask('S1');
+      const early = toPanel.slice();
+      b.attach(core);
+      b.ask('S2');
+      summaries.S1 = { total: 4, done: 1 };
+      listener({ sourceId: 'claude-code', sessionId: 'S1' });
+      listener({ sourceId: 'codex', sessionId: 'S1' });
+      listener({ sourceId: 'claude-code', sessionId: 'S9' });
+      eq([early, toPanel.slice(early.length)], [[['S1', { type: 'cce_plan_bar', sessionId: 'S1', summary: null }]], [
+        ['S1', { type: 'cce_plan_bar', sessionId: 'S1', summary: { total: 3, done: 1 } }],
+        ['S2', { type: 'cce_plan_bar', sessionId: 'S2', summary: null }],
+        ['S1', { type: 'cce_plan_bar', sessionId: 'S1', summary: { total: 4, done: 1 } }]]],
+      'a panel that asks before Agent Plus is there gets nothing to draw and is answered once it is; each panel then gets its own conversation\'s summary, and again when Agent Plus says it changed; a change to another agent\'s conversation or to one no panel asked about is not sent');
+      found = false;
+      listener({ sourceId: 'claude-code', sessionId: 'S1' });
+      eq(toAll.filter((m) => m.type === 'cce_plan_bar'), [{ type: 'cce_plan_bar', sessionId: 'S1', summary: { total: 4, done: 1 } }],
+        'a panel not found by the conversation\'s id gets it with the others');
+      found = true;
+      await b.open('S1', 'plan');
+      await b.open('S1', 'answer');
+      await b.open('', 'plan');
+      eq(ran, [['agentPlus.showWorkPlanOf', { sourceId: 'claude-code', sessionId: 'S1' }], ['agentPlus.answerQuestionOf', { sourceId: 'claude-code', sessionId: 'S1' }]],
+        'a click on the bar opens Agent Plus\'s work plan view at the conversation, one on its red part the Answer view');
+      on = false;
+      b.settingChanged();
+      const n = toPanel.length;
+      b.ask('S1');
+      eq([listener, toPanel.length - n], [null, 0], 'with claudeCodePlus.show.planBar off it stops listening and answers no panel');
+      on = true;
+      b.settingChanged();
+      b.ask('S1');
+      eq([subs, toPanel.length - n], [2, 1], 'on again it listens and answers');
+      const oldAll = [];
+      const old = bars.create({ on: () => true, sendTo: (id, m) => { toPanel.push([id, m]); return true; }, sendAll: (m) => oldAll.push(m.type), run: async (c) => ran.push([c]) });
+      old.attach({ features: ['allConversations'], allConversations: () => [] });
+      old.ask('S1');
+      await old.open('S1', 'plan');
+      eq([toPanel[toPanel.length - 1][1].summary, ran.length, oldAll], [null, 2, []],
+        'with an Agent Plus that lacks planSummary there is no summary, no panel is told the bar can be asked for, and a click does nothing');
+      const shownTo = [], told = [];
+      const late = bars.create({ on: () => true, sendTo: (id, m) => { shownTo.push([id, m.summary]); return true; }, sendAll: (m) => told.push(m.type), run: async () => {} });
+      late.ask('S1');
+      late.attach(core);
+      eq([shownTo, told], [[['S1', null], ['S1', { total: 4, done: 1 }]], ['cce_plan_bar_ready']],
+        'once registered with Agent Plus it sends a panel that asked before its summary, and tells every panel the bar can be asked for');
+      const many = bars.create({ on: () => true, sendTo: () => true, sendAll: () => {}, run: async () => {} });
+      for (let i = 0; i < bars.MAX_FOLLOWED + 5; i++) many.ask(`s-${i}`);
+      eq([many.followed().length, many.followed()[0]], [bars.MAX_FOLLOWED, 's-5'], 'it follows the 200 conversations asked about most recently');
+      b.dispose();
+    } catch (e) { bad(`the check of the plan bar's summaries threw: ${(e && e.stack) || e}`); }
   }
 
   /* The image files a reply shows: read only when they are images, by their bytes, and small enough. */

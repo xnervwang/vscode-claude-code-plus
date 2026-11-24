@@ -84,6 +84,7 @@
     viewFilterOff();
     try { imgFollowSwitch(); } catch (e) {}
     try { wireStewardLinks(); wireConversationLinks(); mentionsFollow(); askConversations(); } catch (e) {}
+    try { wirePlanBar(); ensurePlanBar(); } catch (e) {}
     marksFollowSwitches();
     if (!isOn()) { sweep(); return; }
     if (sessionRef) indexTitles(sessionRef);
@@ -417,7 +418,8 @@
 
   /* Nodes this script adds (labels, lists, menus, boxes, footer buttons): their children change constantly, the tool
      clock's every second, and none of them holds a message. */
-  var OWN_NODES = '[data-cce-toolclock],[data-cce-label],[data-cce-info],[data-cce-mute],[data-cce-view],[data-cce-focus-btn],[id^="cce-"]';
+  var OWN_NODES = '[data-cce-toolclock],[data-cce-label],[data-cce-info],[data-cce-mute],[data-cce-view],[data-cce-focus-btn],[id^="cce-"],'
+    + '[data-agent-plus-plan-bar],[data-agent-plus-plan-bar-list]';
   var ours = function(n){
     var el = n && (n.nodeType === 1 ? n : n.parentElement);
     return !!(el && el.closest && el.closest(OWN_NODES));
@@ -580,7 +582,7 @@
     setInterval(alive, ALIVE_MS);
     // The chime and the low-context outline must not depend on DOM churn: a turn can end without
     // any further mutation, which would leave the last sweep observing a still-busy state.
-    setInterval(function(){ try { watchIdle(); } catch (e) {} try { fillWindow(); } catch (e) {} try { markCtxLow(); } catch (e) {} try { ensureMute(); } catch (e) {} try { ensureInfo(); } catch (e) {} try { ensureFocusControl(); } catch (e) {} try { paintToolClock(); } catch (e) {} try { orderControls(); } catch (e) {} }, 700);
+    setInterval(function(){ try { watchIdle(); } catch (e) {} try { fillWindow(); } catch (e) {} try { markCtxLow(); } catch (e) {} try { ensureMute(); } catch (e) {} try { ensureInfo(); } catch (e) {} try { ensureFocusControl(); } catch (e) {} try { paintToolClock(); } catch (e) {} try { orderControls(); } catch (e) {} try { ensurePlanBar(); } catch (e) {} }, 700);
     run();
     report();
   };
