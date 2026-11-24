@@ -145,12 +145,17 @@ const EDGE_CSS = `${USER_SELECTOR}{`
 /* The session list's dots in the tab icons' green and red (src/tabdot.js), and a steward's crown and the envelope
    between the title and the time, in that order (src/page/84-row-marks.js): the row lays its children out in a row and
    the title takes the space left, so the crown and the envelope keep their size beside a title cut short, and moving
-   the time after them keeps the times of all rows lined up at the right. The envelope is drawn here, in the form src/envelope.js gives for the page's theme class, so a theme change redraws it. */
+   the time after them keeps the times of all rows lined up at the right. The envelope is drawn here, in the form src/envelope.js gives for the page's theme class, so a theme change redraws it.
+   Claude Code never lets the time shrink, and the dates this extension adds to it (src/page/15-format.js) make it
+   several times wider, which in a list as narrow as a sidebar's Past conversations box leaves the title no width. So
+   the title keeps a few characters and the time gives way first, cut short at its end, where the dates are. */
 const cssChars = (s) => [...String(s)].map((c) => '\\' + c.codePointAt(0).toString(16).toUpperCase() + ' ').join('').trim();
 const LIGHT_BODY = ['body.vscode-light', 'body.vscode-high-contrast-light'];
 const LIST_DOTS_CSS = `[class*="sessionItem_"]{--app-status-busy:${tabdot.GREEN};--app-status-pending:${tabdot.RED};}`
   + '[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;line-height:1;}'
-  + '[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;}'
+  + '[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;flex-shrink:1;min-width:0;grid-template-columns:minmax(0,auto);}'
+  + '[class*="sessionItem_"]>[class*="sessionName_"]{min-width:3em;}'
+  + '[class*="sessionItem_"] [class*="sessionTime_"]{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}'
   + `[data-cce-envelope]::after{content:"${cssChars(envelope.COLOUR)}";}`
   + `${LIGHT_BODY.map((b) => `${b} [data-cce-envelope]::after`).join(',')}{content:"${cssChars(envelope.TEXT)}";}`
   + '[class*="sessionItem_"]>[data-cce-crown]{order:1;flex:none;line-height:1;}';

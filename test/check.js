@@ -7420,10 +7420,15 @@ console.log('\na panel whose bundle never arrives says so');
 
     const live = require('../src/webview').liveCss({}), off = require('../src/webview').liveCss({ enabled: false });
     if (live.includes('[class*="sessionItem_"]{--app-status-busy:#22c55e;--app-status-pending:#ef4444;}')
-        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;') && live.includes('[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;}') && live.includes('[class*="sessionItem_"]>[data-cce-crown]{order:1;flex:none;')
+        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;') && live.includes('[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;') && live.includes('[class*="sessionItem_"]>[data-cce-crown]{order:1;flex:none;')
         && !off.includes('sessionItem_')) {
       ok('the session list\'s dots turn green and red, and a steward\'s crown and then the envelope go after the title and before the time');
     } else bad('the live stylesheet does not colour the list\'s dots as expected');
+    if (live.includes('[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;flex-shrink:1;min-width:0;grid-template-columns:minmax(0,auto);}')
+        && live.includes('[class*="sessionItem_"]>[class*="sessionName_"]{min-width:3em;}')
+        && live.includes('[class*="sessionItem_"] [class*="sessionTime_"]{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}')) {
+      ok('in a list too narrow for both, a row\'s title keeps 3em and its time, with the dates, is cut short at its end');
+    } else bad('the live stylesheet does not let a row\'s time give way to its title');
 
     const T = 'Fix the build';
     const titles = tabdot.MARKS.map((m) => tabdot.withoutMark(T + m)).concat([tabdot.withoutMark(T), tabdot.withoutMark(undefined)]);
