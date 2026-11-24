@@ -24,7 +24,7 @@ Verified against Claude Code 2.1.328, 2.1.329, 2.1.330 and 2.1.331.
 
 ### Work plan
 
-Each turn, Claude gets the open rows from the conversation's separate plan file. The rows are numbered 1, 2, 2.1 and so on. You can refer to several rows in one message by number, as in `2.1: not now`.
+Each turn, Claude gets the open rows, those not done or dropped, from the conversation's separate plan file. The rows, one for each piece of work, are numbered 1, 2, 2.1 and so on. You can refer to several rows in one message by number, as in `2.1: not now`.
 
 In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code conversations and stopped ones with open plan rows. When a plan row needs your answer, its question appears under the conversation, and what you type in the adjacent Answer view goes into that conversation's message input. [More about the work plan](docs/work-plan.md).
 
@@ -46,7 +46,7 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 | [Context meter](docs/features.md#in-a-conversation) | The panel's context meter stays visible and gains an outline when 15% of the context window remains. Hover for two seconds to see how much context the work plan adds and how context use breaks down by category, by memory file and by custom agent. |
 | [Chimes](docs/features.md#in-a-conversation) | A short sound plays on the computer where you view the panel when a turn ends or Claude asks for permission or an answer. You can mute the sound in the footer. |
 | [Session information](docs/features.md#in-a-conversation) | A footer button shows the session ID, Claude's process ID, the starting directory, the transcript's location and size, and the [token mode](docs/token-costs.md#token-modes). Click a value to copy it. |
-| [Token mode](docs/token-costs.md#token-modes) | You choose a token mode from Agent Plus's status bar entry: Interface features, Essential features, All features (the default) or Custom. Your choice decides which of the work plan, the time-zone note, the conversation brief and detached-command notices go into Claude's context. |
+| [Token mode](docs/token-costs.md#token-modes) | You choose a token mode from Agent Plus's status bar entry: Interface features, Essential features, All features (the default) or Custom. Your choice decides which of the work plan, the time-zone note, the conversation brief (its summary and where it stands) and the notices sent when a [detached command](#background-work) stops go into Claude's context. |
 
 ![Times on messages and tool calls, with each reply's duration, model and effort](images/shots/reply-figures.png)
 
@@ -62,7 +62,7 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 
 | Feature | What it does |
 | --- | --- |
-| [Open sessions](docs/features.md#in-the-session-list) | A section near the top of the session list shows conversations open in this window's editor tabs or sidebar, most recently active first. Each row shows a [status dot](#on-editor-tabs) and, while a reply is unread, an envelope. Click the row to switch to that conversation. |
+| [Open sessions](docs/features.md#in-the-session-list) | A section near the top of Claude Code's session list shows conversations open in this window's editor tabs or sidebar, most recently active first. Each row shows a [status dot](#on-editor-tabs) and, while a reply is unread, an envelope. Click the row to switch to that conversation. |
 | [Open in a tab or the sidebar](docs/features.md#in-the-session-list) | **New in tab** and **New in sidebar** replace the New session button. To reopen a closed conversation, right-click it and choose **Resume in tab** or **Resume in sidebar**. |
 | [Section and session ID on hover](docs/features.md#in-the-session-list) | Hover over a conversation to see its session ID and where it appears in the list: its group, Ungrouped or Archived sessions. |
 | [Search by session ID](docs/features.md#in-the-session-list) | Search also matches part of a session ID, such as `69f9`. Enter at least four characters using only 0-9, a-f and hyphens. |
@@ -71,7 +71,7 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 | [Pinned conversations](docs/features.md#in-the-session-list) | Click the pin at the start of a session-list row to keep the conversation out of Archived sessions and protect its transcript from Claude Code's cleanup (`cleanupPeriodDays`). |
 | [Text colors](docs/features.md#in-the-session-list) | Right-click a conversation and choose **Text color** to give its title one of the colors from Claude Code's `/color`. The color appears wherever the conversation is listed. |
 | [Delete archived conversations](docs/features.md#in-the-session-list) | To remove an archived conversation permanently from disk, right-click it, choose **Delete session…** and confirm. You cannot delete a conversation that is running or open in any VS Code window on the same machine. |
-| [Background sessions left out](docs/features.md#in-the-session-list) | The session list skips sessions started with `claude --bg` or `claude -p`, and empty transcripts. Turn off `claudeCodePlus.hideBackgroundSessions` to see them. |
+| [Background sessions left out](docs/features.md#in-the-session-list) | The session list skips sessions started with `claude --bg` or `claude -p` (see [Background work](#background-work)), and empty transcripts. Turn off `claudeCodePlus.hideBackgroundSessions` to see those sessions and the empty transcripts. |
 
 ![Open sessions, a pinned conversation, a colored title, session dates and a session ID on hover](images/shots/session-list.png)
 
@@ -79,8 +79,8 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 
 | Feature | What it does |
 | --- | --- |
-| [Status dots](docs/features.md#on-editor-tabs) | A dot at the top right of a Claude Code tab's logo is solid green while a turn runs, a green ring when only background work is running, and red when the conversation waits for you. Session list rows and the [Steward panel](#steward) show the same dots. |
-| [Notices of waits](docs/features.md#on-editor-tabs) | Agent Plus notifies you in your current VS Code window when a conversation outside it is waiting for tool permission, an answer to a question, a plan review or your choice of Continue or Stop in auto mode. Click Open to go to that conversation's window. |
+| [Status dots](docs/features.md#on-editor-tabs) | A dot at the top right of a Claude Code tab's logo is solid green while a turn runs, a green ring when only [background work](#background-work) is running, and red when the conversation waits for you. Session list rows and the [Steward panel](#steward) show the same dots. |
+| [Notices of waits](docs/features.md#on-editor-tabs) | Agent Plus notifies you in your current VS Code window when a conversation outside it is waiting for tool permission, an answer to a question, a review of the plan it made in plan mode or your choice of Continue or Stop in auto mode. Click Open to go to that conversation's window. |
 | [Unread envelope](docs/features.md#on-editor-tabs) | An envelope (✉️) appears at the end of a conversation's tab title and after its title in the session list and Steward panel while it has a reply you have not seen. The envelope disappears when the conversation is shown. |
 | [Tabs back after a restart](docs/features.md#on-editor-tabs) | When the window starts, Claude Code Plus reopens Claude Code tabs that were open when it closed but that VS Code did not restore, as can happen after a lost remote connection. Tabs you closed while connected stay closed. |
 | [Load background tabs](docs/features.md#on-editor-tabs) | Turn on `claudeCodePlus.loadRestoredTabs` to load Claude Code conversations in background tabs when the window starts. By default, they load when you first click them. |
