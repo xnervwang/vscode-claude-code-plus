@@ -41,12 +41,12 @@ jobs:
         run: |
           vsix=$(bash build/pack.sh | tail -n 1)
           mv "$vsix" extension.vsix
-      # This extension depends on Agent Plus, so the run installs it too. Checked out after the build above, whose
-      # checks read the files under this folder.
-      - uses: actions/checkout@v7
-        with:
-          repository: xnervwang/vscode-agent-plus
-          path: agent-plus
+      # This extension depends on Agent Plus, so the run installs it too. Unpacked after the build above, whose
+      # checks read the files under this folder. On this CI branch Agent Plus is the source of its plan-bar branch at
+      # e375d11, archived in ci/, since that branch has not been pushed.
+      - name: Unpack Agent Plus
+        shell: bash
+        run: tar -xzf ci/agent-plus.tar.gz
       - name: Build Agent Plus's .vsix
         shell: bash
         run: |
@@ -96,11 +96,14 @@ jobs:
         shell: bash
         env:
           CLAUDE_CODE_PLUS_UI_OFFLINE: require
+          CLAUDE_CODE_PLUS_UI_CLAUDE_CODE: '2.1.331'
         run: xvfb-run -a -s '-screen 0 1600x1000x24' node test/vscode/run.js extension.vsix core.vsix --out vscode-results
       # macOS and Windows have no namespace to put it in: there the test stage only gets a proxy that does not exist.
       - name: Run in VS Code
         if: runner.os != 'Linux'
         shell: bash
+        env:
+          CLAUDE_CODE_PLUS_UI_CLAUDE_CODE: '2.1.331'
         run: node test/vscode/run.js extension.vsix core.vsix --out vscode-results
       - uses: actions/upload-artifact@v7
         if: always()

@@ -29,3 +29,6 @@ images/icon.svg
 
 # The last version of the old id, built by build/pack-shim.sh.
 shim/**
+
+# CI branch only: the source of Agent Plus the window test builds when its branch is not pushed.
+ci/**
