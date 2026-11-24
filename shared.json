@@ -1,5 +1,5 @@
 {
-  "core": "e375d11d730367806a8aa8032c609987e459406f",
+  "core": "9bcbfdd86a4e6956aece04cec107477498c8efae",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -79,7 +79,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_common.py",
       "from": "shared/plugin/hooks/plan_common.py",
-      "sha256": "6ddcecbdc5d750e90445038146b1d87338a974efa0abb2c69e1d728a89b9e4e7"
+      "sha256": "a27d50570cbbf116389707dfc596b5d6ffd2f4ad0bae24a4a427b8f06e879e33"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan-row.py",
@@ -124,7 +124,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_agent.py",
       "from": "shared/plugin/claude/plan_agent.py",
-      "sha256": "eacdc16e7003fae510be04a9a2ee2d19352b21a3d9dafd583814aea404ca0fff"
+      "sha256": "6e87027b7f67c8799d3372c4c27aa3c1a34ae114ceb6982bf77eedf8908906b2"
     },
     {
       "path": "claude-plugin/agent-work-plan/skills/maintain/SKILL.md",
