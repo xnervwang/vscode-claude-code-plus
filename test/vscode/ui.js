@@ -166,7 +166,7 @@ const STAMP = `(?:\\d\\d/\\d\\d${NB})?\\d\\d:\\d\\d:\\d\\d`;
    form, and the bell older builds drew. */
 const CROWN = '\u{1F451}', BELL = '\u{1F6CE}\uFE0F';
 const MARK_RE = /\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709/u;
-/* The crown and the envelope a tab's label ends in, after its title. */
+/* The crown and the envelope a tab's label ends in. */
 const TRAILING_MARKS = /(?: (?:\u{1F451}|\u{1F4E9}|\u2709[\uFE0E\uFE0F]?))+$/u;
 /* Conversations a steward opens again: one started in a folder below the window's, one in a folder no window has open. */
 const FOLDER_THREADS = [
@@ -5437,7 +5437,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const last = all.length ? all[all.length - 1].getBoundingClientRect().bottom : 0, top = b.getBoundingClientRect().top;
           return last > 0 && last <= top + 1 ? { last, top } : null;
         }), 10000, 500);
-        check(!!clear, 'scrolled to the bottom, the last message ends above the bar: the room kept for the input area grows with it', clear);
+        check(!!clear, 'scrolled to the bottom, the last message ends above the bar', clear);
         write([row('Read the code', 'done'), row('Export', 'waiting', { waitingOn: 'build' }), row('Document it', 'todo')]);
         const waiting = await barIs((s) => s.shown && s.current === 'waiting');
         check(!!waiting && same(waiting.segments, ['waiting', 'todo']) && waiting.count === '2 open' && waiting.title === '2 Export' && !waiting.questions,
