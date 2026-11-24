@@ -284,6 +284,25 @@ const SETUP = String.raw`
       c[1].forEach(function(m){ quietReply(m, n); });
     });
   }
+  /* Focus view's fold rows as Claude Code draws them: aria-expanded on the row, and the fold's component with its props
+     above the row's own. A click on a row runs the component's toggle, which opens or folds it; the last row is held
+     open by a permission request, which its toggle leaves open. With handFolds, the first two are opened by hand. */
+  var handRows = [];
+  if (CFG.handFolds) {
+    [true, true, false, 'pending'].forEach(function(open, n){
+      var row = document.createElement('div');
+      row.setAttribute('data-testid', 'focus-fold-row');
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-expanded', open ? 'true' : 'false');
+      row.textContent = 'Ran ' + (n + 1) + ' command';
+      var props = { fold: { key: 'fold-' + n }, isExpanded: !!open, permissionPending: open === 'pending',
+        onToggleExpanded: function(){ if (open !== 'pending') row.setAttribute('aria-expanded', row.getAttribute('aria-expanded') === 'true' ? 'false' : 'true'); } };
+      row[FIBER] = { memoizedProps: { onClick: props.onToggleExpanded, role: 'button' }, return: { memoizedProps: props, return: sessionFiber } };
+      row.addEventListener('click', props.onToggleExpanded);
+      list.appendChild(row);
+      handRows.push(row);
+    });
+  }
   var addTurn = function(){ turn(CFG.turns); };
   /* Switch conversations in place, as New and Resume do: a new session object, its own messages, and the footer given
      the new session. */
@@ -456,6 +475,19 @@ const PHASES = String.raw`
       next();
     });
   };
+  /* With folds opened by hand: what the button shows, then what a press asks of the panel and leaves open. */
+  var foldByHand = function(){
+    var fb = document.querySelector('[data-cce-focus-btn]');
+    if (!fb) { R.handFolds = null; return next(); }
+    var state = function(){ return { fold: fb.getAttribute('data-cce-fold'), label: fb.getAttribute('aria-label'), opacity: fb.style.opacity }; };
+    var before = state();
+    fb.click();
+    later(900, function(){
+      R.handFolds = { before: before, after: state(), calls: focusCtx.calls.slice(), on: focusCtx.on,
+        open: handRows.map(function(r){ return r.getAttribute('aria-expanded'); }) };
+      next();
+    });
+  };
   /* Switch, then read the newest reply's figures and the info box. */
   var newestBlock = function(){
     var rs = document.querySelectorAll('[data-testid="assistant-message"]'), last = rs[rs.length - 1];
@@ -569,6 +601,7 @@ const PHASES = String.raw`
     });
   };
   if (CFG.clickFocus) STEPS.push(clickFocus);
+  if (CFG.handFolds) STEPS.push(foldByHand);
   if (CFG.redraw) STEPS.push(redrawn);
   if (CFG.foldBack) STEPS.push(foldedBack);
   if (CFG.switchSession) STEPS.push(switched);
@@ -599,7 +632,7 @@ function page(cfg, script) {
 }
 
 /**
- * Run one simulated panel to completion. `cfg`: turns, compactEvery, focus, focusCtx, clickFocus, subagent,
+ * Run one simulated panel to completion. `cfg`: turns, compactEvery, focus, focusCtx, clickFocus, handFolds, subagent,
  * subagentTurn, switchSession, offSwitches (off from the start), pickView, flip (switches turned off later), listMessages
  * and foldFirst (the session's message list, and how many replies have no row), redraw (the oldest reply's rows drawn
  * again), foldBack (most replies taken off the page and put back), and the phase lengths. Resolves to the page's counts
@@ -628,7 +661,7 @@ function run(browser, cfg, script) {
       }
       fs.writeFileSync(path.join(dir, 'claude-code-extras.css'), `:root[data-cce-test-flip]{${offRules(full.flip)}}\n` + wv.liveCss({ enabled: true }));
     }
-    const steps = (full.clickFocus ? 1000 : 0) + (full.switchSession ? 2000 : 0) + (full.pickView ? 1000 : 0)
+    const steps = (full.clickFocus ? 1000 : 0) + (full.handFolds ? 1000 : 0) + (full.switchSession ? 2000 : 0) + (full.pickView ? 1000 : 0)
       + (full.flip ? 8500 : 0) + (full.redraw ? 2000 : 0) + (full.foldBack ? 3500 : 0);
     const budget = full.settleCapMs + full.idleMs + full.grows * 300 + 3000 + steps;
     /* No --user-data-dir. Headless already starts from a temporary profile of its own, which is what keeps it apart

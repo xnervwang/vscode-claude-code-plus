@@ -71,19 +71,45 @@
     return svg;
   };
 
-  // Both labels say first what is on screen now, then what a click does.
+  /*
+   * The folds of Focus view opened by hand. Claude Code keeps them in a set of its own, which it empties whenever Focus
+   * view is turned over, so turning it off and on again is the only way it offers to fold them all at once. Each fold's
+   * row carries aria-expanded, and clicking the row runs Claude Code's own toggle. A row is also held open while a
+   * permission request in it waits, which its click does not fold; the fold's component says so in its props. A row
+   * whose props cannot be read is left out, so the button never offers to fold something it cannot.
+   */
+  var OPEN_FOLD = '[data-testid="focus-fold-row"][aria-expanded="true"]';
+  var foldedByClick = function(row){
+    for (var f = fiber(row), n = 0; f && n < 4; f = f.return, n++) {
+      var p = f.memoizedProps;
+      if (p && typeof p === 'object' && typeof p.onToggleExpanded === 'function') return p.permissionPending !== true;
+    }
+    return false;
+  };
+  var openedByHand = function(){
+    return Array.prototype.filter.call(document.querySelectorAll(OPEN_FOLD), foldedByClick);
+  };
+
+  // Each label says first what is on screen now, then what a click does.
   var FOCUS_ON = 'Focus view is on: only your messages and the replies - click to show thinking and tool calls';
+  var FOCUS_OPENED = 'Focus view is on, with tool calls you opened - click to fold them again';
   var FOCUS_OFF = 'Showing thinking and tool calls - click for Focus view: only your messages and the replies';
-  var paintFocus = function(on){
+  /* `opened`: Focus view is on and a fold is open by hand. The button then looks as it does with Focus view off, since
+     what is on screen is unfolded, but stays at full strength, since a click keeps Focus view on. */
+  var paintFocus = function(on, opened){
     // Replaced only where the state turned over, so a repaint on the timer does not rebuild the icon twice a second.
-    var want = on ? 'folded' : 'open';
+    var want = on ? (opened ? 'opened' : 'folded') : 'open';
     if (FOCUSBTN.getAttribute('data-cce-fold') !== want) {
       FOCUSBTN.setAttribute('data-cce-fold', want);
       while (FOCUSBTN.firstChild) FOCUSBTN.removeChild(FOCUSBTN.firstChild);
-      FOCUSBTN.appendChild(foldIcon(on));
+      FOCUSBTN.appendChild(foldIcon(want === 'folded'));
     }
     setStyle(FOCUSBTN, 'opacity', on ? '1' : '0.6');
-    setLabel(FOCUSBTN, on ? FOCUS_ON : FOCUS_OFF);
+    setLabel(FOCUSBTN, on ? (opened ? FOCUS_OPENED : FOCUS_ON) : FOCUS_OFF);
+  };
+  var paintFocusNow = function(c){
+    var on = !!c.focusViewEnabled;
+    paintFocus(on, on && openedByHand().length > 0);
   };
 
   // Same anchor as the other footer controls: the send button's previous sibling is the permission-mode selector, and
@@ -92,7 +118,7 @@
     if (isOff('footerPlainView')) { FOCUSBTN = dropControl(FOCUSBTN); return; }
     var ctx = panelContext();
     if (!ctx) return;
-    if (FOCUSBTN && FOCUSBTN.isConnected) { paintFocus(!!ctx.focusViewEnabled); return; }
+    if (FOCUSBTN && FOCUSBTN.isConnected) { paintFocusNow(ctx); return; }
     var send = document.querySelector(SEND);
     if (!send) return;
     var mode = send.previousElementSibling;
@@ -112,11 +138,18 @@
       ev.preventDefault(); ev.stopPropagation();
       var c = panelContext();
       if (!c) return;
+      // Folds opened by hand are folded again through their own rows, and Focus view stays on.
+      var opened = c.focusViewEnabled ? openedByHand() : [];
+      if (opened.length) {
+        opened.forEach(function(row){ row.click(); });
+        paintFocusNow(c);
+        return;
+      }
       var next = !c.focusViewEnabled;
       // The panel updates its own copy of the setting before the editor has written it, so the repaint can follow.
-      Promise.resolve(c.setFocusView(next)).catch(function(){}).then(function(){ paintFocus(!!c.focusViewEnabled); });
-      paintFocus(next);
+      Promise.resolve(c.setFocusView(next)).catch(function(){}).then(function(){ paintFocusNow(c); });
+      paintFocus(next, false);
     });
     mode.parentElement.insertBefore(FOCUSBTN, mode);
-    paintFocus(!!ctx.focusViewEnabled);
+    paintFocusNow(ctx);
   };

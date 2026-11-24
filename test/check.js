@@ -237,6 +237,15 @@ console.log('\nwhat the page costs, in a browser');
         ok('a press turns Focus view on through the panel\'s own object, and the label follows');
       } else bad('a press of the Focus view button: ' + (pressed.error || JSON.stringify(
         { clicked: pressed.clicked, calls: pressed.focusCalls, after: pressed.focusAfter, label: pressed.focusLabelAfter })));
+      /* Folds opened by hand in Focus view: the button looks unfolded, and a press folds them through their own rows and
+         keeps Focus view on, leaving alone a fold held open by a permission request. */
+      const byHand = harness.run(browser, { turns: 10, focus: true, handFolds: true });
+      const hf = byHand.handFolds || {};
+      if (!byHand.error && hf.before && hf.before.fold === 'opened' && hf.before.opacity === '1' && /^Focus view is on, with tool calls you opened/.test(hf.before.label)
+          && JSON.stringify(hf.calls) === '[]' && hf.on === true && JSON.stringify(hf.open) === '["false","false","false","true"]'
+          && hf.after.fold === 'folded' && /^Focus view is on: only your messages/.test(hf.after.label)) {
+        ok('with folds opened by hand the button looks unfolded, and a press folds them again, keeps Focus view on and leaves a fold a permission request holds open');
+      } else bad('the Focus view button with folds opened by hand: ' + (byHand.error || JSON.stringify(hf)));
       /* Each reply's figures belong on its first block. Claude Code may draw a row of its own ahead of the blocks - since
          2.1.284, on by default from 2.1.290, a time line on every reply that has text - and that row carries no block. */
       const stamped = harness.run(browser, { turns: 10, panelStamp: true });

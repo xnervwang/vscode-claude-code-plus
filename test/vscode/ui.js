@@ -16,6 +16,9 @@
  *   a tab          a conversation resumed in a tab: its title, the times on every message and reply, the bar on your
  *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
+ *   a fold opened by hand
+ *                  in Focus view, a tool call's fold opened by hand: the button drawn unfolded, and a press folding the
+ *                  row again with Focus view still on
  *   the dots       the filled dot on the tab's logo while a turn sent through fake-model.js runs, and on both its
  *                  session list rows; the envelope after the tab's title once its reply lands with the tab in the
  *                  background, after the name and before the time on its rows, and still whole when a narrow side bar
@@ -159,6 +162,7 @@ const LABELS = {
   info: 'About this conversation: its session id, process id, the directory it started in, where its transcripts are kept, their size, and the token mode',
   focusOff: 'Showing thinking and tool calls - click for Focus view: only your messages and the replies',
   focusOn: 'Focus view is on: only your messages and the replies - click to show thinking and tool calls',
+  focusOpened: 'Focus view is on, with tool calls you opened - click to fold them again',
   mute: 'A chime when a turn finishes, and when Claude is waiting for you - click to mute',
   muted: 'Chimes are muted - click to hear a chime when a turn finishes',
   rail: 'Your messages in this conversation - click one to jump to it',
@@ -3113,6 +3117,35 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         'a peer message answered with a dash after thinking with no text and a tool call: nothing of it is left on screen, fold row and dots included',
         { after: seen || await after(), folds: await folds(), replies });
       await shot('quiet-peer-reply');
+      if (!wasOn) await focus.click();
+    });
+
+    /* Focus view with a fold opened by hand, in the first conversation, whose tool calls fold into rows by now: the button
+       looks unfolded, and a press folds the row again with Focus view still on. */
+    await step('a fold opened by hand', async () => {
+      await exec('claude-vscode.editor.open', tab0.id);
+      const conv = await conversation(tab0);
+      if (!conv) throw new Error('the conversation did not open');
+      await exec('notifications.clearAll');
+      const focus = conv.locator('[data-cce-focus-btn]').first();
+      const button = () => focus.evaluate((e) => ({ fold: e.getAttribute('data-cce-fold'), label: e.getAttribute('aria-label') }));
+      const wasOn = (await button()).fold !== 'open';
+      if (!wasOn) await focus.click();
+      const row = conv.locator('[data-testid="focus-fold-row"][aria-expanded="false"]').filter({ visible: true }).first();
+      if (!await until(async () => (await row.count()) > 0, 15000, 300)) throw new Error('Focus view drew no folded row in the conversation');
+      await row.scrollIntoViewIfNeeded();
+      const key = await row.evaluate((e) => { e.setAttribute('data-cce-test-fold', ''); return e.textContent.trim(); });
+      const marked = conv.locator('[data-cce-test-fold]').first();
+      await marked.click();
+      const opened = await until(async () => await marked.getAttribute('aria-expanded') === 'true' && (await button()).fold === 'opened' && await button(), 5000, 200);
+      check(!!opened && opened.label === LABELS.focusOpened, 'in Focus view, a fold opened by hand shows the button unfolded',
+        { row: key, expanded: await marked.getAttribute('aria-expanded'), button: await button() });
+      await shot('focus-fold-opened');
+      await focus.click();
+      const back = await until(async () => await marked.getAttribute('aria-expanded') === 'false' && (await button()).fold === 'folded' && await button(), 5000, 200);
+      check(!!back && back.label === LABELS.focusOn, 'and a press folds it again, with Focus view still on',
+        { row: key, expanded: await marked.getAttribute('aria-expanded'), button: await button() });
+      await marked.evaluate((e) => e.removeAttribute('data-cce-test-fold')).catch(() => {});
       if (!wasOn) await focus.click();
     });
 
