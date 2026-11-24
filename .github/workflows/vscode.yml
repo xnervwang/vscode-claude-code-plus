@@ -46,11 +46,15 @@ jobs:
       # e375d11, archived in ci/, since that branch has not been pushed.
       - name: Unpack Agent Plus
         shell: bash
-        run: tar -xzf ci/agent-plus.tar.gz
+        run: tar -xzf ci/agent-plus.tar.gz -C "$RUNNER_TEMP"
+      # Its packing runs its checks and keeps only their errors, so they run here first where their output shows.
+      - name: Check Agent Plus
+        shell: bash
+        run: cd "$RUNNER_TEMP/agent-plus" && node test/check.js 2>&1 | tail -n 80
       - name: Build Agent Plus's .vsix
         shell: bash
         run: |
-          core=$(cd agent-plus && bash build/pack.sh | tail -n 1)
+          core=$(cd "$RUNNER_TEMP/agent-plus" && bash build/pack.sh | tail -n 1)
           mv "$core" core.vsix
       - uses: actions/upload-artifact@v7
         with:
