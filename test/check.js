@@ -14124,7 +14124,13 @@ const repo = path.join(__dirname, '..');
     const bgInput = JSON.parse(bg[2].delta.partial_json);
     eq([bg[1].content_block.name, bgInput.command, bgInput.run_in_background], ['Bash', fakeModel.BG_RUN, true],
       'a message asking for the long job gets a Bash call put in the background');
-    const helped = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_FOR_HELPER}.` }] })).text);
+    const digest = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_FOR_BG_OUTPUT}.` }] })).text);
+    const digestInput = JSON.parse(digest[2].delta.partial_json);
+    const ended = events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `<task-notification>\n<status>completed</status>\n`
+      + `<summary>Background command "${digestInput.description}" completed (exit code 0)</summary>\n</task-notification>` }] })).text);
+    eq([digest[1].content_block.name, digestInput.command, digestInput.run_in_background, ended[1].content_block.type], ['Bash', fakeModel.BG_OUTPUT_RUN, true, 'text'],
+      'a message asking for the weekly digest gets a Bash call of claude --bg put in the background, and Claude Code\'s notice that it ended, which quotes its description, gets text');
+    const helped =events((await post('/v1/messages', { stream: true, messages: [{ role: 'user', content: `Please ${fakeModel.ASK_FOR_HELPER}.` }] })).text);
     const helperInput = JSON.parse(helped[2].delta.partial_json);
     m.holdHelper();
     let helperDone = false;
@@ -14152,7 +14158,7 @@ const repo = path.join(__dirname, '..');
     const counted = await post('/v1/messages/count_tokens', { messages: [] });
     const other = await post('/v1/models', {});
     eq([counted.status, JSON.parse(counted.text).input_tokens > 0, other.status], [200, true, 404], 'it counts tokens, and answers nothing else');
-    eq(m.turns(), 8, 'and counts only the streamed turns');
+    eq(m.turns(), 10, 'and counts only the streamed turns');
   } catch (e) {
     bad(`the fake model: ${(e && e.stack) || e}`);
   } finally { await m.close(); }
