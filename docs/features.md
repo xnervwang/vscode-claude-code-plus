@@ -34,7 +34,7 @@ Back to the [README](../README.md).
 
 | Feature | What it shows |
 | --- | --- |
-| Open sessions | A section at the top of the session list shows the conversations open in this window, in an editor tab or in the sidebar while it is shown, most recently active first. Each row shows its status dot and, while a reply is unread, an envelope; click the row to switch to the conversation. |
+| Open sessions | A section near the top of Claude Code's session list shows the conversations open in this window, in an editor tab or in the sidebar while it is shown, most recently active first. Each row shows its status dot and, while a reply is unread, an envelope; click the row to switch to the conversation. |
 | Open in a tab or the sidebar | **New in tab** and **New in sidebar** replace the New session button. |
 | Section and session ID on hover | Hovering over a conversation shows its session ID and where it sits in the list below Open sessions: its group, Ungrouped or Archived sessions. Rows in Open sessions show the same. |
 | Search by session ID | The search box also finds a conversation by part of its session ID, such as `69f9`: four or more characters, using only 0-9, a-f and hyphens. Shorter searches, and ones with other characters, match titles and branches only. |

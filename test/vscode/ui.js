@@ -114,6 +114,10 @@
  *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
  *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn picked or
  *                  highlighted, and only the conversation in a tab in front drawn as the current one
+ *   the plan bar   the bar above the input box, drawn from the conversation's plan in each state a plan can be in:
+ *                  as wide as the input box with the same height however many rows the plan has, compact in a narrow
+ *                  panel, redrawn when the plan changes, gone without a plan and with claudeCodePlus.show.planBar off,
+ *                  and its two clicks opening Agent Plus's Work plan view and Answer view at this conversation
  *   removal        last: Remove from Claude Code restores both files, and turning the extension on puts the patch back
  *   self-check     no page of a Claude Code panel drew the warning that its messages are no longer found, all through the run
  *
