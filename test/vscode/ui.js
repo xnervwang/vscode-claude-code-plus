@@ -5441,7 +5441,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         write([row('Read the code', 'done'), row('Export', 'waiting', { waitingOn: 'build' }), row('Document it', 'todo')]);
         const waiting = await barIs((s) => s.shown && s.current === 'waiting');
         check(!!waiting && same(waiting.segments, ['waiting', 'todo']) && waiting.count === '2 open' && waiting.title === '2 Export' && !waiting.questions,
-          'with nothing being done, the first waiting row is the current one, and with no question there is no red part', waiting || await bar());
+          'with nothing being done and no question, the first waiting row is the current one and there is no red part', waiting || await bar());
         write([row('Read the code', 'done'), row('Handle refunds later', 'parked')]);
         const parked = await barIs((s) => s.shown && s.current === 'parked');
         check(!!parked && parked.dim && parked.count === '1 open' && same(parked.segments, ['parked']),
@@ -5452,7 +5452,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'with every row done, a check and All rows done, and an empty track', allDone || await bar());
         await shot('plan-bar-done');
 
-        /* Its size, whatever the plan holds, at two widths of the panel; and compact in a narrow one. */
         const full = await editorWidth();
         const grown = (n) => write([row('Export', 'doing', { children: [row('A current row whose title is long enough to be cut short when the panel is narrow', 'doing')] })]
           .concat(Array.from({ length: n - 2 }, (_, i) => row('Row ' + (i + 1), 'todo'))));
@@ -5488,7 +5487,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const none = await barIs((s) => !s.shown);
         check(!!none, 'a conversation with no plan has no bar', none || await bar());
 
-        /* The two clicks, each opening an Agent Plus view at this conversation. */
         write([row('Export', 'doing'), row('Which month', 'waiting', { waitingOn: 'user', question: 'This month or last month?' })]);
         await barIs((s) => s.shown && s.questions === '1 to decide');
         await exec('workbench.action.closeSidebar');

@@ -5,8 +5,8 @@
 'use strict';
 /*
  * The plan bar above the input box of each Claude Code panel (src/page/96-plan-bar.js, drawn by Agent Plus's fragment
- * in src/page/04-plan-bar.js): the summary of the conversation a panel shows, from Agent Plus's planSummary() (Plan bar
- * in its docs/protocol.md), and where the bar's two clicks go.
+ * in src/page/04-plan-bar.js): the summary of each panel's conversation, from Agent Plus's planSummary() (Plan bar in
+ * its docs/protocol.md), and where the bar's two clicks go.
  *
  * A panel asks for its conversation's summary when it starts to show one and when the bar is switched back on. The
  * extension answers, and sends it again whenever Agent Plus reports that summary changed, to the panel showing that
@@ -18,8 +18,8 @@
  * page then has no summary and draws no bar. No editor API here: the tests load it directly.
  */
 const SOURCE = 'claude-code';
-/* How many conversations' summaries are followed for changes: the ones panels asked about most recently. A window shows
-   a few at a time. */
+/* At most this many conversations have their summaries followed for changes, those panels asked about most recently. A
+   window shows a few at a time. */
 const MAX_FOLLOWED = 200;
 const MAX_ID = 200;
 
@@ -61,7 +61,7 @@ function create({ on, sendTo, sendAll, run, log = () => {} }) {
   };
   return {
     /* The agentPlus interface once this extension is registered with it, or null. A panel that asked before then was
-       answered with no summary and is sent its own now; every panel also gets cce_plan_bar_ready, so that one whose
+       answered with no summary and is sent its summary now; every panel also gets cce_plan_bar_ready, so that one whose
        question came before this extension was listening asks again at once. */
     attach(next) {
       unhook();
@@ -78,7 +78,6 @@ function create({ on, sendTo, sendAll, run, log = () => {} }) {
       follow();
       post(sessionId);
     },
-    /* A click on a panel's bar: `part` is 'answer' for the red part, anything else for the bar. */
     async open(sessionId, part) {
       if (closed || !usable(sessionId) || !usesCore()) return;
       await run(part === 'answer' ? 'agentPlus.answerQuestionOf' : 'agentPlus.showWorkPlanOf', { sourceId: SOURCE, sessionId });

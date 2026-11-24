@@ -12,7 +12,8 @@
    * extension sends the summary of this panel's conversation (cce_plan_bar, src/plan-bar.js) when asked and whenever it
    * changes; a summary of another conversation is ignored. A click goes back to the extension, which opens Agent Plus's
    * work plan view, or its Answer view for the red part, at this conversation. Switched off
-   * (claudeCodePlus.show.planBar), or with the extension switched off, the bar is taken out and nothing is asked.
+   * (claudeCodePlus.show.planBar), or with the extension switched off, the bar is taken out and the panel stops asking
+   * for summaries.
    */
   var PLANBAR = null, planBarSession = '', planBarSummary = null, planBarHas = '', planBarAsks = 0, planBarAskedAt = 0, planBarWired = false;
   var planBarWasOff = false;
@@ -20,7 +21,7 @@
   var planBarSelf = function(){ var s = sigValue('sessionId'); return typeof s === 'string' ? s : ''; };
   /* Asked once, then once a second five times, and after that every ten seconds until an answer comes. It is also asked
      at once when the extension says it has registered with Agent Plus (cce_plan_bar_ready), since a panel can open
-     before the extension listens for its question. */
+     before the extension is listening. */
   var askPlanBar = function(id){
     if (planBarHas === id) return;
     var now = Date.now();
@@ -65,7 +66,7 @@
         css: 'border-radius:var(--corner-radius-large, 6px);background:var(--app-input-secondary-background, var(--vscode-input-background, #252526))'
       });
     }
-    /* The width is read only when the bar is put in place; after that the fragment follows its own width. */
+    /* The width is read only when the bar is put in place; after that the fragment's own ResizeObserver refits it. */
     if (PLANBAR.el.parentElement !== form.parentElement || PLANBAR.el.nextSibling !== form) {
       form.parentElement.insertBefore(PLANBAR.el, form);
       PLANBAR.fit(form.getBoundingClientRect().width);

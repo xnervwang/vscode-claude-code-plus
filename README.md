@@ -26,7 +26,7 @@ Verified against Claude Code 2.1.328, 2.1.329, 2.1.330 and 2.1.331.
 
 Each turn, Claude gets the open rows from the conversation's separate plan file. The rows are numbered 1, 2, 2.1 and so on. You can answer several in one message by number, as in `2.1: not now`.
 
-In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code conversations and stopped ones with open plan rows. A row waiting for your answer shows its question under the conversation; your answer in the adjacent Answer view goes into that conversation's message input. [More about the work plan](docs/work-plan.md).
+In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code conversations and stopped ones with open plan rows. When a plan row needs your answer, its question appears under the conversation, and what you type in the adjacent Answer view goes into that conversation's message input. [More about the work plan](docs/work-plan.md).
 
 ![The work plan view with rows in each state, three levels deep](images/shots/work-plan.png)
 
@@ -43,7 +43,7 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 | [Sub-agent tags and filters](docs/features.md#in-a-conversation) | Each sub-agent's messages carry its task as a tag, such as `#look up tomorrow's weather`. You can use the footer filter to show only the main thread or a single sub-agent. |
 | [Conversation navigation](docs/features.md#in-a-conversation) | A handle on the panel's right edge opens a list of your messages by time and first words, with compaction points marked. Click a row to scroll to that message. |
 | [Focus view button](docs/features.md#in-a-conversation) | You can turn Claude Code's Focus view on or off with a footer button. During a turn in Focus view, the working line shows the latest tool call and how long it has run. |
-| [Context meter](docs/features.md#in-a-conversation) | The panel's context meter stays visible and gains an outline when 15% of the context window remains. Hover for two seconds to see a breakdown by category, memory files and custom agents, including what the work plan adds. |
+| [Context meter](docs/features.md#in-a-conversation) | The panel's context meter stays visible and gains an outline when 15% of the context window remains. Hover for two seconds to see how much context the work plan adds and how context use breaks down by category, by memory file and by custom agent. |
 | [Chimes](docs/features.md#in-a-conversation) | A short sound plays on the computer where you view the panel when a turn ends or Claude asks for permission or an answer. You can mute the sound in the footer. |
 | [Session information](docs/features.md#in-a-conversation) | A footer button shows the session ID, Claude's process ID, the starting directory, the transcript's location and size, and the token mode. Click a value to copy it. |
 | [Token mode](docs/token-costs.md#token-modes) | You choose a token mode from Agent Plus's status bar entry: Interface features, Essential features, All features (the default) or Custom. Your choice decides which of the work plan, the time-zone note, the conversation brief and detached-command notices go into Claude's context. |
@@ -91,7 +91,7 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 | --- | --- |
 | [Agent map](docs/features.md#background-work) | The Agents button in the footer of Claude Code's panel opens the agent map. The conversation's row comes first, followed by sections for Claude Code's subagents and background tasks, then detached commands, scheduled prompts, `claude -p` sessions and `claude --bg` sessions. |
 | [Detached commands](docs/features.md#background-work) | On Linux, the agent map shows each command the conversation left running outside Claude Code, with its PID, start time and how long it has been running. Hover over a command to see its full command line. |
-| [Background sessions](docs/features.md#background-work) | The agent map shows each of the conversation's `claude --bg` sessions and its state. Click a session to see what it waits for, its result, and the attach and logs commands. |
+| [Background sessions](docs/features.md#background-work) | The agent map shows each of the conversation's `claude --bg` sessions and its state. Click a session to see what it waits for and its result, along with the commands to attach to it and read its logs. |
 | [Scheduled prompts](docs/features.md#background-work) | The agent map lists timers the conversation set through Claude Code's scheduled tasks, with the first line of each prompt as its title, its schedule and the time it last fired. Click a timer to see the full prompt. |
 | [Background commands](docs/features.md#background-work) | While a background build, test run or `sleep` timer runs, the footer shows a count such as `1 task`. Click the count to see the list. |
 | [Workers](docs/features.md#background-work) | The agent map shows the `claude -p` workers the conversation started that are still running, with each worker's name, PID, start time and how long it has been running. |
