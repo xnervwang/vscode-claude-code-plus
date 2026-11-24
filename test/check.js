@@ -1667,18 +1667,19 @@ if (process.argv.includes('--without-version-record')) {
 
   /* The README's compatibility sentence against the record. Nothing guarded it before, and it drifted: it named two
      builds while the record named three, on a line people read to decide whether to install. */
-  /* The counts the README quotes, against the manifest. Same reasoning as the sentence below: a number in a
-     published document that nothing derives it from goes stale at the first change that moves it. */
+  /* The counts the settings page quotes, against the manifest. Same reasoning as the sentence below: a number in a
+     published document that nothing derives it from goes stale at the first change that moves it. The README links
+     to docs/settings.md, which holds the Settings and Commands sections. */
   {
-    const text = fs.readFileSync(supported.README_FILE, 'utf8');
+    const text = fs.readFileSync(path.join(__dirname, '..', 'docs', 'settings.md'), 'utf8');
     const c = require('../package.json').contributes;
     const want = [Object.keys(c.configuration.properties).length, c.commands.length];
     const settings = /for all (\d+) settings/.exec(text), commands = /(\d+) commands\b/.exec(text);
-    if (!settings) bad('README.md does not say "for all N settings", so that number cannot be kept in step');
+    if (!settings) bad('docs/settings.md does not say "for all N settings", so that number cannot be kept in step');
     else if (Number(settings[1]) !== want[0] || (commands && Number(commands[1]) !== want[1])) {
-      bad(`the manifest has ${want[0]} settings and ${want[1]} commands; README.md says ${settings[1]}`
+      bad(`the manifest has ${want[0]} settings and ${want[1]} commands; docs/settings.md says ${settings[1]}`
         + (commands ? ` and ${commands[1]}` : ''));
-    } else ok(`README.md counts the settings the manifest has (${want[0]})` + (commands ? ` and its ${want[1]} commands` : ''));
+    } else ok(`docs/settings.md counts the settings the manifest has (${want[0]})` + (commands ? ` and its ${want[1]} commands` : ''));
   }
 
   const sentence = supported.readmeClaims();
@@ -5299,10 +5300,11 @@ console.log('\nno skill suggestions');
     .filter((f) => /skill_route/.test(f.path)).map((f) => f.path);
   const rows = require('../src/token-mode').SWITCHES
     .filter((s) => s.key.startsWith('claudeCodePlus.') && (s.feature === 'skillRouting' || /skillRout/.test(s.key))).map((s) => s.key);
-  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8').split('\n')
-    .filter((l) => /skill suggestion|skillRout|route-skills|skill_route|skill-route/i.test(l)).map((l) => l.slice(0, 80));
+  const pages = ['README.md'].concat(fs.readdirSync(path.join(root, 'docs')).filter((f) => f.endsWith('.md')).map((f) => 'docs/' + f));
+  const readme = pages.flatMap((f) => fs.readFileSync(path.join(root, f), 'utf8').split('\n')
+    .filter((l) => /skill suggestion|skillRout|route-skills|skill_route|skill-route/i.test(l)).map((l) => `${f}: ${l.slice(0, 80)}`));
   if (!settings.length && !hooked.length && !files.length && !listed.length && !rows.length && !readme.length) {
-    ok('no skill suggestions: no claudeCodePlus.skillRouting setting, no route-skills hook, no skill_route.py, no token mode switch for them, none in the README');
+    ok('no skill suggestions: no claudeCodePlus.skillRouting setting, no route-skills hook, no skill_route.py, no token mode switch for them, none in the README or docs/');
   } else bad(`skill suggestions remain: ${JSON.stringify({ settings, hooked, files, listed, rows, readme })}`);
 }
 
@@ -5951,11 +5953,15 @@ console.log('\nthe name a person sees');
     && manifest.repository.url === 'https://github.com/xnervwang/vscode-claude-code-plus' && !stray.length && !oldTitle && titled) {
     ok('the manifest is xnervwang.claude-code-plus, every setting and command is named under claudeCodePlus, and every title says Claude Code Plus');
   } else bad('old names in the manifest: ' + JSON.stringify([manifest.name, manifest.displayName, manifest.repository, stray, oldTitle, titled]));
-  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8').split('\n');
-  const old = readme.filter((l) => /Extras for Claude Code|Work Plan for Claude Code|claudeCodeWorkPlan\.|claudeCodeExtras\.|xnervwang\.claude-code-extras/.test(l)
-    && !/^If you have Work Plan for Claude Code|are copied to the same names under/.test(l));
-  if (!old.length && readme[0] === '# Claude Code Plus') ok('the README is titled Claude Code Plus and names nothing by an old name, apart from the paragraph for people who have the old extension and where old settings went');
-  else bad('the README still uses an old name: ' + [readme[0]].concat(old).map((l) => l.trim().slice(0, 80)).join(' | '));
+  const root = path.join(__dirname, '..');
+  const pages = ['README.md'].concat(fs.readdirSync(path.join(root, 'docs')).filter((f) => f.endsWith('.md')).map((f) => 'docs/' + f));
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8').split('\n');
+  const old = pages.flatMap((f) => fs.readFileSync(path.join(root, f), 'utf8').split('\n')
+    .filter((l) => /Extras for Claude Code|Work Plan for Claude Code|claudeCodeWorkPlan\.|claudeCodeExtras\.|xnervwang\.claude-code-extras/.test(l)
+      && !/^If you have Work Plan for Claude Code|are copied to the same names under/.test(l))
+    .map((l) => `${f}: ${l.trim()}`));
+  if (!old.length && readme[0] === '# Claude Code Plus') ok('the README is titled Claude Code Plus, and neither it nor docs/ names anything by an old name, apart from the paragraph for people who have the old extension and where old settings went');
+  else bad('the README or docs/ still uses an old name: ' + [readme[0]].concat(old).map((l) => l.slice(0, 100)).join(' | '));
 }
 
 /* A .vsix is an Open Packaging Conventions zip, and the Marketplace reads it as one: a file whose extension has no entry
@@ -13452,18 +13458,19 @@ console.log('\nthe token mode');
   const short = mine.filter((k) => !props[k] || !String(props[k].markdownDescription || '').trim().endsWith(tm.ONLY_IN_CUSTOM));
   if (mine.length === 4 && !short.length) ok('each of the four features\' settings ends its description saying it is used only in Custom');
   else bad(`settings without the Custom sentence: ${JSON.stringify(short)} of ${JSON.stringify(mine)}`);
-  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
-  const sec = readme.slice(readme.indexOf('## What it costs in tokens'));
-  const lines = sec.split('\n'), head = lines.find((l) => l.startsWith('| Feature |')) || '';
+  /* The README links to these two pages for the token costs and for the features in a conversation. */
+  const costs = fs.readFileSync(path.join(__dirname, '..', 'docs', 'token-costs.md'), 'utf8');
+  const lines = costs.split('\n'), head = lines.find((l) => l.startsWith('| Feature |')) || '';
   const cols = head.split('|').map((c) => c.trim()).filter(Boolean).slice(1);
   const custom = lines.filter((l) => l.startsWith('| ') && l.trim().endsWith('|')).map((l) => l.split('|').map((c) => c.trim()).filter(Boolean)).filter((c) => c.length === 5).map((c) => c[4]);
   if (JSON.stringify(cols) === JSON.stringify(tm.MODES.map((m) => m.label)) && mine.every((k) => custom.includes('`' + k + '`'))) {
-    ok('the README\'s token section opens with the four modes, its Custom column naming the four settings');
-  } else bad(`the README's mode table has columns ${JSON.stringify(cols)} and Custom ${JSON.stringify(custom)}`);
-  const row = readme.split('\n').find((l) => l.startsWith('| Token mode |')) || '';
+    ok('docs/token-costs.md opens with the four modes, its Custom column naming the four settings');
+  } else bad(`the mode table in docs/token-costs.md has columns ${JSON.stringify(cols)} and Custom ${JSON.stringify(custom)}`);
+  const features = fs.readFileSync(path.join(__dirname, '..', 'docs', 'features.md'), 'utf8');
+  const row = features.split('\n').find((l) => l.startsWith('| Token mode |')) || '';
   const unnamed = [/work plan/, /time-zone note/, /conversation brief/, /detached-command notices/].filter((re) => !re.test(row));
-  if (row && !unnamed.length) ok('the README\'s feature table says the token mode decides all four: work plan, time-zone note, brief and detached-command notices');
-  else bad(`the README's Token mode row does not name ${unnamed.map(String).join(', ')}: ${row.slice(0, 300)}`);
+  if (row && !unnamed.length) ok('the feature table in docs/features.md says the token mode decides all four: work plan, time-zone note, brief and detached-command notices');
+  else bad(`the Token mode row in docs/features.md does not name ${unnamed.map(String).join(', ')}: ${row.slice(0, 300)}`);
 }
 
 /* Every mode in turn, All, Essential, Interface, Custom with two features off, and All again, as one window sees them:

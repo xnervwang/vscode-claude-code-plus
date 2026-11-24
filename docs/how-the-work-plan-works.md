@@ -32,4 +32,4 @@ Each conversation has one JSON plan file under `~/.claude/plugins/data/agent-wor
 
 ## What a turn costs
 
-See [What it costs in tokens](../README.md#what-it-costs-in-tokens) in the README.
+See [What it costs in tokens](token-costs.md).
