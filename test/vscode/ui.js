@@ -166,6 +166,8 @@ const STAMP = `(?:\\d\\d/\\d\\d${NB})?\\d\\d:\\d\\d:\\d\\d`;
    form, and the bell older builds drew. */
 const CROWN = '\u{1F451}', BELL = '\u{1F6CE}\uFE0F';
 const MARK_RE = /\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709/u;
+/* The crown and the envelope a tab's label ends in, after its title. */
+const TRAILING_MARKS = /(?: (?:\u{1F451}|\u{1F4E9}|\u2709[\uFE0E\uFE0F]?))+$/u;
 /* Conversations a steward opens again: one started in a folder below the window's, one in a folder no window has open. */
 const FOLDER_THREADS = [
   { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fa', title: 'Tidy the helper scripts in the sub folder', days: 0,
@@ -2876,9 +2878,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row a.name[data-open]')].map((a) => [a.dataset.open, a.textContent])));
           const shown2 = await until(async () => {
             const n = await names(), others = Object.entries(n).filter(([id]) => id !== target.id);
-            return n[target.id] === `${CROWN} ${target.title}` && others.length && others.every(([, t]) => !t.includes(CROWN)) && n;
+            return n[target.id] === `${target.title} ${CROWN}` && others.length && others.every(([, t]) => !t.includes(CROWN)) && n;
           }, 30000, 500);
-          check(!!isSteward2 && !!shown2, 'in the first steward\'s panel, a second steward\'s row shows one crown before its title, and the rows of conversations that are not stewards show none',
+          check(!!isSteward2 && !!shown2, 'in the first steward\'s panel, a second steward\'s row shows one crown after its title, and the rows of conversations that are not stewards show none',
             { ticked2: !!ticked2, isSteward2: !!isSteward2, names: await names() });
           await shot('steward-two-stewards');
           await exec('claude-vscode.editor.open', target.id);
@@ -3809,9 +3811,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
         if (xBy) await panelB.locator(`li.row:has(a.name[data-open="${X.id}"]) .by a[data-open="${SA.id}"]`).first().click();
-        const upInA = xBy && await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label.replace(/^\S+ /u, ''), SA.title)), 20000, 300);
+        const upInA = xBy && await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label.replace(TRAILING_MARKS, ''), SA.title)), 20000, 300);
         const copyInB = (await inB(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)}).map((t) => t.label);`))
-          .some((l) => titled(l.replace(/^\S+ /u, ''), SA.title));
+          .some((l) => titled(l.replace(TRAILING_MARKS, ''), SA.title));
         check(!!upInA && !copyInB, 'clicked, the steward\'s name brings that steward\'s conversation to the front in window A, which shows it, and opens no copy in B',
           { tabsA: await claudeTabs(), copyInB });
         /* Renaming the steward changes the name the rows show. */
