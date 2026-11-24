@@ -5364,6 +5364,161 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
+    /*
+     * The plan bar above the input box (src/page/96-plan-bar.js, src/plan-bar.js): drawn from the plan of the conversation
+     * the panel shows, in each state a plan can be in, compact in a narrow panel, gone without a plan and with
+     * claudeCodePlus.show.planBar off, redrawn when the plan changes, and as wide as the input box with the same height
+     * and the title in the same place however many rows the plan has. A click on it opens Agent Plus's Work plan view at
+     * this conversation, and one on its red part the Answer view at this conversation's question.
+     */
+    await step('the plan bar', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const plan = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${tab0.id}.json`);
+      const had = fs.existsSync(plan) ? fs.readFileSync(plan, 'utf8') : null;
+      const row = (title, state, more) => Object.assign({ title, state }, more || {});
+      const write = (nodes) => { fs.mkdirSync(path.dirname(plan), { recursive: true }); fs.writeFileSync(plan, JSON.stringify({ nodes }, null, 2)); };
+      const setBar = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('show.planBar', arg, vscode.ConfigurationTarget.Global); return true;`, v);
+      /* The group holding the Claude Code tab as `share` of the editor area, an empty group beside it. A layout of two groups
+         keeps its sizes when it is set again, so it goes back to one group first; the tabs then all sit in the first one. */
+      const layout = async (share) => {
+        const at = await call(`await vscode.commands.executeCommand('workbench.action.editorLayoutSingle');
+          await vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: [{ size: arg[0] }, { size: 1 - arg[0] }] });
+          await vscode.commands.executeCommand('workbench.action.focusFirstEditorGroup');
+          return vscode.window.tabGroups.all.findIndex((g) => g.tabs.some((t) => t.input && t.input.viewType === arg[1]));`, [share, PANEL_VIEW]);
+        await exec('claude-vscode.editor.open', tab0.id);
+        await sleep(1200);
+        return at;
+      };
+      const editorWidth = () => page.evaluate(() => { const e = document.getElementById('workbench.parts.editor'); return e ? e.getBoundingClientRect().width : 0; });
+      try {
+        await exec('claude-vscode.editor.open', tab0.id);
+        await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 15000, 300);
+        const panel = await conversation(tab0).catch(() => null) || conv;
+        const bar = () => panel.evaluate(() => {
+          const b = document.querySelector('[data-agent-plus-plan-bar]');
+          const send = document.querySelector('button[type="submit"][data-permission-mode]'), form = send && send.closest('form');
+          const box = (e) => { if (!e) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height }; };
+          if (!b || b.style.display === 'none' || !b.offsetParent) return { shown: false, there: !!b };
+          const text = b.querySelector('.apb-row .apb-text'), q = b.querySelector('.apb-q');
+          return { shown: true, compact: b.getAttribute('data-compact') === '1', label: b.getAttribute('aria-label') || '',
+            segments: [...b.querySelectorAll('.apb-seg')].map((s) => s.getAttribute('data-state')),
+            count: ((b.querySelector('.apb-count') || {}).textContent || ''),
+            current: ((b.querySelector('.apb-row') || { getAttribute: () => '' }).getAttribute('data-state') || ''),
+            title: text ? text.textContent : '', dim: !!text && /apb-dim/.test(text.className), questions: q ? q.textContent : '',
+            beforeForm: !!form && b.nextElementSibling === form, bar: box(b), form: box(form), text: box(text),
+            oneLine: !!text && text.getBoundingClientRect().height <= b.getBoundingClientRect().height };
+        });
+        const barIs = (want) => until(async () => { const s = await bar(); return want(s) && s; }, 30000, 400);
+        const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+        /* Each state of a plan. */
+        write([row('Read the code', 'done'), row('Export', 'doing', { children: [row('Write the CSV exporter', 'doing')] }),
+          row('Which month to default to', 'discussing', { waitingOn: 'user', question: 'This month or last month?' }), row('Document it', 'todo')]);
+        const doing = await barIs((s) => s.shown && s.count === '4 open');
+        check(!!doing && doing.beforeForm && same(doing.segments, ['doing', 'discussing', 'todo']) && doing.current === 'doing'
+          && doing.title === '2.1 Write the CSV exporter' && doing.questions === '1 to decide' && !doing.compact,
+        'with a plan, a bar sits right above the input box: the open rows by state, 4 open, the deepest row being done as the current one, and 1 to decide in red',
+        doing || await bar());
+        await shot('plan-bar-doing');
+        /* The input area sits over the bottom of the messages, and Claude Code keeps room under them for its height; the
+           bar is part of that area, so the last message scrolled to the bottom ends above the bar. */
+        const clear = await until(() => panel.evaluate(() => {
+          const sc = document.querySelector('[class*="messagesContainer_"]'), b = document.querySelector('[data-agent-plus-plan-bar]');
+          if (!sc || !b) return null;
+          sc.scrollTop = sc.scrollHeight;
+          const all = [...sc.querySelectorAll('[data-testid="assistant-message"], [class*="userMessage_"]')];
+          const last = all.length ? all[all.length - 1].getBoundingClientRect().bottom : 0, top = b.getBoundingClientRect().top;
+          return last > 0 && last <= top + 1 ? { last, top } : null;
+        }), 10000, 500);
+        check(!!clear, 'scrolled to the bottom, the last message ends above the bar: the room kept for the input area grows with it', clear);
+        write([row('Read the code', 'done'), row('Export', 'waiting', { waitingOn: 'build' }), row('Document it', 'todo')]);
+        const waiting = await barIs((s) => s.shown && s.current === 'waiting');
+        check(!!waiting && same(waiting.segments, ['waiting', 'todo']) && waiting.count === '2 open' && waiting.title === '2 Export' && !waiting.questions,
+          'with nothing being done, the first waiting row is the current one, and with no question there is no red part', waiting || await bar());
+        write([row('Read the code', 'done'), row('Handle refunds later', 'parked')]);
+        const parked = await barIs((s) => s.shown && s.current === 'parked');
+        check(!!parked && parked.dim && parked.count === '1 open' && same(parked.segments, ['parked']),
+          'with only a parked row left, it is the current one, in grey', parked || await bar());
+        write([row('Read the code', 'done'), row('Export', 'done')]);
+        const allDone = await barIs((s) => s.shown && s.current === 'done');
+        check(!!allDone && allDone.title === 'All rows done' && allDone.count === '' && !allDone.segments.length,
+          'with every row done, a check and All rows done, and an empty track', allDone || await bar());
+        await shot('plan-bar-done');
+
+        /* Its size, whatever the plan holds, at two widths of the panel; and compact in a narrow one. */
+        const full = await editorWidth();
+        const grown = (n) => write([row('Export', 'doing', { children: [row('A current row whose title is long enough to be cut short when the panel is narrow', 'doing')] })]
+          .concat(Array.from({ length: n - 2 }, (_, i) => row('Row ' + (i + 1), 'todo'))));
+        const sizes = [];
+        for (const width of [Math.min(1100, full - 200), 520]) {
+          const at = await layout(width / full);
+          if (at !== 0) throw new Error(`the Claude Code tab is in editor group ${at}, not the first`);
+          grown(9);
+          const nine = await barIs((s) => s.shown && s.count === '9 open' && !s.compact);
+          grown(120);
+          const many = await barIs((s) => s.shown && s.count === '120 open');
+          sizes.push({ width, nine, many });
+          check(!!nine && !!many && Math.abs(nine.bar.width - nine.form.width) <= 1 && Math.abs(many.bar.width - many.form.width) <= 1
+            && nine.bar.height === many.bar.height && Math.abs(nine.text.left - many.text.left) < 0.5 && nine.oneLine && many.oneLine,
+          `with the panel about ${width} px wide the bar is as wide as the input box, and as the plan grows from 9 to 120 rows its height and the title's left edge stay the same`,
+          { nine: nine || null, many: many || await bar() });
+        }
+        const wide = sizes.map((x) => x.nine && Math.round(x.nine.bar.width));
+        check(!!wide[0] && !!wide[1] && wide[0] > wide[1] + 100, 'and the two widths measured are those of two different panels', wide);
+        await layout(340 / full);
+        const narrow = await barIs((s) => s.shown && s.compact);
+        check(!!narrow && narrow.count === '120 open' && !narrow.segments.length && Math.abs(narrow.bar.width - narrow.form.width) <= 1,
+          'in a narrow panel the bar is compact: the count and no track, still as wide as the input box', narrow || await bar());
+        await shot('plan-bar-compact');
+        await exec('workbench.action.editorLayoutSingle');
+        await exec('claude-vscode.editor.open', tab0.id);
+
+        /* Redrawn when the plan changes, and gone without one. */
+        write([row('Export', 'doing'), row('Which month', 'waiting', { waitingOn: 'user', question: 'This month or last month?' }),
+          row('Which format', 'discussing', { waitingOn: 'user', question: 'CSV or JSON?' })]);
+        const two = await barIs((s) => s.shown && s.questions === '2 to decide');
+        check(!!two && two.count === '3 open' && two.title === '1 Export', 'a change to the plan redraws the bar', two || await bar());
+        fs.unlinkSync(plan);
+        const none = await barIs((s) => !s.shown);
+        check(!!none, 'a conversation with no plan has no bar', none || await bar());
+
+        /* The two clicks, each opening an Agent Plus view at this conversation. */
+        write([row('Export', 'doing'), row('Which month', 'waiting', { waitingOn: 'user', question: 'This month or last month?' })]);
+        await barIs((s) => s.shown && s.questions === '1 to decide');
+        await exec('workbench.action.closeSidebar');
+        await exec('claude-vscode.editor.open', tab0.id);
+        const planRows = () => page.evaluate(() => {
+          const pane = [...document.querySelectorAll('.pane')].find((p) => { const h = p.querySelector(':scope > .pane-header'); return h && /^Work plan/.test(h.getAttribute('aria-label') || ''); });
+          if (!pane || !pane.offsetParent) return null;
+          return [...pane.querySelectorAll('.monaco-list-row .label-name')].map((e) => e.textContent.trim());
+        });
+        check(!await planRows(), 'before the click the side bar with the Work plan view is closed', await planRows());
+        await panel.locator('[data-agent-plus-plan-bar] .apb-name').first().click({ timeout: 10000 });
+        const rows = await until(async () => { const r = await planRows(); return r && r.includes('1. Export') && r.includes('2. Which month') && r; }, 20000, 400);
+        check(!!rows, 'a click on the bar opens Agent Plus\'s Work plan view on this conversation\'s plan', rows || await planRows());
+        await shot('plan-bar-work-plan');
+        await panel.locator('[data-agent-plus-plan-bar] .apb-q').first().click({ timeout: 10000 });
+        const asked = await frameWhere((t) => { const m = document.getElementById('main'), q = document.getElementById('question'), c = document.getElementById('conversation');
+          return !!m && m.style.display === 'flex' && !!q && q.textContent === 'This month or last month?' && !!c && c.textContent === t; }, 20000, tab0.title);
+        check(!!asked, 'a click on its red part opens Agent Plus\'s Answer view at this conversation\'s question');
+        await shot('plan-bar-answer');
+
+        /* The switch, without a reload. */
+        await exec('claude-vscode.editor.open', tab0.id);
+        await setBar(false);
+        const off = await barIs((s) => !s.there);
+        check(!!off, 'with claudeCodePlus.show.planBar off the bar is gone, without a reload', off || await bar());
+        await setBar(null);
+        const back = await barIs((s) => s.shown && s.questions === '1 to decide');
+        check(!!back, 'and turned on again it is back', back || await bar());
+      } finally {
+        await setBar(null).catch(() => {});
+        await exec('workbench.action.editorLayoutSingle').catch(() => {});
+        if (had === null) { try { fs.unlinkSync(plan); } catch (_) { /* never written */ } } else fs.writeFileSync(plan, had);
+        await exec('claude-vscode.editor.open', tab0.id).catch(() => {});
+      }
+    });
+
     /* Last, since every step before needs the patch. Remove from Claude Code restores both files, and after a reload the
        session list is Claude Code's own. Turning the extension on again puts the patch back, which the suite run after
        this stage expects. */

@@ -701,6 +701,43 @@ const STEPS = [
     act: async (d) => { await demoAt(d, CSV, { focus: true }); await hoverLabel(d, d.conv, '[data-cce-info]'); return d.editor(); },
     undo: (d) => rest(d, d.conv),
   },
+  /* The plan bar above the message box, from the demo conversation's plan. */
+  {
+    name: 'plan-bar', features: ['plan-bar'],
+    expect: 'Right above the message box, a bar exactly as wide as the box: a list mark and "Plan" in bold; a short track of '
+      + 'coloured segments, orange, yellow, purple and grey for the open rows by state, with no green; "19 open"; a dot; an '
+      + 'orange clock and "3.1.1 One amount for every month, or one per month", ending in an ellipsis if it does not fit; at the '
+      + 'right a reddish part with a red dot and "3 to decide"; and an arrow. The bar is one line, nothing in it is cut at the top '
+      + 'or bottom, and it covers neither the conversation nor the message box.',
+    unchanged: 'The conversation above the bar and the message box below it are as before.',
+    act: async (d) => {
+      await demoAt(d, CSV, { focus: true });
+      const shown = () => d.conv.evaluate(() => { const b = document.querySelector('[data-agent-plus-plan-bar]'); return !!b && !!b.offsetParent; });
+      if (!await d.until(shown, 30000, 500)) {
+        const there = await d.conv.evaluate(() => { const b = document.querySelector('[data-agent-plus-plan-bar]'); return b ? `hidden (${b.style.display || 'shown'})` : 'not in the page'; });
+        throw new Error(`no plan bar above the message box: the bar is ${there}`);
+      }
+      await d.away();
+      return around(d, d.conv, '[data-agent-plus-plan-bar]', 40, 140);
+    },
+  },
+  {
+    name: 'plan-bar-hover', features: ['plan-bar'],
+    expect: 'The mouse rests on the plan bar, whose border is drawn in the focus colour. A box next to it shows first the current '
+      + 'row\'s whole title, "3.1.1 One amount for every month, or one per month", then "19 rows not done", then the open rows, '
+      + 'each with its number and a mark for its state in the colours of the track, the rows under another one indented below '
+      + 'it. Nothing in the box is cut off, and the box is wholly inside the window.',
+    unchanged: 'The bar reads as before.',
+    act: async (d) => {
+      await demoAt(d, CSV, { focus: true });
+      await d.conv.locator('[data-agent-plus-plan-bar] .apb-count').first().hover({ timeout: 10000 });
+      if (!await d.until(() => d.conv.evaluate(() => !!document.querySelector('[data-agent-plus-plan-bar-list]')), 5000, 200)) {
+        throw new Error('no list of open rows appeared over the plan bar');
+      }
+      return d.editor();
+    },
+    undo: (d) => rest(d, d.conv),
+  },
   {
     name: 'image-in-reply', features: ['reply-images'],
     expect: 'A reply that shows a bar chart inside the conversation. The chart is drawn at a moderate size: no more than about '

@@ -273,6 +273,11 @@
           "default": true,
           "markdownDescription": "In Claude's replies, you can click another conversation's name or session ID to open it in its own VS Code window. A name in corner brackets (\u300cname\u300d) becomes a link if it has at least 4 characters or at least 2 Chinese, Japanese or Korean characters. A standalone name must be at least 10 characters wide, counting each character from those languages as 2. Either the full session ID or its first 8 characters can become a link. Session IDs in file paths are skipped. Links can open any conversation Agent Plus lists, across all its agents, including Codex. Code blocks, existing links and your own messages are left alone, and so is the conversation's own name. Takes effect without a reload."
         },
+        "claudeCodePlus.show.planBar": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When a Claude Code conversation has a work plan, show a bar directly above the input box with the number of open rows, the current row, and the number of questions waiting for your answer. Click the bar to see this conversation's plan in Agent Plus's Work plan view, or click the red \"to decide\" count to open its first waiting question in the Answer view. Turning it off stops the work, not only the drawing, and takes effect without a reload."
+        },
         "claudeCodePlus.show.openInTabOrSidebar": {
           "type": "boolean",
           "default": true,
