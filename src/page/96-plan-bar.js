@@ -6,22 +6,22 @@
 // Fragment of the in-page script - see README.md in this folder.
 
   /*
-   * Agent Plus's fragment draws the bar (04-plan-bar.js, agentPlusPlanBar); this places it and feeds it. It goes in as
-   * the previous sibling of the input's form, in the wrapper that holds the form and the panel's own banners above it,
-   * so it is as wide as the input box, and the room Claude Code keeps under the messages for the input area grows with
-   * it. The extension sends the summary of this panel's conversation (cce_plan_bar, src/plan-bar.js) when asked and
-   * whenever it changes; a summary of another conversation is not this panel's and is ignored. A click goes back to the
-   * extension, which opens Agent Plus's work plan view, or its Answer view for the red part, at this conversation.
-   * Switched off (claudeCodePlus.show.planBar), or with the extension switched off, the bar is taken out and nothing is
-   * asked.
+   * Agent Plus's fragment draws the bar (04-plan-bar.js, agentPlusPlanBar); this places it and feeds it. It goes in
+   * right before the input's form, in the wrapper that also holds the panel's own banners above the form, so it is as
+   * wide as the input box, and the room Claude Code keeps under the messages for the input area grows with it. The
+   * extension sends the summary of this panel's conversation (cce_plan_bar, src/plan-bar.js) when asked and whenever it
+   * changes; a summary of another conversation is ignored. A click goes back to the extension, which opens Agent Plus's
+   * work plan view, or its Answer view for the red part, at this conversation. Switched off
+   * (claudeCodePlus.show.planBar), or with the extension switched off, the bar is taken out and the panel stops asking
+   * for summaries.
    */
   var PLANBAR = null, planBarSession = '', planBarSummary = null, planBarHas = '', planBarAsks = 0, planBarAskedAt = 0, planBarWired = false;
   var planBarWasOff = false;
   var planBarPost = function(m){ try { acquireVsCodeApi().postMessage(m); } catch (e) { /* asked again on a later sweep */ } };
   var planBarSelf = function(){ var s = sigValue('sessionId'); return typeof s === 'string' ? s : ''; };
-  /* Asked once, then once a second five times, and after that every ten seconds until an answer comes; and at once when
-     the extension says it has registered with Agent Plus (cce_plan_bar_ready), since a panel can open before the
-     extension listens for its question. */
+  /* Asked once, then once a second five times, and after that every ten seconds until an answer comes. It is also asked
+     at once when the extension says it has registered with Agent Plus (cce_plan_bar_ready), since a panel can open
+     before the extension is listening. */
   var askPlanBar = function(id){
     if (planBarHas === id) return;
     var now = Date.now();
@@ -52,7 +52,7 @@
   var ensurePlanBar = function(){
     if (!isOn() || isOff('planBar')) { dropPlanBar(); planBarWasOff = true; return; }
     var self = planBarSelf();
-    /* A new conversation in this panel, or the bar switched back on: what was drawn is not known to be current. */
+    /* A new conversation in this panel, or the bar switched back on: what was drawn may be out of date. */
     if (self !== planBarSession || planBarWasOff) {
       planBarSession = self; planBarSummary = null; planBarHas = ''; planBarAsks = 0; planBarAskedAt = 0; planBarWasOff = false;
     }
@@ -66,7 +66,7 @@
         css: 'border-radius:var(--corner-radius-large, 6px);background:var(--app-input-secondary-background, var(--vscode-input-background, #252526))'
       });
     }
-    /* The width is read only when the bar is put in place; after that the fragment follows its own width. */
+    /* The width is read only when the bar is put in place; after that the fragment's own ResizeObserver refits it. */
     if (PLANBAR.el.parentElement !== form.parentElement || PLANBAR.el.nextSibling !== form) {
       form.parentElement.insertBefore(PLANBAR.el, form);
       PLANBAR.fit(form.getBoundingClientRect().width);

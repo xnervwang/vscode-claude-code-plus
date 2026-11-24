@@ -296,7 +296,7 @@ const SWITCHES = [
   'sessionIdSearch',  // the session list's search also matching part of a session ID
   'sessionColors',    // a conversation's text color in the session list, and Text color in its menu
   'conversationLinks', // another conversation's title or session id in a reply drawn as a link that opens it
-  'planBar',          // the line above the input box saying where the conversation's work plan stands
+  'planBar',          // the bar above the input box with the work plan's open rows, current row and waiting questions
 ];
 
 /** The live stylesheet for one set of settings. */
@@ -389,8 +389,8 @@ const SCRIPT_BODY = buildBody();
    Without the page's function the meter behaves as in Claude Code. */
 const METER_KEPT = '(typeof window.__cceMeterKept==="function"&&window.__cceMeterKept())';
 
-/* What the panel waits for, beside its state: the tool of the permission request in front, or the kind of its dialog
-   (src/waiting-for.js reads it). `s` is the expression for the panel's session. */
+/* The tool of the permission request in front, or the kind of the panel's dialog (src/waiting-for.js reads it). `s` is
+   the expression for the panel's session. */
 const WAIT_OF = (s) => `(()=>{try{let cceR=${s}.permissionRequests.value[0];if(cceR)return{tool:String(cceR.toolName??"")};`
   + `let cceD=${s}.userDialogRequests.value[0];if(cceD)return{dialog:String(cceD.dialogKind??"")}}catch(cceE){}return void 0})()`;
 /* The check the two notice edits insert: whether the page knows that Agent Plus shows the notices of waits

@@ -1,6 +1,6 @@
 # Known limits
 
-See which limits apply to the work plan, the patch to Claude Code's files, the steward, and a window after it loses its remote connection. Back to the [README](../README.md).
+Back to the [README](../README.md).
 
 ## Work plan
 

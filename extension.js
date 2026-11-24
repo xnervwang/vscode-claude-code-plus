@@ -1037,8 +1037,9 @@ function start(context, log, renamed, handing = false) {
   globalThis.__cceConversationsAskHook = () => { links.ask(); };
   context.subscriptions.push({ dispose: () => { delete globalThis.__cceOpenConversationHook; delete globalThis.__cceConversationsAskHook; } });
   context.subscriptions.push(claude.source.onDidChangeConversations(() => links.refresh()));
-  /* The plan bar above each panel's input box (src/plan-bar.js): the summary a panel asks for, sent to it again when
-     Agent Plus says it changed, and the bar's two clicks. */
+  /* A panel asks for its conversation's plan summary for the bar above its input box (src/plan-bar.js) and is sent it
+     again whenever Agent Plus says it changed; a click on the bar opens Agent Plus's Work plan view, one on its red
+     part the Answer view. */
   const planBar = planBars.create({
     on: () => !removed() && !uninstalling() && !switchedOff().includes('planBar'),
     sendTo: (id, m) => typeof globalThis.__cceToPanel === 'function' && globalThis.__cceToPanel(id, m) === true,

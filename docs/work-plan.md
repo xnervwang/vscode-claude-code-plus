@@ -1,6 +1,6 @@
 # Work plan
 
-See what the work plan tracks, what its row numbers and states mean, how Claude gets the open rows each turn, and where the plan file lives. Back to the [README](../README.md).
+Back to the [README](../README.md).
 
 Claude Code Plus gives Claude a work plan, so that Claude does not lose track of unfinished work when you switch topics before the work is done, or when compaction summarizes older turns. Claude starts a plan when there is work to track and updates it as you talk. Each piece of work is a numbered row in the plan.
 

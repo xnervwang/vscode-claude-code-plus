@@ -27,22 +27,22 @@
  *                  in the background and a scheduled prompt, each section after that row under a heading in capitals
  *                  with its count and a line above it, Claude Code's two headings among them; each card of this
  *                  extension's a dot, a title line and a line under it; Claude Code's rows still there and still
- *                  opening their dialogs, and its Stop still stopping the command
+ *                  opening their dialogs, and its Stop still ending the command
  *   work left running
- *                  the green ring, hollow in the middle, kept after the turn ends while a command it put in the background
- *                  runs, with an envelope when the turn ended out of sight, a helper (subagent) it started in the
- *                  background, or, on Linux, a program it left running with setsid, and gone once that has ended; the
- *                  agents button's count and green dot and the agent map's own row, grey again once the work has ended;
- *                  the detached program in the agent map, and the notice once it is gone;
+ *                  the hollow green ring, kept after the turn ends while a command it put in the background runs, a
+ *                  helper (subagent) it started in the background, or, on Linux, a program it left running with setsid,
+ *                  with an envelope when the turn ended out of sight, and gone once that work has ended; the agents
+ *                  button's count and green dot and the agent map's own row, grey again; the detached program in the
+ *                  agent map, and the notice once it is gone;
  *                  on Linux, a `claude -p` worker left running under a detached shell beside a command in the
  *                  background: the agents button with a green dot and a label that counts each of them once, the map
  *                  listing the worker by name in place of its shell and its own row a green ring, until both end and
  *                  all of it turns grey;
- *                  a claude --bg session the conversation starts (a stand-in of the CLI, on every platform): the
- *                  agents button's 1 bg and its green dot, the tab's ring, the map's row, the notice of its end, 1 bg
- *                  done and grey, and the setting that leaves it out; and one it launches from a command it put in the
- *                  background, piped through tail, with the CLI's words in that command's output file only: the same
- *                  1 bg, ring and row, and 1 bg done with the ring gone once it has ended
+ *                  a claude --bg session the conversation starts (a stand-in of the CLI, on every platform): the agents
+ *                  button's 1 bg and its green dot, the tab's ring, the map's row, the notice when it ends, 1 bg done
+ *                  and grey, and the setting that leaves it out; and a second session the conversation launches from a
+ *                  command it put in the background, piped through tail, with the CLI's words in that command's output
+ *                  file only: it shows the same marks as the first session
  *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
  *                  Dismiss and its count, Open bringing the conversation forward, and no notice with either of the
  *                  agentPlus.notifications settings off; a question put while the turn runs: no notice, no count and a
@@ -166,7 +166,7 @@ const STAMP = `(?:\\d\\d/\\d\\d${NB})?\\d\\d:\\d\\d:\\d\\d`;
    form, and the bell older builds drew. */
 const CROWN = '\u{1F451}', BELL = '\u{1F6CE}\uFE0F';
 const MARK_RE = /\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709/u;
-/* The crown and the envelope a tab's label ends in, after its title. */
+/* The crown and the envelope a tab's label ends in. */
 const TRAILING_MARKS = /(?: (?:\u{1F451}|\u{1F4E9}|\u2709[\uFE0E\uFE0F]?))+$/u;
 /* Conversations a steward opens again: one started in a folder below the window's, one in a folder no window has open. */
 const FOLDER_THREADS = [
@@ -5371,11 +5371,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /*
-     * The plan bar above the input box (src/page/96-plan-bar.js, src/plan-bar.js): drawn from the plan of the conversation
-     * the panel shows, in each state a plan can be in, compact in a narrow panel, gone without a plan and with
-     * claudeCodePlus.show.planBar off, redrawn when the plan changes, and as wide as the input box with the same height
-     * and the title in the same place however many rows the plan has. A click on it opens Agent Plus's Work plan view at
-     * this conversation, and one on its red part the Answer view at this conversation's question.
+     * The plan bar above the input box (src/page/96-plan-bar.js, src/plan-bar.js). It is drawn from the plan of the
+     * conversation the panel shows, in each state a plan can be in; it is compact in a narrow panel, and gone without a
+     * plan or with claudeCodePlus.show.planBar off; it is redrawn when the plan changes; and it stays as wide as the
+     * input box, with the same height and the title in the same place, however many rows the plan has. A click on it
+     * opens Agent Plus's Work plan view at this conversation, and a click on its red part opens the Answer view at this
+     * conversation's question.
      */
     await step('the plan bar', async () => {
       if (!conv) throw new Error('the conversation did not open');
@@ -5423,7 +5424,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const doing = await barIs((s) => s.shown && s.count === '4 open');
         check(!!doing && doing.beforeForm && same(doing.segments, ['doing', 'discussing', 'todo']) && doing.current === 'doing'
           && doing.title === '2.1 Write the CSV exporter' && doing.questions === '1 to decide' && !doing.compact,
-        'with a plan, a bar sits right above the input box: the open rows by state, 4 open, the deepest row being done as the current one, and 1 to decide in red',
+        'with a plan, a bar sits right above the input box: the open rows by state, 4 open, the deepest row being worked on as the current row, and 1 to decide in red',
         doing || await bar());
         await shot('plan-bar-doing');
         /* The input area sits over the bottom of the messages, and Claude Code keeps room under them for its height; the
@@ -5436,11 +5437,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const last = all.length ? all[all.length - 1].getBoundingClientRect().bottom : 0, top = b.getBoundingClientRect().top;
           return last > 0 && last <= top + 1 ? { last, top } : null;
         }), 10000, 500);
-        check(!!clear, 'scrolled to the bottom, the last message ends above the bar: the room kept for the input area grows with it', clear);
+        check(!!clear, 'scrolled to the bottom, the last message ends above the bar', clear);
         write([row('Read the code', 'done'), row('Export', 'waiting', { waitingOn: 'build' }), row('Document it', 'todo')]);
         const waiting = await barIs((s) => s.shown && s.current === 'waiting');
         check(!!waiting && same(waiting.segments, ['waiting', 'todo']) && waiting.count === '2 open' && waiting.title === '2 Export' && !waiting.questions,
-          'with nothing being done, the first waiting row is the current one, and with no question there is no red part', waiting || await bar());
+          'with nothing being done and no question, the first waiting row is the current one and there is no red part', waiting || await bar());
         write([row('Read the code', 'done'), row('Handle refunds later', 'parked')]);
         const parked = await barIs((s) => s.shown && s.current === 'parked');
         check(!!parked && parked.dim && parked.count === '1 open' && same(parked.segments, ['parked']),
@@ -5451,7 +5452,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'with every row done, a check and All rows done, and an empty track', allDone || await bar());
         await shot('plan-bar-done');
 
-        /* Its size, whatever the plan holds, at two widths of the panel; and compact in a narrow one. */
         const full = await editorWidth();
         const grown = (n) => write([row('Export', 'doing', { children: [row('A current row whose title is long enough to be cut short when the panel is narrow', 'doing')] })]
           .concat(Array.from({ length: n - 2 }, (_, i) => row('Row ' + (i + 1), 'todo'))));
@@ -5470,7 +5470,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           { nine: nine || null, many: many || await bar() });
         }
         const wide = sizes.map((x) => x.nine && Math.round(x.nine.bar.width));
-        check(!!wide[0] && !!wide[1] && wide[0] > wide[1] + 20, 'and the two widths measured are those of two different panels', wide);
+        check(!!wide[0] && !!wide[1] && wide[0] > wide[1] + 20, 'and the two measurements come from panels of different widths', wide);
         await layout(340 / full);
         const narrow = await barIs((s) => s.shown && s.compact);
         check(!!narrow && narrow.count === '120 open' && !narrow.segments.length && Math.abs(narrow.bar.width - narrow.form.width) <= 1,
@@ -5479,7 +5479,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('workbench.action.editorLayoutSingle');
         await exec('claude-vscode.editor.open', tab0.id);
 
-        /* Redrawn when the plan changes, and gone without one. */
         write([row('Export', 'doing'), row('Which month', 'waiting', { waitingOn: 'user', question: 'This month or last month?' }),
           row('Which format', 'discussing', { waitingOn: 'user', question: 'CSV or JSON?' })]);
         const two = await barIs((s) => s.shown && s.questions === '2 to decide');
@@ -5488,7 +5487,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const none = await barIs((s) => !s.shown);
         check(!!none, 'a conversation with no plan has no bar', none || await bar());
 
-        /* The two clicks, each opening an Agent Plus view at this conversation. */
         write([row('Export', 'doing'), row('Which month', 'waiting', { waitingOn: 'user', question: 'This month or last month?' })]);
         await barIs((s) => s.shown && s.questions === '1 to decide');
         await exec('workbench.action.closeSidebar');

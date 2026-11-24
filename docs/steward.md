@@ -1,6 +1,6 @@
 # Steward
 
-See how a conversation becomes a steward, which conversations it can manage and what it does with them. Back to the [README](../README.md).
+Back to the [README](../README.md).
 
 Tick other Claude Code conversations in the Steward panel, from any VS Code window on this machine, and the conversation in front becomes their steward. The Steward panel is at the bottom of the VS Code window, in the panel area beside Problems, Output and Terminal. The panel lists the conversations open in your VS Code windows, one group per window. When a Codex conversation is in front, the panel says it is a Codex conversation, says Steward works only with Claude Code conversations, and shows no ticks to change; a Claude Code conversation brings the list back, while file and other non-conversation tabs leave the panel on the last Claude Code conversation. Turn on **All, including new ones** to have this steward manage all conversations in the list and any opened later, except other stewards and conversations another steward ticked. While the switch is on, the checkboxes in the list are disabled.
 
