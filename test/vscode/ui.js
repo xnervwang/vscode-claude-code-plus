@@ -191,10 +191,20 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /* CLAUDE_CODE_PLUS_UI_STEPS, step names separated by commas, runs only those, after the two that patch Claude Code and
      reload the window: for trying one step without the whole run. */
   const only = (process.env.CLAUDE_CODE_PLUS_UI_STEPS || '').split(',').map((x) => x.trim()).filter(Boolean);
+  /* The lines of an error kept in a failed check. Playwright's error lists every attempt in its call log, and the reason
+     an action kept failing (an element in the way, or one that kept moving) is in the last lines, so those are kept with
+     the first one. Any other error keeps the top of its stack. */
+  const failure = (e) => {
+    const lines = String((e && e.stack) || e).replace(/\u001b\[[0-9;]*m/g, '').split('\n').map((l) => l.trim()).filter(Boolean);
+    const log = lines.indexOf('Call log:');
+    if (log < 0) return lines.slice(0, 4).join(' | ');
+    const calls = lines.slice(log + 1).filter((l) => l.startsWith('- '));
+    return [lines[0], ...calls.slice(0, 2), ...(calls.length > 8 ? ['...'] : []), ...calls.slice(Math.max(2, calls.length - 6))].join(' | ');
+  };
   const step = async (name, fn) => {
     if (only.length && !only.includes(name) && name !== 'the patch' && name !== 'the reload') return;
     console.log(`\n── ${name}`);
-    try { await fn(); } catch (e) { check(false, `${name}: ran to its end`, String((e && e.stack) || e).split('\n').slice(0, 4).join(' | ')); await shot(`${name.replace(/\W+/g, '-')}-error`); }
+    try { await fn(); } catch (e) { check(false, `${name}: ran to its end`, failure(e)); await shot(`${name.replace(/\W+/g, '-')}-error`); }
   };
   const notes = path.join(profile.folder, 'notes.txt');
   const transcriptOf = (t) => path.join(profile.home, '.claude', 'projects', folderName(profile.folder), `${t.id}.jsonl`);
@@ -221,15 +231,55 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const claudeButtons = () => page.evaluate(() => [...document.querySelectorAll('.editor-group-container.active .editor-actions .action-item .action-label')]
     .map((a) => a.getAttribute('aria-label') || a.title || '').filter((t) => /Claude/.test(t)));
   const claudeButton = () => page.locator('.editor-group-container.active .editor-actions .action-item .action-label[aria-label*="Claude"]').first();
-  /* The text of VS Code's hover over `loc`. */
+  /* Whether frame `f` draws: whether an animation frame comes within 1.5 s, with what the page says of its visibility,
+     its focus and the element that has it. A page that gets no frames still runs its timers, but handles input whose
+     effect waits for the next frame only once it draws again. */
+  const paints = (f) => f.evaluate(() => new Promise((r) => {
+    const now = (raf) => r({ raf, visibility: document.visibilityState, focus: document.hasFocus(),
+      active: String((document.activeElement && (document.activeElement.className || document.activeElement.tagName)) || '').slice(0, 50) });
+    let done = false;
+    requestAnimationFrame(() => { done = true; now(true); });
+    setTimeout(() => { if (!done) now(false); }, 1500);
+  })).catch((e) => ({ error: String(e).slice(0, 80) }));
+  /* The text of VS Code's hover over `loc`, or '' with the reason in hoverWhy. VS Code starts a hover when the pointer
+     enters an element, so an element drawn again under a resting pointer never shows one: the helper marks the element
+     it hovered, and hovers its new copy when the mark is gone, at most twice, noting each time. */
+  let hoverWhy = null;
   const hoverText = async (loc) => {
-    await page.mouse.move(5, 300);
-    await sleep(300);
-    await loc.hover();
-    const text = await until(() => page.evaluate(() => {
+    hoverWhy = null;
+    const hoverOver = async () => {
+      await page.mouse.move(5, 300);
+      await sleep(300);
+      await loc.hover();
+      await loc.evaluate((e) => e.setAttribute('data-cce-hovered', '')).catch(() => {});
+    };
+    const shown = () => page.evaluate(() => {
       const h = [...document.querySelectorAll('.monaco-hover, .workbench-hover')].find((e) => e.offsetParent && e.innerText.trim());
       return h ? h.innerText.trim() : '';
-    }), 5000, 200);
+    });
+    await hoverOver();
+    const before = await loc.boundingBox().catch(() => null);
+    let again = 0, text = '';
+    const end = Date.now() + 5000;
+    while (Date.now() < end) {
+      text = await shown().catch(() => '');
+      if (text) break;
+      if (again < 2 && !await page.evaluate(() => !!document.querySelector('[data-cce-hovered]')).catch(() => true)) {
+        again++;
+        note('the element under the pointer was drawn again before its hover showed, so the pointer entered it again');
+        await hoverOver();
+      }
+      await sleep(200);
+    }
+    if (!text) {
+      const after = await loc.boundingBox().catch(() => null);
+      const centre = before && [before.x + before.width / 2, before.y + before.height / 2];
+      hoverWhy = { again, before, after, marked: await page.evaluate(() => !!document.querySelector('[data-cce-hovered]')).catch(() => null),
+        under: centre ? await page.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? String(e.className || e.tagName).slice(0, 60) + (e.id ? ' #' + e.id : '') : null; }, centre).catch(() => null) : null,
+        hovers: await page.evaluate(() => [...document.querySelectorAll('.monaco-hover, .workbench-hover')].map((e) => ({ shown: !!e.offsetParent, text: (e.innerText || '').slice(0, 40) }))).catch(() => null),
+        paints: await paints(page.mainFrame()) };
+    }
+    await loc.evaluate((e) => e.removeAttribute('data-cce-hovered')).catch(() => {});
     await page.mouse.move(5, 300);
     await sleep(300);
     return text || '';
@@ -1239,9 +1289,16 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await page.keyboard.type('/tasks');
       await page.keyboard.press('Enter');
       const alone = await until(async () => { const l = await mapLook(); return l && l.main && l && l; }, 10000, 500);
+      /* With no map, what the message box holds, what is open over it, whether the window and the panel draw, and whether
+         the conversation's turn has ended. */
+      const noMap = async () => ({ box: await conv.evaluate(() => {
+        const b = document.querySelector('[contenteditable][role="textbox"]');
+        return { text: b ? b.innerText : null, open: [...document.querySelectorAll('[role="listbox"], [role="menu"], [role="dialog"]')]
+          .filter((d) => d.getClientRects().length).map((d) => String(d.getAttribute('aria-label') || d.className).slice(0, 40)) };
+      }).catch((e) => String(e).slice(0, 80)), window: await paints(page.mainFrame()), panel: await paints(conv), status: status() });
       check(!!alone && alone.heads.length === 1 && alone.heads[0].me && alone.heads[0].label === 'This conversation' && alone.heads[0].top < alone.main.top
         && alone.hiddenZero && !alone.cards.length,
-        'with no background work the map shows the conversation\'s row under THIS CONVERSATION and nothing else: Claude Code\'s "0 agents" is hidden, no empty section is drawn', alone);
+        'with no background work the map shows the conversation\'s row under THIS CONVERSATION and nothing else: Claude Code\'s "0 agents" is hidden, no empty section is drawn', alone || await noMap());
       await shot('agent-map-alone');
       await page.keyboard.press('Escape');
       await until(async () => !(await mapLook()), 5000, 200);
@@ -3994,7 +4051,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('notifications.clearAll');
         const counted = await until(async () => { const c = await needCount(); return c && c.n >= 1 && c; }, 15000, 300);
         const tip = counted ? await hoverText(page.locator('.statusbar-item[id$="agentPlus.attention"]').first()) : '';
-        check(!!counted && tip.includes(`Waiting: ${named.title}`) && !tip.includes(BELL), 'the hover of its count in the status bar names it the same way', { count: counted, hover: tip });
+        check(!!counted && tip.includes(`Waiting: ${named.title}`) && !tip.includes(BELL), 'the hover of its count in the status bar names it the same way', { count: counted, hover: tip, why: hoverWhy });
         await start('agentPlus.showAttention');
         const picks = await until(() => page.evaluate(() => {
           const q = document.querySelector('.quick-input-widget');
@@ -5111,7 +5168,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       };
       const way = async (name, fn) => {
         try { await fn(); } catch (e) {
-          check(false, `${name}: ran to its end`, String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));
+          check(false, `${name}: ran to its end`, failure(e));
           await shot(`rows-no-longer-open-${name.replace(/\W+/g, '-')}-error`);
         }
       };
