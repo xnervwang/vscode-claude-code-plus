@@ -20,8 +20,10 @@
  * One whose message contains ASK_FOR_WORKER gets a Bash call of WORKER_RUN, which starts $HOME/fake-bin/claude as a
  * `claude -p` worker under a detached shell; the test writes that script (WORKER_SCRIPT). One whose message contains
  * ASK_FOR_BG_SESSION gets a Bash call of BG_SESSION_RUN, which starts a `claude --bg` session with the stand-in at
- * $HOME/fake-bg/claude (BG_SESSION_SCRIPT). One whose message contains
- * ASK_FOR_CHOICE gets an AskUserQuestion call with CHOICE's question and options, so that Claude Code shows a choice box.
+ * $HOME/fake-bg/claude (BG_SESSION_SCRIPT). One whose message contains ASK_FOR_BG_OUTPUT gets a Bash call of
+ * BG_OUTPUT_RUN with run_in_background: the same launch after a wait, cut to the CLI's three hints by `tail -3`, so the
+ * call's result names only the file the command writes, and the session starts well after that result. One whose
+ * message contains ASK_FOR_CHOICE gets an AskUserQuestion call with CHOICE's question and options, so that Claude Code shows a choice box.
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
@@ -51,6 +53,8 @@ const WORKER_NAME = 'release-notes-worker';
 const ASK_FOR_BG_SESSION = 'start the nightly report as a background session';
 const BG_SESSION_RUN = '"$HOME/fake-bg/claude" --bg "Write the nightly report from the build logs"';
 const BG_SESSION_NAME = 'nightly-report';
+const ASK_FOR_BG_OUTPUT = 'start the weekly digest from a background command';
+const BG_OUTPUT_RUN = 'sleep 15; "$HOME/fake-bg/claude" --bg "Write the weekly digest from the build logs" 2>&1 | tail -3';
 /*
  * A stand-in for the CLI's `claude --bg`, a Node script at $HOME/fake-bg/claude, so that it runs the same on Linux,
  * macOS and Windows (where Claude Code's Bash tool is Git Bash). Asked for --bg, it writes the job's record under
@@ -160,6 +164,7 @@ const asksToDetach = (ask) => { const t = lastAsk(ask); return t !== null && t.t
 const asksToDetachShort = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_TO_DETACH_SHORT); };
 const asksForWorker = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_WORKER); };
 const asksForBgSession = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_BG_SESSION); };
+const asksForBgOutput = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_BG_OUTPUT); };
 const asksForChoice = (ask) => { const t = lastAsk(ask); return t !== null && t.toLowerCase().includes(ASK_FOR_CHOICE); };
 /* The helper's own conversation opens with its prompt; the one that started it does not. */
 const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && m.role === 'user'); return !!first && JSON.stringify(first.content).includes(HELPER_TASK); };
@@ -203,9 +208,9 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const helper = asksForHelper(ask);
       const helping = !helper && isHelper(ask);
       const detach = asksToDetach(ask), detachShort = asksToDetachShort(ask);
-      const worker = asksForWorker(ask), bgSession = asksForBgSession(ask);
+      const worker = asksForWorker(ask), bgSession = asksForBgSession(ask), bgOutput = asksForBgOutput(ask);
       const choice = asksForChoice(ask);
-      const tool = background || backgroundLong || helper || detach || detachShort || worker || bgSession || choice || asksToRun(ask);
+      const tool = background || backgroundLong || helper || detach || detachShort || worker || bgSession || bgOutput || choice || asksToRun(ask);
       const linked = linkAsked(ask), picture = imageAsked(ask), named = nameAsked(ask) || echoAsked(ask);
       const reply = named || (linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
         : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain);
@@ -233,6 +238,8 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
           : detachShort ? { command: DETACH_SHORT_RUN, description: 'Start the short job detached' }
           : worker ? { command: WORKER_RUN, description: 'Start a worker detached' }
           : bgSession ? { command: BG_SESSION_RUN, description: 'Start the nightly report in a background session' }
+          // Claude Code's notice that the command ended quotes this description, so it must not repeat the ask.
+          : bgOutput ? { command: BG_OUTPUT_RUN, description: 'Launch the weekly digest session after a wait', run_in_background: true }
           : choice ? { questions: [{ question: CHOICE.question, header: CHOICE.header, multiSelect: false,
             options: CHOICE.options.map((label) => ({ label, description: `The ${label.toLowerCase()} config` })) }] }
           : { command: RUN, description: 'Run the test suite' };
@@ -274,4 +281,4 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
 module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_TO_BACKGROUND_LONG, BG_LONG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
   DETACH_SHORT_RUN, LINK_TEXT, NAMED_REPLY, ECHO_REQUEST,
   IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_BG_SESSION, BG_SESSION_RUN, BG_SESSION_NAME,
-  BG_SESSION_SCRIPT, ASK_FOR_CHOICE, CHOICE };
+  BG_SESSION_SCRIPT, ASK_FOR_BG_OUTPUT, BG_OUTPUT_RUN, ASK_FOR_CHOICE, CHOICE };

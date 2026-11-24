@@ -38,7 +38,9 @@
  *                  worker by name in place of its shell and its own row a green ring, all grey once both have ended;
  *                  a claude --bg session the conversation starts (a stand-in of the CLI, on every platform): the
  *                  agents button's 1 bg and its green dot, the tab's ring, the map's row, the notice of its end, 1 bg
- *                  done and grey, and the setting that leaves it out
+ *                  done and grey, and the setting that leaves it out; and one it launches from a command it put in the
+ *                  background, piped through tail, with the CLI's words in that command's output file only: the same
+ *                  1 bg, ring and row, and 1 bg done with the ring gone once it has ended
  *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
  *                  Dismiss, Open bringing the conversation forward, the count, and no notice with each of the
  *                  agentPlus.notifications settings off; a question put while the turn runs: no notice, no count and a
@@ -119,7 +121,7 @@ const fakeHome = require('./lib/fake-home');
 const { folderName } = fakeHome;
 const { ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_TO_BACKGROUND_LONG, BG_LONG_RUN, ASK_FOR_HELPER, ASK_TO_DETACH, ASK_TO_DETACH_SHORT, LINK_TEXT, IMAGE_ALT, IMAGE_WEB,
   ASK_FOR_WORKER, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_CHOICE, CHOICE } = require('./lib/fake-model');
-const { ASK_FOR_BG_SESSION, BG_SESSION_NAME, BG_SESSION_SCRIPT } = require('./lib/fake-model');
+const { ASK_FOR_BG_SESSION, BG_SESSION_NAME, BG_SESSION_SCRIPT, ASK_FOR_BG_OUTPUT } = require('./lib/fake-model');
 const { ECHO_REQUEST } = require('./lib/fake-model');
 /* An 8x8 red PNG. */
 const SQUARE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mO4YGCAFTEMLQkA2ntMAZZ5tYQAAAAASUVORK5CYII=';
@@ -1690,6 +1692,124 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!gone, 'with claudeCodePlus.show.backgroundSessions off, the agents button no longer counts it', await pill());
       } finally { await setShow(null); }
       check(!!await until(async () => { const f = await pill(); return f && /\b1 bg done\b/.test(f.label); }, 20000, 500), 'and turned back on, it does again', await pill());
+    });
+
+    /* The same stand-in launched by a command the conversation put in the background, one that waits first, as a launch
+       held back until something else has landed does. The call's result names only the file the command writes, `tail
+       -3` leaves only the CLI's three hints in that file, and the session starts after that result is in the
+       transcript, so no row of the transcript says which session it is. The sessions of the step before are put aside
+       for this one, so that it counts its own alone, and put back after it, as that step left them; its own is put
+       aside then. */
+    await step('a claude --bg session launched by a background command', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));
+      if (!t) throw new Error('the conversation\'s tab is gone');
+      const SECONDS = 90;
+      const bin = path.join(profile.home, 'fake-bg');
+      fs.mkdirSync(bin, { recursive: true });
+      fs.writeFileSync(path.join(bin, 'claude'), BG_SESSION_SCRIPT(SECONDS), { mode: 0o755 });
+      const jobsDir = path.join(profile.home, '.claude', 'jobs'), aside = path.join(profile.home, 'jobs-aside');
+      /* Claude Code keeps files of its own there too, such as pins.json. */
+      const jobs = () => { try { return fs.readdirSync(jobsDir).filter((n) => /^[0-9a-f]{8}$/.test(n)); } catch (_) { return []; } };
+      const transcript = transcriptOf(tab0);
+      const read = (from = 0) => { try { return fs.readFileSync(transcript).subarray(from).toString('utf8'); } catch (_) { return ''; } };
+      /* The output file a background command's result names, and when that result was written. */
+      const resultIn = (text) => {
+        for (const line of text.split('\n')) {
+          if (!line.includes('Output is being written to')) continue;
+          let row;
+          try { row = JSON.parse(line); } catch (_) { continue; }
+          for (const b of row && row.message && Array.isArray(row.message.content) ? row.message.content : []) {
+            const body = b && b.type === 'tool_result'
+              ? (typeof b.content === 'string' ? b.content : (b.content || []).map((c) => (c && c.text) || '').join('')) : '';
+            const m = /Output is being written to: (\S+\.output)/.exec(body);
+            if (m) return { file: m[1], at: Date.parse(row.timestamp) };
+          }
+        }
+        return null;
+      };
+      const cliWords = (id) => [`backgrounded · ${id}`, `backgrounded \\u00b7 ${id}`, `claude attach ${id}`, `claude logs ${id}`, `claude stop ${id}`]
+        .filter((w) => read().includes(w));
+      const earlier = jobs();
+      fs.mkdirSync(aside, { recursive: true });
+      for (const j of earlier) fs.renameSync(path.join(jobsDir, j), path.join(aside, j));
+      let job = null, created = NaN;
+      try {
+        const from = fs.existsSync(transcript) ? fs.statSync(transcript).size : 0, before = model.seen.length;
+        await conv.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(`Please ${ASK_FOR_BG_OUTPUT}.`);
+        await page.keyboard.press('Enter');
+        check(!!await until(() => model.seen.slice(before).some((x) => x.tool), 30000, 300), 'the fake model answers with a Bash call run in the background that launches claude --bg',
+          model.seen.slice(before));
+        const asking = await until(() => conv.evaluate(() => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes('tail -3')), 8000, 500);
+        if (asking) await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
+        const result = await until(() => resultIn(read(from)), 30000, 500);
+        check(!!result && model.seen.slice(before).some((x) => /^Command running in background with ID: /.test(x.result || '')),
+          'Claude Code runs it as a background command, and the call\'s result names the file the command writes', { result, results: model.seen.slice(before).map((x) => x.result) });
+        job = await until(() => jobs()[0], 60000, 500) || null;
+        if (job) { try { created = Date.parse(JSON.parse(fs.readFileSync(path.join(jobsDir, job, 'state.json'), 'utf8')).createdAt); } catch (_) { /* read below */ } }
+        check(!!job && !!result && created - result.at > 5000,
+          'the session starts more than 5 s after that result, past the leeway in which a session is tied to a call by the prompt in its command',
+          { job, created: isFinite(created) ? new Date(created).toISOString() : null, result: result && isFinite(result.at) ? new Date(result.at).toISOString() : null });
+        if (!job || !result) return;
+        const hints = () => {
+          let s;
+          try { s = fs.readFileSync(result.file, 'utf8'); } catch (_) { return null; }
+          return ['attach', 'logs', 'stop'].every((w) => s.includes(`claude ${w} ${job}`)) && !s.includes('backgrounded') ? s : null;
+        };
+        /* The command is over once tail has written the hints. Claude Code then tells the conversation, which answers. */
+        const running = await until(async () => {
+          const f = await footer();
+          return !!hints() && sessionStatus(tab0.id) === 'idle' && f && f.dot === 'running' && /\b1 bg\b(?! done)/.test(f.label) && !/\btasks?\b/.test(f.label) && f;
+        }, 90000, 500);
+        check(!!running && running.colour === GREEN && !cliWords(job).length,
+          'with the command over and its output file holding the CLI\'s hints alone, the agents button counts the session as 1 bg and no task, its dot the tabs\' green, while the transcript has none of the CLI\'s words for it',
+          { footer: await footer(), file: result.file, output: hints(), status: sessionStatus(tab0.id), words: cliWords(job) });
+        const ring = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
+        check(!!ring && ringed(ring.shape), 'and the tab\'s logo carries the green ring, hollow in the middle', await dotsOn(t.label));
+        const listRing = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
+        check(!!listRing, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+        await shot('agents-button-bg-output-running');
+        const button = conv.locator('button[data-agents-dot]').first();
+        const opened = await button.isVisible().catch(() => false);
+        if (opened) await button.click({ timeout: 5000 });
+        const listed = opened && await until(async () => { const m = await mapState(), sec = mapSection(await mapLook(), 'claude --bg sessions');
+          return sec && sec.head.count === '1' && sec.cards.length === 1 && sec.cards[0].title === BG_SESSION_NAME && { m, sec }; }, 10000, 500);
+        const card = listed && listed.sec.cards[0];
+        check(!!card && card.dot === 'running' && card.meta.startsWith('running') && card.meta.endsWith(job) && cardsInForm({ cards: listed.sec.cards })
+          && !!listed.m.own && listed.m.own.state === 'running' && listed.m.own.ring && listed.m.own.border === GREEN,
+          'the agent map lists the session under claude --bg SESSIONS 1, a card with a green dot saying running and its job id, and the map\'s own row has a green ring',
+          listed ? { sec: listed.sec, own: listed.m.own } : { button: await footer(), map: opened ? await mapLook() : null });
+        if (opened) {
+          await shot('agent-map-bg-output-running');
+          await page.keyboard.press('Escape');
+          await sleep(500);
+        }
+        /* The conversation is told of the end through its inbox, which native Windows does not offer. */
+        const notice = /notice, not a message from the user: news of a `claude --bg` session this conversation started/;
+        if (process.platform !== 'win32') {
+          const told = await until(() => model.seen.slice(before).some((x) => notice.test(x.ask || '')), created + SECONDS * 1000 - Date.now() + 90000, 1000);
+          check(!!told, 'once it has finished, the conversation is told, which starts a turn', model.seen.slice(before).map((x) => (x.ask || '').slice(0, 160)));
+        }
+        const done = await until(async () => {
+          const f = await footer(), d = await dotsOn(t.label);
+          return Date.now() - created > SECONDS * 1000 && sessionStatus(tab0.id) === 'idle' && d && d.running === 0 && f && f.dot !== 'running' && /\b1 bg done\b/.test(f.label) && { f, d };
+        }, created + SECONDS * 1000 - Date.now() + 120000, 1000);
+        check(!!done && done.f.colour !== GREEN && !cliWords(job).length,
+          'once it has ended, the ring goes and the agents button says 1 bg done, its dot grey, and the transcript still has none of the CLI\'s words for it',
+          { footer: await footer(), dots: await dotsOn(t.label), status: sessionStatus(tab0.id), words: cliWords(job) });
+        await shot('agents-button-bg-output-done');
+      } finally {
+        if (job) {
+          await until(() => !liveRecords().some((r) => r.kind === 'bg' && r.jobId === job), Math.max(0, created + SECONDS * 1000 - Date.now()) + 30000, 1000);
+          if (fs.existsSync(path.join(jobsDir, job))) fs.renameSync(path.join(jobsDir, job), path.join(aside, job));
+        }
+        for (const j of earlier) fs.renameSync(path.join(aside, j), path.join(jobsDir, j));
+      }
+      if (earlier.length) {
+        const back = await until(async () => { const f = await footer(); return f && /\b1 bg done\b/.test(f.label) && f; }, 30000, 1000);
+        check(!!back, 'with its own session put aside and those of the step before put back, the agents button says 1 bg done again, as that step left it', await footer());
+      }
     });
 
     /* What makes a conversation wait for the user besides a permission prompt: a question its plan put to the user since
