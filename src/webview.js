@@ -389,8 +389,8 @@ const SCRIPT_BODY = buildBody();
    Without the page's function the meter behaves as in Claude Code. */
 const METER_KEPT = '(typeof window.__cceMeterKept==="function"&&window.__cceMeterKept())';
 
-/* The panel's state also carries what it waits for: the tool of the permission request in front, or the kind of its
-   dialog (src/waiting-for.js reads it). `s` is the expression for the panel's session. */
+/* The tool of the permission request in front, or the kind of the panel's dialog (src/waiting-for.js reads it). `s` is
+   the expression for the panel's session. */
 const WAIT_OF = (s) => `(()=>{try{let cceR=${s}.permissionRequests.value[0];if(cceR)return{tool:String(cceR.toolName??"")};`
   + `let cceD=${s}.userDialogRequests.value[0];if(cceD)return{dialog:String(cceD.dialogKind??"")}}catch(cceE){}return void 0})()`;
 /* The check the two notice edits insert: whether the page knows that Agent Plus shows the notices of waits

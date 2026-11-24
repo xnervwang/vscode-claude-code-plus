@@ -27,22 +27,22 @@
  *                  in the background and a scheduled prompt, each section after that row under a heading in capitals
  *                  with its count and a line above it, Claude Code's two headings among them; each card of this
  *                  extension's a dot, a title line and a line under it; Claude Code's rows still there and still
- *                  opening their dialogs, and its Stop still stopping the command
+ *                  opening their dialogs, and its Stop still ending the command
  *   work left running
- *                  the green ring, hollow in the middle, kept after the turn ends while a command it put in the background
- *                  runs, with an envelope when the turn ended out of sight, a helper (subagent) it started in the
- *                  background, or, on Linux, a program it left running with setsid, and gone once that has ended; the
- *                  agents button's count and green dot and the agent map's own row, grey again once the work has ended;
- *                  the detached program in the agent map, and the notice once it is gone;
+ *                  the hollow green ring, kept after the turn ends while a command it put in the background runs, a
+ *                  helper (subagent) it started in the background, or, on Linux, a program it left running with setsid,
+ *                  with an envelope when the turn ended out of sight, and gone once that work has ended; the agents
+ *                  button's count and green dot and the agent map's own row, grey again; the detached program in the
+ *                  agent map, and the notice once it is gone;
  *                  on Linux, a `claude -p` worker left running under a detached shell beside a command in the
  *                  background: the agents button with a green dot and a label that counts each of them once, the map
  *                  listing the worker by name in place of its shell and its own row a green ring, until both end and
  *                  all of it turns grey;
  *                  a claude --bg session the conversation starts (a stand-in of the CLI, on every platform): the agents
- *                  button's 1 bg and its green dot, the tab's ring, the map's row, the notice of its end, 1 bg done and
- *                  grey, and the setting that leaves it out; and one it launches from a command it put in the
- *                  background, piped through tail, with the CLI's words in that command's output file only: it shows
- *                  the same marks as the first session, from 1 bg to 1 bg done
+ *                  button's 1 bg and its green dot, the tab's ring, the map's row, the notice when it ends, 1 bg done
+ *                  and grey, and the setting that leaves it out; and a second session the conversation launches from a
+ *                  command it put in the background, piped through tail, with the CLI's words in that command's output
+ *                  file only: it shows the same marks as the first session
  *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
  *                  Dismiss and its count, Open bringing the conversation forward, and no notice with either of the
  *                  agentPlus.notifications settings off; a question put while the turn runs: no notice, no count and a
