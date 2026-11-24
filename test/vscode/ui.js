@@ -1295,9 +1295,24 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const alone = await until(async () => { const l = await mapLook(); return l && l.main && l && l; }, 10000, 500);
       /* With no map, what the message box holds, what is open over it, whether the window and the panel draw, and whether
          the conversation's turn has ended. */
+      /* `states`: the first states of the component that draws the message box, in the order it declares them. Its key
+         handler leaves Enter alone, so that the box takes it as a new line, while one of its menus or command views is
+         open; which one was open shows here as a value that is not false or empty. */
       const noMap = async () => ({ box: await conv.evaluate(() => {
         const b = document.querySelector('[contenteditable][role="textbox"]');
-        return { text: b ? b.innerText : null, open: [...document.querySelectorAll('[role="listbox"], [role="menu"], [role="dialog"]')]
+        let states = null;
+        const key = b && Object.keys(b).find((k) => k.indexOf('__reactFiber$') === 0);
+        for (let f = key ? b[key] : null; f && !states; f = f.return) {
+          if (typeof f.type !== 'function') continue;
+          const out = [];
+          for (let h = f.memoizedState; h && out.length < 80; h = h.next) {
+            const v = h.memoizedState;
+            out.push(v === null || ['boolean', 'number', 'string', 'undefined'].includes(typeof v) ? (typeof v === 'string' ? v.slice(0, 20) : v === undefined ? 'u' : v)
+              : Array.isArray(v) ? 'array' : typeof v === 'function' ? 'fn' : 'obj');
+          }
+          if (out.length >= 40) states = out;
+        }
+        return { text: b ? b.innerText : null, states, open: [...document.querySelectorAll('[role="listbox"], [role="menu"], [role="dialog"]')]
           .filter((d) => d.getClientRects().length).map((d) => String(d.getAttribute('aria-label') || d.className).slice(0, 40)) };
       }).catch((e) => String(e).slice(0, 80)), window: await paints(page.mainFrame()), panel: await paints(conv), status: status() });
       check(!!alone && alone.heads.length === 1 && alone.heads[0].me && alone.heads[0].label === 'This conversation' && alone.heads[0].top < alone.main.top
@@ -5261,8 +5276,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             side = await frameWhere(() => !!document.querySelector('[aria-label="Session history"]') && !!document.querySelector('[contenteditable][role="textbox"]'), 60000);
             if (!side) throw new Error('Claude Code did not open in the sidebar');
             await side.locator('[aria-label="Session history"]').first().click();
-            /* On the row's title: in a narrow sidebar the middle of the row is its rename button. */
-            await mainRow(C, side).locator('span[class*="sessionName_"]').first().click({ timeout: 15000 });
+            /* On the start of the row's title. A row under the pointer shows its rename and archive buttons where its time
+               was, and in a box as narrow as the sidebar's they reach back over the end of the title: a click in the
+               middle of the title renames the conversation instead of opening it. */
+            await mainRow(C, side).locator('span[class*="sessionName_"]').first().click({ timeout: 15000, position: { x: 2, y: 6 } });
             if (!await until(async () => !(await pastOpen()) && await shows(C), 30000, 500)) throw new Error('the sidebar did not switch to the conversation');
             /* Claude Code counts only a conversation in a tab as the one in front. */
             await after('one opened in the sidebar from the list its page opens', [C], null);
