@@ -38,11 +38,11 @@
  *                  background: the agents button with a green dot and a label that counts each of them once, the map
  *                  listing the worker by name in place of its shell and its own row a green ring, until both end and
  *                  all of it turns grey;
- *                  a claude --bg session the conversation starts (a stand-in of the CLI, on every platform): the
- *                  agents button's 1 bg and its green dot, the tab's ring, the map's row, the notice of its end, 1 bg
- *                  done and grey, and the setting that leaves it out; and one it launches from a command it put in the
- *                  background, piped through tail, with the CLI's words in that command's output file only: the same
- *                  1 bg, ring and row, and 1 bg done with the ring gone once it has ended
+ *                  a claude --bg session the conversation starts (a stand-in of the CLI, on every platform): the agents
+ *                  button's 1 bg and its green dot, the tab's ring, the map's row, the notice of its end, 1 bg done and
+ *                  grey, and the setting that leaves it out; and one it launches from a command it put in the
+ *                  background, piped through tail, with the CLI's words in that command's output file only: it shows
+ *                  the same marks as the first session, from 1 bg to 1 bg done
  *   what needs you a question the plan put to the user and a choice box: the red dot, Agent Plus's notice with Open and
  *                  Dismiss and its count, Open bringing the conversation forward, and no notice with either of the
  *                  agentPlus.notifications settings off; a question put while the turn runs: no notice, no count and a
