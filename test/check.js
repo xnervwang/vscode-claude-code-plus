@@ -697,9 +697,17 @@ function checkEdits(adapter, src, label) {
 }
 
 /* Every notice the panel shows with a View button, only while it is not on screen, is one of a wait, and each is left to
-   Agent Plus while it tells of waits (src/waiting-for.js). A build with a third would show it beside Agent Plus's. */
+   Agent Plus while it tells of waits (src/waiting-for.js). A build with a third would show it beside Agent Plus's. From
+   2.1.331 one function shows that notice for each wait it is given, so each call to it counts as one notice. */
 function checkWaitNotices(out, label) {
-  const shown = out.split('"info",["View"],!0)').length - 1, left = out.split('(' + webview.WAITS_LEFT + '?void 0:').length - 1;
+  let shown = out.split('"info",["View"],!0)').length - 1;
+  const left = out.split('(' + webview.WAITS_LEFT + '?void 0:').length - 1;
+  const shows = /async function ([\w$]+)\([\w$]+,([\w$]+),[\w$]+\)\{[\s\S]{0,300}?\.showNotification\(\2,"info",\["View"\],!0\)/.exec(out);
+  if (shows) {
+    // Counted in the panel's own code only: the script appended after the marker may use the same short name.
+    const own = out.slice(0, out.indexOf(webview.MARK)), name = shows[1].replace(/\$/g, '\\$');
+    shown += own.split(new RegExp(`(?<![\\w$.])${name}\\(`)).length - 1 - 2;
+  }
   if (shown === 2 && left === 2) ok(`${label}: both of the panel's notices of a wait are left to Agent Plus while it tells of them`);
   else bad(`${label}: ${shown} notices with a View button, ${left} of them left to Agent Plus (expected 2 and 2)`);
 }
@@ -717,8 +725,8 @@ function checkRowIds(src, label) {
    before is a change in the panel nobody has checked that against, so it fails here - before the version record can
    call the build verified, and in the scheduled run against the marketplace before the update arrives. */
 const replyShape = require('./reply-shape');
-// Refusal rows render only for a gateway refusal, in place of the blocks.
-const KNOWN_REPLY_CHILDREN = ['time line', 'mod rows', 'refusal', 'blocks', 'actions'];
+// Refusal rows render only for a gateway refusal, in place of the blocks; advice and a bare null come after the blocks.
+const KNOWN_REPLY_CHILDREN = ['time line', 'mod rows', 'refusal', 'blocks', 'nothing', 'advice', 'actions'];
 function checkReplyShape(src, label) {
   const r = replyShape.replyChildren(src);
   if (r.error) { bad(`${label}: what a reply holds could not be read: ${r.error}`); return; }
@@ -770,6 +778,10 @@ console.log('\nwhat a reply holds, read from a bundle');
   if (kinds(rs.replyChildren(refused)) === 'time line, refusal, refusal, blocks, unknown') {
     ok('a gateway refusal\'s rows are recognised, and so are the blocks it empties');
   } else bad(`a reply with a refusal read as "${kinds(rs.replyChildren(refused))}"`);
+  const advised = rs.replyChildren(reply('F(sA,{message:Z,context:X,placement:"response",busy:J.busy}),Z.content.map((W)=>F(B,{content:W})),null,'
+    + 'C!==void 0&&F("div",{className:k0.replyAdvice,children:C}),C!==void 0&&F("div",{className:k0.replyHint,children:C})'));
+  if (kinds(advised) === 'time line, blocks, nothing, advice, unknown') ok('the advice after a reply\'s blocks and a bare null are named, and another box is not');
+  else bad(`a reply with advice read as "${kinds(advised)}"`);
 }
 
 console.log('\nedits');

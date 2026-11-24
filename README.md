@@ -77,7 +77,7 @@ The extension works by editing files inside the installed Claude Code extension.
 VS Code window twice after installing. Run `Claude Code Plus: Show Status` for the patch
 status. In a Remote SSH window, install on the remote.
 
-Verified against Claude Code 2.1.328, 2.1.329 and 2.1.330.
+Verified against Claude Code 2.1.328, 2.1.329, 2.1.330 and 2.1.331.
 
 ## Other features
 

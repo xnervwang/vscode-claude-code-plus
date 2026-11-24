@@ -76,8 +76,9 @@ function drawsStamp(src, name, depth = 2) {
  * Each child of a reply element, named: `blocks` for the reply's own content, `time line` for the panel's message
  * stamp drawn ahead of them, `mod rows` for what a Claude Code mod draws for the reply (2.1.300 and later, through the
  * `engineRow` prop, and nothing at all while no mod draws one), `refusal` for the sentence and sign-in button a gateway
- * refusal shows in place of the blocks (2.1.319 and later), `actions` for the bar of buttons drawn after them, `unknown`
- * for anything else. Returns { error } when the element cannot be found or read.
+ * refusal shows in place of the blocks (2.1.319 and later), `advice` for the box a reply that failed for a prompt too long
+ * gets after its blocks (2.1.331 and later), `nothing` for a bare null, `actions` for the bar of buttons drawn after them,
+ * `unknown` for anything else. Returns { error } when the element cannot be found or read.
  */
 function replyChildren(src) {
   const at = src.indexOf(TESTID);
@@ -102,6 +103,8 @@ function replyChildren(src) {
       if (ink && new RegExp('engineRow:' + ink[1].replace(/\$/g, '\\$') + '[,}]').test(src.slice(Math.max(0, at - 1500), at))) {
         return { kind: 'mod rows', code };
       }
+      if (code === 'null') return { kind: 'nothing', code };
+      if (/^[\w$]+!==void 0&&[\w$]+\("div",\{className:[\w$]+\.replyAdvice,children:[\w$]+\}\)$/.test(code)) return { kind: 'advice', code };
       if (/className:[\w$]+\.assistantActions\b/.test(code)) return { kind: 'actions', code };
       return { kind: 'unknown', code };
     }),

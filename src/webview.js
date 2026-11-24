@@ -474,14 +474,36 @@ const EDITS = [
        Plus tells of the same waits in the window the user is in, it is left out; otherwise it is shown as before. The
        notice's own text and buttons are not touched. */
     name: 'permission notice left to Agent Plus',
-    re: /([\w$]+)\.showNotification\(([\w$]+)\(([\w$]+)\),"info",\["View"\],!0\)/g,
-    to: (m) => `(${WAITS_LEFT}?void 0:${m})`,
+    // Two shapes: from 2.1.331 the request goes through a function that waits a second and, while the panel's place
+    // is hidden, names the conversation in the notice; before that, the notice was shown right where it was asked for.
+    shapes: [
+      {
+        note: '2.1.331 and later: a function shows the notice, given whether the request is still open',
+        re: /([\w$]+)\(([\w$]+),([\w$]+)\(([\w$]+)\),\(\)=>\2\.permissionRequests\.peek\(\)\.includes\(\4\)\)/g,
+        to: (m) => `(${WAITS_LEFT}?void 0:${m})`,
+      },
+      {
+        note: 'through 2.1.330: the notice is shown in place',
+        re: /([\w$]+)\.showNotification\(([\w$]+)\(([\w$]+)\),"info",\["View"\],!0\)/g,
+        to: (m) => `(${WAITS_LEFT}?void 0:${m})`,
+      },
+    ],
   },
   {
-    // The same for auto mode's dialog asking to Continue or Stop.
+    // The same for auto mode's dialog asking to Continue or Stop, in the same two shapes.
     name: 'auto mode notice left to Agent Plus',
-    re: /this\.showNotification\("Auto mode is waiting for you to choose Continue or Stop","info",\["View"\],!0\)/g,
-    to: (m) => `(${WAITS_LEFT}?void 0:${m})`,
+    shapes: [
+      {
+        note: '2.1.331 and later: a function shows the notice, given whether the dialog is still open',
+        re: /[\w$]+\(this,"Auto mode is waiting for you to choose Continue or Stop",\(\)=>this\.userDialogRequests\.peek\(\)\.includes\([\w$]+\)\)/g,
+        to: (m) => `(${WAITS_LEFT}?void 0:${m})`,
+      },
+      {
+        note: 'through 2.1.330: the notice is shown in place',
+        re: /this\.showNotification\("Auto mode is waiting for you to choose Continue or Stop","info",\["View"\],!0\)/g,
+        to: (m) => `(${WAITS_LEFT}?void 0:${m})`,
+      },
+    ],
   },
   {
     // The session list's search: a conversation also matches when part of its session ID was typed. The page decides
@@ -732,11 +754,11 @@ const EDITS = [
        one place, so the page gets to amend the finished text - the only field that needs to know about both kinds.
        Its dot follows the agents alone, so a conversation whose only work running is a command, a worker or a
        session it started had a grey dot beside a label counting that work; the page gets to amend the dot too, and
-       the hover text that names the dot's state. */
+       the hover text that names the dot's state. Parameters after onOpen (2.1.331 adds `failed`) are kept as they are. */
     name: 'agent button label and dot',
-    re: /function ([\w$]+)\(\{count:([\w$]+),dot:([\w$]+),onOpen:([\w$]+)\}\)\{let ([\w$]+)=([\w$]+)\(\2\),([\w$]+)=([\w$]+)\(\3\);/g,
-    to: (m, fn, count, dot, onOpen, label, make, title, says) =>
-      `function ${fn}({count:${count},dot:${dot},onOpen:${onOpen}}){let cceDotWas=${dot};`
+    re: /function ([\w$]+)\(\{count:([\w$]+),dot:([\w$]+),onOpen:([\w$]+)((?:,[\w$]+:[\w$]+(?:=[\w$.!"]+)?)*)\}\)\{let ([\w$]+)=([\w$]+)\(\2\),([\w$]+)=([\w$]+)\(\3\);/g,
+    to: (m, fn, count, dot, onOpen, rest, label, make, title, says) =>
+      `function ${fn}({count:${count},dot:${dot},onOpen:${onOpen}${rest}}){let cceDotWas=${dot};`
       + `${dot}=(typeof window.__cceAgentsDot==="function"?window.__cceAgentsDot(${dot}):${dot});`
       + `let ${label}=(typeof window.__cceAgentsLabel==="function"?window.__cceAgentsLabel(${make}(${count}),${count}):${make}(${count})),`
       + `${title}=(typeof window.__cceAgentsTitle==="function"?window.__cceAgentsTitle(${says}(${dot}),${dot},cceDotWas):${says}(${dot}));`,
@@ -836,13 +858,20 @@ const MARK = MARK_PREFIX + 'v' + VERSION + '-' + crypto.createHash('sha256')
 const SCRIPT = ['', MARK, SCRIPT_BODY, ''].join('\n');
 
 
+/* The panel loads this file as a module, and from 2.1.331 it reads import.meta, which only a module may. The file has
+   no import or export statement, so it is parsed as a script with an object in place of import.meta. Throws when it
+   does not parse. */
+function parseScript(text, filename) {
+  new vm.Script(text.replace(/\bimport\.meta\b/g, '({url:""})'), { filename });
+}
+
 /** Pure transform. Returns { out, chosen } or { error }. Never partially applies. */
 function patchSource(src) {
   if (src.includes(ANY_MARK)) return { error: 'the source to patch already carries a panel patch' };
   const r = applyEdits(src, EDITS, 'Claude Code');
   if (r.error) return { error: r.error };
   const out = r.out + '\n' + SCRIPT;
-  try { new vm.Script(out, { filename: 'index.js' }); }
+  try { parseScript(out, 'index.js'); }
   catch (err) { return { error: `patched code does not parse: ${err.message}` }; }
   return { out, chosen: r.chosen };
 }
@@ -994,7 +1023,7 @@ function pruneEfforts(claudeExtensionPath, keep) {
    Claude Code, so a backup has to parse before it is put back. */
 function wholeScript(text, filename) {
   if (!text) return false;
-  try { new vm.Script(text, { filename }); return true; } catch (_) { return false; }
+  try { parseScript(text, filename); return true; } catch (_) { return false; }
 }
 
 const target = patchTarget({
