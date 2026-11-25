@@ -29,6 +29,11 @@
  * asking), and the asker's own transcript has the tool call that ran steward-relay.py for it in the last RAN_MS (ranBy),
  * with the action's flag, and at most once per call.
  *
+ * Another agent's conversation (`to` is a key `<source id>:<session id>`, src/steward-keys.js) takes only a plain
+ * send, which Agent Plus's deliver() passes on to the window that can type into it (src/steward-core.js). The window
+ * that shows the steward takes such a request, since it can read the steward's transcript for the tool call; the
+ * deliver() it then awaits can take some 40 seconds, so take() goes on to the other requests meanwhile.
+ *
  * A conversation a steward opened with `open` or `resume` is then ticked for it in stewards.json, as the user would
  * tick it in the Steward panel. The window that opened it does this, if that window may write the table (writesTable in
  * src/steward-view.js); a steward of all conversations gets the tick too, which would otherwise wait for the next pass
@@ -47,6 +52,7 @@ const { realPath } = require('./folders');
 const os = require('os');
 const sentCheck = require('./sent-check');
 const { holderOf } = require('./stewards');
+const keys = require('./steward-keys');
 
 const RELAY_DIR = 'relay';
 const REQUEST = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i;
@@ -122,6 +128,14 @@ function readSent(dir, now) {
   return d;
 }
 
+/* Sends to other agents' conversations still waiting for deliver(). */
+const inFlight = new Set();
+/* The sent.json keys of the requests being carried out in this window, so that a second request from the same call is
+   refused before the first has its outcome. */
+const carrying = new Set();
+/* Resolves once those have their results, for tests. */
+const settled = () => Promise.all([...inFlight]);
+
 /*
  * Carries out the requests in `planDir` for conversations this window shows, the `open` requests for its first folder,
  * the `resume` requests for a conversation that Claude Code in this window can open (opensHere), and the `handoff`
@@ -131,7 +145,9 @@ function readSent(dir, now) {
  * new conversation's, when known), manage(steward, id) to tick a conversation for the steward, which returns false when
  * this window may not, windows() -> the windows' entries { pid, name, folders, sessions }, agents() -> Promise<{
  * records, error }> from `claude agents --json`, records() -> the live session records and post(address, text) for a
- * handoff, titleOf(id), pid, now(), and sleep(ms) for tests. Returns the results it wrote.
+ * handoff, deliverOther(key, text) -> Promise<{ outcome, reason }> for another agent's conversation, later(result)
+ * with the result of such a send once it has one, titleOf(id), pid, now(), and sleep(ms) for tests. Returns the
+ * results it wrote; those of sends to other agents' conversations go to later() instead.
  */
 async function take(planDir, deps) {
   const dir = path.join(planDir, RELAY_DIR);
@@ -150,15 +166,25 @@ async function take(planDir, deps) {
       continue;
     }
     const action = req.action === undefined ? 'send' : req.action;
-    const to = action === 'open' ? req.to : req.to.toLowerCase();
+    const to = action === 'open' ? req.to : keys.managedId(req.to) || req.to.toLowerCase();
     if (!takesHere(action, to, deps, req)) continue;
     const taken = path.join(dir, `${m[1]}.taken-${deps.pid}`);
     try { fs.renameSync(file, taken); } catch (_) { continue; }
-    const result = await carryOut(req, action, to, dir, deps, now);
-    if (action === 'resume') result.window = deps.pid;
-    try { writeAtomic(path.join(dir, m[1] + '.result.json'), JSON.stringify(result) + '\n'); } catch (_) { /* the script reports no answer */ }
-    try { fs.unlinkSync(taken); } catch (_) { /* gone */ }
-    done.push(Object.assign({ id: m[1], action, to }, result));
+    const finish = (result) => {
+      if (action === 'resume') result.window = deps.pid;
+      try { writeAtomic(path.join(dir, m[1] + '.result.json'), JSON.stringify(result) + '\n'); } catch (_) { /* the script reports no answer */ }
+      try { fs.unlinkSync(taken); } catch (_) { /* gone */ }
+      return Object.assign({ id: m[1], action, to }, result);
+    };
+    if (keys.isOther(to)) {
+      const p = carryOut(req, action, to, dir, deps, now)
+        .catch((e) => ({ outcome: 'uncertain', reason: String((e && e.message) || e).slice(0, 200) }))
+        .then((result) => { const r = finish(result); try { if (deps.later) deps.later(r); } catch (_) { /* not logged */ } });
+      inFlight.add(p);
+      p.then(() => inFlight.delete(p));
+      continue;
+    }
+    done.push(finish(await carryOut(req, action, to, dir, deps, now)));
   }
   return done;
 }
@@ -184,6 +210,7 @@ const firstFolderIs = (folders, folder) => !!(folders || [])[0] && caseOf(realPa
 function takesHere(action, to, deps, req) {
   if (action === 'open') return path.isAbsolute(to) && !!deps.folders && firstFolderIs(deps.folders(), to);
   if (action === 'handoff') return stewardsOf(deps.stewards() || {}, String(req.from || '').toLowerCase()).some((s) => deps.shownHere(s));
+  if (keys.isOther(to)) return deps.shownHere(String(req.steward || '').toLowerCase());
   if (!SESSION.test(to)) return false;
   if (action === 'resume') return !!deps.folders && opensHere(to, deps.folders(), deps.transcriptOf);
   return deps.shownHere(to);
@@ -334,6 +361,13 @@ async function carryOut(req, action, to, dir, deps, now) {
   } else if (!manages(table, asker, to)) {
     return { outcome: 'refused', reason: 'that conversation is not one this steward manages' };
   }
+  if (keys.isOther(to)) {
+    const label = keys.labelOf(to);
+    if (!keys.allowed(to)) return { outcome: 'refused', reason: `a steward cannot send to ${label} conversations` };
+    if (action !== 'send') {
+      return { outcome: 'refused', reason: `${label} conversations take only a plain message; rename, close or open one in its own window` };
+    }
+  }
   const { text, why } = textFor(action, req.text);
   if (why) return { outcome: 'refused', reason: why };
   const confirmed = action === 'close' && req.confirmed === true;
@@ -351,20 +385,26 @@ async function carryOut(req, action, to, dir, deps, now) {
       + 'give the text in a here-document in the command itself' };
   }
   const key = [asker, to, call.id, action].join(' ');
-  const sent = readSent(dir, now);
-  if (sent[key]) return { outcome: 'refused', reason: 'that call has already been carried out' };
-  if (action === 'resume') {
-    const held = await heldElsewhere(to, deps, manages(table, asker, to));
-    if (held) return { outcome: 'refused', reason: held };
-  }
-  const missing = { outcome: 'notReceived', reason: 'this window cannot do that' };
-  const r = action === 'send' ? await deps.deliver(to, text)
-    : action === 'rename' ? (deps.rename ? await deps.rename(to, text) : missing)
-      : action === 'close' ? (deps.close ? await deps.close(to, confirmed) : missing)
-        : action === 'resume' ? (deps.resume ? await deps.resume(to, text) : missing)
-          : handoff ? await handOff(theirs, asker, text, table, deps)
-            : (deps.open ? await deps.open(to, text) : missing);
+  if (readSent(dir, now)[key] || carrying.has(key)) return { outcome: 'refused', reason: 'that call has already been carried out' };
+  carrying.add(key);
+  let r;
+  try {
+    if (action === 'resume') {
+      const held = await heldElsewhere(to, deps, manages(table, asker, to));
+      if (held) return { outcome: 'refused', reason: held };
+    }
+    const missing = { outcome: 'notReceived', reason: 'this window cannot do that' };
+    r = action === 'send' && keys.isOther(to) ? (deps.deliverOther ? await deps.deliverOther(to, text) : missing)
+      : action === 'send' ? await deps.deliver(to, text)
+      : action === 'rename' ? (deps.rename ? await deps.rename(to, text) : missing)
+        : action === 'close' ? (deps.close ? await deps.close(to, confirmed) : missing)
+          : action === 'resume' ? (deps.resume ? await deps.resume(to, text) : missing)
+            : handoff ? await handOff(theirs, asker, text, table, deps)
+              : (deps.open ? await deps.open(to, text) : missing);
+  } finally { carrying.delete(key); }
   if (r && (r.outcome === 'submitted' || r.opened === true)) {
+    // Read again: a send to another agent's conversation may have been recorded while this one ran.
+    const sent = readSent(dir, now);
     sent[key] = now;
     try { writeAtomic(path.join(dir, SENT_FILE), JSON.stringify(sent) + '\n'); } catch (_) { /* a repeat is then not caught */ }
   }
@@ -399,5 +439,5 @@ async function handOff(stewards, from, text, table, deps) {
   return { outcome: 'notReceived', reason: `no steward of this conversation could be reached (${missed.join('; ')})` };
 }
 
-module.exports = { take, ranBy, resume, heldBy, opensHere, handoffText, lastUserAt, RELAY_DIR, MAX_AGE_MS, RAN_MS, RAN_WAITS_MS, SENT_FILE, FLAGS, RESUME_LOAD_MS,
+module.exports = { take, settled, ranBy, resume, heldBy, opensHere, handoffText, lastUserAt, RELAY_DIR, MAX_AGE_MS, RAN_MS, RAN_WAITS_MS, SENT_FILE, FLAGS, RESUME_LOAD_MS,
   MAX_TITLE, RESUME_SHOW_MS, RESUME_SEND_MS };

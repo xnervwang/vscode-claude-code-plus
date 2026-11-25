@@ -44,6 +44,10 @@ printed answer mentions the tick.
 conversation thinks belongs elsewhere, as a notice that is not the user's message. It goes to the steward that has the
 conversation on its list, or, when none has, to the steward with All on.
 
+Another agent's conversation is named by its key, "<source id>:<session id>" (steward_table.py), and takes only a plain
+message: the window that shows the steward passes it to Agent Plus, which sends it as a user message in the window
+that has the conversation open. Agent Plus refuses it while the conversation waits on a permission or a question.
+
 Prints what happened and exits 0 when it was done, 1 otherwise.
 """
 
@@ -70,6 +74,9 @@ OPEN_WAIT_SECONDS = 50
 # A resume waits for a tab to show the conversation (30 seconds), for a long one to load (up to 3 minutes) and then for
 # it to take the message (20 seconds more). The script waits less, to stay inside a tool call's time; the window goes on.
 RESUME_WAIT_SECONDS = 110
+# A message to another agent's conversation: the window takes the request within a pass (5 seconds), finds the steward's
+# call in up to 6.5 seconds, and Agent Plus's deliver() settles within about 40.
+OTHER_WAIT_SECONDS = 55
 TAIL_BYTES = 256 * 1024
 SAID = {
     "submitted": "Sent: it was typed into the conversation's message input and sent as the user's message.",
@@ -77,6 +84,10 @@ SAID = {
     "uncertain": "Unclear whether it was sent",
     "refused": "Not sent",
 }
+SENT_OTHER = "Sent: it reached the conversation as the user's message."
+DRAFTED = "Not sent: it was put into the conversation's message input, and not sent."
+NO_ACTIONS = ("Not done: a conversation of %s takes only plain messages from its steward; rename, close or open it in "
+              "its own window.")
 
 
 WINDOWS_DIR = "windows"
@@ -256,12 +267,19 @@ def main(argv):
         rest = [""] + rest
     target = rest[0] if rest else ""
     opening = action == "--open"
-    if (opening and not os.path.isabs(target)) or (not opening and not handing and not SESSION_NAME.match(target)) \
+    if (opening and not os.path.isabs(target)) or (not opening and not handing and not steward_table.managed_id(target)) \
             or (confirmed and action != "--close") or len([a for a in args if a in FLAGS]) > 1 or len(rest) > 2:
         print("usage: steward-relay.py [--rename | --close [--confirmed] | --open | --resume]"
               " <session id or folder> [<plugin data directory>] < text\n"
               "       steward-relay.py --handoff [<plugin data directory>] < text")
         return 2
+    other = not opening and not handing and steward_table.is_other(steward_table.managed_id(target))
+    if other and not steward_table.allowed(target):
+        print("Not done: a steward cannot send to conversations of %s." % steward_table.label_of(target))
+        return 1
+    if other and action:
+        print(NO_ACTIONS % steward_table.label_of(target))
+        return 1
     steward = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     if not SESSION_NAME.match(steward):
         print("Not done: CLAUDE_CODE_SESSION_ID is not set, so this was not run from a Claude Code conversation."
@@ -282,7 +300,7 @@ def main(argv):
         print("Not done: nothing on standard input.")
         return 1
     data = rest[1] if len(rest) > 1 else A.FALLBACK
-    target = target if opening else target.lower()
+    target = target if opening else steward_table.managed_id(target) if not handing else ""
     cwd = ""
     if resuming:
         said, cwd = resume_check(data, target)
@@ -306,7 +324,8 @@ def main(argv):
     result = os.path.join(directory, rid + ".result.json")
     write_atomic(request_file, json.dumps(request, ensure_ascii=False))
     # An open also waits for the new tab to send its first message, and a resume for the panel to show the conversation.
-    deadline = time.time() + (RESUME_WAIT_SECONDS if resuming else OPEN_WAIT_SECONDS if opening else WAIT_SECONDS)
+    deadline = time.time() + (RESUME_WAIT_SECONDS if resuming else OPEN_WAIT_SECONDS if opening
+                              else OTHER_WAIT_SECONDS if other else WAIT_SECONDS)
     while time.time() < deadline:
         if os.path.exists(result):
             try:
@@ -334,11 +353,14 @@ def main(argv):
                 print("Not done: %s.%s" % (reason or outcome, NOT_HANDED))
                 return 1
             if outcome == "submitted":
-                print(DONE.get(action, SAID["submitted"]) + (TICKED if r.get("ticked") is True else ""))
+                print(DONE.get(action, SENT_OTHER if other else SAID["submitted"]) + (TICKED if r.get("ticked") is True else ""))
                 if opening:
                     sid = r.get("sessionId") or ""
                     print("Session id: %s" % sid if sid else "Its session id was not known yet; it is in the Steward panel.")
                 return 0
+            if outcome == "drafted" and not action:
+                print(DRAFTED)
+                return 1
             line = SAID.get(outcome, "Not sent") if not action else ("Not done" if outcome != "uncertain" else SAID["uncertain"])
             print("%s: %s" % (line, reason or outcome))
             return 1
@@ -354,6 +376,8 @@ def main(argv):
                 print("  " + line)
         elif handing:
             print("Not done: no VS Code window that shows a steward of this conversation took the request." + NOT_HANDED)
+        elif other:
+            print("Not done: no VS Code window that shows this steward conversation took the request.")
         else:
             print("Not done: no VS Code window that shows that conversation took the request. If no window has it open, "
                   "--resume opens it.")
