@@ -2618,7 +2618,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const second = boxes.map(([id]) => id).find((id) => id !== chosen);
         if (second) {
           const managesIt = (on) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(second) === on; } catch (_) { return false; } };
-          const at = await frame.locator(`input[data-id="${second}"]`).first().boundingBox();
+          const box2 = frame.locator(`input[data-id="${second}"]`).first();
+          await box2.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+          const at = await until(() => box2.boundingBox().catch(() => null), 10000, 300);
           if (at) {
             await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
             await page.mouse.down();
