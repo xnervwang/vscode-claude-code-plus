@@ -634,9 +634,9 @@ function workerRows({ records = [], found = [], dir = planDir() } = {}) {
 }
 
 /*
- * The detached commands for the agent map. A command a `claude -p` worker left running keeps the dot of the
- * conversation that started the worker green (working above), also once the worker has ended and its own row is gone,
- * so it carries that conversation as `launcher` for its map to list.
+ * The detached commands for the agent map. A command that a `claude -p` worker left running keeps the dot of the
+ * conversation that started the worker green (working above), even after the worker has ended and its row is gone.
+ * Such a command carries that conversation as `launcher`, and that conversation's map lists it.
  */
 function jobRows({ jobs = [], dir = planDir() } = {}) {
   if (!Array.isArray(jobs) || !jobs.length) return [];

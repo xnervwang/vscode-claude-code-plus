@@ -258,7 +258,7 @@ async function run() {
     let result = null;
     try { result = JSON.parse(fs.readFileSync(resultFile, 'utf8')); } catch (_) { result = null; }
     eq([reached, result && result.outcome], [[[OC, require(path.join(root, 'src', 'stewards.js')).withFrom(STEWARD, '', TEXT)]], 'submitted'],
-      'a steward\'s message to an OpenCode Agent Plus conversation goes through Agent Plus\'s deliver() to that source once, after the line naming the steward, and the relay reports it submitted');
+      'a steward\'s message to an OpenCode Agent Plus conversation reaches that source once through Agent Plus\'s deliver(), with the line naming the steward first, and the relay reports it submitted');
 
     const ap = exported.agentPlus;
     if (!(Array.isArray(ap.features) && ap.features.includes('stewards') && typeof ap.stewardOf === 'function')) {
@@ -304,8 +304,8 @@ async function run() {
       const first = ap.stewardOf('opencode-plus', OC);
       eq([!!both, listed(), first && [first.sourceId, first.sessionId], changes > 0],
         [true, [['claude-code', SECOND, 'Night steward'], ['claude-code', STEWARD, 'Docs steward']], ['claude-code', SECOND], true],
-        'with Agent Plus\'s stewardList, stewardsOf names both stewards of an OpenCode Agent Plus conversation with their titles, the one the user typed to last first, '
-          + 'stewardOf gives that first one, and the change reached onDidChangeStewards');
+        'with Agent Plus\'s stewardList, stewardsOf names both stewards of an OpenCode Agent Plus conversation with their titles, ordered by when the user last typed to each, most recent first; '
+          + 'stewardOf gives the first of them, and the change reached onDidChangeStewards');
     }
   } finally {
     for (const c of [selfContext, coreContext]) for (const d of c.subscriptions.splice(0)) { try { d.dispose(); } catch (_) { /* gone */ } }

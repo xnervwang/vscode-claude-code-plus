@@ -408,8 +408,8 @@
    * The commands this conversation left running detached, which the extension host finds among the machine's processes
    * (src/detached.js). Claude Code keeps no account of them, and they are what keeps the conversation's dot green once
    * its turn is over; the command line shows whether one is the work itself or, say, a server a build left behind.
-   * One that holds a worker listed above is that worker's wrapper, and is left out. A command a `claude -p` worker of
-   * this conversation left running is listed too, since it keeps this conversation's dot green after the worker ends.
+   * One that holds a worker listed above is that worker's wrapper, and is left out. Commands that a `claude -p` worker
+   * of this conversation left running are listed too, even after the worker has ended.
    */
   var myDetached = function(){
     if (isOff('detachedCommands')) return [];

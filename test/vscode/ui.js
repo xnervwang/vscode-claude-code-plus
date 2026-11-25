@@ -86,8 +86,8 @@
  *                  second
  *   several stewards
  *                  two stewards in two windows ticking one conversation: its box stays free in the other's panel, a
- *                  steward's own box is still greyed, the row ends in an eye with 1 in each panel, its hover names the
- *                  other steward, and a click on the name brings that steward up in its window
+ *                  steward's own box is still greyed, the eye at the end of its row names the other steward, and a
+ *                  click on that name brings that steward up in its window
  *   closed, sidebar, archived
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
@@ -1148,9 +1148,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!back && await until(async () => await theirTimes() === 0, 10000, 500), 'turned back on, they are back, and Claude Code\'s are hidden again', await stampsIn(conv));
     });
 
-    /* A message typed into a conversation for someone else, through Agent Plus as its Answer view and a steward's messages
-       go, while the user types in another conversation's panel beside it. The panel says it is ready and types only on
-       the host's go, and the user's focus and keys stay in the other panel. */
+    /* Agent Plus has a message typed into a conversation, as its Answer view and a steward's messages are, while the
+       user types in another conversation's panel beside it. The panel says it is ready and types only on the host's
+       go, and the user's focus and keys stay in the other panel. */
     await step('a message typed for someone else', async () => {
       if (!conv) throw new Error('the conversation did not open');
       const t1 = threads[1];
@@ -1365,8 +1365,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await box().click();
       await page.keyboard.type('/tasks');
       /* The box leaves Enter to the command menu as soon as the menu counts as open, but the menu only starts listening
-         for keys in an effect after it has drawn. An Enter pressed in between reaches neither and becomes a new line,
-         so wait for the box to point at the menu's /tasks row, which the menu does once it is drawn. */
+         for keys in an effect after it has drawn. An Enter pressed in between reaches neither and becomes a new line.
+         The menu makes the box point at its /tasks row once it has drawn, so wait for that. */
       const picked = () => conv.evaluate(() => {
         const b = document.querySelector('[contenteditable][role="textbox"]');
         const id = b && b.getAttribute('aria-activedescendant');
@@ -3340,7 +3340,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await setLoad(true);
       await reloadAndWait(front);
       const withIt = await until(() => loaded(behind), 60000, 1000);
-      /* The tab behind is loaded by showing it, and the one that was in front is then brought back. */
+      /* Showing the tab behind loads it; the tab that was in front is then shown again. */
       const inFront = await until(async () => { const t = (await claudeTabs()).find((x) => x.active); return t && titled(t.label, front.title) && t; }, 10000, 300)
         || (await claudeTabs()).find((t) => t.active);
       check(!without && !!withIt && !!inFront && titled(inFront.label, front.title),
@@ -3978,7 +3978,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         return b ? { checked: b.checked, disabled: b.disabled, why: w ? w.dataset.why : '' } : null;
       }, id).catch(() => null);
       const header = (f) => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; }).catch(() => '');
-      /* The eye at the end of a row: its count, whether it comes last in the row, its colour against the row's text,
+      /* Reads a row's eye: its count, whether anything follows it in the row, its colour against the row's text,
          whether its list shows, and the stewards that list names. */
       const eyesIn = (f, id) => f.evaluate((id) => {
         const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'), e = li && li.querySelector('.eyes');
@@ -4040,7 +4040,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!both && !!sa && sa.disabled && sa.why === 'This conversation is a steward, and a steward is not managed by another',
           'the second steward ticks it as well, so both lists have it; a steward\'s own box is still greyed in the other\'s panel', { table: table(), sa });
 
-        /* Each panel ends X's row with an eye and 1, the other steward. */
+        /* In each panel, X's row ends with an eye and the count 1, for the other steward. */
         const eyeA = await until(async () => { const e = await eyesIn(panelA, X.id); return e && e.n === '1' && e; }, 30000, 500);
         const eyeB = await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.n === '1' && e; }, 30000, 500);
         check(!!eyeA && !!eyeB && eyeA.last && eyeB.last && eyeA.svg && !eyeA.shown && !eyeA.by && !eyeB.by && eyeA.colour !== eyeA.text,
@@ -4060,7 +4060,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!namedA && namedA.names.length === 1 && namedA.names[0].to === Q1.id,
           'and in A\'s panel it names the steward in B', namedA || await eyesIn(panelA, X.id));
 
-        /* Clicked, a name brings that steward's conversation to the front in its window. */
+        /* Clicking a name brings that steward's conversation to the front in its window. */
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
         await panelB.locator(eyeOf(X.id)).first().hover();
@@ -4113,8 +4113,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const arrivedB = /^Sent: /.test(forced) && await until(() => inX(second2), 30000, 500);
         const signed = arrivedB && fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(`Sent by the steward "${Q1.title}" (${Q1.id}) for the user:\n${second2}`).slice(1, -1));
         check(!!arrivedA && held.includes(`"${SA.title}" (${SA.id})`) && held.includes(first2) && /--anyway/.test(held) && !!arrivedB && !!signed,
-          'a steward\'s message to a conversation another steward sent one to a moment ago is held back, with that message and the steward that sent it, '
-          + 'and --anyway sends it, after the line naming the steward that sent it', { sentA, held, forced });
+          'a steward\'s message to a conversation that another steward messaged a moment ago is held back, showing the earlier message and who sent it; '
+          + '--anyway sends it, after the line that names its sender', { sentA, held, forced });
 
         /* A handoff with --to goes to the steward it names, not to the one whose message started the turn. */
         const moved = 'The user asked here for the release notes, which belong in another conversation.';
@@ -4127,12 +4127,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const notQ1 = !fs.readFileSync(fileOf(Q1), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`);
         const stranger = await actAs(X, ['--handoff', '--to', Q2.id], moved);
         check(!!gotA && notQ1 && /^Not done: .* does not manage this conversation\. Its stewards are /.test(stranger),
-          'a managed conversation hands off with --to to the steward it names, though another steward\'s message started its turn, and is refused a --to naming no steward of it',
+          'a managed conversation\'s handoff with --to goes to the steward it names, though another steward\'s message started its turn, and a --to that names none of its stewards is refused',
           { handed, stranger });
 
-        /* A steward changes its own list when the user asks in it; asked by a notice, it refuses. New conversations goes
-           on first: with it off, unticking the steward's only conversation would leave it no longer a steward, and only
-           a steward changes its list this way. */
+        /* A steward changes its own list when the user asks for it in the steward conversation, and refuses when a
+           notice asks. New conversations goes on first: with it off, unticking the steward's only conversation would
+           leave it no longer a steward, and only a steward changes its list this way. */
         userSays(SA, 'Turn on New conversations.');
         const newOn = await actAs(SA, ['--new', 'on']);
         const laterBox = /^Done: /.test(newOn) && !!table()[SA.id].newSince

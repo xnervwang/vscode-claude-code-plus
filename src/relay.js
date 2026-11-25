@@ -20,9 +20,9 @@
  * conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation hands
  * something it thinks belongs elsewhere to one of its stewards (`from` is then the one asking, and `to` the steward it
  * named, or empty). A window showing that steward takes it and posts it, as a notice and never as the user's message,
- * to the steward's inbox. Without a steward named, it goes to the steward whose message started the asking
- * conversation's current turn, else to the steward the user last typed to, or failing that to the next one that can be
- * reached.
+ * to the steward's inbox. Without a steward named, the one whose message started the asking conversation's current
+ * turn is tried first, then the others from the one the user typed to most recently; the first that can be reached
+ * takes it.
  *
  * Every message a steward sends starts with a line naming that steward (fromLine in src/stewards.js), which tells the
  * conversation whom it heard from. A window that sends one records it in SENDS_FILE, where steward-relay.py looks for
@@ -31,9 +31,9 @@
  * `take`, `drop`, `all` and `new` change the asking steward's own list: they tick or untick one conversation, or turn
  * "All, including new ones" or "New conversations" on or off (`to` is the conversation, or "on" or "off"). Only the
  * user may ask for that, in the steward conversation itself: the window that shows the steward carries one out only
- * when the latest message before the tool call is one the user typed there (typedBefore). A message from another
- * session, a notice, a handoff, text Claude Code wrote, or a text Claude Code Plus typed into the panel for someone
- * else (TYPED_DIR) does not count.
+ * when the latest message before the tool call is one the user typed there (typedBefore). Messages from another
+ * session, notices, handoffs, rows Claude Code wrote and texts Claude Code Plus typed into the panel for someone else
+ * (TYPED_DIR) do not count.
  *
  * Any process can write a request file. A window carries one out only if the conversation is one the steward manages
  * (for `open`, `resume` and the list actions, only if the one asking is a steward; for `handoff`, only if a steward
@@ -83,7 +83,6 @@ const MAX_TITLE = 200;
 const FLAGS = { rename: '--rename', close: '--close', open: '--open', resume: '--resume', handoff: '--handoff',
   take: '--take', drop: '--drop', all: '--all', new: '--new' };
 const ACTIONS = ['send', ...Object.keys(FLAGS)];
-/* The actions that change the asking steward's own list. */
 const LIST = ['take', 'drop', 'all', 'new'];
 const SWITCHES = ['all', 'new'];
 const CONFIRMED = '--confirmed';
@@ -377,8 +376,8 @@ const isSkillText = (r) => !!r.sourceToolUseID || /^Base directory for this skil
 const HOOK_TEXT = /^[A-Za-z]+(?::\S+)? hook (?:feedback|additional context|blocking error|error)\b/i;
 
 /*
- * The text of the message that started the current turn of the conversation of transcript `file`: its latest user row
- * that is neither a tool result nor one Claude Code wrote (isMeta). '' when there is none in the part read.
+ * The text of the message that started the conversation's current turn, from its transcript `file`: the latest user
+ * row that is neither a tool result nor one Claude Code wrote (isMeta). '' when the part read has none.
  */
 function turnStart(file) {
   const lines = file ? sentCheck.tail(file, TAIL_BYTES) : [];
@@ -404,7 +403,7 @@ function notTyped(line, text, planDir, now) {
   if (text.startsWith('<task-notification')) return 'it is a task notification';
   if (HOOK_TEXT.test(text)) return 'it is a hook\'s output';
   if (typedForOthers(planDir, text, now)) {
-    return 'Claude Code Plus typed it into this conversation for someone else, such as an answer from Agent Plus\'s Answer view '
+    return 'Claude Code Plus typed it into this conversation, as it does for an answer from Agent Plus\'s Answer view '
       + 'or a message from another agent\'s conversation';
   }
   if (!typedAt(line)) return 'it was not typed by the user: Claude Code marks it as coming from elsewhere';
@@ -412,7 +411,7 @@ function notTyped(line, text, planDir, now) {
 }
 
 /*
- * Why the tool call `callId` in transcript `file` was not asked for by the user typing in that conversation, or ''.
+ * '' if the user, typing in the conversation of transcript `file`, asked for the tool call `callId`; else the reason.
  * The message that counts is the latest one before the call: the row that started the turn, or a message queued while
  * it ran. A row Claude Code wrote right after the user's message, as for an attached image, belongs to that message; a
  * skill's text is part of the turn's work.
@@ -444,7 +443,7 @@ function typedBefore(file, callId, planDir, now = Date.now()) {
       while (k >= 0 && rows[k] && rows[k].type === 'attachment') k--;
       const before = k >= 0 ? rows[k] : null;
       if (before && before.type === 'user' && !before.isMeta && !before.isSidechain && !isToolResult(before)) { j = k + 1; continue; }
-      return 'the turn was started by text Claude Code wrote, not by a message the user typed';
+      return 'the turn was started by text Claude Code wrote';
     }
     if (!text || text.startsWith('[Request interrupted')) continue;
     return notTyped(lines[j], text, planDir, now);
@@ -533,7 +532,7 @@ async function carryOut(req, action, to, dir, deps, now) {
     if (!t) {
       return { outcome: 'refused', reason: stewardTable.stewardsOf(table, asker).length
         ? 'a steward manages this conversation, so it cannot have a list of its own this way; the user ticks conversations for it in the Steward panel'
-        : 'the one asking is not a steward; the user makes a conversation a steward by ticking conversations for it in the Steward panel' };
+        : 'the one asking is not a steward; ticking conversations for it in the Steward panel makes it one' };
     }
     if (SWITCHES.includes(action) && to !== 'on' && to !== 'off') return { outcome: 'refused', reason: `${FLAGS[action]} takes on or off` };
     if (!SWITCHES.includes(action) && !String(to || '').trim()) return { outcome: 'refused', reason: 'no conversation was named' };
@@ -616,9 +615,9 @@ async function carryOut(req, action, to, dir, deps, now) {
   return out;
 }
 
-/* Gives a handoff to one of `stewards`: `to` when the conversation named one, and no other; else the one whose message
-   started the conversation's current turn, then the one the user last typed to, or failing that the next by the same
-   order. */
+/* Gives a handoff to one of `stewards`. When the conversation named one (`to`), only that one is tried. Otherwise the
+   one whose message started the conversation's current turn goes first, then the others from the one the user typed
+   to most recently; the first that can be reached takes it. */
 async function handOff(stewards, from, text, table, deps, to = '') {
   let order = to ? [to] : stewardTable.byUser(stewards, (s) => lastUserAt(deps.transcriptOf(s)));
   const starter = to ? '' : turnStarter(deps.transcriptOf(from));

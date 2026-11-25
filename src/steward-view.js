@@ -503,7 +503,7 @@ function create(vscode, deps) {
   /* The title the panel uses when its text names a conversation. */
   const nameOf = (id, all = last) => (all.get(id) && all.get(id).title)
     || titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: id, name: '', cwd: '' }, deps.titles({ sessionId: id }), () => deps.readPlan(id))) || id;
-  /* A steward's box cannot be ticked, since a steward is not managed by another. Other stewards' ticks do not matter. */
+  /* Only the box of a steward is locked, since stewards are never managed. Other stewards' ticks leave a box free. */
   const lockOf = (table, id) => (table[id] ? { lock: true, why: 'This conversation is a steward, and a steward is not managed by another', by: 'a steward' }
     : { lock: false, why: '', by: '' });
 
@@ -630,11 +630,11 @@ function create(vscode, deps) {
    * Notices for the stewards whose panel this window shows. A notice starts a turn in an idle steward, so it is sent
    * only if a conversation began waiting for the user, has more questions for the user than at the last pass, ended a
    * turn that this steward's message started or while the steward's plan names it, or has background work that ended
-   * without finishing. A wait or a new question wakes one of the conversation's stewards, the one the user typed to
-   * last among those some window shows (ownerOf), and the record of who was given which (src/steward-watch.js given)
-   * keeps every other steward from putting it to the user again. A steward gets at most one notice per NOTICE_GAP_MS;
-   * conversations often stop within a minute of each other. What a steward has been told is read from its file once
-   * and written back as it changes.
+   * without finishing. A wait or a new question wakes only one of the conversation's stewards: of those some window
+   * shows, the one the user typed to most recently (ownerOf). The record of which steward was given each one
+   * (src/steward-watch.js given) keeps the others from putting it to the user again. A steward gets at most one notice
+   * per NOTICE_GAP_MS; conversations often stop within a minute of each other. What a steward has been told is read
+   * from its file once and written back as it changes.
    */
   const pending = new Map(), sentAt = new Map(), asked = new Map(), told = new Map(), workAt = new Map();
   /* When each conversation was first seen stopped after working or running background work. Its state counts as
@@ -658,8 +658,8 @@ function create(vscode, deps) {
     return after;
   };
   const userAt = relay.lastUserCache();
-  /* The steward whose message another agent's conversation got last, from the file beside its plan that its agent
-     writes at the end of each turn (hooks/steward-peek.py reads the same file). */
+  /* For another agent's conversation, the steward whose message it got last, read from the file beside its plan that
+     its agent writes at the end of each turn (hooks/steward-peek.py reads the same file). */
   const otherStarter = (id) => {
     const file = planFile(id);
     let d = null;
@@ -837,7 +837,7 @@ function create(vscode, deps) {
     }
     return stewards.setManaged(steward, mine, titlesOf(mine), { dir: deps.dir, later: on, before: otherKeys(), paths: plansOf(mine), title: nameOf(steward) });
   };
-  /* The conversation `given` names for steward `steward`: a key or session id, or else an exact title. For `drop`, only
+  /* The conversation that `given` (a key, a session id, or else an exact title) names for `steward`; for `drop`, only
      among those on its list. { key } or { why }. */
   const named = (given, steward, table, onList) => {
     const g = String(given || '').trim(), key = keys.managedId(g);
@@ -851,9 +851,9 @@ function create(vscode, deps) {
     return { why: `${hits.length} conversations have the title "${g}" (${hits.join(', ')}); give the session id of the one meant` };
   };
   /*
-   * A steward's request, which the user made in that steward conversation (src/relay.js checks that), to change its
-   * own list: `take` or `drop` one conversation, or turn `all` or `new` on or off. Returns { outcome, reason }; the
-   * reason says what was done.
+   * Carries out a steward's request to change its own list: `take` or `drop` one conversation, or turn `all` or `new`
+   * on or off. The user made the request in that steward conversation, which src/relay.js checks. Returns
+   * { outcome, reason }; the reason says what was done.
    */
   const listChange = (steward, action, target) => {
     const refuse = (reason) => ({ outcome: 'refused', reason });
@@ -874,7 +874,7 @@ function create(vscode, deps) {
     const id = n.key, label = `"${nameOf(id)}" (${id})`;
     if (action === 'take') {
       if (id === steward) return refuse('a steward does not manage itself');
-      if (table[id]) return refuse(`${label} is a steward, and a steward is not managed by another`);
+      if (table[id]) return refuse(`${label} is a steward, so no steward can manage it`);
       if (!keys.isClaude(id) && !keys.allowed(id)) return refuse(`a steward cannot manage ${keys.labelOf(id)} conversations`);
       if (t.manages.includes(id)) return { outcome: 'submitted', reason: `${label} was already ticked for this steward` };
       if (t.all) return { outcome: 'submitted', reason: `All, including new ones, is on, so this steward manages ${label} already` };

@@ -475,8 +475,7 @@ async function stewardPanel(d) {
   return frame;
 }
 const stewardsFile = (d) => path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
-/* Opens the Steward panel on the demo conversation, which ticked the second of the other two conversations, while the
-   first is a steward that ticked it too. */
+/* Opens the Steward panel on the demo conversation, with t2 ticked both by it and by t1, which is a steward. */
 async function severalPanel(d) {
   const [t1, t2] = d.threads.slice(1);
   for (const t of [t1, t2]) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
@@ -494,7 +493,7 @@ async function severalPanel(d) {
   d.several = frame;
   return frame;
 }
-/* A message typed by the user into conversation `id`, as its transcript records one. */
+/* Appends to the transcript of conversation `id` a row for a message the user typed. */
 function typed(d, id, text) {
   fs.appendFileSync(transcriptFile(d, id), JSON.stringify({ sessionId: id, cwd: d.profile.folder, isSidechain: false, type: 'user',
     uuid: `${id.slice(0, 24)}${String(795000 + relayCalls++).padStart(12, '0')}`, timestamp: new Date().toISOString(), permissionMode: 'default',
@@ -1601,8 +1600,8 @@ const STEPS = [
     },
   },
   /* Several stewards: in the panel of the conversation in front, another steward's box is greyed and says why on hover,
-     and the row of a conversation another steward also ticked ends in an eye with their number, which lists them on
-     hover. The other steward is set by writing the table, as its own panel would. In both themes. */
+     and the row of a conversation another steward also ticked ends in an eye with their number; hovering over the eye
+     lists them. The other steward is set by writing the table, as its own panel would. In both themes. */
   ...['dark', 'light'].flatMap((tone) => [
     {
       name: `steward-eye${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
@@ -1707,9 +1706,9 @@ const STEPS = [
   },
   {
     name: 'steward-list-changed', features: ['steward-list-change'],
-    expect: 'The Steward panel for the demo conversation, which you asked in its own conversation to take "Add a dry-run flag to the cleanup '
-      + 'script" and to stop managing "Why does the nightly export skip archived rows?": its script did both, so the first row is ticked and the '
-      + 'second is not, and the header counts 1.',
+    expect: 'The Steward panel for the demo conversation, after you asked it in its own conversation to take "Add a dry-run flag to the cleanup '
+      + 'script" and to stop managing "Why does the nightly export skip archived rows?". The row of "Add a dry-run flag to the cleanup script" '
+      + 'is ticked, the row of "Why does the nightly export skip archived rows?" is not, and the header counts 1.',
     unchanged: null,
     act: async (d) => {
       const [t1, t2] = d.threads.slice(1);

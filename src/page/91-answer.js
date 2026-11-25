@@ -61,8 +61,8 @@
       if (lines[i]) document.execCommand('insertText', false, lines[i]);
     }
   };
-  /* Why the answer cannot go into the input now, or null. The input's own text rides along with 'draft', so that the
-     host can tell a text it typed there itself. */
+  /* Why the answer cannot go into the input now, or null. The input's own text comes back with 'draft', so that the
+     host can see whether it typed that text itself. */
   var MAX_DRAFT = 8000;
   var refusal = function(m){
     if (showsOther(m)) return { reason: 'not-shown' };
@@ -100,7 +100,7 @@
     if (!w) return;
     delete awaitingGo[id];
     clearTimeout(w.timer);
-    /* A page that was frozen runs the go after its own timer was due. */
+    /* A frozen page can get to the go after its own timer was due. */
     if (Date.now() - w.at > GO_WAIT_MS) { answerResult(id, false, 'late'); return; }
     var no = refusal(w.m);
     if (no) { answerResult(id, false, no.reason, no.detail); return; }

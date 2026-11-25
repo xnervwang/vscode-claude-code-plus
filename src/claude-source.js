@@ -124,7 +124,7 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   timeZone()                      the zone a panel reported, or ''
  *   isSteward(sessionId)            optional: whether the conversation is a steward, which gets the crown
  *   stewardsOf(sourceId, sessionId) optional: the stewards that look after that conversation, as [{ sessionId, title }],
- *                                   the one the user typed to last first
+ *                                   ordered by when the user last typed to each, most recent first
  *   isBackground(id, cwd)           optional, for tests
  */
 function createClaudeSource(deps) {
@@ -199,12 +199,12 @@ function createClaudeSource(deps) {
     return r;
   };
   const yes = (name, ...a) => { try { return typeof deps[name] === 'function' && deps[name](...a) === true; } catch (_) { return false; } };
-  /* A text this extension typed there earlier and that is still in the input is named as such, so that the one asking
-     does not take it for the user's own draft. */
+  /* When the input still holds a text this extension typed there earlier, the refusal says so; the one asking would
+     otherwise take it for the user's own draft. */
   const refused = (reason, detail) => {
     const r = outcomeOf(false, reason);
     if (reason === 'draft' && detail && yes('typedFor', detail)) {
-      r.reason = 'the message input already had text in it, a message that Claude Code Plus typed into a panel for a steward or for Agent Plus in the last day; check whether the conversation received it, and the user can clear the input there';
+      r.reason = 'the message input already had text in it, which Claude Code Plus typed into a panel for a steward or for Agent Plus in the last day; check whether the conversation received it, and the user can clear the input there';
     }
     return r;
   };
@@ -221,7 +221,7 @@ function createClaudeSource(deps) {
       const expire = () => {
         pending.delete(key);
         if (confirm && !went) {
-          resolve({ outcome: 'notReceived', reason: `the panel showing it did not answer within ${ANSWER_READY_MS / 1000} seconds, as when its window has lost its connection; it was not typed and will not be typed later` });
+          resolve({ outcome: 'notReceived', reason: `the panel showing it did not answer within ${ANSWER_READY_MS / 1000} seconds, as when its window has lost its connection, and it never types the text after that` });
           return;
         }
         resolve(recheck(sessionId, text, since, { outcome: 'uncertain', reason: went
@@ -233,7 +233,7 @@ function createClaudeSource(deps) {
         if (confirm && !went && !sent && reason === 'ready') {
           went = true;
           clearTimeout(timer);
-          if (!yes('go', key)) { resolve({ outcome: 'notReceived', reason: 'the panel that took the text could not be told to type it' }); return; }
+          if (!yes('go', key)) { resolve({ outcome: 'notReceived', reason: 'the panel holding the text could not be reached, so it did not type it' }); return; }
           pending.set(key, result);
           timer = setTimeout(expire, ANSWER_GO_MS);
           return;
@@ -270,7 +270,8 @@ function createClaudeSource(deps) {
     onDidChangeStewards: stewardsChanged.event,
 
     /* Agent Plus asks these so that another agent's conversation is told which stewards watch it and can hand one of
-       them messages: every steward of the conversation, the one the user typed to last first, and that first one. */
+       them messages: every steward of the conversation, ordered by when the user last typed to each (most recent
+       first), and the first of them. */
     stewardsOf(sourceId, sessionId) {
       if (!enabled() || typeof deps.stewardsOf !== 'function') return [];
       let list = [];

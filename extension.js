@@ -807,7 +807,7 @@ function start(context, log, renamed, handing = false) {
   /* The list of running conversations, shared between windows (listAgents in src/waiting.js). A shared list is at most
      20 seconds old when a window takes it, and src/claude-source.js caches it for that window like any other. */
   const AGENTS_FILE = 'agents.json', AGENTS_SHARE_MS = 20000;
-  /* The conversations whose page waits for a go before it types an answer (src/page/91-answer.js), by session id. */
+  /* Session ids of the conversations whose page types an answer only after the host says go (src/page/91-answer.js). */
   const confirming = new Set();
   /* Created here because it reads globals the patched host sets in this process. */
   const claude = createClaudeSource({
@@ -1102,8 +1102,8 @@ function start(context, log, renamed, handing = false) {
     try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
   };
-  /* The stewards of conversation `key`, as Agent Plus asks for them: the one the user typed to last first, as handoffs
-     go (src/relay.js). */
+  /* The stewards of conversation `key`, as Agent Plus asks for them: ordered by when the user last typed to each, most
+     recent first, which is the order handoffs fall back on (src/relay.js). */
   const userAtOf = relay.lastUserCache();
   const stewardTitleOf = (id, table) => (table[id] && table[id].title) || steward.titleOf(id);
   const stewardsOfKey = (key) => {

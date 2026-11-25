@@ -29,7 +29,7 @@
     var v = rowActivity && rowActivity.value;
     return v && typeof v === 'object' ? v : { dots: {}, stewards: [], managedBy: {} };
   };
-  // managedBy: session id -> the titles of the stewards that manage it, for the row's hover text (84-row-hover.js).
+  // managedBy: session id -> its stewards' titles, for the row's hover text (84-row-hover.js).
   window.__cceSetActivity = function(map, stewards, managedBy){
     try {
       var next = { dots: map && typeof map === 'object' ? map : {},

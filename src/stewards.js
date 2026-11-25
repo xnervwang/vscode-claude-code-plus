@@ -12,8 +12,8 @@
  * the window that shows a steward, when it carries out that steward's request to change its own list or ticks a
  * conversation the steward has just opened (src/relay.js).
  *
- * A conversation can have several stewards, each ticking it on its own; a steward has none: a conversation that becomes
- * a steward leaves every list it was on.
+ * A conversation can have several stewards, and each one ticks it on its own. A steward has none: a conversation that
+ * becomes a steward leaves every list it was on.
  *
  *   { "version": 3, "stewards": { "<steward session id>": { "manages": ["<key>", ...],
  *                                                          "ticked": ["<key>", ...],
@@ -36,8 +36,8 @@
  * the part of "manages" ticked by hand, or opened by the steward itself, rather than added by "all"; it is written only
  * for a steward with "all" on, since every other steward's list is all ticked.
  *
- * "newSince" is there while "New conversations" is on: since that time the steward's window ticks for it every
- * conversation that starts, except stewards and the ones in "newSkip", which were unticked while the switch was on.
+ * "newSince" is there while "New conversations" is on: the steward's window adds to its list each conversation that
+ * starts after that time, except stewards and the ones in "newSkip", which were unticked while the switch was on.
  * Another agent's conversation has no start time this extension can read, so one counts as new when it was not among
  * "newBefore", that agent's conversations listed when the switch was turned on.
  *
@@ -183,8 +183,8 @@ function migrate(dir = planDir()) {
   return write(settled, dir);
 }
 
-/* Whether `steward` manages conversation `id`: its list has it, or it has "all" on and `id` is no steward, even when
-   `id` is missing from its list for the moment. */
+/* Whether `steward` manages conversation `id`: `id` is on its list, or the steward has "all" on and `id` is not a
+   steward, which holds even while `id` is not on the list yet. */
 function manages(table, steward, id) {
   const t = table[steward];
   return !!t && (t.manages.includes(id) || (t.all && id !== steward && !table[id]));
@@ -201,18 +201,18 @@ function stewardsOf(table, key) {
   return Object.keys(table).filter((s) => manages(table, s, key));
 }
 
-/* `list` with the steward the user typed to last first (`userAt(id)`, 0 when unknown), and session id order between
-   stewards with the same time. */
+/* `list` ordered by when the user last typed to each steward (`userAt(id)`, 0 when unknown), most recent first, and by
+   session id between stewards with the same time. */
 const byUser = (list, userAt) => list.map((s) => ({ s, at: Number(userAt(s)) || 0 }))
   .sort((a, b) => (b.at - a.at) || (a.s < b.s ? -1 : a.s > b.s ? 1 : 0)).map((x) => x.s);
 
 /**
  * Sets what `steward` manages to `list`, with the titles in `names` and, for another agent's conversations, the plan
  * files in `paths`; a conversation missing from either keeps what the table had for it. `every` turns "all" on or off,
- * and `later` "New conversations" (with `before`, the other agents' conversations listed then); without them the
- * settings stay. With "all" on, `ticked` lists the conversations in `list` that were ticked by hand (by default, those
- * ticked before); with it off, the whole list counts as ticked. `title` is the steward's own title. Stewards are left
- * out of the list. An empty list removes the steward from the table unless a switch is on.
+ * and `later` turns "New conversations" on or off; `before` gives the other agents' conversations listed when it is
+ * turned on. Without them the settings stay. With "all" on, `ticked` lists the conversations in `list` that were ticked
+ * by hand (by default, those ticked before); with it off, the whole list counts as ticked. `title` is the steward's own
+ * title. Stewards are left out of the list. An empty list removes the steward from the table unless a switch is on.
  */
 function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked, paths = {}, title, later, before } = {}) {
   const all = read(dir);
@@ -335,7 +335,7 @@ function noticeText(list, names, details = {}) {
     if (d.waitingOn) more.push(`  Waiting on ${d.waitingOn}`);
     for (const q of d.asks || []) more.push(`  Question for the user: ${q}`);
     for (const h of d.held || []) {
-      more.push(`  Already given to the steward ${h.title ? `"${h.title}" ` : ''}(${h.steward}), which puts it to the user: ${h.text}`);
+      more.push(`  Already given to the steward ${h.title ? `"${h.title}" ` : ''}(${h.steward}), which asks the user: ${h.text}`);
     }
     return [head].concat(more).join('\n');
   };
