@@ -8293,15 +8293,15 @@ console.log('\nsearching the session list by session id');
   const env = { window: {}, isOff: (k) => env.offKey === k, offKey: '' };
   vm.createContext(env);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-search-by-id.js'), 'utf8'), env);
-  const one = { sessionId: sig('69f92b14-1833-4321-8d21-58c2b8ca27a7') };
+  const one = { sessionId: sig('7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346') };
   const m = (q) => env.window.__cceIdMatch(one, q);
-  const got = ['69f92b14', '69F92B14', ' 1833-4321 ', '58c2b8ca27a7', 'de', 'add', 'adv-design', '0000', ''].map(m);
+  const got = ['7d2a5c81', '7D2A5C81', ' 9e4f-4b63 ', 'c5f0e2b9d346', 'de', 'add', 'map-design', '0000', ''].map(m);
   const want = [true, true, true, true, false, false, false, false, false];
   if (JSON.stringify(got) === JSON.stringify(want)) {
     ok('part of a session ID finds its conversation; a query shorter than four characters, or one that cannot be part of an ID, does not test the ID');
   } else bad(`ID matching gave ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
   env.offKey = 'sessionIdSearch';
-  if (m('69f92b14') === false) ok('the switch off leaves the search to the title and the branch');
+  if (m('7d2a5c81') === false) ok('the switch off leaves the search to the title and the branch');
   else bad('the switch off still matched the session ID');
   env.offKey = '';
   const { applyEdits } = require('../src/edits');
@@ -8312,13 +8312,13 @@ console.log('\nsearching the session list by session id');
   else {
     vm.runInContext(r.out, env);
     const rows = [
-      { sessionId: sig('69f92b14-1833-4321-8d21-58c2b8ca27a7'), gitBranch: sig('main'), t: 'Media skills' },
-      { sessionId: sig('183f7e74-ec1e-408a-b4cd-da3791f683cb'), gitBranch: sig('feature/adv'), t: 'Extension source' },
+      { sessionId: sig('7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346'), gitBranch: sig('main'), t: 'Garden notes' },
+      { sessionId: sig('3c9e1f27-5b4d-4e8a-9f61-2d7c8b0a4e53'), gitBranch: sig('feature/maps'), t: 'Recipe box' },
     ];
     const run = (q) => JSON.stringify(env.f(rows, q, (x) => x.t));
-    const got2 = [run('69f9'), run('media'), run('adv'), run('xyz')];
-    const want2 = [JSON.stringify(['69f92b14-1833-4321-8d21-58c2b8ca27a7']), JSON.stringify(['69f92b14-1833-4321-8d21-58c2b8ca27a7']),
-      JSON.stringify(['183f7e74-ec1e-408a-b4cd-da3791f683cb']), '[]'];
+    const got2 = [run('7d2a'), run('garden'), run('maps'), run('xyz')];
+    const want2 = [JSON.stringify(['7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346']), JSON.stringify(['7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346']),
+      JSON.stringify(['3c9e1f27-5b4d-4e8a-9f61-2d7c8b0a4e53']), '[]'];
     if (JSON.stringify(got2) === JSON.stringify(want2)) ok('the list\'s filter keeps its title and branch matches and adds the ID test');
     else bad(`the patched filter gave ${JSON.stringify(got2)}, expected ${JSON.stringify(want2)}`);
   }
@@ -8939,7 +8939,7 @@ console.log('\ntext colors in the session list');
   const colors = require('../src/sessioncolors');
   const { applyEdits } = require('../src/edits');
   const frag = (n) => fs.readFileSync(path.join(__dirname, '..', 'src', 'page', n), 'utf8');
-  const A = '69f92b14-1833-4321-8d21-58c2b8ca27a7', B = '183f7e74-ec1e-408a-b4cd-da3791f683cb', C = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const A = '7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346', B = '3c9e1f27-5b4d-4e8a-9f61-2d7c8b0a4e53', C = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
   const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cce-colors-'));
   const file = path.join(dir, colors.FILE);
   try {
@@ -9144,7 +9144,7 @@ console.log('\nbackground sessions left out of the session list');
 {
   const bg = require('../src/bgsessions');
   const { applyEdits } = require('../src/edits');
-  const A = '13758ed9-0b76-42b7-9685-534451164c72', B = '183f7e74-ec1e-408a-b4cd-da3791f683cb', C = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const A = '2e6b9d14-7c3a-4f58-b2e9-6a1d8c4f7b30', B = '3c9e1f27-5b4d-4e8a-9f61-2d7c8b0a4e53', C = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
   const D = 'dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee', E = 'eeeeeeee-bbbb-cccc-dddd-eeeeeeeeeeee';
   const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cce-bg-'));
   try {
