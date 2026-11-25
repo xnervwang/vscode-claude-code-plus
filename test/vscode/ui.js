@@ -236,8 +236,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const claudeButtons = () => page.evaluate(() => [...document.querySelectorAll('.editor-group-container.active .editor-actions .action-item .action-label')]
     .map((a) => a.getAttribute('aria-label') || a.title || '').filter((t) => /Claude/.test(t)));
   const claudeButton = () => page.locator('.editor-group-container.active .editor-actions .action-item .action-label[aria-label*="Claude"]').first();
-  /* Whether an animation frame comes in `f` within 1.5 s. A page that gets no frames still runs its timers, but
-     handles input whose effect waits for the next frame only once it draws again. */
+  /* Whether an animation frame comes in `f` within 1.5 s. A page that gets no frames still runs its timers, but input
+     whose effect needs the next frame does nothing until the page draws again. */
   const paints = (f) => f.evaluate(() => new Promise((r) => {
     const now = (raf) => r({ raf, visibility: document.visibilityState, focus: document.hasFocus(),
       active: String((document.activeElement && (document.activeElement.className || document.activeElement.tagName)) || '').slice(0, 50) });
