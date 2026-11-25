@@ -1294,6 +1294,16 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       /* With nothing running, /tasks opens the map: the conversation's heading and row only. */
       await box().click();
       await page.keyboard.type('/tasks');
+      /* The box leaves Enter to the command menu as soon as the menu counts as open, but the menu only starts listening
+         for keys in an effect after it has drawn. An Enter pressed in between reaches neither and becomes a new line,
+         so wait for the box to point at the menu's /tasks row, which the menu does once it is drawn. */
+      const picked = () => conv.evaluate(() => {
+        const b = document.querySelector('[contenteditable][role="textbox"]');
+        const id = b && b.getAttribute('aria-activedescendant');
+        const row = id && document.getElementById(id);
+        return !!row && /\btasks\b/i.test(row.textContent || '');
+      }).catch(() => false);
+      await until(picked, 5000, 100);
       await page.keyboard.press('Enter');
       const alone = await until(async () => { const l = await mapLook(); return l && l.main && l && l; }, 10000, 500);
       /* `states`: the first states of the component that draws the message box, in the order it declares them. Its key
