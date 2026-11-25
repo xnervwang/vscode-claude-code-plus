@@ -3690,8 +3690,7 @@ console.log('\nwhat the Stop hook says, and how often');
     if (r.said.includes('neither read nor updated')) ok('a plan left untouched by the turn is still the other message');
     else bad(`an untouched plan said ${JSON.stringify(r.said.slice(0, 80))}`);
     /* Stop fires more than once in a single exchange, so without this the reminder arrives in bursts, and a reminder
-       that comes in bursts teaches the reader to skip it. Saying it again about a plan in the same state adds nothing:
-       a reminder that did not work the first time does not work fifth. */
+       that comes in bursts teaches the reader to skip it. */
     const again = [run(t), run(t), run(t)].filter((x) => x.said).length;
     if (!again) ok('and is not repeated while the plan stays in that state');
     else bad(`the reminder repeated ${again} more times in the same turn`);
@@ -5600,8 +5599,8 @@ console.log('\nthe work plan plugin after an uninstall and a reinstall');
     else bad(`${what}: said ${got}`);
     fs.rmSync(h, { recursive: true, force: true });
   }
-  /* Where the marketplace is registered, and when that is a registration this extension takes back: a folder that is gone,
-     or the old id's staged copy, but not another folder that exists. */
+  /* Which registrations of the marketplace this extension registers its own copy over: one at a folder that is gone or
+     at the old id's staged copy, and not one at another folder that exists. */
   {
     const h = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-stray-')));
     try {
@@ -5658,7 +5657,7 @@ console.log('\nthe work plan plugin after an uninstall and a reinstall');
   } else bad('syncPlugin still trusts only its remembered state');
   if (/strayRegistration\(to, legacyCopy\)/.test(body) && /const refreshOnly = !retry && registered && !strayAt;/.test(body)
     && /carryover\.legacyStorage\(/.test(body)) {
-    ok('a marketplace left at a folder that is gone, or at the old extension\'s copy, is registered again at this copy on start');
+    ok('on start, syncPlugin registers the marketplace at this copy again when it was left at a missing folder or at the old extension\'s staged copy');
   } else bad('syncPlugin leaves the marketplace registered at a folder that is gone');
   /* The staged copy is there or not by its contents: one cut short, or being replaced by another window, is there. Its
      contents are the fitted copy, so they are compared with what was recorded when it was staged. */
@@ -13087,7 +13086,7 @@ console.log('\nanswering from the Conversations tab');
       } else bad(`answer with the focus elsewhere and a go: ${at2 === -1 ? 'no result (exit ' + r2.status + ')' : JSON.stringify(got2)}`);
 
       /* A prefill in the same framed page, with the focus in the field around it and a session found the way the panel's
-         is, through the send button's React props: it waits for the go, goes after the input's text with a space only
+         is, through the send button's React props: it waits for the go, is put after the input's text with a space only
          where that text does not end in white space, takes the focus with the caret at its end, leaves composerDraft
          holding the input's text, and no key is pressed. */
       const mark3 = ['CCE', 'PREFILL:'].join('-');
@@ -13141,8 +13140,8 @@ console.log('\nanswering from the Conversations tab');
           && holds('before go', '') && holds('empty', 'About row 1 (Port the parser): ', true) && holds('after mine', 'mine About row 2 (Tests): ', true)
           && holds('typed', 'mine About row 2 (Tests): X') && holds('after a space', 'mine About row 3 (Docs): ', true)
           && holds('two lines', 'About row 4:\nsecond line', true) && holds('no go', 'kept') && holds('another conversation', 'kept') && got3.keys.length === 0) {
-        ok('in a browser a prefill waits for the go, fills an empty input with exactly its text, goes after your text with one space, or none after a space, keeps its line break, '
-          + 'takes the focus with the caret at its end so the next key lands after it, leaves composerDraft holding the input\'s text, presses no key, and types nothing without the go or for another conversation');
+        ok('in a browser a prefill waits for the go, fills an empty input with exactly its text, follows existing text after one space (none if that text ends in a space), keeps its line break, '
+          + 'takes the focus with the caret at its end, leaves composerDraft holding the input\'s text, presses no key, and types nothing without the go or for another conversation');
       } else bad(`prefill in the page: ${at3 === -1 ? 'no result (exit ' + r3.status + ')' : JSON.stringify({ results3, states: got3 && got3.states, keys: got3 && got3.keys })}`);
     }
   }
@@ -13857,19 +13856,21 @@ console.log('\nClaude Code\'s own source');
         && pfIs(pf.badId, 'notReceived') && pfIs(pf.noText, 'notReceived') && !events(pf.badId).includes('prefillTo') && !events(pf.noText).includes('prefillTo')
         && JSON.stringify(pf.reasons) === JSON.stringify({ drafted: 'drafted', 'not-shown': 'notReceived', 'no-input': 'notReceived', insert: 'notReceived',
           late: 'notReceived', unconfirmed: 'uncertain', error: 'uncertain', '': 'uncertain' }) && neverSent) {
-      ok('prefill() brings a conversation shown here to the front and hands its text to the panel, which types it only on the go: drafted when the panel says so, asked again while it has no input, '
-        + 'not received when it refuses, gets no go or never answers, unclear when it goes silent after the go or finds the input holding something else; no answer is ever sent or noted as typed, and the source lists prefill only with the deps it needs');
+      ok('prefill() brings a conversation shown here to the front and hands its text to the panel, which types it only on the go. The result is drafted when the panel says so; the panel is asked again '
+        + 'while it has no input; not received when it refuses, is not told to go, or never answers; uncertain when it goes silent after the go or finds the input holding something else. '
+        + 'Nothing is ever sent or noted as typed, and the source lists prefill only when given the deps it needs');
     } else bad(`prefill() for a conversation shown here: ${JSON.stringify(pf).slice(0, 1500)}`);
     if (!pf.threw && pfIs(pf.opened, 'drafted') && events(pf.opened) === 'openTab prefillTo go'
         && pfIs(pf.restoredTab, 'drafted') && events(pf.restoredTab) === 'openTab prefillTo go'
         && pfIs(pf.noTranscript, 'notReceived', /no transcript/) && pfIs(pf.otherFolder, 'notReceived', /started in a folder other than/)
         && pfIs(pf.otherWindow, 'notReceived', /"Shop \(second window\)" shows it/) && pfIs(pf.process, 'notReceived', /process 4242 runs it/)
-        && pfIs(pf.noList, 'notReceived', /could not be checked that no other process runs it: no cli/)
+        && pfIs(pf.noList, 'notReceived', /could not tell whether another process runs it: no cli/)
         && ['noTranscript', 'otherFolder', 'otherWindow', 'process', 'noList'].every((k) => !events(pf[k]).includes('openTab') && !events(pf[k]).includes('prefillTo'))
         && pfIs(pf.openFails, 'notReceived', /could not open it: no such command/) && pfIs(pf.neverLoads, 'notReceived', /no panel here showed it/)
         && !events(pf.neverLoads).includes('prefillTo') && pfIs(pf.noOpen, 'notReceived') && !events(pf.noOpen).includes('openTab')) {
-      ok('a conversation no panel here shows is opened in a tab here and given its text once that tab listens, a restored tab without the checks; one Claude Code here cannot find, '
-        + 'one of another folder, one another window shows and one another process runs are not opened and come back not received with the reason, as does one whose tab never loads');
+      ok('a conversation no panel here shows is opened in a tab here and given its text once that tab listens, and a restored tab is opened without the checks; a conversation is not opened, '
+        + 'and comes back not received with the reason, when Claude Code here has no transcript of it, when it was started in another folder, or when another window shows it or another '
+        + 'process runs it; one whose tab never loads also comes back not received');
     } else bad(`prefill() for a conversation not shown here: ${JSON.stringify(pf).slice(0, 1500)}`);
     const slowest = Object.values(pf).filter((x) => x && typeof x.ms === 'number').reduce((m, x) => Math.max(m, x.ms), 0);
     if (!pf.threw && slowest > 0 && slowest <= 600 + 150) {

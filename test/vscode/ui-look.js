@@ -307,7 +307,7 @@ const needToasts = (d) => d.page.evaluate(() => {
   if (items.some((n) => n.closest('.notification-toast-container').getAnimations({ subtree: true }).some((a) => a.playState === 'running'))) return null;
   return items.map((n) => ((n.querySelector('.notification-list-item-message') || {}).innerText || '').replace(/\s+/g, ' ').trim());
 }).catch(() => null);
-/* Whether an Agent Plus window has written down conversation `id` in an item for which `test` holds (its src/attention.js). */
+/* Whether an Agent Plus window's attention file (its src/attention.js) has an item for conversation `id` that passes `test`. */
 function attentionHas(d, id, test) {
   const dir = path.join(d.profile.home, '.agent-work-plan', 'attention');
   let names = [];
@@ -322,10 +322,10 @@ const seenWorking = (d, id) => attentionHas(d, id, (x) => x.activity === 'workin
 const seenUnread = (d, id) => attentionHas(d, id, (x) => x.activity === 'stopped' && !!x.unseen);
 /* How long Agent Plus can take to see a conversation's new activity: two of its 30 s refreshes (ui.js says why). */
 const SEEN_MS = 60000;
-/* The box of Agent Plus's Conversations entry in the status bar while it counts conversations waiting for you to
-   approve something or answer, with how many as `text` and the entry's own words as `says`; null while it counts none.
-   VS Code puts the entry's hover after its text in its aria-label, where those conversations come last, after the line
-   below, one line each, with "and N more" after the tenth. */
+/* The status bar box of Agent Plus's Conversations entry, or null when the entry counts no conversation waiting for you
+   to approve something or answer. `text` is that count and `says` is what the entry reads. VS Code puts the entry's
+   hover after its text in its aria-label, where those conversations come last, after the line below, one line each,
+   with "and N more" after the tenth. */
 const needCountBox = (d) => d.page.evaluate((head) => {
   const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
   const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(head);
@@ -719,8 +719,8 @@ const STEPS = [
   {
     name: 'plan-bar', features: ['plan-bar'],
     expect: 'Right above the message box, a bar exactly as wide as the box: a list mark and "Plan" in bold; a short track of '
-      + 'coloured segments, orange, yellow, purple and grey for the open rows by state, with no green; "19 open"; then empty '
-      + 'space and no row named, as no row is being worked on; at the right a yellowish part with a yellow dot and "3 to '
+      + 'coloured segments, orange, yellow, purple and grey for the open rows by state, with no green; "19 open"; then an empty '
+      + 'space where the current row would be, since no row is being worked on; at the right a yellowish part with a yellow dot and "3 to '
       + 'decide", not red; and an arrow. The bar is one line, nothing in it is cut at the top or bottom, and it covers '
       + 'neither the conversation nor the message box.',
     unchanged: 'The conversation above the bar and the message box below it are as before.',
@@ -1863,16 +1863,16 @@ const STEPS = [
   {
     name: 'work-plan-pen', features: ['write-about-row'],
     expect: 'In the side bar, Agent Plus\'s work plan view with the mouse on the row "3. Monthly budgets per category, with an '
-      + 'over-budget warning in report", which shows a pen button at its right end; the box of that row\'s details that VS Code '
-      + 'shows for a row under the mouse may cover part of the view. In the demo conversation on the right, the '
+      + 'over-budget warning in report", which shows a pen button at its right end; VS Code\'s hover box for that '
+      + 'row may cover part of the view. In the demo conversation on the right, the '
       + 'message box holds "About row 3 (Monthly budgets per category, with an over-budget warning in report): " and nothing '
       + 'else, wholly readable, with the box\'s focus border drawn; the conversation above it has no new message of yours.',
     unchanged: 'The work plan view lists the same rows as before.',
     act: async (d) => {
       const text = 'About row 3 (Monthly budgets per category, with an over-budget warning in report): ';
       await demoAt(d, '', { focus: true });
-      /* As a click on the plan bar does: the view follows the conversation in front only once its tab has reported its
-         session to Agent Plus. */
+      /* Point the work plan view at this conversation the way a click on the plan bar does; otherwise it follows the
+         conversation in front only after that tab has reported its session to Agent Plus. */
       await d.exec('agentPlus.showWorkPlanOf', { sourceId: 'claude-code', sessionId: d.sid });
       await d.sleep(1500);
       const row = d.page.locator('[id="workbench.parts.sidebar"] .monaco-list-row')
@@ -2032,7 +2032,7 @@ const STEPS = [
       const said = `"${d.threads[0].title}" finished.`;
       if (await d.until(async () => ((await needToasts(d)) || []).includes(said), 9000, 300)) throw new Error('Agent Plus showed a notice for a conversation this window shows');
       const counted = await needCountBox(d);
-      if (counted) throw new Error(`Agent Plus counted a reply not read as waiting for you: ${JSON.stringify(counted)}`);
+      if (counted) throw new Error(`Agent Plus counted an unread reply as waiting for you: ${JSON.stringify(counted)}`);
       return d.body();
     },
   },
@@ -2040,7 +2040,7 @@ const STEPS = [
     name: 'need-you-count', features: ['need-you-notices'],
     expect: 'A close-up of the status bar around Agent Plus\'s Conversations entry: on a yellow background it reads "1 '
       + 'conversation needs you", the conversation of another window that waits for you to approve Bash; the conversation '
-      + 'here with a reply not read is not counted.',
+      + 'here with an unread reply is not counted.',
     unchanged: 'The window is as before.',
     act: async (d) => {
       otherWindow(d, [{ sessionId: LOOK_ID(15), title: 'Tag the release build', waitingFor: { kind: 'permission', tool: 'Bash' } }]);

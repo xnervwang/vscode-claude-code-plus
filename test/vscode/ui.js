@@ -118,17 +118,18 @@
  *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
  *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn picked or
  *                  highlighted, and only the conversation in a tab in front drawn as the current one
- *   the plan bar   the bar above the input box, drawn from the conversation's plan with a row being worked on as its
- *                  current row, with no row being worked on and no current row, or with every row done: as wide as the
- *                  input box with the same height however many rows the plan has, compact in a narrow panel, redrawn
- *                  when the plan changes, gone without a plan and with claudeCodePlus.show.planBar off, its questions
- *                  part in the status bar's warning colour, and its two clicks opening Agent Plus's Work plan view and
- *                  Answer view at this conversation
+ *   the plan bar   the bar above the input box, drawn from the conversation's plan in three cases (a row being worked
+ *                  on, which is its current row; none being worked on, so no current row; every row done): as wide as
+ *                  the input box with the same height however many rows the plan has, compact in a narrow panel,
+ *                  redrawn when the plan changes, gone without a plan and with claudeCodePlus.show.planBar off, its
+ *                  questions part in the status bar's warning colour, and its two clicks opening Agent Plus's Work plan
+ *                  view and Answer view at this conversation
  *   writing about a work plan row
  *                  Agent Plus's pen on a Work plan row: the conversation's tab comes to the front with the row's text in
- *                  its input, after the user's own text with one space or none after a space, the focus and the caret
- *                  after it, and nothing sent; a conversation no tab shows opens here first; one started in another
- *                  folder is not opened, and Agent Plus puts the text on the clipboard and says why
+ *                  its input, after the user's own text with one space between (none when that text ends in a space),
+ *                  with the focus and the caret after it, and nothing sent; a conversation that no tab shows opens here
+ *                  first; one started in another folder is not opened, and Agent Plus puts the text on the clipboard and
+ *                  says why
  *   removal        last: Remove from Claude Code restores both files, and turning the extension on puts the patch back
  *   self-check     no page of a Claude Code panel drew the warning that its messages are no longer found, all through the run
  *
@@ -395,8 +396,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /* Presses `label` on the toast of the notice about `t`. */
   const pressNotice = (t, label, p = page) => p.locator('.notifications-toasts .notification-list-item').filter({ hasText: `"${t.title}"` }).first()
     .locator('.monaco-button').filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) }).first().click({ timeout: 5000 });
-  /* The heading in the hover of Agent Plus's Conversations entry over the conversations waiting for the user to approve
-     something or answer, the last group there. */
+  /* Agent Plus's Conversations entry lists the conversations waiting for the user to approve something or answer last
+     in its hover, under this heading. */
   const WAITS_HEAD = 'Waiting for you to approve something or answer:';
   /* In the window of `p`, how many conversations Agent Plus counts in the status bar as waiting for the user to approve
      something or answer; null while it counts none. VS Code puts the entry's hover after its text in the entry's
@@ -1287,7 +1288,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await page.bringToFront().catch(() => {});
       const read = await until(async () => { const d = await dotsOn(t.label); return d && d.running === 0 && !(await claudeTabs()).some((y) => y.label.endsWith(ENVELOPE)) && d; }, 20000, 500);
       check(!!read, 'and bringing the tab to the front clears it', { dots: await dotsOn(t.label), windowFocused: await call('return vscode.window.state.focused;') });
-      check(!!await until(() => !(attentionOf(tab0.id) || {}).unseen, 20000, 300), 'and Agent Plus no longer has its reply as unread', attentionOf(tab0.id));
+      check(!!await until(() => !(attentionOf(tab0.id) || {}).unseen, 20000, 300), 'and Agent Plus no longer marks its reply unread', attentionOf(tab0.id));
       /* A notice is never taken back; these would otherwise lie over the panel's buttons. */
       await exec('notifications.clearAll');
       const after = await stampsIn(conv);
@@ -2153,10 +2154,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const seenUnread = unread ? await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'stopped' && a.unseen && a; }, SEEN_MS, 300) : null;
         const notFinished = seenUnread ? await noticesWithin(tab0, 'finished') : null;
         check(!!seenUnread && !notFinished.length && (await needCount()) === null,
-          'with agentPlus.notifications.finished off, a reply that lands unread gets no notice that it finished, and is not counted in the status bar',
+          'with agentPlus.notifications.finished off, Agent Plus shows no notice when a reply lands unread, and the status bar does not count it',
           { tab: unread, agentPlus: seenUnread || attentionOf(tab0.id), count: await needCount(), notices: notFinished });
         await show();
-        check(!!await until(() => !(attentionOf(tab0.id) || {}).unseen, 20000, 300), 'and once the tab is in front, Agent Plus no longer has its reply as unread', attentionOf(tab0.id));
+        check(!!await until(() => !(attentionOf(tab0.id) || {}).unseen, 20000, 300), 'and once the tab is in front, Agent Plus clears the reply\'s unread mark', attentionOf(tab0.id));
         await setNotify('finished', null);
 
         /* A choice box with the tab in front of the focused window: the dot turns red, and Agent Plus shows nothing. */
@@ -4295,7 +4296,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const tip = counted ? await hoverText(await needEntry()) : '';
         const waits = tip.indexOf(WAITS_HEAD);
         check(!!counted && waits >= 0 && tip.slice(waits).includes(named.title) && !tip.includes(BELL),
-          'the hover of its count in the status bar names it the same way, among those waiting for you', { count: counted, hover: tip, why: hoverWhy });
+          'the hover of the status bar count lists it by the same name, among the conversations waiting for you', { count: counted, hover: tip, why: hoverWhy });
         await start('agentPlus.showAttention');
         const picks = await until(() => page.evaluate(() => {
           const q = document.querySelector('.quick-input-widget');
@@ -5761,7 +5762,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const box = (e) => { if (!e) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height }; };
           if (!b || b.style.display === 'none' || !b.offsetParent) return { shown: false, there: !!b };
           const text = b.querySelector('.apb-row .apb-text'), q = b.querySelector('.apb-q'), dot = q && q.querySelector('.apb-dot');
-          /* The colour of the status bar's warning entries in this theme, which the questions part's dot is drawn in. */
+          /* The theme's colour for status bar warning entries; the questions part's dot uses it. */
           const probe = document.createElement('span');
           probe.style.color = 'var(--vscode-statusBarItem-warningBackground)';
           document.body.appendChild(probe);
@@ -5886,9 +5887,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js), clicked in the Work plan view of an Agent
        Plus that has it. The row's conversation comes to the front with "About row N (title): " in its input after what
-       is there, unsent, with the focus in the input and the caret after it, so the user's next keys go on from there. A
-       conversation no tab here shows is opened in a tab first; one this window cannot open, started in a folder the
-       window does not have first, is left alone, and Agent Plus puts the text on the clipboard and says why. */
+       is there, unsent, with the focus in the input and the caret after it. A conversation that no tab here shows is
+       opened in a tab first; one this window cannot open, started in a folder the window does not have first, is left
+       alone, and Agent Plus puts the text on the clipboard and says why. */
     await step('writing about a work plan row', async () => {
       if (!conv) throw new Error('the conversation did not open');
       const apDir = fs.readdirSync(profile.exts).find((n) => n.startsWith('xnervwang.agent-plus-'));
@@ -5905,7 +5906,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         fs.writeFileSync(planFile(t), JSON.stringify({ nodes: titles.map((title, i) => ({ title, state: i ? 'todo' : 'doing' })) }, null, 2));
       };
       /* The input of the page in `f`: its text, whether it has the focus, where the caret is, and the composerDraft of
-         the session the page shows, found from the send button's React props as the page finds it (src/page/25-session.js). */
+         the session the page shows, read from the send button's React props, where the page itself gets the session
+         (src/page/25-session.js). */
       const input = (f) => f.evaluate((sel) => {
         const b = document.querySelector(sel);
         if (!b) return null;
@@ -5989,15 +5991,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const typed = await until(async () => { const s = await input(conv); return s && s.text === one + 'and the lexer' && s; }, 5000, 200);
         check(!!typed, 'the next keys the user types go on after it', await input(conv));
 
-        /* Text of the user's that ends in a letter. */
+        /* The user's own text ends in a letter. */
         await openNotes();
         await pen('2. Write the tests');
         const two = one + 'and the lexer About row 2 (Write the tests): ';
         const got2 = await until(async () => { const s = await input(conv); return s && s.text === two && s; }, 15000, 200);
         check(!!got2 && got2.focus && got2.caret === 'end' && got2.draft === two && await inFront(tab0),
-          'with text of the user\'s in the input, row 2\'s text goes after it with one space between, the focus and the caret after it', { got: got2 || await input(conv), told: await copied() });
+          'when the user has text in the input, row 2\'s text is added after it with one space between, and the focus and the caret end up after the new text', { got: got2 || await input(conv), told: await copied() });
 
-        /* Text of the user's that ends in a space. */
+        /* The user's own text ends in a space. */
         check(await typeInto(conv, 'see also '), 'the user types "see also " into the emptied input', await input(conv));
         await openNotes();
         await pen('3. Document the flags');
@@ -6011,10 +6013,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!still && still.text === three && mentions(tab0, 'About row ') === sentBefore,
           'nothing was sent: three seconds later the input still holds the text and the transcript has none of it', { still, sent: mentions(tab0, 'About row ') - sentBefore });
 
-        /* A conversation no tab here shows. */
+        /* A conversation that no tab here shows. */
         await closeTab(t1);
         writePlan(t1, ['Check the export filter']);
-        check(!!await showPlan(t1, '1. Check the export filter'), 'the Work plan view shows the plan of a conversation no tab here shows', await planRows());
+        check(!!await showPlan(t1, '1. Check the export filter'), 'the Work plan view shows the plan of a conversation that is not open in any tab here', await planRows());
         await exec('notifications.clearAll');
         const asked = Date.now();
         await pen('1. Check the export filter');
@@ -6028,7 +6030,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await sleep(2000);
         check(mentions(t1, 'About row ') === 0 && !(await copied()).length, 'and sends nothing', { sent: mentions(t1, 'About row '), told: await copied() });
 
-        /* A conversation started in a folder this window does not have first. */
+        /* A conversation started in a folder other than this window's first folder. */
         const elsewhere = path.join(path.dirname(profile.folder), 'elsewhere');
         fs.mkdirSync(elsewhere, { recursive: true });
         fakeHome.writeThreads(profile.home, elsewhere, [away]);

@@ -85,12 +85,11 @@ function registeredAt(dir = configDir()) {
 }
 
 /**
- * Whether the marketplace is registered at a folder that this extension takes back by registering its own copy again:
- * a folder that no longer exists, or `legacy`, the staged copy of the id this extension was published under before.
- * Claude Code then loads no plugin from it, and the editor deletes the old id's folder once that extension is
- * uninstalled. A registration at another folder that exists is left alone: it is this extension staged by another
- * editor, or a change made on purpose. Registering the same marketplace name again moves it to the new folder and
- * keeps the plugin's data.
+ * Whether the marketplace is registered somewhere this extension should register its own copy over: a folder that no
+ * longer exists, or `legacy`, the staged copy of this extension under its previous id. Claude Code then loads no plugin
+ * from it, and the editor deletes the old id's folder once that extension is uninstalled. Another folder that exists is
+ * left alone, since it is this extension staged by another editor or a change made on purpose. Registering again under
+ * the same marketplace name moves the marketplace and keeps the plugin's data.
  */
 function strayRegistration(to, legacy, dir = configDir()) {
   const at = registeredAt(dir);

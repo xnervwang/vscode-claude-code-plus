@@ -858,8 +858,9 @@ function start(context, log, renamed, handing = false) {
     },
     shown: () => shownList(),
     open: (sessionId) => (openAnywhere ? openAnywhere(sessionId) : 'nowhere'),
-    /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js). A conversation no panel here shows opens in
-       a tab as a steward's --resume opens it (resumeConversation below), and its text waits for that tab's page. */
+    /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js). When no panel here shows the conversation,
+       it opens in a tab the way a steward's --resume opens it (resumeConversation below), and its text waits for that
+       tab's page. */
     prefillTo: (sessionId, text, key) => typeof globalThis.__cceToPanel === 'function'
       && globalThis.__cceToPanel(sessionId, { type: 'cce_prefill', sessionId, text, id: key }) === true,
     listens: (sessionId) => claude.source.canDeliver(sessionId) && answersReady.has(sessionId),
@@ -1931,8 +1932,8 @@ function start(context, log, renamed, handing = false) {
        just that it exists: a partly written copy, or one another window is replacing, exists but is not this plugin. */
     const staged = !!state.staged && pluginInstall.digest(to) === state.staged;
     /* The marketplace can stay registered at a folder that is gone, or at the old id's staged copy (src/carryover.js),
-       which the editor deletes with that extension: Claude Code then loads no plugin, and registering here again moves
-       it to this copy. */
+       which the editor deletes along with that extension. Claude Code then loads no plugin; registering here again
+       moves the marketplace to this copy. */
     const legacyCopy = path.join(carryover.legacyStorage(context.globalStorageUri.fsPath), 'claude-plugin');
     const strayAt = registered && pluginInstall.strayRegistration(to, legacyCopy) ? pluginInstall.registeredAt() : '';
     if (!retry && registered && state.stamp === stamp && staged && !strayAt) return;

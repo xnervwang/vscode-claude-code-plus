@@ -170,7 +170,7 @@
           "type": "number",
           "default": 25,
           "minimum": 1,
-          "markdownDescription": "How much a turn has to cost before the same offer is made. The offer comes only after you have sent at least `claudeCodePlus.workPlanOfferMinTurns` messages and a single turn has made at least this many tool calls. A lower value can trigger the offer after an ordinary turn in a conversation that has no use for a plan; a higher value delays it in a conversation that could use one."
+          "markdownDescription": "How much a turn has to cost before the same offer is made: you have sent at least `claudeCodePlus.workPlanOfferMinTurns` messages, and then a single turn makes at least this many tool calls. Lower it to have the offer come sooner; it may then come in a conversation that has no use for a plan."
         },
         "claudeCodePlus.show.timestamps": {
           "type": "boolean",

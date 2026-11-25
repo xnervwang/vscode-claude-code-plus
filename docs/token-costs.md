@@ -4,16 +4,18 @@ Back to the [README](../README.md).
 
 Claude Code Plus adds text to what Claude Code sends the model. All of it comes from the work plan plugin Claude Code Plus registers with Claude Code; what Claude Code Plus draws in VS Code sends nothing to the model. There are two exceptions. The extension itself posts the steward notice, and handoffs, to the steward conversation. When a command left running outside Claude Code is no longer running, the extension posts a notice to the conversation that started it. Text added to a conversation stays in context and goes with every later model call until compaction replaces the conversation with a summary. A token is about four characters of English.
 
-## Typical values
+## Measured sizes
 
-With the brief on, the sizes were measured by passing plans from Claude Code Plus's own tests through the work plan plugin's hook that adds the plan to a message. Those plans have one-word row titles; most of the text is the same for every plan, and each row adds one line whose length depends on the row's title and any question it asks you. Run `node build/plan-injection-stats.js` from a checkout of the Agent Plus repository to measure your own Claude Code transcripts from the last 14 days (`--days N` for another span): it prints the median, 90th percentile and largest work plan injection sizes in characters and counts how many injections were unchanged from the one before.
+With the brief on, the sizes were measured by passing plans from Claude Code Plus's own tests through the work plan plugin's hook that adds the plan to a message. Those plans have one-word row titles; most of the text is the same for every plan, and each row adds one line whose length depends on the row's title and any question it asks you.
+
+Run `node build/plan-injection-stats.js` from a checkout of the [Agent Plus repository](https://github.com/xnervwang/vscode-agent-plus) to measure your own Claude Code transcripts from the last 14 days (`--days N` for another span). It prints the median, 90th percentile and largest work plan injection sizes in characters, and how many injections were unchanged from the one before.
 
 | What | Measured | How it was measured |
 | --- | --- | --- |
 | The work plan, whole block | 1,489 characters with one row, 1,579 with two, 1,983 with eight, plus the plan's path four times and the path of the command that writes it three times | A one-row plan and an eight-row plan with a row in each open state, from `test/check.js`, and a two-row plan with two questions for you, from `test/with-core.js` |
 | The work plan, short head | 570, 657 and 905 characters for the same three plans, plus the plan's path twice and the command's path once | The same plans, after one row changed state |
-| The work plan, one line | 238 characters plus the plan's path | The same plans, unchanged since the message before |
-| Messages whose plan is unchanged since the message before | Not given: it depends on how often a conversation changes its plan | Counted on your own machine by `build/plan-injection-stats.js` in Agent Plus's repository. A plan counts as unchanged when only how long a row had been in its state differed |
+| The work plan, one line | 238 characters plus the plan's path | The same plans, with nothing changed since the previous message |
+| Messages whose plan is unchanged since the message before | Not given: it depends on how often a conversation changes its plan | Counted on your own machine by `build/plan-injection-stats.js` in Agent Plus's repository. A plan counts as unchanged when the only difference is how long a row had been in its state |
 
 ## Token modes
 

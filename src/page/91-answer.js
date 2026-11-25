@@ -90,7 +90,7 @@
      throttled timer must not send it once the host has stopped waiting. */
   var GO_SEND_MS = 3000;
   var awaitingGo = {};
-  /* `go`, when given, runs in place of typing the answer once the host says go in time. */
+  /* A prefill passes `go`, which the host's go then runs in place of typing an answer. */
   var waitForGo = function(m, go){
     var at = Date.now();
     var drop = function(){ if (awaitingGo[m.id]) { delete awaitingGo[m.id]; answerResult(m.id, false, 'late'); } };
@@ -155,11 +155,11 @@
   };
 
   /*
-   * Agent Plus's pen on a Work plan row (prefill in src/claude-source.js): a text that the user goes on writing after and
-   * sends. It goes after whatever is in the input, with one space between when that does not end in white space, and is
-   * never sent. Unlike an answer it takes the focus, with the caret after it: the user asked for it and types next. Like
-   * a confirmed answer it is typed only on the host's go. The answer is 'drafted' once the input holds its old text
-   * followed by this one; 'insert' when the input is as it was, and 'unconfirmed' when it holds something else.
+   * Agent Plus's pen on a Work plan row (prefill in src/claude-source.js): a text that the user goes on writing after
+   * and sends. It goes after whatever is in the input, with a space between unless that text already ends in white
+   * space, and is never sent. Unlike an answer it takes the focus, with the caret after it: the user clicked the pen
+   * and types next. The answer is 'drafted' once the input holds its old text followed by this one; 'insert' when the
+   * input is as it was, and 'unconfirmed' when it holds something else.
    */
   var caretToEnd = function(box){
     var range = document.createRange();
@@ -177,8 +177,8 @@
     rest.setStart(sel.focusNode, sel.focusOffset);
     return !String(rest.toString()).replace(/\u200b/g, '');
   };
-  /* Claude Code writes composerDraft only as it drops an input element; it is set to the new text now, so that an input
-     that replaces this one, which Claude Code fills from composerDraft, holds the text too. */
+  /* Claude Code writes composerDraft only when it drops an input element, and fills a new input from it. Setting it now
+     keeps the text if Claude Code replaces this input. */
   var keepDraft = function(box){
     try {
       if (sessionRef && typeof sessionRef.composerDraft === 'string') sessionRef.composerDraft = String(box.textContent || '');

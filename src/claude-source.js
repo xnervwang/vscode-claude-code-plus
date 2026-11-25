@@ -71,9 +71,10 @@ const SENT_SLACK_MS = 1000;
 /*
  * A prefill settles within PREFILL_MS, inside the 10 seconds Agent Plus waits for one. The page answers a prefill with
  * 'ready' and types it on the host's go, as it does a confirmed answer; the go is sent only while PREFILL_READY_MS and
- * PREFILL_GO_MS are still left, so a panel that answers late types nothing. Whether a conversation no panel here shows
- * may be opened here is decided within PREFILL_CHECK_MS. A panel that has the conversation but no message input yet, as
- * a tab still loading, is asked again every PREFILL_RETRY_MS; whether a panel listens is looked at every PREFILL_ASK_MS.
+ * PREFILL_GO_MS are still left, so a panel that answers late types nothing. Whether a conversation that no panel here
+ * shows may be opened here is decided within PREFILL_CHECK_MS. A panel that has the conversation but no message input
+ * yet, such as a tab still loading, is asked again every PREFILL_RETRY_MS, and a tab opened for the prefill is checked
+ * every PREFILL_ASK_MS until it listens.
  */
 const PREFILL_MS = 9000;
 const PREFILL_READY_MS = 1500;
@@ -95,12 +96,12 @@ function outcomeOf(sent, reason) {
   return { outcome: 'uncertain', reason: reason ? `the panel reported "${reason}"` : 'the panel gave no reason' };
 }
 
-/* What the page's answer to a prefill means for Agent Plus. 'unconfirmed': it typed the text, and the input then did not
-   hold the user's text followed by it. */
+/* What the page's answer to a prefill means for Agent Plus. 'unconfirmed': it typed the text, but afterwards the input
+   did not hold the user's own text followed by the prefill. */
 function prefillOutcomeOf(reason) {
   if (reason === 'drafted') return { outcome: 'drafted' };
   if (Object.prototype.hasOwnProperty.call(PREFILL_NOT_RECEIVED, reason)) return { outcome: 'notReceived', reason: PREFILL_NOT_RECEIVED[reason] };
-  if (reason === 'unconfirmed') return { outcome: 'uncertain', reason: 'the text was typed into the message input, but the input did not hold it as expected afterwards' };
+  if (reason === 'unconfirmed') return { outcome: 'uncertain', reason: 'the text was typed into the message input, but what the input then held was not its earlier text followed by the new one' };
   return { outcome: 'uncertain', reason: reason ? `the panel reported "${reason}"` : 'the panel gave no reason' };
 }
 
@@ -321,23 +322,23 @@ function createClaudeSource(deps) {
     try { file = typeof deps.transcriptOf === 'function' ? deps.transcriptOf(id) || '' : ''; } catch (_) { file = ''; }
     if (!file) return 'Claude Code has no transcript of it on this machine';
     if (!opensHere(id, deps.folders(), () => file)) {
-      return 'it was started in a folder other than this window\'s first one, and Claude Code opens it only in a window of that folder';
+      return 'it was started in a folder other than this window\'s first one, and Claude Code opens it only in a window with that folder first';
     }
     let where = [];
     try { where = typeof deps.elsewhere === 'function' ? deps.elsewhere(id) || [] : []; } catch (_) { where = []; }
     if (where.length) return `the VS Code window ${where.map((n) => `"${n}"`).join(', ')} shows it, and opening it here as well would run it twice`;
     const got = await freshAgents();
-    if (!got || !Array.isArray(got.records)) return `it could not be checked that no other process runs it: ${(got && got.error) || '`claude agents --json` gave no list'}`;
+    if (!got || !Array.isArray(got.records)) return `this window could not tell whether another process runs it: ${(got && got.error) || '`claude agents --json` gave no list'}`;
     const held = heldBy(got.records, id);
     return held ? `${held}, and opening it here as well would run it twice` : '';
   };
   /*
-   * Agent Plus's pen on a Work plan row (its docs/protocol.md, Writing about a row): the conversation comes to the front
-   * in this window and `text` goes into its message input after whatever is there, unsent, with the focus in the input.
-   * A panel here that shows it is brought to the front and given the text at once. A conversation no panel here shows is
-   * opened in an editor tab as a steward's --resume opens one (src/relay.js), and the text waits until that tab's page
-   * says it listens. The text is not noted as typed for someone else (deps.typed): the user sends it, with words of
-   * their own.
+   * Agent Plus's pen on a Work plan row (its docs/protocol.md, Writing about a row): the conversation comes to the
+   * front in this window and `text` goes into its message input after whatever is there, unsent, with the focus in the
+   * input. A panel here that shows it is brought to the front and given the text at once. A conversation that no panel
+   * here shows is opened in an editor tab the way a steward's --resume opens one (src/relay.js), and the text waits
+   * until that tab's page says it listens. The text is not noted as typed for someone else (deps.typed): the user sends
+   * it, with words of their own.
    */
   const prefill = async (sessionId, text) => {
     const T = times(), by = Date.now() + T.all, handBy = by - T.ready - T.go;
@@ -351,8 +352,8 @@ function createClaudeSource(deps) {
       /* A tab of this window that holds it but has not loaded is opened like any other, without the checks. */
       if (!shownHere(id)) {
         const why = await within(() => whyNotHere(id), T.check, null);
-        if (why === null) return notReceived(`it could not be checked within ${T.check / 1000} seconds whether another process runs it`);
-        if (typeof why === 'object') return notReceived('it could not be checked whether another process runs it: ' + why.failed);
+        if (why === null) return notReceived(`this window could not tell within ${T.check / 1000} seconds whether another process runs it`);
+        if (typeof why === 'object') return notReceived('this window could not tell whether another process runs it: ' + why.failed);
         if (why) return notReceived(why);
       }
       const opened = await within(() => deps.openTab(id), handBy - Date.now(), null);
@@ -373,7 +374,7 @@ function createClaudeSource(deps) {
       if (!handed) { pending.delete(key); return notReceived('no Claude Code panel in this window shows the conversation'); }
       const first = await ready;
       if (!first) {
-        return notReceived(`the panel showing it did not answer within ${Math.round(T.all / 1000)} seconds, as when its window has lost its connection; it was not typed and will not be typed later`);
+        return notReceived(`the panel showing it did not answer within ${Math.round(T.all / 1000)} seconds, perhaps because its window lost its connection; nothing was typed, and the text will not be typed later`);
       }
       if (first.reason === 'ready') {
         const done = answerOf(key, by - Date.now());
