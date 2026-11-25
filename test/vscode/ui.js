@@ -247,7 +247,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   })).catch((e) => ({ error: String(e).slice(0, 80) }));
   /* The text of VS Code's hover over `loc`, or '' with the reason in hoverWhy. VS Code starts a hover when the pointer
      enters an element, so an element drawn again under a resting pointer never shows one: the helper marks the element
-     it hovered and hovers the new copy when the mark is gone. It tries that at most twice and notes each try. */
+     it hovered and hovers the new copy when the mark is gone. */
   let hoverWhy = null;
   const hoverText = async (loc) => {
     hoverWhy = null;
@@ -1293,8 +1293,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await page.keyboard.type('/tasks');
       await page.keyboard.press('Enter');
       const alone = await until(async () => { const l = await mapLook(); return l && l.main && l && l; }, 10000, 500);
-      /* With no map, what the message box holds, what is open over it, whether the window and the panel draw, and whether
-         the conversation's turn has ended. */
       /* `states`: the first states of the component that draws the message box, in the order it declares them. Its key
          handler leaves Enter alone, so that the box takes it as a new line, while one of its menus or command views is
          open; the state of whichever was open is true or non-empty here. */
