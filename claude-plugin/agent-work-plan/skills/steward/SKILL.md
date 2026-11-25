@@ -1,15 +1,16 @@
 ---
 name: steward
-description: How to act as the user's steward for other Claude Code conversations - the role a conversation takes when the user ticks other conversations for it in Claude Code Plus's Steward panel. Use it whenever the start of a turn says you are the steward of some conversations, when the user asks you to pass something to one of them, rename or close one, open a new conversation or one that no window shows, asks how they are doing, or names one with @, and when a "Steward notice from Claude Code Plus" or a "Handoff from" a conversation you manage arrives.
+description: How to act as the user's steward for other Claude Code conversations or OpenCode Agent Plus conversations - the role a Claude Code conversation takes when the user ticks other conversations for it in Claude Code Plus's Steward panel. Use it whenever the start of a turn says you are the steward of some conversations, when the user asks you to pass something to one of them, rename or close one, open a new conversation or one that no window shows, asks how they are doing, or names one with @, and when a "Steward notice from Claude Code Plus" or a "Handoff from" a conversation you manage arrives.
 version: 1.0.0
 tags: [steward, cross-session, monitoring, relay]
 ---
 
 # Acting as the user's steward
 
-The user ticked some of their other Claude Code conversations for you in the Steward panel. You watch them for the
-user and carry messages between the user and them, so the user can follow many conversations from this one. You are
-still an ordinary conversation: questions about your own work are answered as before, and you keep your own work plan.
+The user ticked some of their other conversations for you in the Steward panel. These can be Claude Code conversations
+or OpenCode Agent Plus conversations. You watch them for the user and carry messages between the user and them, so the
+user can follow many conversations from this one. You are still an ordinary Claude Code conversation: questions about
+your own work are answered as before, and you keep your own work plan.
 
 The list of what you manage arrives at the start of every turn, one line per conversation with its session id. That
 list is the whole of your charge. Only the user changes it, in the panel, except that Claude Code Plus ticks a
@@ -184,6 +185,50 @@ python3 <this plugin>/hooks/steward-peek.py <session id>
 
 Read with it rather than opening transcripts yourself. Keep what you learn in your answer, not in your plan: the
 conversation's own plan is where its work is recorded, and a copy in yours would go stale.
+
+## Conversations of other agents
+
+Besides Claude Code conversations, the user can tick OpenCode Agent Plus conversations for you in the Steward panel.
+OpenCode Agent Plus is another VS Code extension. Both Claude Code Plus and OpenCode Agent Plus use the Agent Plus
+extension, which passes your messages to OpenCode Agent Plus.
+
+In the list you get at the start of each turn, the key takes the place of the session id, followed by the agent's name:
+
+```text
+- "Port the parser" (opencode-plus:ses_9f3KxQ2mL1, OpenCode Agent Plus): working; doing: ...
+```
+
+The key is `opencode-plus:` followed by the session id. Wherever this skill calls for a session id with
+`steward-relay.py` or `steward-peek.py`, give the full key exactly as listed. It is case sensitive.
+
+A plain message sent with `steward-relay.py` goes through Agent Plus and reaches the conversation as the user's own
+message in the VS Code window where it is open. The script waits up to 55 seconds for the answer. It refuses `--rename`,
+`--close` and `--resume` without sending anything. The user renames, closes or reopens the conversation in its own
+window.
+
+While the conversation waits for the user to approve a tool or answer a question, it does not accept your message.
+`steward-relay.py` prints the reason. Tell the user that only they can respond to the prompt, in that window. Do not
+try to send the message another way.
+
+`SendMessage` does not reach an OpenCode Agent Plus conversation. Read it with `steward-peek.py` as you would a
+Claude Code conversation. To print its state, open plan rows and latest reply, run:
+
+```bash
+python3 <this plugin>/hooks/steward-peek.py <key>
+```
+
+If the state is "idle, or not open in any window", either is possible. The files used to determine the state do not
+distinguish the two. To read the user's latest messages there, run:
+
+```bash
+python3 <this plugin>/hooks/steward-peek.py --said <key>
+```
+
+The conversation is not told that you are watching it, and it cannot send a handoff.
+
+To link the conversation's name for the user, set `source=opencode-plus` and use the session id after the colon:
+
+`[name](vscode://xnervwang.claude-code-plus/open?source=opencode-plus&session=<session id>)`
 
 ## Notices
 
