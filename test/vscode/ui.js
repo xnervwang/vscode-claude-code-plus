@@ -5505,6 +5505,55 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
+    /* An OpenCode Agent Plus conversation in the Steward panel, from a source registered with Agent Plus from the test
+       helper under OpenCode Agent Plus's source id: it lists one running conversation and gives where its plan is. */
+    await step('the steward panel with an OpenCode Agent Plus conversation', async () => {
+      const front = threads[0], SID = 'ses_UiStep01AbCd', KEY = `opencode-plus:${SID}`;
+      const plans = path.join(path.dirname(profile.folder), 'oc-plans'), planFile = path.join(plans, `${SID}.json`);
+      fs.mkdirSync(plans, { recursive: true });
+      fs.writeFileSync(planFile, JSON.stringify({ nodes: [{ title: 'Port the reader', state: 'doing' }] }));
+      const reg = await call(`const ap = vscode.extensions.getExtension('xnervwang.agent-plus').exports.agentPlus;
+        const r = ap.registerSource({ protocol: 1, id: 'opencode-plus', label: 'OpenCode Agent Plus', onDidChangeConversations: () => ({ dispose() {} }),
+          listConversations: async () => [{ sessionId: arg.sid, title: 'Port the parser', cwd: arg.plans, state: 'working', activity: 'working', running: true, lastActiveAt: Date.now() }],
+          planPath: (id) => arg.plans + arg.sep + id + '.json' });
+        globalThis.__cceTestOpenCode = r.registration;
+        return { accepted: r.accepted, code: r.code, features: ap.features };`, { sid: SID, plans, sep: path.sep });
+      check(!!reg && reg.accepted && ['allConversations', 'deliver', 'planPathOf'].every((f) => (reg.features || []).includes(f)),
+        'a source standing for OpenCode Agent Plus registers with an Agent Plus that offers allConversations, deliver and planPathOf', reg);
+      try {
+        await exec('claude-vscode.editor.open', front.id);
+        await sleep(1500);
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        const look = (k) => {
+          const groups = [...document.querySelectorAll('.group')].map((g) => ({ name: (g.querySelector('.gname') || {}).textContent,
+            ids: [...g.querySelectorAll('input[data-id]')].map((b) => b.dataset.id) }));
+          const box = document.querySelector(`input[data-id="${k}"]`), row = box && box.closest('.row');
+          return { groups, dot: row ? row.querySelector('.dot').className : '', name: row ? row.querySelector('.name').textContent : '',
+            every: !!(document.querySelector('input[data-every]') || {}).checked };
+        };
+        const frame = await frameWhere((k) => !!document.querySelector(`input[data-id="${k}"]`), 45000, KEY);
+        // What the conversation is doing comes from Agent Plus's attention files, which it writes on a pass of its own.
+        const seen = frame ? await until(async () => { const x = await frame.evaluate(look, KEY); return /working/.test(x.dot) ? x : null; }, 30000, 500)
+          || await frame.evaluate(look, KEY) : null;
+        const oc = seen ? seen.groups.findIndex((g) => g.name === 'OpenCode Agent Plus') : -1;
+        check(!!seen && oc >= 0 && oc === seen.groups.length - 1 && seen.groups[oc].ids.includes(KEY) && /working/.test(seen.dot) && seen.name === 'Port the parser',
+          'the Steward panel lists the OpenCode Agent Plus conversation in a group of its own after the window groups, with its title and a working dot', seen);
+        await shot('steward-opencode');
+        if (frame && seen && !seen.every) {
+          await frame.locator(`input[data-id="${KEY}"]`).first().click();
+          const file = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
+          const t = await until(() => {
+            try { const x = JSON.parse(fs.readFileSync(file, 'utf8')), e = x.stewards && x.stewards[front.id]; return e && e.manages.includes(KEY) ? x : null; } catch (_) { return null; }
+          }, 10000, 300);
+          check(!!t && t.version === 2 && t.stewards[front.id].paths && t.stewards[front.id].paths[KEY] === planFile,
+            'ticking it makes the conversation in front its steward, with the plan path Agent Plus gives, in a version 2 table', t);
+          await frame.locator(`input[data-id="${KEY}"]`).first().click();
+        } else note('the conversation in front has All on, so the OpenCode Agent Plus conversation was not ticked by hand');
+      } finally {
+        await call('if (globalThis.__cceTestOpenCode) globalThis.__cceTestOpenCode.dispose(); delete globalThis.__cceTestOpenCode; return true;').catch(() => {});
+      }
+    });
+
     /*
      * The plan bar above the input box (src/page/96-plan-bar.js, src/plan-bar.js). It is drawn from the plan of the
      * conversation the panel shows, in each state a plan can be in; it is compact in a narrow panel, and gone without a
