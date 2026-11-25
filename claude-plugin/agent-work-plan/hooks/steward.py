@@ -4,7 +4,7 @@
 # All rights reserved.
 
 """UserPromptSubmit hook: for a steward, list the conversations it manages and the state of each; for a managed
-conversation, say that a steward watches it.
+conversation, name the stewards that watch it.
 
 Claude Code Plus's Steward panel keeps who manages whom in stewards.json in this plugin's data directory
 (src/stewards.js in the extension).
@@ -125,22 +125,31 @@ def managed_by(directory, sid):
 
 
 def stewards_of(directory, sid):
-    """A one-item list with the steward that has this conversation on its list, or [] when none has."""
-    return [s for s, e in steward_table.read(directory).items() if sid in e["manages"]]
+    """(stewards that manage this conversation, the table)."""
+    table = steward_table.read(directory)
+    return steward_table.stewards_of(table, sid), table
 
 
-def watched():
-    """The line a managed conversation gets each turn. It names no steward: the window that delivers a handoff finds
-    this conversation's steward."""
+def watched(over, table):
+    """The line a managed conversation gets each turn: which stewards watch it, how their messages read, and how to
+    hand one of them a message that belongs elsewhere."""
     handoff = " ".join([shlex.quote(w) for w in launcher()] + [shlex.quote(RELAY), "--handoff"])
-    return ("A steward conversation watches this one for the user through Claude Code Plus: it reads your work plan and "
-            "latest reply, and speaks for the user by typing messages here, which come as the user's own. Do not send it "
-            "status messages; put questions for the user in your plan as rows waiting on the user, where it sees them. "
-            "If a message plainly belongs elsewhere (meant for another conversation, unrelated to the work here, or "
-            "better done by another one), do not start background work for it here: run %s with a here-document "
-            "holding the user's words, where it should go (a session id, or a folder for a new conversation) and why, "
-            "and say in one sentence what it answered."
-            % handoff)
+    names = [steward_table.name_of(table, s) for s in over]
+    who = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    several = len(over) > 1
+    return ("%s %s this one for the user through Claude Code Plus: %s %s your work plan and latest reply, and %s for the "
+            "user by typing messages here, which come as the user's own. Each such message starts with the line %s, "
+            "which names the steward that sent it. Do not send %s status messages; put questions for the user in your plan as rows "
+            "waiting on the user, where %s %s them. If a message plainly belongs elsewhere (meant for another conversation, "
+            "unrelated to the work here, or better done by another one), do not start background work for it here: run %s "
+            "with a here-document holding the user's words, where it should go (a session id, or a folder for a new "
+            "conversation) and why, and say in one sentence what it answered.%s"
+            % ("Stewards" if several else "A steward,", who + (" watch" if several else ", watches"),
+               "they" if several else "it", "read" if several else "reads", "speak" if several else "speaks",
+               '`Sent by the steward "<title>" (<session id>) for the user:`', "them" if several else "it",
+               "they" if several else "it", "see" if several else "sees", handoff,
+               (" It goes to the steward whose message started this turn, or else to the one the user last typed to; to "
+                "hand it to another of them, add --to and that steward's session id.") if several else ""))
 
 
 def lines_of(ids, names, now, directory, paths=None):
@@ -198,11 +207,11 @@ def main():
         return 0
     directory = data_dir()
     ids, names, paths = managed_by(directory, sid)
-    over = stewards_of(directory, sid)
+    over, table = stewards_of(directory, sid)
     if not ids:
         if over:
             print(json.dumps({"hookSpecificOutput": {
-                "hookEventName": payload.get("hook_event_name", "UserPromptSubmit"), "additionalContext": watched()}}))
+                "hookEventName": payload.get("hook_event_name", "UserPromptSubmit"), "additionalContext": watched(over, table)}}))
         return 0
     now = states()
     if any(steward_table.is_other(m) for m in ids):
@@ -231,7 +240,7 @@ def main():
     else:
         text = block(ids, names, now, seen, lines)
     if over:
-        text += "\n" + watched()
+        text += "\n" + watched(over, table)
     write_quietly(seen_path, json.dumps({"states": {m: now.get(m, STOPPED) for m in ids}, "digest": digest, "compacted": compacted}))
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": payload.get("hook_event_name", "UserPromptSubmit"), "additionalContext": text}}))

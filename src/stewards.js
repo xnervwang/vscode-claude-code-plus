@@ -8,40 +8,47 @@
  * conversation for it in the Steward panel (src/steward-view.js), and stops being one when nothing is ticked.
  *
  * Who manages whom is kept in stewards.json in the plan directory, so every window and the plugin's steward hooks
- * (claude-plugin/agent-work-plan/hooks/steward.py, steward_table.py) read the same answer. Only the panel writes it, and a
- * window that has just opened a conversation for a steward, which ticks it for that steward (src/relay.js); a steward
- * cannot otherwise change what it manages.
+ * (claude-plugin/agent-work-plan/hooks/steward.py, steward_table.py) read the same answer. The panel writes it; so does
+ * the window that shows a steward, when it carries out that steward's request to change its own list or ticks a
+ * conversation the steward has just opened (src/relay.js).
  *
- * One conversation has one steward at most, and a steward has none: a conversation that becomes a steward leaves every
- * list it was on, one ticked by a steward cannot be ticked by another, and only one steward at a time has "all" on.
+ * A conversation can have several stewards, each ticking it on its own; a steward has none: a conversation that becomes
+ * a steward leaves every list it was on.
  *
- *   { "version": 2, "stewards": { "<steward session id>": { "manages": ["<key>", ...],
+ *   { "version": 3, "stewards": { "<steward session id>": { "manages": ["<key>", ...],
  *                                                          "ticked": ["<key>", ...],
  *                                                          "names": { "<key>": "title" },
  *                                                          "paths": { "<key>": "<plan file>" }, "at": <ms>,
- *                                                          "all": true } } }
+ *                                                          "all": true, "title": "<the steward's own title>",
+ *                                                          "newSince": <ms>, "newSkip": ["<key>", ...],
+ *                                                          "newBefore": ["<key>", ...] } } }
  *
  * A key is a Claude Code session id, or `<source id>:<session id>` for another agent's conversation
  * (src/steward-keys.js); a steward is always a Claude Code conversation. "paths" gives the plan file of each such
  * conversation, as its source gave it when the conversation was ticked: the plugin's hooks cannot ask Agent Plus, and
- * the file's name is the source's own. Version 1 had only session ids and no "paths"; such a table is read unchanged
- * and is written as version 2 at its next change. This build reads what it understands of a table of a later version
- * and never writes one, so that it does not drop what the later build added.
+ * the file's name is the source's own. Version 1 had only session ids and no "paths", and version 2 allowed one steward
+ * per conversation; such a table is read unchanged and is written as version 3 at its next change. This build reads
+ * what it understands of a table of a later version and never writes one, so that it does not drop what the later
+ * build added.
  *
  * "all" is there only when the user ticked "All, including new ones": the panel in the steward's window then keeps
- * "manages" equal to every conversation open in a VS Code window that is no steward and that no other steward has
- * ticked (src/steward-view.js). "ticked" is the part of "manages" ticked by hand, or opened by the steward itself, rather
- * than added by "all"; it is written only for the steward with "all" on, since every other steward's list is all ticked.
- * A tick wins over "all": when another steward ticks a conversation that the steward with "all" on has only because of
- * "all", the conversation moves to the steward that ticked it.
+ * "manages" equal to every conversation open in a VS Code window that is no steward (src/steward-view.js). "ticked" is
+ * the part of "manages" ticked by hand, or opened by the steward itself, rather than added by "all"; it is written only
+ * for a steward with "all" on, since every other steward's list is all ticked.
  *
- * Every reader takes the file through settle(), whatever wrote it, so a table an older build wrote with a conversation on
- * two lists, a steward on a list, or "all" on twice reads the same in every window and hook; the window that may write
- * the table writes the settled one back (migrate).
+ * "newSince" is there while "New conversations" is on: since that time the steward's window ticks for it every
+ * conversation that starts, except stewards and the ones in "newSkip", which were unticked while the switch was on.
+ * Another agent's conversation has no start time this extension can read, so one counts as new when it was not among
+ * "newBefore", that agent's conversations listed when the switch was turned on.
  *
- * The titles are the ones the panel showed when the file was last written; the hook prints them, since it has no other
- * cheap way to name a conversation that is not running.
+ * Every reader takes the file through settle(), whatever wrote it, so a table an older build wrote with a steward on a
+ * list reads the same in every window and hook; the window that may write the table writes the settled one back
+ * (migrate).
+ *
+ * The titles are the ones the panel showed when the file was last written; the hooks print them, since they have no
+ * other cheap way to name a conversation that is not running.
  */
+const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
@@ -50,7 +57,7 @@ const duplicates = require('./duplicates');
 const keys = require('./steward-keys');
 
 const FILE = 'stewards.json';
-const VERSION = 2;
+const VERSION = 3;
 const MAX_MANAGED = 100;
 const MAX_NAME = 200;
 /* How long to wait for a steward's inbox to accept a notice. */
@@ -58,6 +65,7 @@ const POST_TIMEOUT_MS = 3000;
 
 const ids = (list, not) => [...new Set((Array.isArray(list) ? list : [])
   .map(keys.managedId).filter((x) => x && x !== not))].slice(0, MAX_MANAGED);
+const when = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
 
 function pathsOf(given, manages) {
   const out = {};
@@ -66,8 +74,8 @@ function pathsOf(given, manages) {
   return out;
 }
 
-/* The entries of a parsed file, each { manages, ticked, names, paths, at, all } with `ticked` as written (null when
-   absent), before settle(). */
+/* The entries of a parsed file, each { manages, ticked, names, paths, at, all, title, newSince, newSkip, newBefore }
+   with `ticked` as written (null when absent), before settle(). */
 function entriesOf(d) {
   const out = {};
   const all = d && d.stewards && typeof d.stewards === 'object' ? d.stewards : {};
@@ -77,52 +85,47 @@ function entriesOf(d) {
     const manages = ids(v.manages, id);
     const names = {};
     for (const m of manages) if (v.names && typeof v.names[m] === 'string') names[m] = v.names[m].slice(0, MAX_NAME);
+    const since = when(v.newSince) > 0 ? v.newSince : 0;
     out[id] = { manages, ticked: Array.isArray(v.ticked) ? ids(v.ticked, id) : null, names, paths: pathsOf(v.paths, manages),
-      at: typeof v.at === 'number' && isFinite(v.at) ? v.at : 0, all: v.all === true };
+      at: when(v.at), all: v.all === true, title: typeof v.title === 'string' ? v.title.slice(0, MAX_NAME) : '',
+      newSince: since, newSkip: since ? ids(v.newSkip, id) : [], newBefore: since ? ids(v.newBefore, id) : [] };
   }
   return out;
 }
 
+/* Whether entry `e` makes its conversation a steward. */
+const isSteward = (e) => !!e && (e.manages.length > 0 || e.all || e.newSince > 0);
+
 /*
- * The table as the rules have it, from `entries` (entriesOf). "all" stays on for only one steward, the one whose entry
- * changed last; the others keep their lists, and each of those lists then counts as ticked. A steward without "ticked"
- * has ticked everything it manages, unless it is the one with "all" on: then its whole list counts as coming from
- * "all". The entries are then taken oldest first, the order the ticks were made in. Each keeps what it manages except a
- * conversation that is a steward by then, and except one another steward has, unless it ticked that one itself; a later
- * tick takes a conversation away from an earlier steward. A conversation it has only through "all" it keeps only if
- * nobody else has it. An entry that keeps anything becomes a steward and leaves every list it is on, and the entry it
- * leaves may end up with nothing. An entry with nothing and "all" off is no steward.
+ * The table as the rules have it, from `entries` (entriesOf). A steward without "ticked" has ticked everything it
+ * manages, unless it has "all" on: then its whole list counts as coming from "all". The entries are taken oldest
+ * first; each keeps what it manages except conversations that are stewards by then. An entry that keeps anything, or
+ * has a switch on, becomes a steward and leaves every list it is on, and the entry it leaves may end up with nothing.
+ * An entry with nothing and both switches off is no steward.
  */
 function settle(entries) {
   const order = Object.keys(entries).sort((a, b) => (entries[a].at - entries[b].at) || (a < b ? -1 : a > b ? 1 : 0));
-  const every = order.filter((id) => entries[id].all).pop() || '';
-  const out = {}, holder = new Map();
+  const out = {};
   const drop = (h, c) => {
     const t = out[h];
     t.manages = t.manages.filter((x) => x !== c);
     t.ticked = t.ticked.filter((x) => x !== c);
     delete t.names[c];
     delete t.paths[c];
-    holder.delete(c);
-    if (!t.manages.length && !t.all) delete out[h];
+    if (!isSteward(t)) delete out[h];
   };
   for (const id of order) {
-    const e = entries[id], all = id === every;
-    const mine = new Set(all ? e.ticked || [] : e.manages);
-    const list = [];
-    for (const c of e.manages) {
-      if (c === id || out[c] || list.includes(c)) continue;
-      const h = holder.get(c);
-      if (h) { if (!mine.has(c)) continue; drop(h, c); }
-      list.push(c);
-    }
-    if (!list.length && !all) continue;
-    if (holder.has(id)) drop(holder.get(id), id);
-    const names = {}, paths = {};
-    for (const c of list) if (e.names[c]) names[c] = e.names[c];
-    for (const c of list) if (e.paths && e.paths[c]) paths[c] = e.paths[c];
-    out[id] = { manages: list, ticked: list.filter((c) => mine.has(c)), names, paths, at: e.at, all };
-    for (const c of list) holder.set(c, id);
+    const e = entries[id];
+    const mine = new Set(e.all ? e.ticked || [] : e.manages);
+    const list = e.manages.filter((c) => c !== id && !out[c]);
+    const t = { manages: list, ticked: list.filter((c) => mine.has(c)), names: {}, paths: {}, at: e.at, all: e.all,
+      title: e.title || '', newSince: e.newSince || 0, newSkip: e.newSince ? (e.newSkip || []).slice() : [],
+      newBefore: e.newSince ? (e.newBefore || []).slice() : [] };
+    if (!isSteward(t)) continue;
+    for (const h of Object.keys(out)) if (out[h].manages.includes(id)) drop(h, id);
+    for (const c of list) if (e.names[c]) t.names[c] = e.names[c];
+    for (const c of list) if (e.paths && e.paths[c]) t.paths[c] = e.paths[c];
+    out[id] = t;
   }
   return out;
 }
@@ -131,8 +134,8 @@ function parse(dir) {
   try { return JSON.parse(fs.readFileSync(path.join(dir, FILE), 'utf8')); } catch (_) { return null; /* none yet, or caught mid-write */ }
 }
 
-/** steward id -> { manages, ticked, names, paths, at, all }, settled, leaving out anything malformed and stewards that
-    manage nothing and are not set to manage all. */
+/** steward id -> { manages, ticked, names, paths, at, all, title, newSince, newSkip, newBefore }, settled, leaving out
+    anything malformed and stewards that manage nothing and have both switches off. */
 function read(dir = planDir()) {
   return settle(entriesOf(parse(dir)));
 }
@@ -149,6 +152,12 @@ function write(table, dir) {
     out[id] = { manages: v.manages, names: v.names, at: v.at };
     if (v.paths && Object.keys(v.paths).length) out[id].paths = v.paths;
     if (v.all) { out[id].all = true; out[id].ticked = v.ticked; }
+    if (v.title) out[id].title = v.title;
+    if (v.newSince) {
+      out[id].newSince = v.newSince;
+      if (v.newSkip && v.newSkip.length) out[id].newSkip = v.newSkip;
+      if (v.newBefore && v.newBefore.length) out[id].newBefore = v.newBefore;
+    }
   }
   fs.mkdirSync(dir, { recursive: true });
   writeAtomic(path.join(dir, FILE), JSON.stringify({ version: VERSION, stewards: out }, null, 1) + '\n');
@@ -158,9 +167,10 @@ function write(table, dir) {
 /* A table's content as one string. Two tables that differ only in key order, in the fields they leave out or in their
    version give the same string. */
 const meaning = (t) => JSON.stringify(Object.keys(t).sort().map((id) => {
-  const v = t[id], paths = v.paths || {};
+  const v = t[id], paths = v.paths || {}, since = v.newSince || 0;
   return [id, v.manages, v.all ? (v.ticked || []).filter((c) => v.manages.includes(c)) : null,
-    Object.keys(v.names).sort().map((c) => [c, v.names[c]]), Object.keys(paths).sort().map((c) => [c, paths[c]]), v.at, !!v.all];
+    Object.keys(v.names).sort().map((c) => [c, v.names[c]]), Object.keys(paths).sort().map((c) => [c, paths[c]]), v.at, !!v.all,
+    v.title || '', since, since ? v.newSkip || [] : [], since ? v.newBefore || [] : []];
 }));
 
 /** Writes the settled table back when it differs from what the file holds, as a file an older build wrote can. Returns
@@ -173,53 +183,55 @@ function migrate(dir = planDir()) {
   return write(settled, dir);
 }
 
-/* Who has conversation `id` in `table`, other than `but`: { steward, ticked }, or null. An entry with no "ticked" has
-   ticked what it manages unless "all" is on. */
-function holderOf(table, id, but = '') {
-  for (const [s, t] of Object.entries(table)) {
-    if (s === but || !t || !Array.isArray(t.manages) || !t.manages.includes(id)) continue;
-    return { steward: s, ticked: Array.isArray(t.ticked) ? t.ticked.includes(id) : !t.all };
-  }
-  return null;
+/* Whether `steward` manages conversation `id`: its list has it, or it has "all" on and `id` is no steward, even when
+   `id` is missing from its list for the moment. */
+function manages(table, steward, id) {
+  const t = table[steward];
+  return !!t && (t.manages.includes(id) || (t.all && id !== steward && !table[id]));
 }
-
-/* The steward other than `but` that has "all" on, or ''. */
-const everyOf = (table, but = '') => Object.keys(table).find((s) => s !== but && table[s].all) || '';
 
 /*
- * `key`'s steward: the one whose list has it, else the one with "all" on. '' for a steward itself, for another agent's
- * conversation of a source no steward can manage (keys.allowed), and when no steward has it. The relay sends that
- * conversation's handoffs to the same steward (manages in src/relay.js).
+ * The stewards that manage `key`, in table order. None for a steward itself, and none for another agent's conversation
+ * of a source no steward can manage (keys.allowed). The relay sends that conversation's handoffs to one of them
+ * (src/relay.js).
  */
-function stewardOf(table, key) {
-  if (typeof key !== 'string' || !key || table[key]) return '';
-  if (!keys.isClaude(key) && !keys.allowed(key)) return '';
-  const held = holderOf(table, key);
-  return held ? held.steward : everyOf(table);
+function stewardsOf(table, key) {
+  if (typeof key !== 'string' || !key || table[key]) return [];
+  if (!keys.isClaude(key) && !keys.allowed(key)) return [];
+  return Object.keys(table).filter((s) => manages(table, s, key));
 }
+
+/* `list` with the steward the user typed to last first (`userAt(id)`, 0 when unknown), and session id order between
+   stewards with the same time. */
+const byUser = (list, userAt) => list.map((s) => ({ s, at: Number(userAt(s)) || 0 }))
+  .sort((a, b) => (b.at - a.at) || (a.s < b.s ? -1 : a.s > b.s ? 1 : 0)).map((x) => x.s);
 
 /**
  * Sets what `steward` manages to `list`, with the titles in `names` and, for another agent's conversations, the plan
- * files in `paths`; a conversation missing from either keeps what the table had for it. `every` turns "all" on or off;
- * without it the setting stays. With "all" on, `ticked` lists the conversations in `list` that were ticked by hand (by
- * default, those ticked before); with it off, the whole list counts as ticked. Left out of the list: conversations that
- * are stewards and ones another steward ticked; "all" stays off while another steward has it on. Ticking a
- * conversation another steward has only through "all" takes it from that one, and a steward that comes to manage
- * something leaves every other list. An empty list removes the steward from the table unless "all" is on.
+ * files in `paths`; a conversation missing from either keeps what the table had for it. `every` turns "all" on or off,
+ * and `later` "New conversations" (with `before`, the other agents' conversations listed then); without them the
+ * settings stay. With "all" on, `ticked` lists the conversations in `list` that were ticked by hand (by default, those
+ * ticked before); with it off, the whole list counts as ticked. `title` is the steward's own title. Stewards are left
+ * out of the list. An empty list removes the steward from the table unless a switch is on.
  */
-function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked, paths = {} } = {}) {
+function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked, paths = {}, title, later, before } = {}) {
   const all = read(dir);
   if (typeof steward !== 'string' || !SESSION.test(steward)) return all;
   const id = steward.toLowerCase();
   const was = all[id];
-  const keepAll = (typeof every === 'boolean' ? every : !!(was && was.all)) && !everyOf(all, id);
+  const keepAll = typeof every === 'boolean' ? every : !!(was && was.all);
+  const since = later === true ? (was && was.newSince) || now : later === false ? 0 : (was ? was.newSince : 0);
   const own = keepAll ? new Set(Array.isArray(ticked) ? ids(ticked, id) : was ? was.ticked : []) : null;
-  const manages = ids(list, id).filter((m) => {
-    if (all[m]) return false;
-    const h = holderOf(all, m, id);
-    return !h || (!h.ticked && (!own || own.has(m)));
-  });
-  if (manages.length || keepAll) {
+  const manages = ids(list, id).filter((m) => !all[m]);
+  let skip = [], seen = [];
+  if (since) {
+    const same = was && was.newSince === since ? was : null;
+    skip = same ? same.newSkip.slice() : [];
+    for (const m of same ? same.manages : []) if (!manages.includes(m) && !skip.includes(m)) skip.push(m);
+    skip = skip.filter((m) => !manages.includes(m)).slice(-MAX_MANAGED);
+    seen = same ? same.newBefore : ids(before, id);
+  }
+  if (manages.length || keepAll || since) {
     const kept = {}, files = {};
     for (const m of manages) {
       const t = names && typeof names[m] === 'string' ? names[m] : was && was.names[m];
@@ -227,24 +239,52 @@ function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now
       const f = paths && keys.planFileOk(m, paths[m]) ? paths[m] : was && was.paths[m];
       if (f) files[m] = f;
     }
-    all[id] = { manages, ticked: own ? manages.filter((m) => own.has(m)) : manages, names: kept, paths: files, at: now, all: keepAll };
+    const own_ = typeof title === 'string' && title ? title.slice(0, MAX_NAME) : (was && was.title) || '';
+    all[id] = { manages, ticked: own ? manages.filter((m) => own.has(m)) : manages, names: kept, paths: files, at: now, all: keepAll,
+      title: own_, newSince: since, newSkip: skip, newBefore: seen };
   } else delete all[id];
   const settled = settle(all);
   return write(settled, dir) ? settled : read(dir);
 }
 
-/** Refreshes the saved titles. */
+/** Refreshes the saved titles, the stewards' own among them. */
 function rename(names, { dir = planDir() } = {}) {
   const all = read(dir);
   let changed = false;
-  for (const v of Object.values(all)) {
+  for (const [id, v] of Object.entries(all)) {
     for (const m of v.manages) {
       const t = typeof names[m] === 'string' ? names[m].slice(0, MAX_NAME) : '';
       if (t && v.names[m] !== t) { v.names[m] = t; changed = true; }
     }
+    const own = typeof names[id] === 'string' ? names[id].slice(0, MAX_NAME) : '';
+    if (own && own !== id && v.title !== own) { v.title = own; changed = true; }
   }
   return changed && write(all, dir);
 }
+
+/*
+ * The line a steward's message to a conversation starts with, and the steward it names. The managed conversation reads
+ * it to know which steward the message is from (hooks/steward.py says so each turn), and the relay reads it in that
+ * conversation's transcript to find the steward that started a turn. hooks/steward_table.py parses the same form.
+ */
+const FROM_HEAD = 'Sent by the steward ';
+const FROM_TAIL = ' for the user:';
+const FROM = /^Sent by the steward (?:"(.*)" )?\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\) for the user:[ \t]*$/i;
+function fromLine(steward, title) {
+  const t = String(title || '').replace(/\s+/g, ' ').trim();
+  return `${FROM_HEAD}${t && t !== steward ? `"${t}" ` : ''}(${steward})${FROM_TAIL}`;
+}
+/* { steward, title } named by the first line of `text`, or null. */
+function senderOf(text) {
+  const first = String(text || '').replace(/^\s+/, '').split(/\r?\n/)[0];
+  const m = FROM.exec(first);
+  return m ? { steward: m[2].toLowerCase(), title: m[1] || '' } : null;
+}
+const withFrom = (steward, title, text) => fromLine(steward, title) + '\n' + text;
+
+/* The hash a record of typed text is kept under: whitespace counts for nothing, as the transcript check
+   (src/sent-check.js) compares a message. */
+const textHash = (text) => crypto.createHash('sha256').update(String(text || '').replace(/[\s\u200b]+/g, ''), 'utf8').digest('hex');
 
 /*
  * The notices a steward is sent when one of its conversations stops: a turn that ended, or a conversation that started
@@ -272,9 +312,10 @@ function stopLine(procs) {
 
 /*
  * The notice text, which opens by saying it is from this extension and not from the user. `details` gives, by session
- * id, { state, doing, asks, waitingOn }: carrying them saves the steward a tool call per conversation, and each call
- * makes it read its whole context again. `asks` holds only questions new to the steward. On an "ended" entry of
- * `list`, `why` is the notice's words for the work that stopped.
+ * id, { state, doing, asks, waitingOn, held }: carrying them saves the steward a tool call per conversation, and each
+ * call makes it read its whole context again. `asks` holds only questions no steward has been given. `held` lists
+ * { text, steward, title } for a question or a wait another steward of the conversation was given, so that the user is
+ * asked once. On an "ended" entry of `list`, `why` is the notice's words for the work that stopped.
  */
 function noticeText(list, names, details = {}) {
   const said = new Set();
@@ -293,6 +334,9 @@ function noticeText(list, names, details = {}) {
     const more = [`  Now: ${d.state}${d.doing && d.doing.length ? '; doing: ' + d.doing.join(' · ') : ''}`];
     if (d.waitingOn) more.push(`  Waiting on ${d.waitingOn}`);
     for (const q of d.asks || []) more.push(`  Question for the user: ${q}`);
+    for (const h of d.held || []) {
+      more.push(`  Already given to the steward ${h.title ? `"${h.title}" ` : ''}(${h.steward}), which puts it to the user: ${h.text}`);
+    }
     return [head].concat(more).join('\n');
   };
   return 'Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:\n'
@@ -324,4 +368,5 @@ function post(address, text, { from = 'claude-code-plus', timeoutMs = POST_TIMEO
   });
 }
 
-module.exports = { read, setManaged, rename, migrate, newer, settle, entriesOf, holderOf, everyOf, stewardOf, changes, noticeText, post, FILE, VERSION, MAX_MANAGED };
+module.exports = { read, setManaged, rename, migrate, newer, settle, entriesOf, isSteward, manages, stewardsOf, byUser, changes, noticeText, post,
+  fromLine, senderOf, withFrom, textHash, FILE, VERSION, MAX_MANAGED };

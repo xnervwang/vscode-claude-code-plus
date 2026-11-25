@@ -6,7 +6,9 @@
 /*
  * Extra lines for a steward's notices (src/steward-view.js): the tool call that keeps a conversation waiting for the
  * user, and the background sessions and `claude -p` workers it started that ended without finishing. Also, per
- * steward, what it has been told, in NOTICES_DIR of the plan directory, so that a reload does not repeat it.
+ * steward, what it has been told, in NOTICES_DIR of the plan directory, so that a reload does not repeat it; and, for
+ * every steward at once, which steward was given each question or wait of a conversation (GIVEN_FILE), so that a
+ * conversation with several stewards has each put to the user once.
  */
 const fs = require('fs');
 const path = require('path');
@@ -14,6 +16,10 @@ const background = require('./background');
 const { writeAtomic, SESSION } = require('./claude-files');
 
 const NOTICES_DIR = 'steward-notices';
+/* { "<key>": { "<row>\n<question>" or "wait\n<what it waits on>": { steward, at } } }, beside stewards.json. */
+const GIVEN_FILE = 'steward-questions.json';
+/* How long the record keeps what was given for a conversation no window lists any more. */
+const GIVEN_KEEP_MS = 24 * 3600000;
 /* Bytes read from the end of a transcript to find its latest tool calls. */
 const TAIL_BYTES = 512 * 1024;
 const MAX_SUMMARY = 300;
@@ -177,4 +183,35 @@ function save(dir, steward, state) {
   try { fs.mkdirSync(path.dirname(file), { recursive: true }); writeAtomic(file, text); } catch (_) { /* told again after a reload */ }
 }
 
-module.exports = { pendingCall, waitingOn, runningWork, howEnded, stoppedBy, load, save, NOTICES_DIR };
+function loadGiven(dir) {
+  let d = null;
+  try { d = JSON.parse(fs.readFileSync(path.join(dir, GIVEN_FILE), 'utf8')); } catch (_) { /* none yet */ }
+  const out = {};
+  for (const [id, v] of Object.entries(d && typeof d === 'object' && !Array.isArray(d) ? d : {})) {
+    if (!v || typeof v !== 'object') continue;
+    for (const [k, g] of Object.entries(v)) {
+      if (g && typeof g.steward === 'string' && SESSION.test(g.steward) && typeof g.at === 'number') (out[id] = out[id] || {})[k] = { steward: g.steward.toLowerCase(), at: g.at };
+    }
+  }
+  return out;
+}
+
+/*
+ * Writes the record back. `current(id)` gives a listed conversation's question rows ("<row>\n<question>"), or null for
+ * one not listed: a listed one keeps only questions it still asks, and its wait, which ends with the wait itself; one
+ * not listed keeps its entries for GIVEN_KEEP_MS.
+ */
+function saveGiven(dir, given, { now = Date.now(), current = () => null } = {}) {
+  const out = {};
+  for (const [id, v] of Object.entries(given)) {
+    const rows = current(id);
+    const kept = {};
+    for (const [k, g] of Object.entries(v)) {
+      if (rows ? k.startsWith('wait\n') || rows.includes(k) : now - g.at < GIVEN_KEEP_MS) kept[k] = g;
+    }
+    if (Object.keys(kept).length) out[id] = kept;
+  }
+  try { writeAtomic(path.join(dir, GIVEN_FILE), JSON.stringify(out) + '\n'); } catch (_) { /* given again after a reload */ }
+}
+
+module.exports = { pendingCall, waitingOn, runningWork, howEnded, stoppedBy, load, save, loadGiven, saveGiven, NOTICES_DIR, GIVEN_FILE };

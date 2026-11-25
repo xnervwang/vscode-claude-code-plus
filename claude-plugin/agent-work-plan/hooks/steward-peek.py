@@ -13,7 +13,7 @@ for the user, and the text it wrote after the user's last message, without tool 
 
 --said prints the user's latest messages in that conversation instead, oldest first, each with its time: what was
 typed into it, also while a turn ran, and not messages from other sessions or notices. A steward checks a handoff
-against them. Read-only.
+against them. A message a steward typed there for the user is marked with that steward. Read-only.
 
 For another agent's conversation, whose key is "<source id>:<session id>" (steward_table.py), the state comes from
 Agent Plus's attention files (agent_states.py) and the plan from the path the Steward panel recorded in stewards.json.
@@ -195,7 +195,10 @@ def utc(ms):
 
 def print_said(found):
     for at, text in found:
-        print("%s UTC:" % at if at else "(no time):")
+        sender = steward_table.sender_of(text)
+        by = " (sent by the steward %s, not typed by the user there)" % (
+            '"%s" (%s)' % (sender[1], sender[0]) if sender[1] else sender[0]) if sender else ""
+        print(("%s UTC" % at if at else "(no time)") + by + ":")
         print("  " + (text if len(text) <= MAX_SAID_CHARS else text[:MAX_SAID_CHARS] + "...").replace("\n", "\n  "))
     if not found:
         print("No message from the user was found in that conversation.")
