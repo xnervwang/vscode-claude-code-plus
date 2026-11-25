@@ -7,7 +7,7 @@ Code window with Agent Plus writes in the shared folder (Agent Plus's docs/proto
 way as in the extension's src/agent-states.js.
 
 A window lists its sources' running conversations there, leaving out stopped ones whose reply has been read, so a
-conversation missing from every file is stopped, or open in no window.
+conversation that no file lists is stopped, or no window has it open.
 """
 import json
 import os
@@ -46,7 +46,7 @@ def _detail(r):
 
 
 def read(now=None, directory=None):
-    """key -> {"activity", "unseen", "waitingFor"} for the conversations of sources other than Claude Code."""
+    """key -> {"activity", "unseen", "waitingFor"} for other agents' conversations."""
     now = time.time() * 1000 if now is None else now
     directory = directory or os.path.join(shared_home(), ATTENTION_DIR)
     out = {}

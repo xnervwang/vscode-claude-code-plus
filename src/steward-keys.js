@@ -4,23 +4,23 @@
 
 'use strict';
 /*
- * How the stewards table (src/stewards.js) and the relay (src/relay.js) name a conversation. A Claude Code
- * conversation is its session id in lower case, as every build has written it; one of another agent that registers
- * with Agent Plus is `<source id>:<session id>`, the session id in its own case, since OpenCode's ids are case
- * sensitive. hooks/steward_table.py checks keys with the same pattern.
+ * How the stewards table (src/stewards.js) and the relay (src/relay.js) name a conversation. A Claude Code conversation
+ * is its session id in lower case, as every build has written it; a conversation of another agent that registers with
+ * Agent Plus is `<source id>:<session id>`, the session id in its own case, since OpenCode's ids are case sensitive.
+ * hooks/steward_table.py checks keys with the same pattern.
  *
  * A key holds a colon, which a Windows file name cannot, so a file is never named after a key: the plan of another
  * agent's conversation is the path its source gives (planPathOf in src/steward-core.js), kept in the table.
  *
- * The table keeps every well-formed key, also of a source this build does not know, so that a later build's ticks
- * survive this one rewriting the table; which sources the panel lists and the relay passes messages to is
+ * The table keeps every well-formed key, including keys of sources this build does not know, so that a later build's
+ * ticks survive this one rewriting the table; which sources the panel lists and the relay passes messages to is
  * OTHER_SOURCES.
  */
 const path = require('path');
 const { SESSION } = require('./claude-files');
 
 const CLAUDE = 'claude-code';
-/* The source id may hold no colon, so the first colon ends it. The session id takes what OpenCode Agent Plus accepts
+/* A source id cannot contain a colon, so the first colon ends it. The session id takes what OpenCode Agent Plus accepts
    in a conversation's URI (sessionOfUri in its src/host/agentplus-source.js). */
 const KEY = /^([a-z0-9][a-z0-9-]{0,63}):([A-Za-z0-9][A-Za-z0-9_-]{0,199})$/;
 const OTHER_SOURCES = ['opencode-plus'];
@@ -44,11 +44,9 @@ function parse(key) {
 
 const isClaude = (key) => typeof key === 'string' && SESSION.test(key);
 const isOther = (key) => typeof key === 'string' && !SESSION.test(key) && KEY.test(key) && !key.startsWith(CLAUDE + ':');
-/* Whether conversations of this key's source are listed in the panel and get messages through the relay. */
 const allowed = (key) => isOther(key) && OTHER_SOURCES.includes(parse(key).sourceId);
 
-/* The key the table keeps for `x`. A Claude Code session id written as a key of its own source is taken as the session
-   id. */
+/* The key the table keeps for `x`. `claude-code:<session id>` is kept as the session id alone. */
 function managedId(x) {
   if (typeof x !== 'string') return '';
   if (SESSION.test(x)) return x.toLowerCase();
@@ -57,7 +55,6 @@ function managedId(x) {
   return p[1] === CLAUDE ? keyOf(CLAUDE, p[2]) : x;
 }
 
-/* Whether `file` can be the plan of `key`'s conversation: an absolute path to <session id>.json. */
 function planFileOk(key, file) {
   const p = isOther(key) ? parse(key) : null;
   return !!p && typeof file === 'string' && path.isAbsolute(file) && path.basename(file) === p.sessionId + '.json';

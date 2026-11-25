@@ -10,9 +10,9 @@ entry's "ticked" is the part of its list ticked by hand rather than added by "al
 with "all" on.
 
 A managed conversation is a key: a Claude Code session id in lower case, or "<source id>:<session id>" for another
-agent's conversation, its session id in its own case (src/steward-keys.js, the same pattern). "paths" gives the plan
+agent's conversation, whose session id keeps its case (src/steward-keys.js, the same pattern). "paths" gives the plan
 file of each other agent's conversation, as the panel recorded it when the conversation was ticked; these hooks cannot
-ask Agent Plus where it is. A key holds a colon, so no file is ever named after one.
+ask Agent Plus where it is. A key holds a colon, so no file is named after one.
 """
 import json
 import os
@@ -50,7 +50,7 @@ def allowed(key):
 
 
 def managed_id(x):
-    """The key the table keeps for `x`, or "" when `x` is neither a session id nor a well-formed key."""
+    """The key the table keeps for `x`."""
     p = parse(x)
     if not p:
         return ""

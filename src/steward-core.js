@@ -4,9 +4,9 @@
 
 'use strict';
 /*
- * What the steward needs of Agent Plus to manage another agent's conversations (its docs/protocol.md, "The
- * interface"): allConversations() lists the ones open on this machine, planPathOf() gives where each keeps its plan,
- * and deliver() sends one a message. Without all three, the Steward panel lists Claude Code conversations only.
+ * What the steward needs of Agent Plus to manage another agent's conversations (its docs/protocol.md, "The interface"):
+ * allConversations(), planPathOf() and deliver(). Without all three, the Steward panel lists Claude Code conversations
+ * only.
  *
  * allConversations() is kept current only while something listens to onDidChangeAllConversations. An Agent Plus window
  * writes its attention files, which src/agent-states.js reads for what each conversation is doing, only while its
@@ -23,8 +23,8 @@ const ready = (core) => !!(core && Array.isArray(core.features) && FEATURES.ever
   && typeof core.allConversations === 'function' && typeof core.onDidChangeAllConversations === 'function'
   && typeof core.deliver === 'function' && typeof core.planPathOf === 'function');
 
-/* The conversations of the sources the steward manages (keys.OTHER_SOURCES): { key, sourceId, label, sessionId, title,
-   cwd, lastActiveAt }, each once. */
+/* The conversations open on this machine whose source is in keys.OTHER_SOURCES, from allConversations(), each once:
+   { key, sourceId, label, sessionId, title, cwd, lastActiveAt }. */
 function others(core) {
   if (!ready(core)) return [];
   let list = [];

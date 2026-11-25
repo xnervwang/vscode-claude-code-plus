@@ -3147,8 +3147,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const wasOn = (await button()).fold !== 'open';
       if (!wasOn) await focus.click();
       const row = conv.locator('[data-testid="focus-fold-row"][aria-expanded="false"]').filter({ visible: true }).first();
-      /* Claude Code draws only the messages near the screen, and in a narrow column the latest replies, which hold no tool
-         call, can fill it; the messages are scrolled up until a folded row is drawn. */
+      /* Claude Code draws only the messages near the screen, and in a narrow column the latest replies, which hold no
+         tool call, can fill it, so the test scrolls up until Claude Code draws a folded row. */
       let found = await until(async () => (await row.count()) > 0, 5000, 300);
       for (let i = 0; !found && i < 30; i++) {
         const moved = await conv.evaluate(() => {
@@ -3654,9 +3654,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             await jumped('X\'s title in a reply, clicked in window A');
             await shotB('two-windows-mention-jump');
           }
-          /* A copy of X kept under window A's folder as well, as Claude Code keeps one of a conversation continued from
-             another folder: window A's session list then shows X, and a click on that row goes to window B, where X is
-             open, rather than resuming the copy here in a second process. */
+          /* A second copy of X under window A's folder, like the one Claude Code leaves when a conversation is
+             continued from another folder: window A's session list then shows X, and a click on that row goes to window
+             B, where X is open, rather than resuming the copy here in a second process. */
           const copyA = path.join(profile.home, '.claude', 'projects', folderName(profile.folder), `${X.id}.jsonl`);
           const relist = () => call('if (typeof globalThis.__cceSessionsChanged === "function") globalThis.__cceSessionsChanged(); return true;').catch(() => false);
           fs.writeFileSync(copyA, fs.readFileSync(transcriptIn(X), 'utf8').split('\n').map((l) => {

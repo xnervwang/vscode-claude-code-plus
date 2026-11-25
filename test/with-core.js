@@ -18,7 +18,7 @@
  * else, so installing the work plan plugin fails and leaves its notice above the plan. The patched host is played by
  * the globals it would set: __cceAnswer hands an answer over, and __cceAnswerHook carries the panel's report back.
  *
- * Last, a steward's message to an OpenCode Agent Plus conversation, played by a source registered with Agent Plus
+ * Last, a steward's message to an OpenCode Agent Plus conversation of a stand-in source registered with Agent Plus
  * here: the relay request goes through the window that shows the steward, Agent Plus's deliver() and its answers
  * folder, to that source's deliverAnswer. With an Agent Plus that has 'stewards', the checks then take that
  * conversation's side.
@@ -115,7 +115,6 @@ async function run() {
   const selfContext = context('self', root, 'xnervwang.claude-code-plus', selfPkg);
   const handed = [];
   let report = { sent: true, reason: '' };
-  /* The steward of the OpenCode Agent Plus checks at the end, whose panel this window shows. */
   const STEWARD = 'efefefef-1111-4222-8333-444444444444', toSteward = [];
   globalThis.__cceAnswer = (id, text, key) => {
     if (id !== SID && id !== STEWARD) return false;
@@ -248,7 +247,6 @@ async function run() {
     eq([reached, result && result.outcome], [[[OC, TEXT]], 'submitted'],
       'a steward\'s message to an OpenCode Agent Plus conversation goes through Agent Plus\'s deliver() to that source once, and the relay reports it submitted');
 
-    /* The conversation's side, which needs an Agent Plus with 'stewards'. */
     const ap = exported.agentPlus;
     if (!(Array.isArray(ap.features) && ap.features.includes('stewards') && typeof ap.stewardOf === 'function')) {
       note('this Agent Plus has no \'stewards\': who looks after another agent\'s conversation was not checked');

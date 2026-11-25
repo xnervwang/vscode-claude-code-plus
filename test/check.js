@@ -11234,8 +11234,9 @@ console.log('\nthe Steward panel');
             && dup.oldOne(g.map((p) => Object.assign({}, p, { windowless: false }))).pid === 100) {
           ok('only an idle process whose window is gone is stopped without asking, and only while another one has a window; the button stops the one with no window, else the oldest');
         } else bad(`what may be stopped: ${JSON.stringify([auto, both, busy])}`);
-        /* One conversation run from two working directories, each process on the copy of the transcript kept for its own
-           folder: the stale one is the copy furthest behind when the later process started, not the process started first. */
+        /* One conversation run from two working directories, each process on the copy of the transcript kept for its
+           own folder: the stale one is the copy furthest behind when the later process started. The test starts the
+           processes in both orders. */
         {
           const projects = path.join(root, 'dup-projects'), D = 'dddddddd-0000-4000-8000-000000000004';
           const t1 = now - 30 * 60000, day = 24 * 3600000;
@@ -11388,7 +11389,7 @@ console.log('\nthe Steward panel');
       ok('the hook is registered, the steward skill ships beside it, and the steward\'s side file is swept with its conversation');
     } else bad('the steward hook, skill or side file is not wired as expected');
 
-    /* Other agents' conversations, keyed `<source id>:<session id>` with the session id's case kept
+    /* Other agents' conversations, keyed `<source id>:<session id>`; the session id keeps its case
        (src/steward-keys.js). */
     {
       const keys = require('../src/steward-keys');

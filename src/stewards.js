@@ -21,12 +21,12 @@
  *                                                          "paths": { "<key>": "<plan file>" }, "at": <ms>,
  *                                                          "all": true } } }
  *
- * A key is a Claude Code session id, or `<source id>:<session id>` for another agent's conversation (src/steward-keys.js);
- * a steward is always a Claude Code conversation. "paths" gives the plan file of each such conversation, as its source
- * gave it when the conversation was ticked: the plugin's hooks cannot ask Agent Plus, and the file's name is the
- * source's own. Version 1 had only session ids and no "paths"; such a table is read unchanged and is written as version
- * 2 at its next change. A table of a later version is read for what this build understands and never written, so that
- * this build does not drop what the later one added.
+ * A key is a Claude Code session id, or `<source id>:<session id>` for another agent's conversation
+ * (src/steward-keys.js); a steward is always a Claude Code conversation. "paths" gives the plan file of each such
+ * conversation, as its source gave it when the conversation was ticked: the plugin's hooks cannot ask Agent Plus, and
+ * the file's name is the source's own. Version 1 had only session ids and no "paths"; such a table is read unchanged
+ * and is written as version 2 at its next change. This build reads what it understands of a table of a later version
+ * and never writes one, so that it does not drop what the later build added.
  *
  * "all" is there only when the user ticked "All, including new ones": the panel in the steward's window then keeps
  * "manages" equal to every conversation open in a VS Code window that is no steward and that no other steward has
@@ -137,13 +137,12 @@ function read(dir = planDir()) {
   return settle(entriesOf(parse(dir)));
 }
 
-/** The version of the table file when a later build wrote it, else 0. */
+/** The table file's version if a later build wrote it, otherwise 0. */
 function newer(dir = planDir()) {
   const d = parse(dir);
   return d && typeof d.version === 'number' && d.version > VERSION ? d.version : 0;
 }
 
-/* Returns false without writing when the file holds a table of a later version. */
 function write(table, dir) {
   if (newer(dir)) return false;
   const out = {};
@@ -189,9 +188,9 @@ function holderOf(table, id, but = '') {
 const everyOf = (table, but = '') => Object.keys(table).find((s) => s !== but && table[s].all) || '';
 
 /*
- * The steward that looks after the conversation of key `key`: the one whose list has it, else the one with "all" on.
- * '' for a steward itself, for another agent's conversation of a source no steward can manage (keys.allowed), and
- * when no steward has it. The relay hands that conversation's handoffs to the same steward (manages in src/relay.js).
+ * `key`'s steward: the one whose list has it, else the one with "all" on. '' for a steward itself, for another agent's
+ * conversation of a source no steward can manage (keys.allowed), and when no steward has it. The relay sends that
+ * conversation's handoffs to the same steward (manages in src/relay.js).
  */
 function stewardOf(table, key) {
   if (typeof key !== 'string' || !key || table[key]) return '';
@@ -235,7 +234,7 @@ function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now
   return write(settled, dir) ? settled : read(dir);
 }
 
-/** Refreshes the saved titles. Writes the file, and returns true, only if a title changed. */
+/** Refreshes the saved titles. */
 function rename(names, { dir = planDir() } = {}) {
   const all = read(dir);
   let changed = false;
@@ -265,7 +264,6 @@ function changes(before, after, manages) {
   return out;
 }
 
-/* The notice's line on stopping one of a conversation's processes (src/duplicates.js). */
 function stopLine(procs) {
   const p = duplicates.oldOne(procs);
   if (p) return `The Stop the old process button in the Steward panel stops pid ${p.pid}, and so does kill ${p.pid}.`;

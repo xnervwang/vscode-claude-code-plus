@@ -44,7 +44,7 @@ printed answer mentions the tick.
 conversation thinks belongs elsewhere, as a notice that is not the user's message. It goes to the steward that has the
 conversation on its list, or, when none has, to the steward with All on.
 
-Another agent's conversation is named by its key, "<source id>:<session id>" (steward_table.py), and takes only a plain
+A key "<source id>:<session id>" (steward_table.py) names another agent's conversation, which takes only a plain
 message. The request goes to Agent Plus through the window that shows the steward, and Agent Plus sends the message as
 the user's in the window where the conversation is open. Agent Plus refuses it while the conversation waits for the
 user to approve a tool or answer a question.
@@ -75,8 +75,8 @@ OPEN_WAIT_SECONDS = 50
 # A resume waits for a tab to show the conversation (30 seconds), for a long one to load (up to 3 minutes) and then for
 # it to take the message (20 seconds more). The script waits less, to stay inside a tool call's time; the window goes on.
 RESUME_WAIT_SECONDS = 110
-# How long a message to another agent's conversation can take: up to 5 seconds until a window's next pass takes the
-# request, up to 6.5 more to find the steward's call, and about 40 for Agent Plus's deliver() to settle.
+# Up to 5 seconds until a window's next pass takes the request, up to 6.5 more to find the steward's call, and about
+# 40 for Agent Plus's deliver() to settle.
 OTHER_WAIT_SECONDS = 55
 TAIL_BYTES = 256 * 1024
 SAID = {

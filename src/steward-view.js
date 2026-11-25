@@ -177,8 +177,8 @@ function ago(ms, now) {
 }
 
 /* Returns the managed conversations named in an open row of the steward's plan, by title, session id, or for a Claude
-   Code conversation the id's first eight characters. Every key of another agent starts with its source's name, so
-   such a conversation counts only by its title or by its key or session id in full. names: key -> title. */
+   Code conversation the id's first eight characters. Every key of another agent starts with its source's name.
+   names: key -> title. */
 function waitedOn(plan, ids, names) {
   const texts = [];
   const walk = (nodes) => {
@@ -227,8 +227,8 @@ function writesTable(mine, others) {
 const windowLabel = (w) => String(w.name || '').replace(/\s*\[[^\]]*\]\s*$/, '')
   || (w.folders[0] ? path.basename(w.folders[0]) : 'Window with no folder');
 
-/* One group per window, the one in front first, then one per other agent. `rows` are all open in one of `wins`, or
-   another agent's. Agent Plus does not say in which window another agent's conversation is open. */
+/* Groups by window, the front window first, then by agent for the other agents' conversations. `rows` are all open in
+   one of `wins`, or another agent's. Agent Plus does not report which window has another agent's conversation open. */
 function grouped(rows, wins, front) {
   const groups = new Map();
   const frontWin = wins.find((w) => w.sessions.includes(front));
@@ -405,8 +405,8 @@ function shell(list, nonce) {
  * duplicates() for the conversations run by several processes and stopDuplicate(id) to stop the old one
  * (src/duplicates.js), pageAt() for the time of a page's last heartbeat, otherFront() -> { agent, title, manageable }
  * while another agent's conversation tab is in front (src/other-agents.js), or null, and optionally openOther(target)
- * in place of agentPlus.openConversation and otherStates() in place of src/agent-states.js read(). The agentPlus
- * interface comes through attachCore() once this extension is registered with Agent Plus.
+ * and otherStates(), which default to the agentPlus.openConversation command and src/agent-states.js read(). The
+ * agentPlus interface comes through attachCore() once this extension is registered with Agent Plus.
  */
 function create(vscode, deps) {
   deps = Object.assign({ isBackground: bgSessions.isBackground, records: () => liveRecords(), post: stewards.post, alive, readState,
@@ -420,8 +420,8 @@ function create(vscode, deps) {
   const states = new Map();
   const link = stewardCore.link({ changed: () => { pass(); }, log: deps.log });
   const core = () => link.core();
-  /* Plan paths the stewards table records for other agents' conversations, read once per pass: where the plan is when
-     this window's Agent Plus does not say. */
+  /* Plan paths the stewards table records for other agents' conversations, read once per pass, for when this window's
+     Agent Plus gives no plan path. */
   let recorded = {};
   const recordedPaths = () => {
     const out = {};
@@ -687,9 +687,9 @@ function create(vscode, deps) {
     }
   };
 
-  /* Shows a conversation: here if this window has its tab, otherwise by writing a request file for the window that
-     has it; another agent's through Agent Plus, which says so itself when no window has it. Returns 'here', 'sent' or
-     'nowhere'. */
+  /* Shows a conversation: here if this window has its tab, otherwise by writing a request file for the window that has
+     it; another agent's through Agent Plus, which itself says when no window has the conversation open. Returns 'here',
+     'sent' or 'nowhere'. */
   const open = async (id) => {
     if (keys.isOther(id)) {
       const p = keys.parse(id), c = last.get(id);

@@ -4,13 +4,13 @@
 
 'use strict';
 /*
- * What other agents' conversations are doing, for the Steward panel and its notices: the attention files every window
- * with Agent Plus writes in the shared folder (its docs/protocol.md, "Notifications"; each item is checked as readAll
- * in its src/attention.js checks it). hooks/agent_states.py reads them the same way.
+ * The Steward panel and its notices learn what other agents' conversations are doing from the attention files every
+ * window with Agent Plus writes in the shared folder (its docs/protocol.md, "Notifications"; each item is checked as
+ * readAll in its src/attention.js checks it). hooks/agent_states.py reads them the same way.
  *
  * A window lists its sources' running conversations there, leaving out stopped ones whose reply has been read, so a
- * conversation missing from every file is stopped, or open in no window; neither is waiting. A window writes only
- * while its notifications are on or something listens to onDidChangeAllConversations, which src/steward-core.js does.
+ * conversation that no file lists is not waiting: it is stopped, or no window has it open. A window writes only while
+ * its notifications are on or something listens to onDidChangeAllConversations, which src/steward-core.js does.
  */
 const fs = require('fs');
 const path = require('path');
@@ -24,7 +24,7 @@ const STALE_MS = 60000;
 const MAX_ITEMS = 200;
 const MAX_TOOL = 80;
 const WINDOW = /^[0-9a-z]+-[0-9a-f]{8}\.json$/;
-/* When two windows report one conversation differently, the report that needs the user most wins. */
+/* When two windows report one conversation differently, the state that comes first here is kept. */
 const RANK = { waiting: 0, working: 1, background: 2, stopped: 3 };
 const OF_STATE = { prompt: 'waiting', working: 'working', unread: 'stopped', idle: 'stopped' };
 const KINDS = ['permission', 'question', 'plan', 'choice', 'planQuestion'];

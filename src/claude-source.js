@@ -321,7 +321,6 @@ function createClaudeSource(deps) {
     source,
     invalidate() { stale = true; agentsAt = 0; },
     changed() { changed.fire(); },
-    /* The stewards table changed. */
     stewardsChanged() { stewardsChanged.fire(); },
     /* `next` is { title, description, detail, command, arguments } or null. */
     setNotice(next) {
