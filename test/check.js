@@ -2560,6 +2560,38 @@ console.log('\ndetached commands in the agent map');
     props['--cce-detached'] = saved;
     same(got, [[one[0].title, one[0].command], ['perl -e \u2026 relay', 'perl -e 1 relay']], 'the card shows that title, and the whole command line on hover');
   }
+  {
+    /* A `claude -p` worker of SID has ended, and a program it started with setsid still runs. Its link file ties the
+       worker to SID, so SID counts as having work running, and the same tie lists the program in SID's map. */
+    const bgm = require(path.join(__dirname, '..', 'src', 'background.js'));
+    const WORKER = 'abcdef01-0000-4000-8000-000000000031';
+    const plans = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-worker-left-'));
+    try {
+      fs.writeFileSync(path.join(plans, SID + bgm.SUFFIX), JSON.stringify({ ids: [], workers: [WORKER], scannedTo: 0, reader: 5 }) + '\n');
+      const left = { session: WORKER, pid: 5858, start: '9', startedAt: Date.now() - 3 * 24 * 3600000, kind: 'leader', command: 'python3 tools/qd.py q 10', title: 'python3 qd.py' };
+      const mine = { session: SID, pid: 5859, start: '9', startedAt: Date.now() - 60000, kind: 'leader', command: 'sleep 77' };
+      const theirs = { session: OTHER, pid: 5860, start: '9', startedAt: Date.now(), kind: 'leader', command: 'sleep 88' };
+      const working = [...bgm.working({ dir: plans, records: [], shells: new Set([WORKER]), write: false })].sort();
+      const rows = bgm.jobRows({ jobs: [left, mine, theirs], dir: plans });
+      same([working, rows.map((r) => [r.pid, r.launcher || null])], [[SID, WORKER], [[5858, SID], [5859, null], [5860, null]]],
+        'a command left running by an ended worker keeps the dot of the conversation that started the worker green, and its row names that conversation');
+      const packedRows = (webview.liveCss({ enabled: true, detached: rows }).match(/--cce-detached:"([A-Za-z0-9+/=]+)"/) || [])[1] || '';
+      const saved = props['--cce-detached'];
+      props['--cce-detached'] = `"${packedRows}"`;
+      const shownFor = (sid) => {
+        calls.length = 0;
+        const w = make(sid);
+        w.__cceSchedule(h);
+        const titlesNow = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-text').map((c) => c.props.children[0]);
+        const metas = calls.filter((c) => c.type === 'span' && c.props && c.props.className === 'cce-map-meta').map((c) => c.props.children[0]);
+        return { titles: titlesNow, worker: metas.filter((m) => / \u00b7 by worker abcdef01$/.test(m)).length, label: w.__cceAgentsLabel('0 agents', 0) };
+      };
+      const forSid = shownFor(SID), forOther = shownFor(OTHER);
+      props['--cce-detached'] = saved;
+      same([forSid, forOther], [{ titles: ['sleep 77', 'python3 qd.py'], worker: 1, label: '2 detached' }, { titles: ['sleep 88'], worker: 0, label: '1 detached' }],
+        'that conversation\'s agent map lists the command with the worker that started it and counts it on the Agents button; another conversation\'s map does not');
+    } finally { fs.rmSync(plans, { recursive: true, force: true }); }
+  }
   const other = make('abcdef01-0000-4000-8000-000000000003');
   offNow.on = true;
   const offApi = make(SID);

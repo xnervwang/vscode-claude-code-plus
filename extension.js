@@ -405,7 +405,7 @@ function start(context, log, renamed, handing = false) {
       tasks: readTasks(knownDirs()),
       background: off.includes('backgroundSessions') ? [] : background.collect(),
       workers: off.includes('backgroundSessions') ? [] : background.workersNow() || [],
-      detached: off.includes('detachedCommands') ? [] : background.jobsNow() || [],
+      detached: off.includes('detachedCommands') ? [] : background.jobRows({ jobs: background.jobsNow() || [] }),
       pins: pinsOn() ? sessionPins.pageData(sessionPins.read(pinsFile()), sessionPins.retentionDays(), pinMargin()) : null,
       colors: off.includes('sessionColors') || removed() ? null : sessionColors.read(colorsFile()),
       dups: removed() ? [] : dupsList(dupGroups),

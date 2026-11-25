@@ -194,7 +194,8 @@ function detachedProperty(list) {
   if (!Array.isArray(list) || !list.length) return '';
   const rows = list.map((j) => ({ session: j.session, pid: j.pid, startedAt: j.startedAt, command: j.command,
     ...(typeof j.title === 'string' && j.title ? { title: j.title } : {}),
-    ...(Array.isArray(j.workers) && j.workers.length ? { workers: j.workers } : {}) }));
+    ...(Array.isArray(j.workers) && j.workers.length ? { workers: j.workers } : {}),
+    ...(typeof j.launcher === 'string' && j.launcher ? { launcher: j.launcher } : {}) }));
   return `:root{--cce-detached:"${Buffer.from(JSON.stringify(rows), 'utf8').toString('base64')}";}\n`;
 }
 

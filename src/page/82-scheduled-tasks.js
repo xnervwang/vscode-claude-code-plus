@@ -408,7 +408,8 @@
    * The commands this conversation left running detached, which the extension host finds among the machine's processes
    * (src/detached.js). Claude Code keeps no account of them, and they are what keeps the conversation's dot green once
    * its turn is over; the command line shows whether one is the work itself or, say, a server a build left behind.
-   * One that holds a worker listed above is that worker's wrapper, and is left out.
+   * One that holds a worker listed above is that worker's wrapper, and is left out. A command a `claude -p` worker of
+   * this conversation left running is listed too, since it keeps this conversation's dot green after the worker ends.
    */
   var myDetached = function(){
     if (isOff('detachedCommands')) return [];
@@ -419,7 +420,7 @@
     var all = readProp('--cce-detached'), out = [];
     for (var i = 0; i < all.length; i++) {
       var j = all[i];
-      if (!j || j.session !== sid || typeof j.pid !== 'number') continue;
+      if (!j || (j.session !== sid && j.launcher !== sid) || typeof j.pid !== 'number') continue;
       var holds = false;
       if (j.workers && j.workers.length) for (var n = 0; n < j.workers.length; n++) if (listed[j.workers[n]]) holds = true;
       if (!holds) out.push(j);
@@ -454,11 +455,13 @@
   var detachedRow = function(h, j){
     var cmd = String(j.command || ''), meta = ['pid ' + j.pid];
     if (j.startedAt > 0) meta.push('started ' + startText(j.startedAt), bgSpan(Date.now() - j.startedAt));
+    if (j.launcher && j.launcher !== j.session) meta.push('by worker ' + String(j.session).slice(0, 8));
     return mapCard(h, { kind: 'detached', dot: 'running', title: String(j.title || j.label || cmd || '(command line not read)'),
       meta: meta.join(' · '), note: cmd });
   };
-  var DETACHED_NOTE = 'This conversation left these commands running outside Claude Code: a shell or script that outlasted '
-                    + 'the command that started it, or a program started with setsid. They keep the conversation\'s dot green. '
+  var DETACHED_NOTE = 'This conversation, or a claude -p worker it started, left these commands running outside Claude Code: '
+                    + 'a shell or script that outlasted the command that started it, or a program started with setsid. '
+                    + 'They keep the conversation\'s dot green. '
                     + 'Claude Code does not wake the conversation when one stops. A card\'s hover text is its whole command line.';
   var detachedSection = function(h, list){
     var cards = [];

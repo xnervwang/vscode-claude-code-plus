@@ -607,19 +607,19 @@ async function sharedSnapshot(records, opts) {
  * the worker. A worker no conversation can be tied to is left out.
  */
 const MAX_WORKER_ROWS = 20;
+/* Worker session id -> the conversation whose link file names it. */
+function workerOwners(dir = planDir()) {
+  const owners = new Map();
+  let names = [];
+  try { names = planNames.names(dir).filter((n) => LINK_FILE.test(n)); } catch (_) { /* no plan folder */ }
+  for (const n of names) for (const w of readLink(path.join(dir, n)).workers) owners.set(w.toLowerCase(), n.slice(0, -SUFFIX.length).toLowerCase());
+  return owners;
+}
 function workerRows({ records = [], found = [], dir = planDir() } = {}) {
   const scan = new Map();
   for (const w of found) if (w && typeof w.id === 'string') scan.set(w.id.toLowerCase(), w);
   let owners = null;
-  const ownerOf = (id) => {
-    if (!owners) {
-      owners = new Map();
-      let names = [];
-      try { names = planNames.names(dir).filter((n) => LINK_FILE.test(n)); } catch (_) { /* no plan folder */ }
-      for (const n of names) for (const w of readLink(path.join(dir, n)).workers) owners.set(w.toLowerCase(), n.slice(0, -SUFFIX.length).toLowerCase());
-    }
-    return owners.get(id) || '';
-  };
+  const ownerOf = (id) => (owners || (owners = workerOwners(dir))).get(id) || '';
   const out = [];
   for (const r of records) {
     if (!isWorker(r)) continue;
@@ -631,6 +631,20 @@ function workerRows({ records = [], found = [], dir = planDir() } = {}) {
   }
   out.sort((a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : (a.startedAt || 0) - (b.startedAt || 0) || a.pid - b.pid));
   return out.slice(0, MAX_WORKER_ROWS);
+}
+
+/*
+ * The detached commands for the agent map. A command a `claude -p` worker left running keeps the dot of the
+ * conversation that started the worker green (working above), also once the worker has ended and its own row is gone,
+ * so it carries that conversation as `launcher` for its map to list.
+ */
+function jobRows({ jobs = [], dir = planDir() } = {}) {
+  if (!Array.isArray(jobs) || !jobs.length) return [];
+  const owners = workerOwners(dir);
+  return jobs.map((j) => {
+    const launcher = j && typeof j.session === 'string' ? owners.get(j.session.toLowerCase()) || '' : '';
+    return launcher && launcher !== j.session.toLowerCase() ? Object.assign({}, j, { launcher }) : j;
+  });
 }
 
 let lastJobs = null, lastWorkers = null;
@@ -648,7 +662,7 @@ async function workingNow(opts = {}) {
 }
 
 module.exports = {
-  scan, collect, readState, readLink, busyJobs, liveRecords, working, workingNow, jobsNow, workersNow, workerRows, hookWork,
+  scan, collect, readState, readLink, busyJobs, liveRecords, working, workingNow, jobsNow, workersNow, workerRows, jobRows, hookWork,
   SUFFIX, TASKS_SUFFIX, LINK_FILE, MAX_SESSIONS, MAX_PER_SESSION, MAX_ENTRIES, PERSIST_EVERY, SNAPSHOT_FILE, SHARE_MS,
   MAX_WORKER_ROWS,
 };
