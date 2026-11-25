@@ -366,7 +366,7 @@ async function carryOut(req, action, to, dir, deps, now) {
     const label = keys.labelOf(to);
     if (!keys.allowed(to)) return { outcome: 'refused', reason: `a steward cannot send to ${label} conversations` };
     if (action !== 'send') {
-      return { outcome: 'refused', reason: `${label} conversations take only a plain message; the user renames, closes or opens one in its own window` };
+      return { outcome: 'refused', reason: `${label} conversations take only a plain message; the user renames, closes or reopens one in ${label}` };
     }
   }
   const { text, why } = textFor(action, req.text);

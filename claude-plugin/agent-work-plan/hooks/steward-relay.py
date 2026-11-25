@@ -87,8 +87,8 @@ SAID = {
 }
 SENT_OTHER = "Sent: it reached the conversation as the user's message."
 DRAFTED = "Not sent: the text was left in the conversation's message input as a draft."
-NO_ACTIONS = ("Not done: a steward can only send plain messages to %s conversations; the user renames, closes or "
-              "opens one in its own window.")
+NO_ACTIONS = ("Not done: a steward can only send plain messages to %(label)s conversations; the user renames, closes "
+              "or reopens one in %(label)s.")
 
 
 WINDOWS_DIR = "windows"
@@ -279,7 +279,7 @@ def main(argv):
         print("Not done: a steward cannot send to conversations of %s." % steward_table.label_of(target))
         return 1
     if other and action:
-        print(NO_ACTIONS % steward_table.label_of(target))
+        print(NO_ACTIONS % {"label": steward_table.label_of(target)})
         return 1
     steward = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     if not SESSION_NAME.match(steward):

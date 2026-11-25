@@ -11694,7 +11694,7 @@ console.log('\nthe Steward panel');
         ok('while a delivery waits for Agent Plus, the same window takes and carries out the next request, and the waiting one gets its result when Agent Plus answers');
       } else bad(`a held delivery: ${JSON.stringify([relayed.beforeHang, relayed.claudeWhileHeld, rr[8], relayed.later])}`);
       if (rr[3] && rr[3].outcome === 'refused' && /has not run steward-relay\.py/.test(reason(3))
-          && [4, 5, 6].every((i) => rr[i] && rr[i].outcome === 'refused' && reason(i) === 'OpenCode Agent Plus conversations take only a plain message; the user renames, closes or opens one in its own window')
+          && [4, 5, 6].every((i) => rr[i] && rr[i].outcome === 'refused' && reason(i) === 'OpenCode Agent Plus conversations take only a plain message; the user renames, closes or reopens one in OpenCode Agent Plus')
           && rr[7] && rr[7].outcome === 'refused' && /cannot send to codex-plus conversations/.test(reason(7))
           && !(relayed.got || []).some((g) => g[2] === 'never ran' || g[1] === 'codex-plus:abc')) {
         ok('a request the steward did not run is refused as for a Claude Code conversation; a rename, close or resume of an OpenCode conversation is refused, '
