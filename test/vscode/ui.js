@@ -1996,7 +1996,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             await hide();
             await exec('notifications.clearAll');
             question(true);
-            const read = await until(async () => { const s = await toDecide(); return s && /\b1 to decide\b/.test(s) && s; }, 30000, 500);
+            const read = await until(async () => { const s = await toDecide(); return s && /\b1 to decide\b|\b1 conversation needs you\b/.test(s) && s; }, 30000, 500);
             const quiet = read ? await noticesWithin(tab0) : null;
             const midTurn = { working: !!working, conversations: read || await toDecide(), notices: quiet, count: await needCount(),
               dot: await dotsOn(t.label), agentPlus: attentionOf(tab0.id) };
@@ -2045,7 +2045,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await setNotify('enabled', false);
         question(true);
         await red();
-        const decide = await until(async () => { const s = await toDecide(); return s && /\b1 to decide\b/.test(s) && s; }, 30000, 500);
+        const decide = await until(async () => { const s = await toDecide(); return s && /\b1 to decide\b|\b1 conversation needs you\b/.test(s) && s; }, 30000, 500);
         const silent = decide ? await noticesWithin(tab0) : null;
         check(!!decide && !silent.length && (await needCount()) === null, 'with agentPlus.notifications.enabled off, Agent Plus, which counts the question in its Conversations entry, shows no notice and no count',
           { conversations: decide || await toDecide(), notices: silent, count: await needCount() });
@@ -3147,19 +3147,24 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const wasOn = (await button()).fold !== 'open';
       if (!wasOn) await focus.click();
       const row = conv.locator('[data-testid="focus-fold-row"][aria-expanded="false"]').filter({ visible: true }).first();
-      /* Claude Code draws only the messages near the screen, and in a narrow column the latest replies, which hold no
-         tool call, can fill it. */
-      let found = await until(async () => (await row.count()) > 0, 5000, 300);
-      for (let i = 0; !found && i < 30; i++) {
-        const moved = await conv.evaluate(() => {
-          const sc = document.querySelector('[class*="messagesContainer_"]');
-          if (!sc || sc.scrollTop <= 0) return false;
-          sc.scrollTop = Math.max(0, sc.scrollTop - sc.clientHeight * 0.8);
-          return true;
-        });
-        found = await until(async () => (await row.count()) > 0, 1500, 300);
-        if (!moved) break;
-      }
+      /* The turns before may have left no tool call in this conversation, or left it far above the screen, where Claude
+         Code does not draw it; a turn that runs a command puts a folded row at the bottom. */
+      const turns = model.turns();
+      await conv.locator('[contenteditable][role="textbox"]').first().click();
+      await page.keyboard.type(`Please ${ASK_TO_PAUSE}.`);
+      await page.keyboard.press('Enter');
+      // The model is asked twice in that turn: once for the command, once with its result.
+      let asked = false;
+      const ran = await until(async () => {
+        if (model.turns() >= turns + 2) return true;
+        if (!asked && await conv.evaluate((cmd) => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes(cmd), PAUSE_RUN).catch(() => false)) {
+          asked = true;
+          note(`Claude Code asked before running ${PAUSE_RUN}, so it was allowed`);
+          await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 }).catch(() => {});
+        }
+        return false;
+      }, 60000, 500);
+      const found = ran && await until(async () => (await row.count()) > 0, 15000, 300);
       if (!found) throw new Error('the conversation shows no folded tool call in Focus view');
       await row.scrollIntoViewIfNeeded();
       const key = await row.evaluate((e) => { e.setAttribute('data-cce-test-fold', ''); return e.textContent.trim(); });
