@@ -157,7 +157,7 @@
           "type": "number",
           "default": 3,
           "minimum": 1,
-          "markdownDescription": "How many times you have to have spoken before a conversation with no work plan is told it could keep one. A plan is for a conversation that branches, and a session handed one task and left to do it cannot branch: of 61 conversations offered a plan, the 53 that were single-task workers all declined, while every one that wanted a plan had spoken at least three times."
+          "markdownDescription": "How many times you have to have spoken before a conversation with no work plan is told it could keep one. A plan is for a conversation that branches, and a session handed one task and left to do it cannot branch."
         },
         "claudeCodePlus.workPlanQuietWhenReplyMatches": {
           "scope": "application",
@@ -170,7 +170,7 @@
           "type": "number",
           "default": 25,
           "minimum": 1,
-          "markdownDescription": "How much a turn has to cost before the same offer is made. 25 is where the busiest quarter of turns begins, measured over 691 of them; the median turn uses 6."
+          "markdownDescription": "How much a turn has to cost before the same offer is made. The offer comes only after you have sent at least `claudeCodePlus.workPlanOfferMinTurns` messages and a single turn has made at least this many tool calls. A lower value can trigger the offer after an ordinary turn in a conversation that has no use for a plan; a higher value delays it in a conversation that could use one."
         },
         "claudeCodePlus.show.timestamps": {
           "type": "boolean",

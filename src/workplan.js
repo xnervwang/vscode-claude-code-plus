@@ -197,8 +197,8 @@ const SETTLED_MS = 7 * 24 * 60 * 60 * 1000;
  * that still have a transcript, which is null when that is unknown and nothing was deleted.
  *
  * A conversation whose transcript is gone can never be resumed, so its plan is a file nothing can reach: not this view,
- * which reads only the conversation in front of the reader, and not Claude Code. Left alone they only accumulate - at the
- * rate this machine starts conversations, thousands within a year.
+ * which reads only the conversation in front of the reader, and not Claude Code. Left alone they only accumulate, one
+ * for every conversation that ever kept a plan.
  *
  * It deletes rather than moving them aside. An archive was the first shape of this and it was the wrong one: it has no
  * bound, so the files it saves from deletion are the same files somebody has to deal with later.

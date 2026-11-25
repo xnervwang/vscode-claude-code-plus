@@ -18,9 +18,9 @@ line and is never put in front of the model. So this measures it from the transc
 Several marks per window
 ------------------------
 Three for each window size, arranged around its compaction line - see MARKS_ANY_WINDOW for the arithmetic. One mark is a
-tripwire a fast climb steps over: a single batch of tool results has moved a session by more than 200,000 tokens. Two
-before the line make a net - a fast climb trips the earlier one, a slow one reaches the later one and gets a fresher
-update - and the third sits after the line for a compaction that arrives late.
+tripwire a fast climb steps over: a single batch of tool results can carry a session from below a mark to past the
+compaction line. Two before the line make a net - a fast climb trips the earlier one, a slow one reaches the later one
+and gets a fresher update - and the third sits after the line for a compaction that arrives late.
 
 Each mark fires once. A compaction is detected when the measured context drops below a mark that has already fired: the
 marks then reset and fire again on the next climb. If a mark fired and the plan has not been written since while a row
@@ -43,14 +43,14 @@ on its own, and the client resumes the conversation afterwards by itself.
 
 Two events
 ----------
-Stop runs once, when the turn hands control back, and a turn can make dozens of model calls before that - one turn went
-from 190,000 to 820,000 and was compacted twice with a Stop hook never called. So PostToolBatch checks inside the turn
-too. It only asks: whether the plan was written after the request can only be judged once that turn is over, so saying
-it again is Stop's alone.
+Stop runs once, when the turn hands control back, and a turn can make dozens of model calls before that, enough to be
+compacted more than once before its Stop hook is called. So PostToolBatch checks inside the turn too. It only asks:
+whether the plan was written after the request can only be judged once that turn is over, so saying it again is Stop's
+alone.
 
 A conversation with no plan hears nothing from this. Whether one should keep a plan is the end-of-turn hook's call
 (nudge-work-plan.py), made once and only for a conversation that branches; a worker handed one task that happens to read
-a lot is exactly what that hook was measured not to bother.
+a lot is exactly what that hook's thresholds keep it from bothering.
 
 Fail open on everything: a hook that runs after every batch must never be the reason a session stops working.
 """

@@ -190,11 +190,10 @@
    *
    * A webview resource is fetched through the editor's service worker, and a fetch that never answers leaves this
    * request in flight for as long as the panel lives. Starting another one every POLL_MS regardless then turns one
-   * stalled fetch into a growing pile: measured on a stalled panel, 25 of these were outstanding at once after 99
-   * seconds, none of them finished, and the panel had no way back. Worse, the desktop service worker holds one of its 32
-   * host-resource permits for each body that is neither read to the end nor cancelled, so a pile of these can exhaust
-   * that budget for every webview of this extension in every window - this poll taking the editor's own panels down with
-   * it.
+   * stalled fetch into a growing pile, none of which finishes, and the panel has no way back. Worse, the desktop
+   * service worker holds one of its 32 host-resource permits for each body that is neither read to the end nor
+   * cancelled, so a pile of these can exhaust that budget for every webview of this extension in every window - this
+   * poll taking the editor's own panels down with it.
    *
    * Clearing `src` is what cancels a request that Chromium has not answered, which both returns the permit and lets the
    * next poll start clean. The handlers are detached first, because clearing `src` fires `error` on some builds and the

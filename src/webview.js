@@ -891,25 +891,13 @@ function liveFiles(claudeExtensionPath) {
 }
 
 /*
- * TESTED AND RULED OUT as the cause of the panel that takes minutes to open. Kept because it looked convincing, and the
- * next person to see the evidence below will be tempted the same way.
- *
- * The suspicion: the rename gives a reader the whole old file or the whole new one, but cannot help a reader that has
- * already begun reading the old one, and the panel's bundle has such a reader - the editor's service worker reads it for
- * the webview iframe. Both start with the window, so a window opened with the patch out of date replaces the file as the
- * panel reads it. A console log of 2026-10-01 03:05 seemed to fit: this file's mtime was 03:05:54 beside a run of slow
- * opens, the stalled panel logged ten service-worker `Could not find parent client for request` and took 136 seconds to
- * reach the end of its bundle, and a panel in the same window took 334ms and logged none.
- *
- * The test, two restarts on 2026-10-01: the first had the panel file restored to Claude Code's original so that this
- * function had to run - it wrote 16ms into startup and took 744ms - and the panel opened quickly. The second wrote
- * nothing and was quick as well. Replacing the bundle during startup does not, on its own, produce the stall.
- *
- * And the 03:05 reading was backwards: the write came three seconds AFTER the slow opens had begun, so it could not
- * have started them. A timestamp beside a symptom is not a cause, and the order of the two was there to be read.
- *
- * What remains: that same 03:05 log has VS Code auto-updating extensions, Claude Code among them, at the time - which
- * replaces a whole extension directory the panel serves from - and neither test restart did. That is the open lead.
+ * Not the cause of a panel that takes minutes to open, though it looks like one: replacing the panel's bundle while a
+ * window starts. The rename gives a reader the whole old file or the whole new one, but cannot help a reader that has
+ * already begun reading the old one, and the panel's bundle has such a reader - the editor's service worker reads it
+ * for the webview iframe. Both start with the window, so a window opened with the patch out of date replaces the file
+ * as the panel reads it. A restart that has to rewrite the bundle during startup opens the panel as quickly as one that
+ * writes nothing, so the replacement does not produce the stall on its own, and a slow open logged beside a write of
+ * this file is not evidence that the write caused it.
  */
 /* Every window writes these files, so each write has a temporary name of its own (src/files.js), carrying this tag. A
    rename that fails is tried once more from scratch. */
@@ -982,9 +970,8 @@ function writeLive(claudeExtensionPath, opts = {}) {
    * build that was packaged and installed, then withdrawn in favour of a lower number, leaves its stamp behind with no
    * host anywhere that could rewrite the file. Every host then reads a version above its own and backs off, and the
    * stylesheet is frozen for good - the panel keeps whatever was in it, so a conversation's background sessions and
-   * scheduled prompts stop appearing and nothing reports an error. Measured: a file stamped 1.0.9 held two Claude Code
-   * installs at two days stale. When the registry cannot be read there is no way to tell a withdrawn build from a
-   * running one, and yielding is the safer of the two.
+   * scheduled prompts stop appearing and nothing reports an error. When the registry cannot be read there is no way to
+   * tell a withdrawn build from a running one, and yielding is the safer of the two.
    */
   const there = (VERSION_LINE.exec(current || '') || [])[1];
   if (there && OURS && older(OURS, there)

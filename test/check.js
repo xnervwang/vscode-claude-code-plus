@@ -335,10 +335,10 @@ console.log('\nwhat the page costs, in a browser');
         ok(`stylesheets coming and going in the head start no sweep (${churn.idleChild} changes, 0 sweeps)`);
       } else bad(`with stylesheets coming and going in the head: ${churn.error || churn.idleSweeps + ' sweeps for ' + churn.idleChild + ' changes'}`);
       /* The poll asks for one small file over and over, and a webview resource is fetched through the editor's service
-         worker. One fetch that never answers used to leave a request in flight for the life of the panel while the poll
-         started another every three seconds: 25 were outstanding at once on a real stalled panel. Each one also holds one
-         of the desktop service worker's 32 host-resource permits, so the pile can exhaust that budget for every panel in
-         every window. Measured against the code before the guard: 5 started and none given up on. */
+         worker. Without the guard, one fetch that never answers leaves a request in flight for the life of the panel
+         while the poll starts another every three seconds, so they pile up. Each one also holds one of the desktop
+         service worker's 32 host-resource permits, so the pile can exhaust that budget for every panel in every window.
+         Measured against the code before the guard: 5 started and none given up on. */
       const stalled = harness.run(browser, { turns: SHORT, focus: true, grows: 1, idleMs: 13000, stallProbe: true,
         efforts: { sid: '00000000-0000-4000-8000-00000000abcd', css: '#cce-effort{--cce-effort:""}\n' } });
       if (!stalled.error && stalled.probesMade <= 3 && stalled.probesCancelled >= 1) {
@@ -3689,9 +3689,9 @@ console.log('\nwhat the Stop hook says, and how often');
     const r = run(t);
     if (r.said.includes('neither read nor updated')) ok('a plan left untouched by the turn is still the other message');
     else bad(`an untouched plan said ${JSON.stringify(r.said.slice(0, 80))}`);
-    /* Stop fires more than once in a single exchange - eight times in one, in the conversation this was measured in -
-       so without this the reminder arrives in bursts, and a burst is what taught the reader to skip it. Saying it again
-       about a plan in the same state adds nothing: a reminder that did not work the first time does not work fifth. */
+    /* Stop fires more than once in a single exchange, so without this the reminder arrives in bursts, and a reminder
+       that comes in bursts teaches the reader to skip it. Saying it again about a plan in the same state adds nothing:
+       a reminder that did not work the first time does not work fifth. */
     const again = [run(t), run(t), run(t)].filter((x) => x.said).length;
     if (!again) ok('and is not repeated while the plan stays in that state');
     else bad(`the reminder repeated ${again} more times in the same turn`);
@@ -3722,7 +3722,7 @@ console.log('\nwhat the Stop hook says, and how often');
     fs.rmSync(t.dir, { recursive: true, force: true });
   }
   /* What the threshold is really asking is whether the turn changed anything, not how busy it looked. A turn of reading
-     and measuring makes plenty of calls and owes the plan nothing - 18 of 29 reminders went to turns like this one. */
+     and measuring makes plenty of calls and owes the plan nothing, and a threshold on calls would remind it. */
   {
     const t = stage(0, { nodes: [{ title: 'x', state: 'todo' }] });
     for (let i = 0; i < 20; i++) {
@@ -3815,8 +3815,8 @@ console.log('\nwhat the Stop hook says, and how often');
   }
   {
     /* The case this gate exists for. A session handed one task and left to do it burns tool calls on a single strand and
-       cannot branch, so a plan has nothing to hold - and 53 of 61 offers went to exactly that. Offering anyway costs the
-       sentence and teaches whoever reads it that the sentence can be skipped, which is what the offer had left to lose. */
+       cannot branch, so a plan has nothing to hold. Offering anyway costs the sentence and teaches whoever reads it
+       that the sentence can be skipped, which is what the offer had left to lose. */
     const t = stage(40, null, 1);
     const r = run(t);
     if (!r.said && !r.marked) ok('a busy single-turn worker is not offered a plan, and no mark is spent on it');
@@ -5350,8 +5350,8 @@ console.log('\nno skill suggestions');
 }
 
 /* ── 21. an uninstall puts Claude Code back at once ──
-   The editor runs the uninstall hook only when it deletes this extension's folder, which in remote development once
-   came eight hours after the uninstall. deactivate runs at the restart that follows an uninstall - and at every reload
+   The editor runs the uninstall hook only when it deletes this extension's folder, which in remote development can
+   come hours or days after the uninstall. deactivate runs at the restart that follows an uninstall - and at every reload
    and every window closing too, so what decides everything is the test for "this copy is being uninstalled". Most of
    the cases below are the ones that must not count as one. */
 console.log('\nan uninstall puts Claude Code back at once');

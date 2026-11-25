@@ -8,9 +8,9 @@
  * restarts its extensions afterwards, rather than whenever the editor next gets round to deleting the folder.
  *
  * The editor's own uninstall hook (package.json "vscode:uninstall", which runs uninstall.js) runs when the extension's
- * folder is deleted, and in remote development that happens when the remote server next starts. On the machine this was
- * written on that came eight hours after the uninstall, when the machine happened to reboot; until then every Claude Code
- * panel kept running the patched bundle, with nothing installed that knew how to undo it.
+ * folder is deleted, and in remote development that happens when the remote server next starts, which can be hours or
+ * days after the uninstall; until then every Claude Code panel keeps running the patched bundle, with nothing installed
+ * that knows how to undo it.
  *
  * What comes sooner: the editor cannot take out an extension that is running ("Extension is running, cannot remove it
  * safely", canRemoveExtension in the workbench's abstractExtensionService.ts), and this one runs from startup, so an
