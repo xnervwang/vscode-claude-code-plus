@@ -107,10 +107,11 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   logo()                          { light, dark } Uris, or null
  *   timeZone()                      the zone a panel reported, or ''
  *   isSteward(sessionId)            optional: whether the conversation is a steward, which gets the crown
+ *   stewardOf(sourceId, sessionId)  optional: the session id of the steward that looks after that conversation, or ''
  *   isBackground(id, cwd)           optional, for tests
  */
 function createClaudeSource(deps) {
-  const focused = emitter(), changed = emitter(), noticeChanged = emitter();
+  const focused = emitter(), changed = emitter(), noticeChanged = emitter(), stewardsChanged = emitter();
   let stale = true, agentsAt = 0, agentsLast = { records: null, error: '' }, stoppedLast = new Map(), pidsAsk = null;
   let lastChat = null;
   /* The session id of the latest focus signal: Agent Plus asks isFocused() a moment after each one, and only the
@@ -137,7 +138,7 @@ function createClaudeSource(deps) {
   const activityOf = (id) => { try { return typeof deps.activity === 'function' ? deps.activity(id) || 'stopped' : 'stopped'; } catch (_) { return 'stopped'; } };
   const lastUserOf = (id) => { try { return typeof deps.lastUserAt === 'function' ? Number(deps.lastUserAt(id)) || 0 : 0; } catch (_) { return 0; } };
   const replyOf = (s) => { try { return typeof deps.replyAt === 'function' ? Number(deps.replyAt(s)) || 0 : 0; } catch (_) { return 0; } };
-  const stewardOf = (id) => { try { return typeof deps.isSteward === 'function' && deps.isSteward(id) === true; } catch (_) { return false; } };
+  const isSteward = (id) => { try { return typeof deps.isSteward === 'function' && deps.isSteward(id) === true; } catch (_) { return false; } };
   /* The panel here knows the tool; `claude agents` only the kind of wait. */
   const reasonOf = (s) => {
     let raw = null;
@@ -147,7 +148,7 @@ function createClaudeSource(deps) {
   /* The title as every view shows it: without the marks an older build or a rename box left in the stored name, and
      with the crown first for a steward (src/title-marks.js). A view that draws the crown itself reads `steward`. */
   const listed = (s, on, live, unread) => {
-    const steward = stewardOf(s.sessionId);
+    const steward = isSteward(s.sessionId);
     const out = {
       sessionId: s.sessionId,
       title: titleMarks.withMarks(conversations.claudeTitle(s, deps.titles(s), () => deps.readPlan(s.sessionId)), { steward }),
@@ -206,8 +207,12 @@ function createClaudeSource(deps) {
 
   const source = {
     protocol: PROTOCOL,
-    /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. 'shows': it asks shows(). */
-    get features() { return enabled() && briefOn() ? ['shows', 'brief'] : ['shows']; },
+    /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. 'shows': it asks shows(). 'stewards':
+       it asks stewardOf(), for any agent's conversation. */
+    get features() {
+      const on = enabled();
+      return ['shows'].concat(on && briefOn() ? ['brief'] : [], on && typeof deps.stewardOf === 'function' ? ['stewards'] : []);
+    },
     id: ID,
     label: 'Claude Code',
     extensionId: EXTENSION_ID,
@@ -217,6 +222,16 @@ function createClaudeSource(deps) {
     onDidFocus: focused.event,
     onDidChangeConversations: changed.event,
     onDidChangePlanNotice: noticeChanged.event,
+    onDidChangeStewards: stewardsChanged.event,
+
+    /* The steward that looks after a conversation of any agent, as the Steward panel's ticks have it, so that another
+       agent's conversation can say it is watched and hand its messages to that steward. */
+    stewardOf(sourceId, sessionId) {
+      if (!enabled() || typeof deps.stewardOf !== 'function') return null;
+      let s = '';
+      try { s = deps.stewardOf(String(sourceId || ''), String(sessionId || '')) || ''; } catch (_) { s = ''; }
+      return typeof s === 'string' && SESSION.test(s) ? { sourceId: ID, sessionId: s.toLowerCase() } : null;
+    },
 
     /* The session of the visible panel in the tab's group; '' for a Claude Code tab with no conversation yet, or whose
        panel has not been reported yet; null for any other tab. */
@@ -306,6 +321,8 @@ function createClaudeSource(deps) {
     source,
     invalidate() { stale = true; agentsAt = 0; },
     changed() { changed.fire(); },
+    /* The stewards table changed. */
+    stewardsChanged() { stewardsChanged.fire(); },
     /* `next` is { title, description, detail, command, arguments } or null. */
     setNotice(next) {
       const was = JSON.stringify(notice);

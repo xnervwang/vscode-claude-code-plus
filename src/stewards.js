@@ -189,6 +189,18 @@ function holderOf(table, id, but = '') {
 /* The steward other than `but` that has "all" on, or ''. */
 const everyOf = (table, but = '') => Object.keys(table).find((s) => s !== but && table[s].all) || '';
 
+/*
+ * The steward that looks after the conversation of key `key`: the one whose list has it, else the one with "all" on.
+ * '' for a steward itself, for another agent's conversation of a source no steward can manage (keys.allowed), and
+ * when no steward has it. The relay hands that conversation's handoffs to the same steward (manages in src/relay.js).
+ */
+function stewardOf(table, key) {
+  if (typeof key !== 'string' || !key || table[key]) return '';
+  if (!keys.isClaude(key) && !keys.allowed(key)) return '';
+  const held = holderOf(table, key);
+  return held ? held.steward : everyOf(table);
+}
+
 /**
  * Sets what `steward` manages to `list`, with the titles in `names` and, for another agent's conversations, the plan
  * files in `paths`; a conversation missing from either keeps what the table had for it. `every` turns "all" on or off;
@@ -317,4 +329,4 @@ function post(address, text, { from = 'claude-code-plus', timeoutMs = POST_TIMEO
   });
 }
 
-module.exports = { read, setManaged, rename, migrate, newer, settle, entriesOf, holderOf, everyOf, changes, noticeText, post, FILE, VERSION, MAX_MANAGED };
+module.exports = { read, setManaged, rename, migrate, newer, settle, entriesOf, holderOf, everyOf, stewardOf, changes, noticeText, post, FILE, VERSION, MAX_MANAGED };

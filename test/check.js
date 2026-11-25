@@ -12922,6 +12922,20 @@ console.log('\nClaude Code\'s own source');
       on = false; out.features.push(JSON.stringify(b.source.features)); on = true;
       briefOn = false; out.features.push(JSON.stringify(b.source.features)); briefOn = true;
       b.dispose();
+      const STEW = 'cdcdcdcd-1111-4222-8333-444444444444';
+      const w = C.createClaudeSource({ planDir: () => '/plans', enabled: () => on, timeZone: () => '',
+        listAgents: async () => ({ records: null, error: 'no cli' }), folders: () => [], readPlan: () => null,
+        titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
+        activeChat: () => '', logo: () => null, canDeliver: () => false, hand: () => false, reveal: async () => false,
+        stewardOf: (src, sid) => { if (sid === 'boom') throw new Error('x'); return src === 'opencode-plus' && sid === 'ses_A1' ? STEW.toUpperCase() : sid === 'bad' ? 'not-a-uuid' : ''; } });
+      let fired = 0;
+      w.source.onDidChangeStewards(() => fired++);
+      out.stewards = [JSON.stringify(w.source.features), w.source.stewardOf('opencode-plus', 'ses_A1'), w.source.stewardOf('opencode-plus', 'ses_B2'),
+        w.source.stewardOf('opencode-plus', 'bad'), w.source.stewardOf('opencode-plus', 'boom')];
+      on = false; out.stewards.push(JSON.stringify(w.source.features), w.source.stewardOf('opencode-plus', 'ses_A1')); on = true;
+      w.stewardsChanged(); w.stewardsChanged();
+      out.stewards.push(fired);
+      w.dispose();
       const panel = (column, visible, active) => {
         const p = { viewColumn: column, visible, active, l: [], d: [] };
         p.onDidChangeViewState = (fn) => { p.l.push(fn); return { dispose() {} }; };
@@ -13000,6 +13014,20 @@ console.log('\nClaude Code\'s own source');
     if (JSON.stringify(o.features) === JSON.stringify(['["shows","brief"]', '["shows"]', '["shows"]'])) {
       ok('features lists shows always, and brief only while both the work plan and the brief are on');
     } else bad(`features with plan and brief on, plan off, brief off: ${JSON.stringify(o.features)}`);
+    if (JSON.stringify(o.stewards) === JSON.stringify(['["shows","stewards"]', { sourceId: 'claude-code', sessionId: 'cdcdcdcd-1111-4222-8333-444444444444' }, null, null, null, '["shows"]', null, 2])) {
+      ok('with a table to read, the source lists stewards and answers stewardOf with the steward\'s session id in lower case, null for none, a malformed one or an error, and nothing while the work plan is off; onDidChangeStewards fires on each change');
+    } else bad(`stewardOf on the source: ${JSON.stringify(o.stewards)}`);
+    {
+      const st = require('../src/stewards');
+      const S1 = 'cdcdcdcd-0000-4000-8000-000000000001', S2 = 'cdcdcdcd-0000-4000-8000-000000000002', C1 = 'cdcdcdcd-0000-4000-8000-000000000003';
+      const table = { [S1]: { manages: ['opencode-plus:ses_A1', C1], ticked: ['opencode-plus:ses_A1', C1], all: false },
+        [S2]: { manages: [], ticked: [], all: true } };
+      const got = ['opencode-plus:ses_A1', 'opencode-plus:ses_B2', C1, S1, S2, 'codex:0199a213', ''].map((k) => st.stewardOf(table, k));
+      const none = st.stewardOf({ [S1]: { manages: [C1], ticked: [C1], all: false } }, 'opencode-plus:ses_B2');
+      if (JSON.stringify(got) === JSON.stringify([S1, S2, S1, '', '', '', '']) && none === '') {
+        ok('the steward of a conversation is the one that ticked it, else the one with All on; a steward has none, nor a conversation of a source no steward can manage');
+      } else bad(`stewardOf on the table: ${JSON.stringify([got, none])}`);
+    }
     if (JSON.stringify(o.claims) === JSON.stringify(['A', 'C', null, null, '', '', false]) && o.listeners === 1 && o.afterDispose === '') {
       ok('sessionForTab() claims only Claude Code tabs');
     } else bad(`claims ${JSON.stringify([o.claims, o.listeners, o.afterDispose])}`);
@@ -13986,8 +14014,8 @@ console.log('\nthe token mode');
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
     const f = r.features || {}, d = r.redraws || {};
-    if (f.interface === '["shows"]' && f.essential === '["shows"]' && f.all === '["shows","brief"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
-      ok('the brief is offered to Agent Plus only in a mode that runs it, and every change of mode redraws its list');
+    if (f.interface === '["shows"]' && f.essential === '["shows","stewards"]' && f.all === '["shows","brief","stewards"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
+      ok('the brief is offered to Agent Plus only in a mode that runs it, and stewards only in one that runs the work plan, and every change of mode redraws its list');
     } else bad(`features ${JSON.stringify(f)}, redraws ${JSON.stringify(d)}`);
     const told = r.told || [];
     if (told.length === 1 && /^Claude Code Plus: the token mode is Essential features, so claudeCodePlus\.conversationBrief has no effect/.test(told[0][0])

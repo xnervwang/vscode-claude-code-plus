@@ -32,6 +32,7 @@ const stewardMarks = require('./src/steward-marks');
 const titleMarks = require('./src/title-marks');
 const envelope = require('./src/envelope');
 const stewards = require('./src/stewards');
+const stewardKeys = require('./src/steward-keys');
 const detachedEnds = require('./src/detachedends');
 const bgEnds = require('./src/bgends');
 const stoppedWork = require('./src/stoppedwork');
@@ -811,6 +812,7 @@ function start(context, log, renamed, handing = false) {
     brief: () => runs(BRIEF_SETTING),
     timeZone: () => clientZone(),
     isSteward: (id) => enabled() && !removed() && stewardMarks.stewardIds(stewardTable()).includes(String(id).toLowerCase()),
+    stewardOf: (sourceId, sessionId) => (enabled() && !removed() ? stewards.stewardOf(stewardTable(), stewardKeys.keyOf(sourceId, sessionId)) : ''),
     listAgents: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders()), undefined,
       { file: path.join(planDir(), AGENTS_FILE), ms: AGENTS_SHARE_MS, write: !replaced() && !uninstalling() }),
     folders: () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath),
@@ -1084,6 +1086,7 @@ function start(context, log, renamed, handing = false) {
      (src/steward-marks.js). The file is replaced by a rename, which a watch on the file itself would miss, so the
      folder is watched. The folder may not exist yet at startup; the ten-second timer below retries the watch. */
   const redrawStewards = () => {
+    try { claude.stewardsChanged(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceRefreshTabIcons === 'function') globalThis.__cceRefreshTabIcons(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
