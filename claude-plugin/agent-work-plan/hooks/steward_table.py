@@ -8,24 +8,76 @@
 A conversation has at most one steward, and a steward has no steward of its own; only one steward has "all" on. An
 entry's "ticked" is the part of its list ticked by hand rather than added by "all"; it is written only for the steward
 with "all" on.
+
+A managed conversation is a key: a Claude Code session id in lower case, or "<source id>:<session id>" for another
+agent's conversation, its session id in its own case (src/steward-keys.js, the same pattern). "paths" gives the plan
+file of each of the latter, as the panel recorded it when the conversation was ticked; these hooks cannot ask Agent
+Plus where it is. A key holds a colon, so no file is ever named after one.
 """
 import json
 import os
+import re
 
 from plan_path import SESSION_NAME, listed
 
 STEWARDS_FILE = "stewards.json"
 MAX_MANAGED = 100
 MAX_NAME = 200
+CLAUDE = "claude-code"
+KEY = re.compile(r"^([a-z0-9][a-z0-9-]{0,63}):([A-Za-z0-9][A-Za-z0-9_-]{0,199})$")
+OTHER_SOURCES = ("opencode-plus",)
+LABELS = {"opencode-plus": "OpenCode Agent Plus"}
+
+
+def parse(key):
+    """(source id, session id) of a key, or None."""
+    if not isinstance(key, str):
+        return None
+    if SESSION_NAME.match(key):
+        return CLAUDE, key.lower()
+    m = KEY.match(key)
+    return (m.group(1), m.group(2)) if m else None
+
+
+def is_other(key):
+    p = parse(key)
+    return bool(p) and p[0] != CLAUDE
+
+
+def allowed(key):
+    """Whether the steward can reach conversations of this key's source."""
+    p = parse(key)
+    return bool(p) and p[0] in OTHER_SOURCES
+
+
+def managed_id(x):
+    """The key the table keeps for `x`, or "" for anything it does not take."""
+    p = parse(x)
+    if not p:
+        return ""
+    if p[0] == CLAUDE:
+        return p[1].lower() if SESSION_NAME.match(p[1]) else ""
+    return x
+
+
+def label_of(key):
+    p = parse(key)
+    return LABELS.get(p[0], p[0]) if p else ""
+
+
+def plan_file_ok(key, path):
+    """Whether `path` can be the plan of the conversation of key `key`: an absolute path to <session id>.json."""
+    p = parse(key)
+    return bool(p) and p[0] != CLAUDE and isinstance(path, str) and os.path.isabs(path) \
+        and os.path.basename(path) == p[1] + ".json"
 
 
 def _ids(value, not_):
     out = []
     for x in listed(value):
-        if isinstance(x, str) and SESSION_NAME.match(x):
-            x = x.lower()
-            if x != not_ and x not in out:
-                out.append(x)
+        x = managed_id(x)
+        if x and x != not_ and x not in out:
+            out.append(x)
     return out[:MAX_MANAGED]
 
 
@@ -40,9 +92,11 @@ def entries_of(data):
         manages = _ids(v.get("manages"), sid)
         given = v.get("names") if isinstance(v.get("names"), dict) else {}
         names = {m: given[m][:MAX_NAME] for m in manages if isinstance(given.get(m), str)}
+        files = v.get("paths") if isinstance(v.get("paths"), dict) else {}
+        paths = {m: files[m] for m in manages if plan_file_ok(m, files.get(m))}
         at = v.get("at")
         out[sid] = {"manages": manages, "ticked": _ids(v.get("ticked"), sid) if isinstance(v.get("ticked"), list) else None,
-                    "names": names, "at": at if isinstance(at, (int, float)) and not isinstance(at, bool) and at == at
+                    "names": names, "paths": paths, "at": at if isinstance(at, (int, float)) and not isinstance(at, bool) and at == at
                     and abs(at) != float("inf") else 0, "all": v.get("all") is True}
     return out
 
@@ -61,6 +115,7 @@ def settle(entries):
         t["manages"] = [x for x in t["manages"] if x != c]
         t["ticked"] = [x for x in t["ticked"] if x != c]
         t["names"].pop(c, None)
+        t["paths"].pop(c, None)
         holder.pop(c, None)
         if not t["manages"] and not t["all"]:
             del out[h]
@@ -83,14 +138,15 @@ def settle(entries):
         if sid in holder:
             drop(holder[sid], sid)
         out[sid] = {"manages": kept, "ticked": [c for c in kept if c in mine],
-                    "names": {c: e["names"][c] for c in kept if c in e["names"]}, "at": e["at"], "all": all_}
+                    "names": {c: e["names"][c] for c in kept if c in e["names"]},
+                    "paths": {c: e["paths"][c] for c in kept if c in e.get("paths", {})}, "at": e["at"], "all": all_}
         for c in kept:
             holder[c] = sid
     return out
 
 
 def read(directory):
-    """steward id -> {manages, ticked, names, at, all}, settled; {} when there is no readable file."""
+    """steward id -> {manages, ticked, names, paths, at, all}, settled; {} when there is no readable file."""
     try:
         with open(os.path.join(directory, STEWARDS_FILE), encoding="utf-8") as fh:
             data = json.load(fh)

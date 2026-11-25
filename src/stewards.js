@@ -15,10 +15,18 @@
  * One conversation has one steward at most, and a steward has none: a conversation that becomes a steward leaves every
  * list it was on, one ticked by a steward cannot be ticked by another, and only one steward at a time has "all" on.
  *
- *   { "version": 1, "stewards": { "<steward session id>": { "manages": ["<session id>", ...],
- *                                                          "ticked": ["<session id>", ...],
- *                                                          "names": { "<session id>": "title" }, "at": <ms>,
+ *   { "version": 2, "stewards": { "<steward session id>": { "manages": ["<key>", ...],
+ *                                                          "ticked": ["<key>", ...],
+ *                                                          "names": { "<key>": "title" },
+ *                                                          "paths": { "<key>": "<plan file>" }, "at": <ms>,
  *                                                          "all": true } } }
+ *
+ * A key is a Claude Code session id, or `<source id>:<session id>` for another agent's conversation (src/steward-keys.js);
+ * a steward is always a Claude Code conversation. "paths" gives the plan file of each such conversation, as its source
+ * gave it when the conversation was ticked: the plugin's hooks cannot ask Agent Plus, and the file's name is the
+ * source's own. Version 1 had only session ids and no "paths"; it reads as it is and is written as version 2 at the
+ * next change. A table of a later version is read for what this build understands and never written, so that this
+ * build does not drop what the later one added.
  *
  * "all" is there only when the user ticked "All, including new ones": the panel in the steward's window then keeps
  * "manages" equal to every conversation open in a VS Code window that is no steward and that no other steward has
@@ -39,18 +47,28 @@ const net = require('net');
 const path = require('path');
 const { planDir, SESSION, writeAtomic } = require('./claude-files');
 const duplicates = require('./duplicates');
+const keys = require('./steward-keys');
 
 const FILE = 'stewards.json';
+const VERSION = 2;
 const MAX_MANAGED = 100;
 const MAX_NAME = 200;
 /* How long to wait for a steward's inbox to accept a notice. */
 const POST_TIMEOUT_MS = 3000;
 
 const ids = (list, not) => [...new Set((Array.isArray(list) ? list : [])
-  .filter((x) => typeof x === 'string' && SESSION.test(x)).map((x) => x.toLowerCase()).filter((x) => x !== not))].slice(0, MAX_MANAGED);
+  .map(keys.managedId).filter((x) => x && x !== not))].slice(0, MAX_MANAGED);
 
-/* The entries of a parsed file, each { manages, ticked, names, at, all } with `ticked` as written (null when absent),
-   before settle(). */
+/* The plan files in `given` of the keys in `manages` that can be their plans. */
+function pathsOf(given, manages) {
+  const out = {};
+  if (!given || typeof given !== 'object') return out;
+  for (const m of manages) if (keys.planFileOk(m, given[m])) out[m] = given[m];
+  return out;
+}
+
+/* The entries of a parsed file, each { manages, ticked, names, paths, at, all } with `ticked` as written (null when
+   absent), before settle(). */
 function entriesOf(d) {
   const out = {};
   const all = d && d.stewards && typeof d.stewards === 'object' ? d.stewards : {};
@@ -60,7 +78,7 @@ function entriesOf(d) {
     const manages = ids(v.manages, id);
     const names = {};
     for (const m of manages) if (v.names && typeof v.names[m] === 'string') names[m] = v.names[m].slice(0, MAX_NAME);
-    out[id] = { manages, ticked: Array.isArray(v.ticked) ? ids(v.ticked, id) : null, names,
+    out[id] = { manages, ticked: Array.isArray(v.ticked) ? ids(v.ticked, id) : null, names, paths: pathsOf(v.paths, manages),
       at: typeof v.at === 'number' && isFinite(v.at) ? v.at : 0, all: v.all === true };
   }
   return out;
@@ -85,6 +103,7 @@ function settle(entries) {
     t.manages = t.manages.filter((x) => x !== c);
     t.ticked = t.ticked.filter((x) => x !== c);
     delete t.names[c];
+    delete t.paths[c];
     holder.delete(c);
     if (!t.manages.length && !t.all) delete out[h];
   };
@@ -100,9 +119,10 @@ function settle(entries) {
     }
     if (!list.length && !all) continue;
     if (holder.has(id)) drop(holder.get(id), id);
-    const names = {};
+    const names = {}, paths = {};
     for (const c of list) if (e.names[c]) names[c] = e.names[c];
-    out[id] = { manages: list, ticked: list.filter((c) => mine.has(c)), names, at: e.at, all };
+    for (const c of list) if (e.paths && e.paths[c]) paths[c] = e.paths[c];
+    out[id] = { manages: list, ticked: list.filter((c) => mine.has(c)), names, paths, at: e.at, all };
     for (const c of list) holder.set(c, id);
   }
   return out;
@@ -112,28 +132,38 @@ function parse(dir) {
   try { return JSON.parse(fs.readFileSync(path.join(dir, FILE), 'utf8')); } catch (_) { return null; /* none yet, or caught mid-write */ }
 }
 
-/** steward id -> { manages, ticked, names, at, all }, settled, leaving out anything malformed and stewards that manage
-    nothing and are not set to manage all. */
+/** steward id -> { manages, ticked, names, paths, at, all }, settled, leaving out anything malformed and stewards that
+    manage nothing and are not set to manage all. */
 function read(dir = planDir()) {
   return settle(entriesOf(parse(dir)));
 }
 
+/** The version of the table file when a later build wrote it, else 0. */
+function newer(dir = planDir()) {
+  const d = parse(dir);
+  return d && typeof d.version === 'number' && d.version > VERSION ? d.version : 0;
+}
+
+/* Returns false, writing nothing, over a table of a later version. */
 function write(table, dir) {
+  if (newer(dir)) return false;
   const out = {};
   for (const [id, v] of Object.entries(table)) {
     out[id] = { manages: v.manages, names: v.names, at: v.at };
+    if (v.paths && Object.keys(v.paths).length) out[id].paths = v.paths;
     if (v.all) { out[id].all = true; out[id].ticked = v.ticked; }
   }
   fs.mkdirSync(dir, { recursive: true });
-  writeAtomic(path.join(dir, FILE), JSON.stringify({ version: 1, stewards: out }, null, 1) + '\n');
+  writeAtomic(path.join(dir, FILE), JSON.stringify({ version: VERSION, stewards: out }, null, 1) + '\n');
+  return true;
 }
 
-/* A table's content as one string. Two tables that differ only in key order or in the fields they leave out give the
-   same string. */
+/* A table's content as one string. Two tables that differ only in key order, in the fields they leave out or in their
+   version give the same string. */
 const meaning = (t) => JSON.stringify(Object.keys(t).sort().map((id) => {
-  const v = t[id];
+  const v = t[id], paths = v.paths || {};
   return [id, v.manages, v.all ? (v.ticked || []).filter((c) => v.manages.includes(c)) : null,
-    Object.keys(v.names).sort().map((c) => [c, v.names[c]]), v.at, !!v.all];
+    Object.keys(v.names).sort().map((c) => [c, v.names[c]]), Object.keys(paths).sort().map((c) => [c, paths[c]]), v.at, !!v.all];
 }));
 
 /** Writes the settled table back when it differs from what the file holds, as a file an older build wrote can. Returns
@@ -143,8 +173,7 @@ function migrate(dir = planDir()) {
   if (!d) return false;
   const entries = entriesOf(d), settled = settle(entries);
   if (meaning(entries) === meaning(settled)) return false;
-  write(settled, dir);
-  return true;
+  return write(settled, dir);
 }
 
 /* Who has conversation `id` in `table`, other than `but`: { steward, ticked }, or null. An entry with no "ticked" has
@@ -161,14 +190,16 @@ function holderOf(table, id, but = '') {
 const everyOf = (table, but = '') => Object.keys(table).find((s) => s !== but && table[s].all) || '';
 
 /**
- * Sets what `steward` manages to `list`, with the titles in `names`. `every` turns "all" on or off; without it the
- * setting stays. With "all" on, `ticked` lists the conversations in `list` that were ticked by hand (by default, those
- * ticked before); with it off, the whole list counts as ticked. Left out of the list: conversations that are stewards
- * and ones another steward ticked; "all" stays off while another steward has it on. Ticking a conversation another
- * steward has only through "all" takes it from that one, and a steward that comes to manage something leaves every
- * other list. An empty list removes the steward from the table unless "all" is on.
+ * Sets what `steward` manages to `list`, with the titles in `names` and, for another agent's conversations, the plan
+ * files in `paths`; a conversation missing from either keeps what the table had for it. `every` turns "all" on or off;
+ * without it the setting stays. With "all" on, `ticked` lists the conversations in `list` that were ticked by hand (by
+ * default, those ticked before); with it off, the whole list counts as ticked. Left out of the list: conversations that
+ * are stewards and ones another steward ticked; "all" stays off while another steward has it on. Ticking a
+ * conversation another steward has only through "all" takes it from that one, and a steward that comes to manage
+ * something leaves every other list. An empty list removes the steward from the table unless "all" is on. Over a table
+ * of a later version nothing is written, and the table as read is returned.
  */
-function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked } = {}) {
+function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked, paths = {} } = {}) {
   const all = read(dir);
   if (typeof steward !== 'string' || !SESSION.test(steward)) return all;
   const id = steward.toLowerCase();
@@ -181,19 +212,20 @@ function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now
     return !h || (!h.ticked && (!own || own.has(m)));
   });
   if (manages.length || keepAll) {
-    const kept = {};
+    const kept = {}, files = {};
     for (const m of manages) {
       const t = names && typeof names[m] === 'string' ? names[m] : was && was.names[m];
       if (typeof t === 'string' && t) kept[m] = t.slice(0, MAX_NAME);
+      const f = paths && keys.planFileOk(m, paths[m]) ? paths[m] : was && was.paths[m];
+      if (f) files[m] = f;
     }
-    all[id] = { manages, ticked: own ? manages.filter((m) => own.has(m)) : manages, names: kept, at: now, all: keepAll };
+    all[id] = { manages, ticked: own ? manages.filter((m) => own.has(m)) : manages, names: kept, paths: files, at: now, all: keepAll };
   } else delete all[id];
   const settled = settle(all);
-  write(settled, dir);
-  return settled;
+  return write(settled, dir) ? settled : read(dir);
 }
 
-/** Refreshes the saved titles. Writes the file only if a title changed. */
+/** Refreshes the saved titles. Writes the file only if a title changed; returns whether it wrote it. */
 function rename(names, { dir = planDir() } = {}) {
   const all = read(dir);
   let changed = false;
@@ -203,8 +235,7 @@ function rename(names, { dir = planDir() } = {}) {
       if (t && v.names[m] !== t) { v.names[m] = t; changed = true; }
     }
   }
-  if (changed) write(all, dir);
-  return changed;
+  return changed && write(all, dir);
 }
 
 /*
@@ -286,4 +317,4 @@ function post(address, text, { from = 'claude-code-plus', timeoutMs = POST_TIMEO
   });
 }
 
-module.exports = { read, setManaged, rename, migrate, settle, entriesOf, holderOf, everyOf, changes, noticeText, post, FILE, MAX_MANAGED };
+module.exports = { read, setManaged, rename, migrate, newer, settle, entriesOf, holderOf, everyOf, changes, noticeText, post, FILE, VERSION, MAX_MANAGED };
