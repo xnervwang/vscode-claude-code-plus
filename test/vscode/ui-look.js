@@ -2038,15 +2038,15 @@ const STEPS = [
   },
   {
     name: 'need-you-count', features: ['need-you-notices'],
-    expect: 'A close-up of the status bar around Agent Plus\'s Conversations entry: on a yellow background it reads "2 '
-      + 'conversations need you", a conversation of another window waiting for you to approve Bash and the demo conversation, '
-      + 'whose plan has questions for you. The conversation with a reply not read is not among them.',
+    expect: 'A close-up of the status bar around Agent Plus\'s Conversations entry: on a yellow background it reads "1 '
+      + 'conversation needs you", the conversation of another window that waits for you to approve Bash; the conversation '
+      + 'here with a reply not read is not counted.',
     unchanged: 'The window is as before.',
     act: async (d) => {
       otherWindow(d, [{ sessionId: LOOK_ID(15), title: 'Tag the release build', waitingFor: { kind: 'permission', tool: 'Bash' } }]);
       const b = await d.until(async () => { const c = await needCountBox(d); return c && c.text === '1' && c; }, 20000, 300);
       if (!b) throw new Error(`Agent Plus did not count the waiting conversation of another window in 20 s: ${JSON.stringify(await needCountBox(d))}`);
-      if (b.says !== '2 conversations need you') throw new Error(`the entry reads "${b.says}"`);
+      if (b.says !== '1 conversation needs you') throw new Error(`the entry reads "${b.says}"`);
       const width = await d.page.evaluate(() => innerWidth);
       const x = Math.max(0, b.x - 200);
       return { x, y: b.y - 4, width: Math.min(width, b.x + b.width + 200) - x, height: b.height + 8 };
