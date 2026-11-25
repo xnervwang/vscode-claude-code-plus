@@ -187,7 +187,7 @@
   var sayAnswersReady = function(){
     var sid = sigValue('sessionId');
     if (!answersOn || typeof sid !== 'string' || !sid) return;
-    /* 'confirms' tells the host that this page waits for its go (waitForGo above). */
+    /* With reason 'confirms' the host learns to send this page a go before it types (waitForGo above). */
     try { acquireVsCodeApi().postMessage({ type: 'cce_answer_result', id: ANSWERS_READY, sent: false, reason: 'confirms', detail: sid }); }
     catch (e) { /* the steward's text then waits until its wait runs out */ }
   };

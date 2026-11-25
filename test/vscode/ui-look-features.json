@@ -97,7 +97,7 @@
       "relay": ["--resume"], "window": ["the steward panel", "a steward reopening a conversation in the window of its folder"] },
     { "id": "steward-handoff", "what": "A managed conversation can hand one of its stewards a message that belongs elsewhere, and the steward gets it as a notice from Claude Code Plus. It goes to the one --to names, else the one whose message started its turn, else the one you typed to last. On native Windows the answer says the steward cannot be reached.",
       "relay": ["--handoff", "--to"], "window": ["the steward panel", "several stewards for one conversation"] },
-    { "id": "steward-list-change", "what": "A steward ticks or unticks a conversation, or turns All or New conversations on or off, when you ask for it in the steward conversation; when the request comes from a notice, a handoff or another conversation's message, it changes nothing and says why.",
+    { "id": "steward-list-change", "what": "A steward changes its own list or switches when you ask for it in the steward conversation; when the request comes from a notice, a handoff or another conversation's message, it changes nothing and says why.",
       "relay": ["--take", "--drop", "--all", "--new"], "window": ["several stewards for one conversation"] },
     { "id": "steward-notices", "what": "Claude Code Plus sends a steward a notice when a conversation it manages starts waiting for the user; not on native Windows.",
       "window": ["the steward panel"] },

@@ -747,7 +747,7 @@ function create(vscode, deps) {
         const now = last.get(c.id);
         if (!now || details[c.id]) continue;
         names[c.id] = now.title;
-        // Leave out questions this steward was given or told of before, and those another steward was given.
+        // Skip the questions this steward was given or told of before, and those given to another steward.
         const before = t.asked[c.id] || [], qs = now.asks || [], rows = now.askRows || [], mine = [], held = [];
         asks[c.id] = qs.slice();
         qs.forEach((q, i) => {
@@ -837,7 +837,6 @@ function create(vscode, deps) {
     }
     return stewards.setManaged(steward, mine, titlesOf(mine), { dir: deps.dir, later: on, before: otherKeys(), paths: plansOf(mine), title: nameOf(steward) });
   };
-  /* The conversation that `given` names for `steward`; for `drop`, only among those on its list. { key } or { why }. */
   const named = (given, steward, table, onList) => {
     const g = String(given || '').trim(), key = keys.managedId(g);
     const t = table[steward] || { manages: [], names: {} };

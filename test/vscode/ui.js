@@ -4041,7 +4041,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const eyeA = await until(async () => { const e = await eyesIn(panelA, X.id); return e && e.n === '1' && e; }, 30000, 500);
         const eyeB = await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.n === '1' && e; }, 30000, 500);
         check(!!eyeA && !!eyeB && eyeA.last && eyeB.last && eyeA.svg && !eyeA.shown && !eyeA.by && !eyeB.by && eyeA.colour !== eyeA.text,
-          'in each panel the managed conversation\'s row ends in a light eye with 1, the other steward, and names no steward in the row itself', { a: eyeA || await eyesIn(panelA, X.id), b: eyeB || await eyesIn(panelB, X.id) });
+          'in each panel the managed conversation\'s row ends in a light eye with the count 1 for the other steward, and the row itself names no steward', { a: eyeA || await eyesIn(panelA, X.id), b: eyeB || await eyesIn(panelB, X.id) });
         const plain = await until(async () => { const e = await eyesIn(panelA, Q1.id); return e && e; }, 30000, 500);
         check(!!plain && plain.none === true && plain.by === true, 'a steward\'s own row says "a steward" and has no eye', plain);
         await shot('stewards-eye-in-a');

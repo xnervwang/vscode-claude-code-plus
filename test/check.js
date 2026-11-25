@@ -11918,7 +11918,7 @@ console.log('\nthe Steward panel');
       if (same(read2[S(1)].manages, [S(2), O(1)]) && same(read2[S(4)].manages, [S(2)]) && read2[S(4)].all === true && mig2 === false && ver2 === 2
           && ren2 === true && w2.version === 3 && w2.stewards[S(1)].names[S(2)] === 'Two again' && same(w2.stewards[S(4)].manages, [S(2)])
           && same(w2.stewards[S(1)].paths, { [O(1)]: planOf(O(1)) })) {
-        ok('a version 2 table reads as it is, is not rewritten for its version alone, and is written as version 3 at its next change, with every entry kept');
+        ok('a version 2 table reads as it is and is not rewritten just for its version; its next change writes it as version 3 with every entry kept');
       } else bad(`a version 2 table: ${JSON.stringify([read2, mig2, ver2, ren2, w2])}`);
       const d4 = vd('v4');
       const v3 = JSON.stringify({ version: 4, more: true, stewards: { [S(1)]: { manages: [S(2), O(1)], names: {}, at: 1, paths: { [O(1)]: planOf(O(1)) }, kinds: { x: 1 } },
@@ -13603,8 +13603,7 @@ console.log('\nClaude Code\'s own source');
       ok('reveal() passes the session id to the extension and returns its answer');
     } else bad(`reveal ${JSON.stringify([o.revealed, o.shown])}`);
 
-    /* A panel whose page types an answer only on the host's go: a panel that never says it is ready has typed nothing.
-       The waits are cut short as above. */
+    /* A panel whose page types an answer only on the host's go. The waits are cut short as above. */
     const confirmScript = `
       const Module = require('module'), realResolve = Module._resolveFilename;
       Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };

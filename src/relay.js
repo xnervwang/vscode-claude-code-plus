@@ -109,9 +109,9 @@ const RESUME_RETRY_MS = 1000;
  * steward's, or for a handoff that of the conversation handing off. It must be the asker's own, not a subagent's, at
  * most RAN_MS old, and its command must contain `to` (a session id; for `open`, the folder; for `take` and `drop`, what
  * the steward named) and the text; the line that runs the script must carry the flag of `action` and none of the
- * others, --confirmed when `confirmed` is set, and for a switch its value after the flag. A subagent's call that would
- * otherwise match sets found.sidechain. Claude Code writes a tool call to the transcript before running it, so the call
- * is already there while the script waits for an answer.
+ * others, with --confirmed when `confirmed` is set and, for a switch, the value right after the flag. A subagent's call
+ * that would otherwise match sets found.sidechain. Claude Code writes a tool call to the transcript before running it,
+ * so the call is already there while the script waits for an answer.
  */
 function ranBy(file, to, text, now = Date.now(), action = 'send', confirmed = false, found = {}) {
   let tail = '';

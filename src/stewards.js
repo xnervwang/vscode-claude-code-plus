@@ -189,8 +189,8 @@ function manages(table, steward, id) {
 }
 
 /*
- * The stewards that manage `key`, in table order. None for a steward itself, and none for another agent's conversation
- * of a source no steward can manage (keys.allowed). The relay sends that conversation's handoffs to one of them
+ * The stewards that manage `key`, in table order; none when `key` is a steward, or another agent's conversation of a
+ * source no steward can manage (keys.allowed). The relay sends that conversation's handoffs to one of them
  * (src/relay.js).
  */
 function stewardsOf(table, key) {

@@ -104,7 +104,7 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 
 Tick other Claude Code conversations or OpenCode Agent Plus conversations in the Steward panel to make the current Claude Code conversation their steward; it gets notified when one needs you or stops and relays that conversation's questions word for word.
 
-Start a message to the steward with `@` and a conversation's name, or ask it to message one; the steward writes the message and Claude Code Plus sends it there. For an OpenCode Agent Plus conversation, Claude Code Plus passes the message to Agent Plus, which sends it to the conversation. A conversation can have several stewards, and in any steward's conversation you can ask it to start or stop managing another conversation. [More about the steward](docs/steward.md).
+Start a message to the steward with `@` and a conversation's name, or ask it to message one; the steward writes the message and Claude Code Plus sends it there. For an OpenCode Agent Plus conversation, Claude Code Plus passes the message to Agent Plus, which sends it to the conversation. A conversation can have several stewards, and in a steward's own conversation you can ask it to start or stop managing another conversation. [More about the steward](docs/steward.md).
 
 ## What it costs in tokens
 
