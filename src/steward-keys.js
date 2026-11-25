@@ -6,7 +6,7 @@
 /*
  * How the stewards table (src/stewards.js) and the relay (src/relay.js) name a conversation. A Claude Code conversation
  * is its session id in lower case, as every build has written it; a conversation of another agent that registers with
- * Agent Plus is `<source id>:<session id>`, the session id in its own case, since OpenCode's ids are case sensitive.
+ * Agent Plus is `<source id>:<session id>`, the session id unchanged, since OpenCode's ids are case sensitive.
  * hooks/steward_table.py checks keys with the same pattern.
  *
  * A Windows file name cannot contain a colon, so no file is named after a key: the plan of another agent's conversation
@@ -46,7 +46,6 @@ const isClaude = (key) => typeof key === 'string' && SESSION.test(key);
 const isOther = (key) => typeof key === 'string' && !SESSION.test(key) && KEY.test(key) && !key.startsWith(CLAUDE + ':');
 const allowed = (key) => isOther(key) && OTHER_SOURCES.includes(parse(key).sourceId);
 
-/* The key the table keeps for `x`. */
 function managedId(x) {
   if (typeof x !== 'string') return '';
   if (SESSION.test(x)) return x.toLowerCase();
