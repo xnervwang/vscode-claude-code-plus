@@ -16,7 +16,7 @@
       "settings": ["claudeCodePlus.show.footerViewFilter"] },
     { "id": "navigation", "what": "The rail on the panel's right edge (to the top, previous, the list, next, to the bottom) and the list of your messages behind it, with times, a filter box and a highlighted row on hover.",
       "settings": ["claudeCodePlus.show.toc"] },
-    { "id": "focus-view", "what": "A footer button that turns Claude Code's Focus view on and off; Focus view hides thinking and tool calls. With a fold opened by hand the button shows the unfolded arrows, and a press folds the opened ones again with Focus view still on.",
+    { "id": "focus-view", "what": "A footer button that turns Claude Code's Focus view on and off; Focus view hides thinking and tool calls. Once you open tool calls by hand, the button shows the unfolded arrows, and a press folds them again without turning Focus view off.",
       "settings": ["claudeCodePlus.show.footerPlainView"], "window": ["a fold opened by hand"] },
     { "id": "tool-clock", "what": "While Focus view is on and a turn runs, the working line says which tool ran last or is running, and for how long." },
     { "id": "footer-buttons", "what": "This extension's footer buttons beside Claude Code's own, and the hover label of each." },

@@ -17,8 +17,8 @@
  *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
  *   a fold opened by hand
- *                  in Focus view, a tool call's fold opened by hand: the button drawn unfolded, and a press folding the
- *                  row again with Focus view still on
+ *                  in Focus view, a tool call's fold opened by hand: the button is drawn unfolded, and a press folds
+ *                  the row again with Focus view still on
  *   the dots       the filled dot on the tab's logo while a turn sent through fake-model.js runs, and on both its
  *                  session list rows; the envelope after the tab's title once its reply lands with the tab in the
  *                  background, after the name and before the time on its rows, and still whole when a narrow side bar
@@ -117,10 +117,11 @@
  *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
  *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn picked or
  *                  highlighted, and only the conversation in a tab in front drawn as the current one
- *   the plan bar   the bar above the input box, drawn from the conversation's plan in each state a plan can be in:
- *                  as wide as the input box with the same height however many rows the plan has, compact in a narrow
- *                  panel, redrawn when the plan changes, gone without a plan and with claudeCodePlus.show.planBar off,
- *                  and its two clicks opening Agent Plus's Work plan view and Answer view at this conversation
+ *   the plan bar   the bar above the input box, drawn from the conversation's plan whether its current row is being
+ *                  worked on, waiting or parked, or every row is done: as wide as the input box with the same height
+ *                  however many rows the plan has, compact in a narrow panel, redrawn when the plan changes, gone
+ *                  without a plan and with claudeCodePlus.show.planBar off, and its two clicks opening Agent Plus's
+ *                  Work plan view and Answer view at this conversation
  *   removal        last: Remove from Claude Code restores both files, and turning the extension on puts the patch back
  *   self-check     no page of a Claude Code panel drew the warning that its messages are no longer found, all through the run
  *
@@ -235,9 +236,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const claudeButtons = () => page.evaluate(() => [...document.querySelectorAll('.editor-group-container.active .editor-actions .action-item .action-label')]
     .map((a) => a.getAttribute('aria-label') || a.title || '').filter((t) => /Claude/.test(t)));
   const claudeButton = () => page.locator('.editor-group-container.active .editor-actions .action-item .action-label[aria-label*="Claude"]').first();
-  /* Whether frame `f` draws: whether an animation frame comes within 1.5 s, with what the page says of its visibility,
-     its focus and the element that has it. A page that gets no frames still runs its timers, but handles input whose
-     effect waits for the next frame only once it draws again. */
+  /* Whether an animation frame comes in frame `f` within 1.5 s, with what the page says of its visibility, its focus
+     and the element that has it. A page that gets no frames still runs its timers, but handles input whose effect waits
+     for the next frame only once it draws again. */
   const paints = (f) => f.evaluate(() => new Promise((r) => {
     const now = (raf) => r({ raf, visibility: document.visibilityState, focus: document.hasFocus(),
       active: String((document.activeElement && (document.activeElement.className || document.activeElement.tagName)) || '').slice(0, 50) });
@@ -270,7 +271,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       if (text) break;
       if (again < 2 && !await page.evaluate(() => !!document.querySelector('[data-cce-hovered]')).catch(() => true)) {
         again++;
-        note('the element under the pointer was drawn again before its hover showed, so the pointer entered it again');
+        note('the element under the pointer was drawn again before its hover showed, so it was hovered once more');
         await hoverOver();
       }
       await sleep(200);
@@ -1297,7 +1298,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
          the conversation's turn has ended. */
       /* `states`: the first states of the component that draws the message box, in the order it declares them. Its key
          handler leaves Enter alone, so that the box takes it as a new line, while one of its menus or command views is
-         open; which one was open shows here as a value that is not false or empty. */
+         open; the state of whichever was open is true or non-empty here. */
       const noMap = async () => ({ box: await conv.evaluate(() => {
         const b = document.querySelector('[contenteditable][role="textbox"]');
         let states = null;
@@ -3135,8 +3136,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       if (!wasOn) await focus.click();
     });
 
-    /* Focus view with a fold opened by hand, in the first conversation, whose tool calls fold into rows by now: the button
-       looks unfolded, and a press folds the row again with Focus view still on. */
+    /* In the first conversation, where the earlier steps' turns left tool calls, which Focus view folds into rows. */
     await step('a fold opened by hand', async () => {
       await exec('claude-vscode.editor.open', tab0.id);
       const conv = await conversation(tab0);
@@ -3147,13 +3147,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const wasOn = (await button()).fold !== 'open';
       if (!wasOn) await focus.click();
       const row = conv.locator('[data-testid="focus-fold-row"][aria-expanded="false"]').filter({ visible: true }).first();
-      if (!await until(async () => (await row.count()) > 0, 15000, 300)) throw new Error('Focus view drew no folded row in the conversation');
+      if (!await until(async () => (await row.count()) > 0, 15000, 300)) throw new Error('the conversation shows no folded tool call in Focus view');
       await row.scrollIntoViewIfNeeded();
       const key = await row.evaluate((e) => { e.setAttribute('data-cce-test-fold', ''); return e.textContent.trim(); });
       const marked = conv.locator('[data-cce-test-fold]').first();
       await marked.click();
       const opened = await until(async () => await marked.getAttribute('aria-expanded') === 'true' && (await button()).fold === 'opened' && await button(), 5000, 200);
-      check(!!opened && opened.label === LABELS.focusOpened, 'in Focus view, a fold opened by hand shows the button unfolded',
+      check(!!opened && opened.label === LABELS.focusOpened, 'in Focus view, the button shows the unfolded arrows once a tool call is opened by hand',
         { row: key, expanded: await marked.getAttribute('aria-expanded'), button: await button() });
       await shot('focus-fold-opened');
       await focus.click();

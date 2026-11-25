@@ -237,14 +237,15 @@ console.log('\nwhat the page costs, in a browser');
         ok('a press turns Focus view on through the panel\'s own object, and the label follows');
       } else bad('a press of the Focus view button: ' + (pressed.error || JSON.stringify(
         { clicked: pressed.clicked, calls: pressed.focusCalls, after: pressed.focusAfter, label: pressed.focusLabelAfter })));
-      /* Folds opened by hand in Focus view: the button looks unfolded, and a press folds them through their own rows and
-         keeps Focus view on, leaving alone a fold held open by a permission request. */
+      /* Folds opened by hand in Focus view: the button looks unfolded, and a press folds them by clicking their rows,
+         with no call to the panel's setFocusView, so Focus view stays on. A fold waiting on a permission request is
+         left open. */
       const byHand = harness.run(browser, { turns: 10, focus: true, handFolds: true });
       const hf = byHand.handFolds || {};
       if (!byHand.error && hf.before && hf.before.fold === 'opened' && hf.before.opacity === '1' && /^Focus view is on, with tool calls you opened/.test(hf.before.label)
           && JSON.stringify(hf.calls) === '[]' && hf.on === true && JSON.stringify(hf.open) === '["false","false","false","true"]'
           && hf.after.fold === 'folded' && /^Focus view is on: only your messages/.test(hf.after.label)) {
-        ok('with folds opened by hand the button looks unfolded, and a press folds them again, keeps Focus view on and leaves a fold a permission request holds open');
+        ok('with folds opened by hand the button looks unfolded, and a press folds them again without turning Focus view off; a fold waiting on a permission request stays open');
       } else bad('the Focus view button with folds opened by hand: ' + (byHand.error || JSON.stringify(hf)));
       /* Each reply's figures belong on its first block. Claude Code may draw a row of its own ahead of the blocks - since
          2.1.284, on by default from 2.1.290, a time line on every reply that has text - and that row carries no block. */
@@ -7436,8 +7437,8 @@ console.log('\na panel whose bundle never arrives says so');
     if (live.includes('[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;flex-shrink:1;min-width:0;grid-template-columns:minmax(0,auto);}')
         && live.includes('[class*="sessionItem_"]>[class*="sessionName_"]{min-width:3em;}')
         && live.includes('[class*="sessionItem_"] [class*="sessionTime_"]{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}')) {
-      ok('in a list too narrow for both, a row\'s title keeps 3em and its time, with the dates, is cut short at its end');
-    } else bad('the live stylesheet does not let a row\'s time give way to its title');
+      ok('in a list too narrow for both, a row\'s title keeps 3em and its time is cut short from the end, where the dates are');
+    } else bad('the live stylesheet does not shrink a row\'s time before its title');
 
     const T = 'Fix the build';
     const titles = tabdot.MARKS.map((m) => tabdot.withoutMark(T + m)).concat([tabdot.withoutMark(T), tabdot.withoutMark(undefined)]);

@@ -285,8 +285,8 @@ const SETUP = String.raw`
     });
   }
   /* Focus view's fold rows as Claude Code draws them: aria-expanded on the row, and the fold's component with its props
-     above the row's own. A click on a row runs the component's toggle, which opens or folds it; the last row is held
-     open by a permission request, which its toggle leaves open. With handFolds, the first two are opened by hand. */
+     above the row's own. A click on a row runs the component's toggle; the last row waits on a permission request, and
+     its toggle does nothing. The first two start open, as if opened by hand. */
   var handRows = [];
   if (CFG.handFolds) {
     [true, true, false, 'pending'].forEach(function(open, n){
@@ -475,7 +475,8 @@ const PHASES = String.raw`
       next();
     });
   };
-  /* With folds opened by hand: what the button shows, then what a press asks of the panel and leaves open. */
+  /* With folds opened by hand: the button before and after a press, the panel's calls and Focus view state after it,
+     and which rows are still open. */
   var foldByHand = function(){
     var fb = document.querySelector('[data-cce-focus-btn]');
     if (!fb) { R.handFolds = null; return next(); }
