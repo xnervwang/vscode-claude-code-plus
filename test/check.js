@@ -10265,7 +10265,6 @@ console.log('\nthe Steward panel');
       const boxOf = (h, id) => (new RegExp(`(<span class="box" data-why="[^"]*">)?<input type="checkbox" data-id="${id}"[^>]*>`).exec(h || '') || [''])[0];
       const switchOf = (h, attr) => (new RegExp(`<label class="every"[^>]*>\\s*<input type="checkbox" ${attr}="1"[^>]*>([^<]*)</label>`).exec(h || '') || ['', ''])[0];
       const why = (h, text) => h.includes(`data-why="${text}"`) && h.includes(`aria-label="${text}"`);
-      /* What a row's eye shows: how many, which stewards its list names, and whether it ends the row. */
       const eyeOf = (h, id) => {
         const row = (new RegExp(`<li class="row[^"]*">((?:(?!</li>)[\\s\\S])*data-open="${id}" title[\\s\\S]*?)</li>`).exec(h || '') || [])[1] || '';
         const e = /<span class="eyes"[^>]*data-eyes="([^"]*)"[^>]*>([\s\S]*)$/.exec(row);
@@ -10487,8 +10486,8 @@ console.log('\nthe Steward panel');
     }
 
     /* Notices with several stewards (src/steward-view.js notify): a wait, with the question in the plan, wakes the
-       steward the user typed to last, and another steward's notice names that steward as the one asking; a turn's end
-       goes to the steward whose message started it and to one whose plan names the conversation, not to the others. */
+       steward the user typed to last; a turn's end goes to the steward whose message started it and to one whose plan
+       names the conversation, not to the others. */
     {
       const qdir = path.join(root, 'many-notices'), qtdir = path.join(root, 'many-notices-transcripts');
       fs.mkdirSync(qdir, { recursive: true });
@@ -12161,7 +12160,7 @@ console.log('\nthe Steward panel');
       if (relayed.elsewhere === 0 && (relayed.left || []).includes(R(1) + '.json') && rr[0] && rr[0].outcome === 'submitted'
           && (relayed.got || []).some((g) => same(g, ['other', O(1), st.withFrom(S(1), '', texts.one)]))) {
         ok('a message to an OpenCode conversation is taken by the window that shows its steward, not by one that shows only other conversations, '
-          + 'and Agent Plus gets the key, with its case kept, and the text after the line naming the steward; the outcome is submitted');
+          + 'and Agent Plus gets the key with its case kept and the text after the line naming the steward, and the window reports it submitted');
       } else bad(`relaying to an OpenCode conversation: ${JSON.stringify(relayed).slice(0, 1500)}`);
       if (rr[1] && rr[1].outcome === 'notReceived' && reason(1) === 'bash is waiting for approval in its window' && rr[2] && rr[2].outcome === 'uncertain'
           && (relayed.sent || []).some((k) => k.includes(' t1 ')) && !(relayed.sent || []).some((k) => k.includes(' t3 '))) {
@@ -13012,7 +13011,7 @@ console.log('\nanswering from the Conversations tab');
 
       /* The panel's page in a frame while the focus is in a field of the page around it, as when the user types in a panel
          beside this one: an answer goes in and is sent, and the focus stays in that field. One handed over with
-         `confirm` waits for the host's go, and one whose go comes after GO_WAIT_MS is dropped untyped. Text already in
+         `confirm` waits for the host's go and is not typed at all when the go comes after GO_WAIT_MS. Text already in
          the input comes back with the refusal. */
       const mark2 = ['CCE', 'GO:'].join('-');
       const pageScript = JSON.stringify(require('../src/webview').SCRIPT).replace(/<\//g, '<\\/');
@@ -13550,7 +13549,7 @@ console.log('\nClaude Code\'s own source');
       if (JSON.stringify(o.stewards) === JSON.stringify(['["shows","stewards","stewardList"]', [Object.assign({}, A, { title: 'Docs steward' }), Object.assign({}, B, { title: '' })], A,
         [], null, [], null, [], null, '["shows"]', [], null, 2])) {
         ok('with a table to read, the source offers stewards and stewardList: stewardsOf gives every steward in its order with its title and the session id in lower case, '
-          + 'leaving out a malformed or repeated one, and none for no steward, an answer that is not a list or an error; stewardOf gives the first of them or null. '
+          + 'leaving out a malformed or repeated one; it gives none when there is no steward, when the answer is not a list and when asking fails; stewardOf gives the first of them or null. '
           + 'With the work plan off the source offers neither, and onDidChangeStewards fires on each change');
       } else bad(`stewardsOf on the source: ${JSON.stringify(o.stewards)}`);
     }

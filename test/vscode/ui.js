@@ -1185,7 +1185,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           try { return fs.readFileSync(transcriptOf(tab0), 'utf8').split(JSON.stringify(text).slice(1, -1)).length - 1; } catch (_) { return 0; }
         }, 30000, 500);
         check(!!got && got.outcome === 'submitted' && JSON.stringify(seen) === JSON.stringify([[false, 'ready'], [true, '']]) && arrived >= 1,
-          'a message for a conversation is sent from its panel only after the panel said it was ready and the host said go, and arrives with its line break', { got, seen, arrived });
+          'a message for a conversation is sent from its panel only after the panel said it was ready and the host said go; it arrives with its line break', { got, seen, arrived });
         check(await inputOf(conv) === '' && await inputOf(side) === 'my own words ', 'its input is empty again, and what the user was typing in the panel beside it is untouched',
           { here: await inputOf(conv), beside: await inputOf(side) });
         await page.keyboard.type('and more');
@@ -2450,7 +2450,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     await step('a closed tab', async () => {
       if (!list) throw new Error('the session list did not open');
-      /* Earlier steps may have closed tabs of their own, so the count is taken before this one closes. */
+      /* Earlier steps may have closed tabs of their own; the count is taken before this one closes. */
       const countOf = (x) => { const c = x.find((y) => y.closed); const m = c && /(\d+)\s*$/.exec(c.head); return m ? Number(m[1]) : 0; };
       const before = countOf(await sections());
       const closed = await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)});
@@ -2628,7 +2628,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its steward', table);
         /* A new body that reaches the panel between a box's press and its release replaces the box under the pointer;
-           the panel holds it until the click is over, so that click still ticks the box. */
+           the panel holds it until the click is over, and the box still gets ticked. */
         const second = boxes.map(([id]) => id).find((id) => id !== chosen);
         if (second) {
           const managesIt = (on) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(second) === on; } catch (_) { return false; } };

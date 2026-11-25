@@ -837,8 +837,7 @@ function create(vscode, deps) {
     }
     return stewards.setManaged(steward, mine, titlesOf(mine), { dir: deps.dir, later: on, before: otherKeys(), paths: plansOf(mine), title: nameOf(steward) });
   };
-  /* The conversation that `given` (a key, a session id, or else an exact title) names for `steward`; for `drop`, only
-     among those on its list. { key } or { why }. */
+  /* The conversation that `given` names for `steward`; for `drop`, only among those on its list. { key } or { why }. */
   const named = (given, steward, table, onList) => {
     const g = String(given || '').trim(), key = keys.managedId(g);
     const t = table[steward] || { manages: [], names: {} };

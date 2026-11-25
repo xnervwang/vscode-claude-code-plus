@@ -1597,9 +1597,9 @@ const STEPS = [
       return d.body();
     },
   },
-  /* Several stewards: in the panel of the conversation in front, another steward's box is greyed and says why on hover,
-     and the row of a conversation another steward also ticked ends in an eye with their number; hovering over the eye
-     lists them. The other steward is set by writing the table, as its own panel would. In both themes. */
+  /* Several stewards, with the demo conversation in front: its Steward panel greys another steward's box, which says
+     why on hover, and the row of a conversation another steward also ticked ends in an eye with their number; hovering
+     over the eye lists them. The other steward is set by writing the table, as its own panel would. In both themes. */
   ...['dark', 'light'].flatMap((tone) => [
     {
       name: `steward-eye${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],

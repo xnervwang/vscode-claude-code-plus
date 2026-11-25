@@ -183,8 +183,6 @@ function migrate(dir = planDir()) {
   return write(settled, dir);
 }
 
-/* Whether `steward` manages conversation `id`: `id` is on its list, or the steward has "all" on and `id` is not a
-   steward, which holds even while `id` is not on the list yet. */
 function manages(table, steward, id) {
   const t = table[steward];
   return !!t && (t.manages.includes(id) || (t.all && id !== steward && !table[id]));

@@ -22,9 +22,9 @@
  * named, or empty). A window showing that steward takes it and posts it, as a notice and never as the user's message,
  * to the steward's inbox; handOff says which steward that is when the conversation named none.
  *
- * Every message a steward sends starts with a line naming that steward (fromLine in src/stewards.js), which tells the
- * conversation whom it heard from. A window that sends one records it in SENDS_FILE, where steward-relay.py looks for
- * another steward's recent message to the same conversation before it sends.
+ * Every message a steward sends starts with a line naming that steward (fromLine in src/stewards.js). A window that
+ * sends one records it in SENDS_FILE, where steward-relay.py looks for another steward's recent message to the same
+ * conversation before it sends.
  *
  * `take`, `drop`, `all` and `new` change the asking steward's own list: they tick or untick one conversation, or turn
  * "All, including new ones" or "New conversations" on or off (`to` is the conversation, or "on" or "off"). Only the
@@ -563,7 +563,7 @@ async function carryOut(req, action, to, dir, deps, now) {
     const what = action === 'open' ? ' for that folder' : handoff || SWITCHES.includes(action) ? '' : ' for that conversation';
     return { outcome: 'refused', reason: `the ${handoff ? 'conversation asking' : 'steward conversation'} has not run `
       + `${SCRIPT}${FLAGS[action] ? ' ' + FLAGS[action] : ''}${SWITCHES.includes(action) ? ' ' + to : ''}${what}${text ? ' with this text' : ''} `
-      + 'in its command in the last 5 minutes; give the text in a here-document in the command itself' };
+      + 'in its command in the last 5 minutes; put the text in a here-document inside that command' };
   }
   if (listing) {
     const not = typedBefore(file, call.id, path.dirname(dir), deps.now ? deps.now() : Date.now());
