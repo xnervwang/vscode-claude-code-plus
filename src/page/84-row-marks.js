@@ -25,14 +25,16 @@
   var ROW_DOT_TEXT = { working: 'Working', background: 'Turn ended; background work still running', waiting: 'Waiting for you' };
   var rowActivity = null, rowActivityText = '';
   var marksNow = function(){
-    if (!rowActivity && typeof window.__cceSignal === 'function') rowActivity = window.__cceSignal({ dots: {}, stewards: [] });
+    if (!rowActivity && typeof window.__cceSignal === 'function') rowActivity = window.__cceSignal({ dots: {}, stewards: [], managedBy: {} });
     var v = rowActivity && rowActivity.value;
-    return v && typeof v === 'object' ? v : { dots: {}, stewards: [] };
+    return v && typeof v === 'object' ? v : { dots: {}, stewards: [], managedBy: {} };
   };
-  window.__cceSetActivity = function(map, stewards){
+  // managedBy: session id -> the titles of the stewards that manage it, for the row's hover text (84-row-hover.js).
+  window.__cceSetActivity = function(map, stewards, managedBy){
     try {
       var next = { dots: map && typeof map === 'object' ? map : {},
-        stewards: Array.isArray(stewards) ? stewards.filter(function(s){ return typeof s === 'string'; }).map(function(s){ return s.toLowerCase(); }) : [] };
+        stewards: Array.isArray(stewards) ? stewards.filter(function(s){ return typeof s === 'string'; }).map(function(s){ return s.toLowerCase(); }) : [],
+        managedBy: managedBy && typeof managedBy === 'object' && !Array.isArray(managedBy) ? managedBy : {} };
       var text = JSON.stringify(next);
       if (text === rowActivityText) return;
       rowActivityText = text;

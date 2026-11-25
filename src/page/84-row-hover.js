@@ -3,7 +3,7 @@
 // All rights reserved.
 
 // Hover text on the session list's rows, in OPEN SESSIONS and below it: the section the conversation is listed under -
-// its group, Ungrouped or Archived sessions - and its session ID.
+// its group, Ungrouped or Archived sessions - its session ID, and the stewards that manage it, if any.
 // Fragment of the in-page script - see README.md in this folder.
 
   // The panel shows no native `title` tooltip (05-page-setup.js says why), so the text is drawn with the same box as the
@@ -28,11 +28,22 @@
     } catch (e) { /* no groups known */ }
     return name;
   };
+  // "A", "A and B", "A, B and C".
+  var namesText = function(names){
+    return names.length < 2 ? names.join('') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  };
+  var rowStewards = function(id){
+    var by = typeof marksNow === 'function' ? marksNow().managedBy : null;
+    var list = by && Array.isArray(by[id.toLowerCase()]) ? by[id.toLowerCase()] : [];
+    return list.filter(function(n){ return typeof n === 'string' && n; });
+  };
   var rowHoverText = function(session){
     var id = session && session.sessionId && session.sessionId.value;
     if (typeof id !== 'string' || !id) return '';
     var remote = !!(session.isRemote && session.isRemote.value);
-    return (remote ? '' : 'Group: ' + rowSection(session, id) + '\n') + 'Session ID: ' + id;
+    var by = remote ? [] : rowStewards(id);
+    return (remote ? '' : 'Group: ' + rowSection(session, id) + '\n') + 'Session ID: ' + id
+      + (by.length ? '\nManaged by ' + namesText(by) : '');
   };
   var rowHoverEnd = function(){
     if (rowHoverTimer) { clearTimeout(rowHoverTimer); rowHoverTimer = 0; }

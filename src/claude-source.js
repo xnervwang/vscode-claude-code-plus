@@ -99,6 +99,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   waitingFor(sessionId)           optional: the request or dialog this window's panel last reported showing,
  *                                   { tool } or { dialog }, or null
  *   hand(sessionId, text, key)      gives the answer to the panel; its result comes back through answered()
+ *   typed(text)                     optional: told of each text before it is handed to a panel, since that text was
+ *                                   not typed by the person who sees the panel (noteTyped in src/relay.js)
  *   sentSince(sessionId, text, ms)  optional: Promise of 'sent', 'queued' or '' from the transcript (src/sent-check.js)
  *   log(line)                       optional
  *   reveal(sessionId)               Promise<boolean>
@@ -107,7 +109,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   logo()                          { light, dark } Uris, or null
  *   timeZone()                      the zone a panel reported, or ''
  *   isSteward(sessionId)            optional: whether the conversation is a steward, which gets the crown
- *   stewardOf(sourceId, sessionId)  optional: the session id of the steward that looks after that conversation, or ''
+ *   stewardsOf(sourceId, sessionId) optional: the stewards that look after that conversation, as [{ sessionId, title }],
+ *                                   the one the user typed to last first
  *   isBackground(id, cwd)           optional, for tests
  */
 function createClaudeSource(deps) {
@@ -185,6 +188,7 @@ function createClaudeSource(deps) {
     const key = 'cc-' + Date.now().toString(36) + '-' + (++keys);
     const since = Date.now();
     let handed = false;
+    try { if (typeof deps.typed === 'function') deps.typed(text); } catch (_) { /* a steward's list check then lets it through */ }
     try { handed = deps.hand(sessionId, text, key) === true; } catch (_) { handed = false; }
     if (!handed) return Promise.resolve({ outcome: 'notReceived', reason: 'no Claude Code panel in this window shows the conversation' });
     return new Promise((resolve) => {
@@ -207,11 +211,11 @@ function createClaudeSource(deps) {
 
   const source = {
     protocol: PROTOCOL,
-    /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. 'shows': it asks shows(). 'stewards':
-       it asks stewardOf(), for any agent's conversation. */
+    /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. 'shows': it asks shows(). 'stewards'
+       and 'stewardList': it asks stewardOf() and stewardsOf(), for any agent's conversation. */
     get features() {
       const on = enabled();
-      return ['shows'].concat(on && briefOn() ? ['brief'] : [], on && typeof deps.stewardOf === 'function' ? ['stewards'] : []);
+      return ['shows'].concat(on && briefOn() ? ['brief'] : [], on && typeof deps.stewardsOf === 'function' ? ['stewards', 'stewardList'] : []);
     },
     id: ID,
     label: 'Claude Code',
@@ -224,13 +228,23 @@ function createClaudeSource(deps) {
     onDidChangePlanNotice: noticeChanged.event,
     onDidChangeStewards: stewardsChanged.event,
 
-    /* Agent Plus asks this so that another agent's conversation is told a steward watches it and can hand that steward
-       messages. */
+    /* Agent Plus asks these so that another agent's conversation is told which stewards watch it and can hand one of
+       them messages: every steward of the conversation, the one the user typed to last first, and that first one. */
+    stewardsOf(sourceId, sessionId) {
+      if (!enabled() || typeof deps.stewardsOf !== 'function') return [];
+      let list = [];
+      try { list = deps.stewardsOf(String(sourceId || ''), String(sessionId || '')) || []; } catch (_) { list = []; }
+      const out = [];
+      for (const x of Array.isArray(list) ? list : []) {
+        const id = x && typeof x.sessionId === 'string' ? x.sessionId.toLowerCase() : '';
+        if (!SESSION.test(id) || out.some((o) => o.sessionId === id)) continue;
+        out.push({ sourceId: ID, sessionId: id, title: typeof x.title === 'string' && x.title !== id ? x.title : '' });
+      }
+      return out;
+    },
     stewardOf(sourceId, sessionId) {
-      if (!enabled() || typeof deps.stewardOf !== 'function') return null;
-      let s = '';
-      try { s = deps.stewardOf(String(sourceId || ''), String(sessionId || '')) || ''; } catch (_) { s = ''; }
-      return typeof s === 'string' && SESSION.test(s) ? { sourceId: ID, sessionId: s.toLowerCase() } : null;
+      const first = source.stewardsOf(sourceId, sessionId)[0];
+      return first ? { sourceId: ID, sessionId: first.sessionId } : null;
     },
 
     /* The session of the visible panel in the tab's group; '' for a Claude Code tab with no conversation yet, or whose

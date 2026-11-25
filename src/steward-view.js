@@ -135,6 +135,7 @@ function gather(records, deps) {
       doing: doingRows(nodes),
       questions: qs.length,
       asks: qs.slice(0, MAX_ASKS).map((q) => String(q.question || '').slice(0, MAX_ASK)),
+      askRows: qs.map((q) => q.num + '\n' + String(q.question || '').slice(0, MAX_ASK)),
     });
   };
   for (const s of running.values()) add(s, true);
@@ -148,7 +149,8 @@ function gather(records, deps) {
     out.set(o.key, { sessionId: o.key, sourceId: o.sourceId, label: o.label, title: o.title, cwd: o.cwd,
       state: STATE_OF[act] || (unseen ? 'unread' : 'idle'), dot: activity.dotOf(act, false), unseen, running: true, processes: [],
       lastActiveAt: o.lastActiveAt, doing: doingRows(plan && plan.nodes), questions: qs.length,
-      asks: qs.slice(0, MAX_ASKS).map((q) => String(q.question || '').slice(0, MAX_ASK)), waitingFor: act === 'waiting' && st ? st.waitingFor : null });
+      asks: qs.slice(0, MAX_ASKS).map((q) => String(q.question || '').slice(0, MAX_ASK)),
+      askRows: qs.map((q) => q.num + '\n' + String(q.question || '').slice(0, MAX_ASK)), waitingFor: act === 'waiting' && st ? st.waitingFor : null });
   }
   return out;
 }
@@ -166,6 +168,12 @@ const DOT_TEXT = { working: 'working', background: 'turn ended; background work 
 /* The envelope's form follows the theme (src/envelope.js); it is written as character references, the page being ASCII. */
 const htmlChars = (s) => [...String(s)].map((c) => `&#x${c.codePointAt(0).toString(16).toUpperCase()};`).join('');
 const ENVELOPE_TEXT = 'Reply not read yet';
+
+/* An eye at the row's text size, in the colour of the text around it (.eyes sets a fainter one). */
+const EYE = '<svg viewBox="0 0 16 16" width="1.1em" height="1.1em" aria-hidden="true"><path fill="none" stroke="currentColor" '
+  + 'stroke-width="1.3" d="M1.5 8C3.2 5 5.4 3.5 8 3.5S12.8 5 14.5 8C12.8 11 10.6 12.5 8 12.5S3.2 11 1.5 8Z"/>'
+  + '<circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg>';
+const eyesText = (n) => `Also managed by ${n} other steward${n === 1 ? '' : 's'}`;
 
 function ago(ms, now) {
   if (!ms) return '';
@@ -265,21 +273,23 @@ function body(model) {
         ${c.why ? `aria-label="${esc(c.why)}"` : 'title="Managed by this conversation"'}>${c.why ? '</span>' : ''}
       <span class="dot ${esc(c.dot || '')}" ${c.dot ? `title="${esc(DOT_TEXT[c.dot] || c.dot)}"` : ''}></span>
       <a href="#" class="name" data-open="${esc(c.sessionId)}" title="${esc(c.cwd)}">${esc(titleMarks.withMarks(c.title, { steward: !!c.steward }))}</a>
-      ${c.by ? `<span class="by" data-why="${esc(c.why)}">${c.byId ? `managed by <a href="#" data-open="${esc(c.byId)}">${esc(c.by)}</a>${c.byAll ? ' through All' : ''}` : esc(c.by)}</span>` : ''}
+      ${c.by ? `<span class="by" data-why="${esc(c.why)}">${esc(c.by)}</span>` : ''}
       ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${htmlChars(model.envelope || envelope.COLOUR)}</span>` : ''}
       ${c.processes.length > 1 ? `<span class="twice" title="${esc(twiceText(c.processes))}">${c.processes.length} processes</span>
       ${duplicates.oldOne(c.processes) ? `<button class="stop-old" data-stop-old="${esc(c.sessionId)}" title="${esc(stopText(duplicates.oldOne(c.processes)))}">Stop the old process</button>` : ''}` : ''}
       ${c.managed ? `<span class="doing">${esc(c.doing.join(' · ') || (c.running ? STATE_TEXT[c.state] : 'stopped'))}</span>
       ${c.questions ? `<span class="questions">${c.questions} question${c.questions === 1 ? '' : 's'} for you</span>` : ''}
       <span class="when">${esc(ago(c.lastActiveAt, now))}</span>` : `<span class="when">${esc(ago(c.lastActiveAt, now))}</span>`}
+      ${c.eyes && c.eyes.length ? `<span class="eyes" tabindex="0" data-eyes="${esc(c.sessionId)}" aria-label="${esc(eyesText(c.eyes.length) + ': ' + c.eyes.map((e) => e.name).join(', '))}">${EYE}<span class="n">${c.eyes.length}</span>
+        <span class="pop"><span class="pophead">${esc(eyesText(c.eyes.length))}</span>${c.eyes.map((e) => `<a href="#" data-open="${esc(e.id)}">${esc(e.name)}</a>`).join('')}</span></span>` : ''}
     </li>`;
   const group = (g) => {
     const on = g.rows.filter((c) => c.managed).length, free = g.rows.filter((c) => !c.lock).length;
     return `
     <div class="group">
-      <label class="ghead" ${free ? '' : 'data-why="Every conversation here is a steward or ticked by another steward"'}><input type="checkbox" data-group="${esc(g.key)}"
+      <label class="ghead" ${free ? '' : 'data-why="Every conversation here is a steward"'}><input type="checkbox" data-group="${esc(g.key)}"
         ${on && on === free ? 'checked' : ''} ${model.every || !free ? 'disabled' : ''} ${on && on < free ? 'data-mixed="1"' : ''}
-        ${free ? `title="Every conversation in ${esc(g.name)} that no other steward has ticked"` : ''}>
+        ${free ? `title="Every conversation in ${esc(g.name)} that is not a steward"` : ''}>
         <span class="gname">${esc(g.name)}</span><span class="count">${on}/${g.rows.length}</span></label>
       <ul>${g.rows.map(row).join('')}</ul>
     </div>`;
@@ -298,10 +308,11 @@ function body(model) {
   }
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
-    : `<div class="head"><span>Managed by <b>${esc(titleMarks.withMarks(model.front.title, { steward: !!(model.managed || model.every) }))}</b>: ${model.managed}</span>
-         <label class="every" ${model.everyBy ? `data-why="${esc(model.everyBy)} has All on"` : 'title="Also ticks conversations opened later that no other steward has ticked. Other stewards are never ticked."'}>
-           <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''} ${model.everyBy ? 'disabled' : ''}> All, including new ones</label>
-         ${model.everyBy ? `<span class="everyby" data-why="${esc(model.everyBy)} has All on">on for <a href="#" data-open="${esc(model.everyById)}">${esc(model.everyBy)}</a></span>` : ''}
+    : `<div class="head"><span>Managed by <b>${esc(titleMarks.withMarks(model.front.title, { steward: !!(model.managed || model.every || model.later) }))}</b>: ${model.managed}</span>
+         <label class="every" title="Ticks every conversation listed and every one opened later. Stewards are never ticked.">
+           <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''}> All, including new ones</label>
+         <label class="every" title="Ticks every conversation that starts from now on, except stewards. Conversations open now keep their ticks.">
+           <input type="checkbox" data-later="1" ${model.later ? 'checked' : ''}> New conversations</label>
          <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${stale}${away}
        ${model.groups.length ? model.groups.map(group).join('') : '<p class="empty">No other conversation is open in a VS Code window.</p>'}`;
 }
@@ -325,10 +336,13 @@ function shell(list, nonce) {
   .every:has(input:disabled) { opacity: 0.6; }
   input:disabled { pointer-events: none; }
   .box { display: inline-flex; }
-  .by, .everyby { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.8; }
-  .by { max-width: 35%; }
-  .everyby { max-width: 40%; min-width: 6em; }
-  .by a, .everyby a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+  .by { flex: 0 1 auto; min-width: 0; max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.8; }
+  .eyes { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; color: var(--vscode-descriptionForeground); cursor: default; }
+  .eyes .pop { display: none; position: absolute; right: 0; top: 100%; z-index: 10; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 4px;
+    white-space: nowrap; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #454545)); color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground, #ccc)); }
+  .eyes:hover .pop, .eyes:focus-within .pop { display: flex; }
+  .eyes .pop a { color: var(--vscode-textLink-foreground); text-decoration: none; }
   .box input:disabled, .ghead[data-why] input:disabled { opacity: 0.4; }
   ul { list-style: none; margin: 0; padding: 0; }
   .row { display: flex; align-items: center; gap: 6px; padding: 2px 0; white-space: nowrap; }
@@ -377,9 +391,10 @@ function shell(list, nonce) {
   document.addEventListener('click', (e) => {
     const t = e.target;
     if (t.matches('input[data-every]')) vscode.postMessage({ type: 'every', on: t.checked });
+    else if (t.matches('input[data-later]')) vscode.postMessage({ type: 'later', on: t.checked });
     else if (t.matches('input[data-group]')) vscode.postMessage({ type: 'group', key: t.dataset.group, on: t.checked });
     else if (t.matches('input[type=checkbox]')) vscode.postMessage({ type: 'toggle', id: t.dataset.id, on: t.checked });
-    else if (t.dataset.open) { e.preventDefault(); vscode.postMessage({ type: 'open', id: t.dataset.open }); }
+    else if (t.dataset && t.dataset.open) { e.preventDefault(); vscode.postMessage({ type: 'open', id: t.dataset.open }); }
     else if (t.dataset.stopOld) vscode.postMessage({ type: 'stop-old', id: t.dataset.stopOld });
     else if (t.dataset.act) vscode.postMessage({ type: t.dataset.act });
   });
@@ -460,7 +475,8 @@ function create(vscode, deps) {
     const open = (id) => (keys.isOther(id) ? !!(all.get(id)) : wins.some((w) => w.sessions.includes(id)));
     const steward = (id) => { const t = table[id] || table[String(id).toLowerCase()]; return !!(t && (t.all || (t.manages || []).length)); };
     const rows = [...all.values()].filter((c) => c.sessionId !== front && (open(c.sessionId) || hostWindow(c, wins)))
-      .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c, lockOf(table, c.sessionId, front, all)));
+      .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c, lockOf(table, c.sessionId),
+        { eyes: stewards.stewardsOf(table, c.sessionId).filter((s) => s !== front).map((s) => ({ id: s, name: nameOf(s, all) })) }));
     rows.sort((a, b) => (b.managed - a.managed) || (b.lastActiveAt - a.lastActiveAt));
     const groups = grouped(rows, wins, front);
     const hidden = [...mine].filter((id) => !open(id) && !rows.some((c) => c.sessionId === id));
@@ -468,26 +484,16 @@ function create(vscode, deps) {
     // The conversation in front may not be in the list yet: `claude agents --json` is read at most every half minute.
     const title = self ? self.title : front ? titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: front, name: '', cwd: '' },
       deps.titles({ sessionId: front }), () => deps.readPlan(front))) : '';
-    const everyBy = front ? stewards.everyOf(table, front) : '';
+    const later = !!(front && table[front] && table[front].newSince);
     return { front: front ? { id: front, title } : null, other, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
-      every, everyBy: everyBy ? nameOf(everyBy, all) : '', everyById: everyBy, envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
+      every, later, envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
   };
   /* The title the panel uses when its text names a conversation. */
   const nameOf = (id, all = last) => (all.get(id) && all.get(id).title)
     || titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: id, name: '', cwd: '' }, deps.titles({ sessionId: id }), () => deps.readPlan(id))) || id;
-  /*
-   * Why the box of conversation `id` in the panel of `front` cannot be ticked, as { lock: true, why }, or a note that
-   * does not stop a tick. A steward cannot be managed (lock). A conversation another steward ticked stays with that
-   * steward (lock). One that another steward has only through All goes to whichever steward ticks it (a note, no lock).
-   */
-  const lockOf = (table, id, front, all) => {
-    if (table[id]) return { lock: true, why: 'This conversation is a steward, and a steward is not managed by another', by: 'a steward', byId: '' };
-    const h = stewards.holderOf(table, id, front);
-    if (!h) return { lock: false, why: '', by: '', byId: '' };
-    const name = nameOf(h.steward, all);
-    return h.ticked ? { lock: true, why: `Managed by ${name}`, by: name, byId: h.steward }
-      : { lock: false, why: `Managed by ${name} through All; ticking it here moves it to this conversation`, by: name, byId: h.steward, byAll: true };
-  };
+  /* A steward's box cannot be ticked, since a steward is not managed by another. Other stewards' ticks do not matter. */
+  const lockOf = (table, id) => (table[id] ? { lock: true, why: 'This conversation is a steward, and a steward is not managed by another', by: 'a steward' }
+    : { lock: false, why: '', by: '' });
 
   /* This window's entry in the windows folder, written when what it shows changes and once a minute besides. */
   let published = false;
@@ -519,11 +525,36 @@ function create(vscode, deps) {
   };
 
   /* The list for a steward with "all" set: every conversation open in a window, another agent's included, except
-     itself, other stewards, and ones another steward has. */
+     itself and other stewards. */
   const everyIds = (steward, table) => {
     const wins = windows();
-    return [...last.keys()].filter((id) => id !== steward && !table[id] && !stewards.holderOf(table, id, steward)
+    return [...last.keys()].filter((id) => id !== steward && !table[id]
       && (keys.isOther(id) ? keys.allowed(id) : wins.some((w) => w.sessions.includes(id))));
+  };
+  /* When a Claude Code conversation started: the time of the first row of its transcript, which a copy made by
+     continuing it in another folder keeps. 0 while there is no transcript yet. */
+  const started = new Map();
+  const startedAt = (id) => {
+    if (started.has(id)) return started.get(id);
+    const file = deps.transcriptOf(id);
+    let at = 0, fd;
+    try {
+      fd = fs.openSync(file, 'r');
+      const buf = Buffer.alloc(64 * 1024), n = fs.readSync(fd, buf, 0, buf.length, 0);
+      const m = /"timestamp":"([^"]+)"/.exec(buf.toString('utf8', 0, n));
+      at = m ? Date.parse(m[1]) || 0 : 0;
+    } catch (_) { at = 0; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (_) { /* closed */ } }
+    if (at) { if (started.size > 2000) started.clear(); started.set(id, at); }
+    return at;
+  };
+  /* The other agents' conversations listed now, which "New conversations" leaves alone when it is turned on. */
+  const otherKeys = () => [...last.keys()].filter((id) => keys.isOther(id));
+  /* Conversations that started after steward `t` turned "New conversations" on and are not on its list yet. */
+  const newIds = (steward, t, table) => {
+    const wins = windows();
+    return [...last.keys()].filter((id) => id !== steward && !table[id] && !t.manages.includes(id) && !t.newSkip.includes(id)
+      && (keys.isOther(id) ? keys.allowed(id) && !t.newBefore.includes(id)
+        : wins.some((w) => w.sessions.includes(id)) && startedAt(id) >= t.newSince));
   };
   const titlesOf = (list) => {
     const names = {};
@@ -546,7 +577,7 @@ function create(vscode, deps) {
       const kept = t.manages.filter((id) => {
         const k = steward + ' ' + id;
         if (open.has(id)) { absentSince.delete(k); return true; }
-        if (table[id] || stewards.holderOf(table, id, steward)) return false;
+        if (table[id]) return false;
         if (!absentSince.has(k)) absentSince.set(k, now);
         return now - absentSince.get(k) < GONE_MS;
       });
@@ -554,7 +585,15 @@ function create(vscode, deps) {
       if (want.length === t.manages.length && want.every((id) => t.manages.includes(id))) continue;
       const names = titlesOf(want);
       for (const id of want) if (!names[id] && t.names && t.names[id]) names[id] = t.names[id];
-      stewards.setManaged(steward, want, names, { dir: deps.dir, every: true, paths: plansOf(want) });
+      stewards.setManaged(steward, want, names, { dir: deps.dir, every: true, paths: plansOf(want), title: nameOf(steward) });
+      changed = true;
+    }
+    for (const [steward, t] of Object.entries(stewards.read(deps.dir))) {
+      if (!t.newSince || t.all || !deps.shownHere(steward)) continue;
+      const add = newIds(steward, t, table);
+      if (!add.length) continue;
+      const want = t.manages.concat(add), names = Object.assign({}, t.names, titlesOf(add));
+      stewards.setManaged(steward, want, names, { dir: deps.dir, paths: plansOf(add), title: nameOf(steward) });
       changed = true;
     }
     if (changed) deps.changed();
@@ -578,9 +617,12 @@ function create(vscode, deps) {
   /*
    * Notices for the stewards whose panel this window shows. A notice starts a turn in an idle steward, so it is sent
    * only if a conversation began waiting for the user, has more questions for the user than at the last pass, ended a
-   * turn while the steward's plan names it, or has background work that ended without finishing. A steward gets at
-   * most one notice per NOTICE_GAP_MS; conversations often stop within a minute of each other. What a steward has been
-   * told (src/steward-watch.js) is read from its file once and written back as it changes.
+   * turn that this steward's message started or while the steward's plan names it, or has background work that ended
+   * without finishing. A wait or a new question wakes one of the conversation's stewards, the one the user typed to
+   * last among those some window shows (ownerOf), and the record of who was given which (src/steward-watch.js given)
+   * keeps every other steward from putting it to the user again. A steward gets at most one notice per NOTICE_GAP_MS;
+   * conversations often stop within a minute of each other. What a steward has been told is read from its file once
+   * and written back as it changes.
    */
   const pending = new Map(), sentAt = new Map(), asked = new Map(), told = new Map(), workAt = new Map();
   /* When each conversation was first seen stopped after working or running background work. Its state counts as
@@ -603,6 +645,17 @@ function create(vscode, deps) {
     for (const id of leftAt.keys()) if (!last.has(id)) leftAt.delete(id);
     return after;
   };
+  const userAt = relay.lastUserCache();
+  /* The steward whose message another agent's conversation got last, from the file beside its plan that its agent
+     writes at the end of each turn (hooks/steward-peek.py reads the same file). */
+  const otherStarter = (id) => {
+    const file = planFile(id);
+    let d = null;
+    try { d = file ? JSON.parse(fs.readFileSync(file.replace(/\.json$/, '.reply.json'), 'utf8')) : null; } catch (_) { d = null; }
+    const said = d && Array.isArray(d.said) ? d.said : [];
+    const f = said.length && said[said.length - 1] ? stewards.senderOf(said[said.length - 1].text) : null;
+    return f ? f.steward : '';
+  };
   const toldOf = (steward) => {
     if (!told.has(steward)) told.set(steward, watch.load(deps.dir, steward));
     return told.get(steward);
@@ -610,15 +663,28 @@ function create(vscode, deps) {
   const notify = async (now = Date.now()) => {
     const table = stewards.read(deps.dir);
     const after = settled(now);
-    let records = null;
+    let records = null, shownSomewhere = null;
     const live = () => records || (records = deps.records());
+    const owners = new Map(), starters = new Map();
+    const ownerOf = (id) => {
+      if (owners.has(id)) return owners.get(id);
+      if (!shownSomewhere) shownSomewhere = new Set(windows().flatMap((w) => w.sessions || []));
+      const o = stewards.byUser(stewards.stewardsOf(table, id).filter((s) => shownSomewhere.has(s)), (s) => userAt(deps.transcriptOf(s)))[0] || '';
+      owners.set(id, o);
+      return o;
+    };
+    const starterOf = (id) => {
+      if (!starters.has(id)) starters.set(id, keys.isOther(id) ? otherStarter(id) : relay.turnStarter(deps.transcriptOf(id)));
+      return starters.get(id);
+    };
     for (const steward of Object.keys(table)) {
       if (!deps.shownHere(steward)) { pending.delete(steward); continue; }
       const manages = table[steward].manages;
-      const more = (id) => last.get(id) && asked.has(id) && last.get(id).questions > asked.get(id);
+      const more = (id) => last.get(id) && asked.has(id) && last.get(id).questions > asked.get(id) && ownerOf(id) === steward;
       const waited = waitedOn(readPlan(steward), manages, table[steward].names);
       const list = stewards.changes(states, after, manages)
-        .filter((c) => c.what === 'waiting' || more(c.id) || waited.has(c.id));
+        .filter((c) => (c.what === 'waiting' && ownerOf(c.id) === steward) || more(c.id) || waited.has(c.id)
+          || (c.what === 'done' && starterOf(c.id) === steward));
       if (now - (workAt.get(steward) || 0) >= WORK_CHECK_MS) {
         workAt.set(steward, now);
         const t = toldOf(steward), running = {};
@@ -662,16 +728,28 @@ function create(vscode, deps) {
       if (!table[steward] || now - (sentAt.get(steward) || 0) < NOTICE_GAP_MS) continue;
       const rec = live().find((r) => r && r.sessionId === steward && typeof r.messagingSocketPath === 'string');
       const t = toldOf(steward), names = Object.assign({}, table[steward].names), details = {}, asks = {};
+      const given = watch.loadGiven(deps.dir), giving = [];
+      // Another steward of the conversation that was given it, or ''.
+      const holder = (id, k) => { const g = given[id] && given[id][k]; return g && g.steward !== steward && stewards.manages(table, g.steward, id) ? g.steward : ''; };
       for (const c of list) {
         const now = last.get(c.id);
         if (!now || details[c.id]) continue;
         names[c.id] = now.title;
-        // Leave out questions this steward was given before.
-        const before = t.asked[c.id] || [];
-        asks[c.id] = (now.asks || []).slice();
-        details[c.id] = { state: NOTICE_STATE[now.state] || now.state, doing: now.doing,
-          asks: asks[c.id].filter((q) => !before.includes(q)),
-          waitingOn: now.state !== 'prompt' ? '' : keys.isOther(c.id) ? otherWait(now.waitingFor) : watch.waitingOn(deps.transcriptOf(c.id)) };
+        // Leave out questions this steward was given or told of before, and those another steward was given.
+        const before = t.asked[c.id] || [], qs = now.asks || [], rows = now.askRows || [], mine = [], held = [];
+        asks[c.id] = qs.slice();
+        qs.forEach((q, i) => {
+          if (before.includes(q)) return;
+          const k = rows[i] || q, h = holder(c.id, k);
+          if (h) held.push({ text: q, steward: h, title: nameOf(h) });
+          else { mine.push(q); giving.push([c.id, k]); }
+        });
+        let waitingOn = now.state !== 'prompt' ? '' : keys.isOther(c.id) ? otherWait(now.waitingFor) : watch.waitingOn(deps.transcriptOf(c.id));
+        if (waitingOn) {
+          const k = 'wait\n' + waitingOn, h = holder(c.id, k);
+          if (h) { held.push({ text: 'it waits on ' + waitingOn, steward: h, title: nameOf(h) }); waitingOn = ''; } else giving.push([c.id, k]);
+        }
+        details[c.id] = { state: NOTICE_STATE[now.state] || now.state, doing: now.doing, asks: mine, waitingOn, held };
       }
       // Taken off before the post is awaited: a second pass running meanwhile would otherwise send the same notice.
       pending.delete(steward);
@@ -681,6 +759,11 @@ function create(vscode, deps) {
         Object.assign(t.asked, asks);
         for (const id of Object.keys(t.asked)) if (!table[steward].manages.includes(id)) delete t.asked[id];
         watch.save(deps.dir, steward, t);
+        if (giving.length) {
+          const fresh = watch.loadGiven(deps.dir);
+          for (const [id, k] of giving) if (!fresh[id] || !fresh[id][k]) (fresh[id] = fresh[id] || {})[k] = { steward, at: now };
+          watch.saveGiven(deps.dir, fresh, { now, current: (id) => (last.get(id) ? last.get(id).askRows || [] : null) });
+        }
       }
       deps.log(`steward ${steward}: ${list.length} change(s) ${sent ? 'sent' : 'not sent, no inbox reached'}`);
     }
@@ -731,6 +814,68 @@ function create(vscode, deps) {
     } catch (_) { requestWatch = null; }
   };
 
+  /* Turns a steward's "All, including new ones" (`which` 'all') or "New conversations" ('new') on or off. */
+  const setSwitch = (steward, which, on) => {
+    const t = stewards.read(deps.dir)[steward];
+    const mine = t ? t.manages : [];
+    if (which === 'all') {
+      const list = on ? everyIds(steward, stewards.read(deps.dir)) : mine;
+      return stewards.setManaged(steward, list, titlesOf(list), { dir: deps.dir, every: on, ticked: t && t.all ? t.ticked : mine,
+        paths: plansOf(list), title: nameOf(steward) });
+    }
+    return stewards.setManaged(steward, mine, titlesOf(mine), { dir: deps.dir, later: on, before: otherKeys(), paths: plansOf(mine), title: nameOf(steward) });
+  };
+  /* The conversation `given` names for steward `steward`: a key or session id, or else an exact title. For `drop`, only
+     among those on its list. { key } or { why }. */
+  const named = (given, steward, table, onList) => {
+    const g = String(given || '').trim(), key = keys.managedId(g);
+    const t = table[steward] || { manages: [], names: {} };
+    if (key) return { key };
+    const titleOf = (id) => (last.get(id) && last.get(id).title) || (t && t.names[id]) || '';
+    const pool = onList ? t.manages : [...new Set([...last.keys()].concat(t.manages))];
+    const hits = pool.filter((id) => titleOf(id) === g);
+    if (hits.length === 1) return { key: hits[0] };
+    if (!hits.length) return { why: `no conversation${onList ? ' on this steward\'s list' : ' open in a VS Code window'} has the title "${g}"; give its session id` };
+    return { why: `${hits.length} conversations have the title "${g}" (${hits.join(', ')}); give the session id of the one meant` };
+  };
+  /*
+   * A steward's request, which the user made in that steward conversation (src/relay.js checks that), to change its
+   * own list: `take` or `drop` one conversation, or turn `all` or `new` on or off. Returns { outcome, reason }; the
+   * reason says what was done.
+   */
+  const listChange = (steward, action, target) => {
+    const refuse = (reason) => ({ outcome: 'refused', reason });
+    if (!writes()) return refuse('this window runs an earlier build of Claude Code Plus than the one now installed, so it does not save the list; reload the window');
+    const table = stewards.read(deps.dir);
+    if (!table[steward] && stewards.stewardsOf(table, steward).length) return refuse('a steward manages this conversation');
+    const t = table[steward] || { manages: [], ticked: [], names: {}, paths: {}, all: false, newSince: 0, newSkip: [], newBefore: [] };
+    const done = (reason) => { deps.changed(); render(true); return { outcome: 'submitted', reason }; };
+    if (action === 'all' || action === 'new') {
+      const on = target === 'on', name = action === 'all' ? 'All, including new ones' : 'New conversations';
+      const was = action === 'all' ? t.all : !!t.newSince;
+      if (was === on) return { outcome: 'submitted', reason: `${name} was already ${target}` };
+      setSwitch(steward, action, on);
+      return done(`${name} is now ${target} for this steward in the Steward panel`);
+    }
+    const n = named(target, steward, table, action === 'drop');
+    if (n.why) return refuse(n.why);
+    const id = n.key, label = `"${nameOf(id)}" (${id})`;
+    if (action === 'take') {
+      if (id === steward) return refuse('a steward does not manage itself');
+      if (table[id]) return refuse(`${label} is a steward, and a steward is not managed by another`);
+      if (!keys.isClaude(id) && !keys.allowed(id)) return refuse(`a steward cannot manage ${keys.labelOf(id)} conversations`);
+      if (t.manages.includes(id)) return { outcome: 'submitted', reason: `${label} was already ticked for this steward` };
+      if (t.all) return { outcome: 'submitted', reason: `All, including new ones, is on, so this steward manages ${label} already` };
+      stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: nameOf(id) }),
+        { dir: deps.dir, ticked: t.ticked.concat(id), paths: plansOf([id]), title: nameOf(steward) });
+      return done(`${label} is now ticked for this steward in the Steward panel`);
+    }
+    if (t.all) return refuse('All, including new ones, is on, so this steward manages every conversation; turn it off first with --all off');
+    if (!t.manages.includes(id)) return refuse(`${label} is not on this steward's list`);
+    stewards.setManaged(steward, t.manages.filter((x) => x !== id), titlesOf(t.manages), { dir: deps.dir, paths: plansOf(t.manages), title: nameOf(steward) });
+    return done(`${label} is no longer ticked for this steward in the Steward panel`);
+  };
+
   /* A steward's requests for a conversation this window shows, for a new one in a folder it has open, or to open one
      started in such a folder, and handoffs to a steward this window shows (src/relay.js).
      The folder is watched, and each pass also looks, in case the watch missed one or the folder did not exist yet when
@@ -757,10 +902,11 @@ function create(vscode, deps) {
           if (!t) return false;
           const after = t.manages.includes(id) ? stewards.read(deps.dir)
             : stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: titleOf(id) }),
-              { dir: deps.dir, ticked: t.ticked.concat(id) });
+              { dir: deps.dir, ticked: t.ticked.concat(id), title: nameOf(steward) });
           deps.changed();
           return !!(after[steward] && after[steward].manages.includes(id));
         },
+        list: listChange,
         pid: process.pid })) {
         deps.log(`steward ${r.action === 'send' ? 'relay' : r.action} to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`);
       }
@@ -805,7 +951,7 @@ function create(vscode, deps) {
           toldNewer = true;
           deps.log(`steward panel: stewards.json is version ${v}, from a later build of Claude Code Plus; this window reads it and does not write it`);
         }
-        if (stewards.migrate(deps.dir)) deps.log('steward panel: rewrote stewards.json so that each conversation has one steward at most');
+        if (stewards.migrate(deps.dir)) deps.log('steward panel: rewrote stewards.json so that no steward is on a list');
         const names = {};
         for (const [id, c] of last) names[id] = c.title;
         stewards.rename(names, { dir: deps.dir });
@@ -839,17 +985,15 @@ function create(vscode, deps) {
     }
     const table = stewards.read(deps.dir);
     const mine = new Set(table[front] ? table[front].manages : []);
-    if (m.type === 'every') {
-      if (m.on === true && stewards.everyOf(table, front)) { render(true); return; }
-      const list = m.on ? everyIds(front, table) : [...mine];
-      stewards.setManaged(front, list, titlesOf(list), { dir: deps.dir, every: m.on === true, ticked: [...mine], paths: plansOf(list) });
+    if (m.type === 'every' || m.type === 'later') {
+      setSwitch(front, m.type === 'every' ? 'all' : 'new', m.on === true);
       render(true);
       deps.changed();
       return;
     }
     // While it manages all, nothing can be unticked or ticked by hand.
     if (table[front] && table[front].all) return;
-    const free = (id) => !lockOf(table, id, front, last).lock;
+    const free = (id) => !lockOf(table, id).lock;
     if (m.type === 'toggle' && typeof m.id === 'string') { if (!m.on) mine.delete(m.id); else if (free(m.id)) mine.add(m.id); }
     else if (m.type === 'group' && typeof m.key === 'string') {
       const g = model(last, front).groups.find((x) => x.key === m.key);
@@ -859,7 +1003,7 @@ function create(vscode, deps) {
     else if (m.type === 'none') mine.clear();
     else if (m.type === 'drop-hidden') for (const id of model(last, front).hiddenIds) mine.delete(id);
     else return;
-    stewards.setManaged(front, [...mine], titlesOf(mine), { dir: deps.dir, paths: plansOf(mine) });
+    stewards.setManaged(front, [...mine], titlesOf(mine), { dir: deps.dir, paths: plansOf(mine), title: nameOf(front) });
     render(true);
     deps.changed();
   };
@@ -899,8 +1043,10 @@ function create(vscode, deps) {
     open,
     /* Whether this window keeps the files every window shares; writesTable decides. */
     keepsShared: () => writes(),
+    /* The title the panel uses for a conversation. */
+    titleOf: (id) => nameOf(id),
     _gather: gather, _model: model, _notify: notify, _pass: pass, _onMessage: onMessage, _takeRequest: takeRequest, _syncEvery: syncEvery,
-    _takeRelays: takeRelays, _writes: writes, _last: () => last, _listening: () => link.listening(),
+    _takeRelays: takeRelays, _writes: writes, _last: () => last, _listening: () => link.listening(), _listChange: listChange,
   };
 }
 

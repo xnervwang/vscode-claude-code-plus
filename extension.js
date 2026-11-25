@@ -248,6 +248,8 @@ function carryOver(context, log) {
 const TOLD_KEY = PREFIX + 'toldEarlierBuild';
 /* How long the first start waits for export.json from the old id's last version. */
 const EXPORT_WAIT_MS = 20000;
+/* How often the stewards' order and titles are looked at for Agent Plus (stewardsOfKey). */
+const STEWARD_ORDER_MS = 5000;
 function standAside(context, log, version) {
   log.appendLine(`Work Plan for Claude Code ${version} (${carryover.LEGACY_ID}) is still installed and patches Claude Code itself; `
     + 'this extension does nothing until it is updated or uninstalled');
@@ -812,7 +814,8 @@ function start(context, log, renamed, handing = false) {
     brief: () => runs(BRIEF_SETTING),
     timeZone: () => clientZone(),
     isSteward: (id) => enabled() && !removed() && stewardMarks.stewardIds(stewardTable()).includes(String(id).toLowerCase()),
-    stewardOf: (sourceId, sessionId) => (enabled() && !removed() ? stewards.stewardOf(stewardTable(), stewardKeys.keyOf(sourceId, sessionId)) : ''),
+    stewardsOf: (sourceId, sessionId) => (enabled() && !removed() ? stewardsOfKey(stewardKeys.keyOf(sourceId, sessionId)) : []),
+    typed: (text) => relay.noteTyped(planDir(), text),
     listAgents: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders()), undefined,
       { file: path.join(planDir(), AGENTS_FILE), ms: AGENTS_SHARE_MS, write: !replaced() && !uninstalling() }),
     folders: () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath),
@@ -926,6 +929,7 @@ function start(context, log, renamed, handing = false) {
   } });
   const openConversation = async (folder, text) => {
     if (typeof globalThis.__cceToAllPanels !== 'function') return { outcome: 'notReceived', reason: 'Claude Code is not patched in this window' };
+    relay.noteTyped(planDir(), text);
     try {
       await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, text, undefined, undefined, undefined, { programmatic: 'pin-to-panel' });
     } catch (e) { return { outcome: 'notReceived', reason: 'Claude Code could not open a tab: ' + ((e && e.message) || e) }; }
@@ -1090,6 +1094,26 @@ function start(context, log, renamed, handing = false) {
     try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
   };
+  /* The stewards of conversation `key`, as Agent Plus asks for them: the one the user typed to last first, as handoffs
+     go (src/relay.js). */
+  const userAtOf = relay.lastUserCache();
+  const stewardTitleOf = (id, table) => (table[id] && table[id].title) || steward.titleOf(id);
+  const stewardsOfKey = (key) => {
+    const table = stewardTable();
+    return stewards.byUser(stewards.stewardsOf(table, key), (s) => userAtOf(transcriptOf(s))).map((s) => ({ sessionId: s, title: stewardTitleOf(s, table) }));
+  };
+  /* Their order and titles change without the table changing: a steward's newest message from the user, a rename.
+     Looked at every few seconds, and onDidChangeStewards fired when either changed. */
+  let stewardOrder = '';
+  const stewardOrderTimer = setInterval(() => {
+    try {
+      if (!enabled() || removed()) return;
+      const table = stewardTable();
+      const now = JSON.stringify(stewards.byUser(Object.keys(table), (s) => userAtOf(transcriptOf(s))).map((s) => [s, stewardTitleOf(s, table)]));
+      if (now !== stewardOrder) { const first = !stewardOrder; stewardOrder = now; if (!first) claude.stewardsChanged(); }
+    } catch (e) { log.appendLine('steward order: ' + ((e && e.message) || e)); }
+  }, STEWARD_ORDER_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(stewardOrderTimer) });
   let stewardWatch = null, stewardSettle = 0;
   /* The same watch keeps the plan directory's names current for the passes that list it (src/plan-names.js). */
   const watchStewards = () => {
@@ -1410,6 +1434,15 @@ function start(context, log, renamed, handing = false) {
      was worked out here or to the drawing. */
   /* The stewards, for the crown the session list draws before their titles (src/page/84-row-marks.js). */
   globalThis.__cceStewardIds = () => (enabled() && !removed() ? stewardMarks.stewardIds(stewardTable()) : undefined);
+  /* The titles of each managed conversation's stewards, for the session list's hover text (src/page/84-row-hover.js). */
+  globalThis.__cceManagedBy = () => {
+    if (!enabled() || removed()) return undefined;
+    const table = stewardTable(), out = {};
+    for (const s of Object.keys(table)) {
+      for (const id of table[s].manages) if (stewardKeys.isClaude(id)) (out[id] = out[id] || []).push(stewardTitleOf(s, table));
+    }
+    return out;
+  };
   /* A name typed into a rename box, or prefilled in one, without this extension's marks (src/host.js). */
   globalThis.__cceCleanTitle = (title) => (typeof title === 'string' ? titleMarks.withoutMarks(title) : title);
   let marksSent = '', marksLogged = '';
@@ -1442,6 +1475,7 @@ function start(context, log, renamed, handing = false) {
     if (globalThis.__cceWithBackground) delete globalThis.__cceWithBackground;
     if (globalThis.__cceActivityMap) delete globalThis.__cceActivityMap;
     if (globalThis.__cceStewardIds) delete globalThis.__cceStewardIds;
+    if (globalThis.__cceManagedBy) delete globalThis.__cceManagedBy;
     if (globalThis.__cceCleanTitle) delete globalThis.__cceCleanTitle;
   } });
   const tabIcons = new Map(), tabIconUris = new Map();

@@ -606,13 +606,13 @@ const EDITS = [
   },
   {
     // Whether the sidebar's conversation can be seen and the tabs closed recently, as the patched host sends them; OPEN
-    // SESSIONS and Recently closed read them as they draw. With them, the dot of each conversation and the stewards
-    // (84-row-marks.js).
+    // SESSIONS and Recently closed read them as they draw. With them, the dot of each conversation, the stewards
+    // (84-row-marks.js) and the stewards of each managed conversation (84-row-hover.js).
     name: 'sidebar shown for open sessions',
     re: /case"session_states_update":if\(this\.sessionStates\.value=([\w$]+)\.request\.sessions,/g,
     to: (m, msg) => `case"session_states_update":if(window.__cceSidebarShown=${msg}.request.cceSidebarShown,`
       + `window.__cceRecentClosed=${msg}.request.cceRecentClosed,`
-      + `(()=>{try{typeof window.__cceSetActivity==="function"&&window.__cceSetActivity(${msg}.request.cceActivity,${msg}.request.cceStewards)}catch(cceE){}})(),`
+      + `(()=>{try{typeof window.__cceSetActivity==="function"&&window.__cceSetActivity(${msg}.request.cceActivity,${msg}.request.cceStewards,${msg}.request.cceManagedBy)}catch(cceE){}})(),`
       + `this.sessionStates.value=${msg}.request.sessions,`,
   },
   {

@@ -282,7 +282,8 @@ const EDITS = [
       + `requestId:${id}(),request:{type:"session_states_update",${fields},sidebarSessionIds:${f},cceSidebarShown:cceShown,`
       + 'cceRecentClosed:(()=>{try{return typeof globalThis.__cceRecentClosed==="function"?globalThis.__cceRecentClosed():void 0}catch(e){return void 0}})(),'
       + 'cceActivity:(()=>{try{return typeof globalThis.__cceActivityMap==="function"?globalThis.__cceActivityMap():void 0}catch(e){return void 0}})(),'
-      + 'cceStewards:(()=>{try{return typeof globalThis.__cceStewardIds==="function"?globalThis.__cceStewardIds():void 0}catch(e){return void 0}})()}}',
+      + 'cceStewards:(()=>{try{return typeof globalThis.__cceStewardIds==="function"?globalThis.__cceStewardIds():void 0}catch(e){return void 0}})(),'
+      + 'cceManagedBy:(()=>{try{return typeof globalThis.__cceManagedBy==="function"?globalThis.__cceManagedBy():void 0}catch(e){return void 0}})()}}',
   },
   {
     // A tab the person closed, as Claude Code notes it for its own reopen-closed command, reaches this extension too.
