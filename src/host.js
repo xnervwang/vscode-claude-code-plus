@@ -160,9 +160,8 @@ const EDITS = [
       + `this.fromClientStream.enqueue(${msg})}`,
   },
   /*
-   * When another window shows a conversation and this one does not, a click on its session list row goes to that window
-   * (__cceOpenElsewhere in extension.js). A window lists the conversations filed under its own folders, and one
-   * continued from another folder has an older copy under them, which this window would resume in a second process.
+   * Handled by __cceOpenElsewhere in extension.js. A window lists the conversations filed under its own folders, and
+   * one continued from another folder has an older copy under them, which this window would resume in a second process.
    */
   {
     name: 'session list open of a conversation another window shows',

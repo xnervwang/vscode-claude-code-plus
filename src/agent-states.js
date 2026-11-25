@@ -5,8 +5,8 @@
 'use strict';
 /*
  * What other agents' conversations are doing, for the Steward panel and its notices: the attention files every window
- * with Agent Plus writes in the shared folder (its docs/protocol.md, "Notifications", and readAll in its
- * src/attention.js, whose rules for one item are taken here). hooks/agent_states.py reads them the same way.
+ * with Agent Plus writes in the shared folder (its docs/protocol.md, "Notifications"; each item is checked as readAll
+ * in its src/attention.js checks it). hooks/agent_states.py reads them the same way.
  *
  * A window lists its sources' running conversations there, leaving out stopped ones whose reply has been read, so a
  * conversation missing from every file is stopped, or open in no window; neither is waiting. A window writes only
@@ -36,8 +36,6 @@ function reasonOf(raw) {
   const tool = typeof raw.tool === 'string' ? raw.tool.replace(/\s+/g, ' ').trim().slice(0, MAX_TOOL) : '';
   return tool ? { kind: 'permission', tool } : { kind: 'permission' };
 }
-/* For keeping the fuller of two windows' reasons for one wait: a permission that does not name its tool ranks below
-   any other reason. */
 const detail = (r) => (!r ? 0 : r.kind === 'permission' && !r.tool ? 1 : 2);
 
 /** key -> { activity, unseen, waitingFor, lastActiveAt } for the conversations of sources other than Claude Code. */

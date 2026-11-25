@@ -132,7 +132,7 @@ function readSent(dir, now) {
 /* Sends to other agents' conversations still waiting for deliver(). */
 const inFlight = new Set();
 /* The sent.json keys of the requests being carried out in this window, so that a second request from the same call is
-   refused before the first has its outcome. */
+   refused while the first is still being carried out. */
 const carrying = new Set();
 /* Resolves once those have their results, for tests. */
 const settled = () => Promise.all([...inFlight]);
@@ -404,7 +404,7 @@ async function carryOut(req, action, to, dir, deps, now) {
               : (deps.open ? await deps.open(to, text) : missing);
   } finally { carrying.delete(key); }
   if (r && (r.outcome === 'submitted' || r.opened === true)) {
-    // Read again: a send to another agent's conversation may have been recorded while this one ran.
+    // Read again: sends to other agents run alongside this one and may have recorded theirs meanwhile.
     const sent = readSent(dir, now);
     sent[key] = now;
     try { writeAtomic(path.join(dir, SENT_FILE), JSON.stringify(sent) + '\n'); } catch (_) { /* a repeat is then not caught */ }

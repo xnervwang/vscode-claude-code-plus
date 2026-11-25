@@ -5521,8 +5521,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* An OpenCode Agent Plus conversation in the Steward panel. The test helper registers a source with Agent Plus under
-       OpenCode Agent Plus's source id; the source lists one running conversation and gives the path of its plan. */
     await step('the steward panel with an OpenCode Agent Plus conversation', async () => {
       const front = threads[0], SID = 'ses_UiStep01AbCd', KEY = `opencode-plus:${SID}`;
       const plans = path.join(path.dirname(profile.folder), 'oc-plans'), planFile = path.join(plans, `${SID}.json`);

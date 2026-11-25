@@ -118,7 +118,7 @@ def plan_summary(path):
 
 
 def managed_by(directory, sid):
-    """(keys, names, plan paths) of what this conversation manages, or ([], {}, {})."""
+    """(keys, names, plan paths) of what this conversation manages."""
     entry = steward_table.read(directory).get(sid)
     if not entry:
         return [], {}, {}

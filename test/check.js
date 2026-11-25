@@ -11388,10 +11388,8 @@ console.log('\nthe Steward panel');
       ok('the hook is registered, the steward skill ships beside it, and the steward\'s side file is swept with its conversation');
     } else bad('the steward hook, skill or side file is not wired as expected');
 
-    /* Other agents' conversations: a key `<source id>:<session id>` with the session id's case kept (src/steward-keys.js),
-       stewards.json version 2 with each one's plan path, the Steward panel's group for them from Agent Plus's
-       allConversations() and attention files, the relay through deliver() and steward-relay.py, the notices, and
-       steward.py and steward-peek.py. */
+    /* Other agents' conversations, keyed `<source id>:<session id>` with the session id's case kept
+       (src/steward-keys.js). */
     {
       const keys = require('../src/steward-keys');
       const sv = require('../src/steward-view');
@@ -11739,7 +11737,7 @@ console.log('\nthe Steward panel');
       { input: 'Anyone?\n', encoding: 'utf8', timeout: 20000, env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: S(1) }) });
       if (sub.code === 0 && sub.to === O(1) && sub.out.trim() === 'Sent: it reached the conversation as the user\'s message.'
           && dra.code === 1 && dra.out.trim() === 'Not sent: the text was left in the conversation\'s message input as a draft.'
-          && flagged.every((r) => r.status === 1 && r.stdout.includes('Not done: a conversation of OpenCode Agent Plus takes only plain messages from its steward'))
+          && flagged.every((r) => r.status === 1 && r.stdout.includes('Not done: a steward can only send plain messages to OpenCode Agent Plus conversations'))
           && noTaker.status === 1 && noTaker.stdout.trim() === 'Not done: no VS Code window that shows this steward conversation took the request.'
           && fs.readdirSync(path.join(sdir, 'relay')).length === 0 && /^OTHER_WAIT_SECONDS = 55$/m.test(fs.readFileSync(relayScript, 'utf8'))) {
         ok('steward-relay.py keeps an OpenCode key\'s case, says a message reached the conversation or was only drafted, refuses --rename, --close and --resume '
@@ -11777,8 +11775,8 @@ console.log('\nthe Steward panel');
             + 'or to answer a question in its window, no message reaches it; only the user can answer it there, so ask the user to.')
           && o2.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): idle, or not open in any window; doing: Port the reader; 1 question for the user`)
           && o2.includes('"Port the parser": waiting for the user to approve bash in its window -> idle, or not open in any window')) {
-        ok('steward.py gives each OpenCode conversation its state from Agent Plus\'s attention files, with the tool a wait is for, its plan from the recorded path and its agent\'s name, '
-          + 'says when no plan path is recorded, and ends the list with what such conversations take; a stale attention file reads as idle or not open');
+        ok('steward.py gives each OpenCode conversation its state from Agent Plus\'s attention files (with the tool a wait is for), its plan from the recorded path, and its agent\'s name; '
+          + 'it says when no plan path is recorded and ends the list with what such conversations take; a stale attention file reads as idle or not open');
       } else bad(`steward.py with OpenCode conversations: ${JSON.stringify([o1, o2])}`);
       const opeek = (...a) => { const r = cp.spawnSync('python3', [path.join(hooks, 'steward-peek.py'), ...a], { encoding: 'utf8', env: oenv }); return [r.status, (r.stdout || '').replace(/\r\n/g, '\n') + r.stderr]; };
       attendNow(Date.now());

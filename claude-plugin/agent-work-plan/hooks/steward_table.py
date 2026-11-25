@@ -45,7 +45,6 @@ def is_other(key):
 
 
 def allowed(key):
-    """Whether the key is of another agent whose conversations a steward can manage (OTHER_SOURCES)."""
     p = parse(key)
     return bool(p) and p[0] in OTHER_SOURCES
 
@@ -66,7 +65,6 @@ def label_of(key):
 
 
 def plan_file_ok(key, path):
-    """Whether `path` can be the plan of `key`'s conversation: an absolute path to <session id>.json."""
     p = parse(key)
     return bool(p) and p[0] != CLAUDE and isinstance(path, str) and os.path.isabs(path) \
         and os.path.basename(path) == p[1] + ".json"

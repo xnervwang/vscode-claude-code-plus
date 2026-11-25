@@ -24,10 +24,9 @@ const CLAUDE = 'claude-code';
    in a conversation's URI (sessionOfUri in its src/host/agentplus-source.js). */
 const KEY = /^([a-z0-9][a-z0-9-]{0,63}):([A-Za-z0-9][A-Za-z0-9_-]{0,199})$/;
 const OTHER_SOURCES = ['opencode-plus'];
-/* Shown when Agent Plus gives a conversation no label of its source. */
+/* Source names for a conversation that Agent Plus lists without a label. */
 const LABELS = { 'opencode-plus': 'OpenCode Agent Plus' };
 
-/* The key of a conversation, or '' when its source id or session id is malformed. */
 function keyOf(sourceId, sessionId) {
   const id = String(sessionId || '');
   if (sourceId === CLAUDE) return SESSION.test(id) ? id.toLowerCase() : '';
@@ -48,8 +47,8 @@ const isOther = (key) => typeof key === 'string' && !SESSION.test(key) && KEY.te
 /* Whether conversations of this key's source are listed in the panel and get messages through the relay. */
 const allowed = (key) => isOther(key) && OTHER_SOURCES.includes(parse(key).sourceId);
 
-/* The key the table keeps for `x`, or '' when `x` is neither a session id nor a well-formed key. A Claude Code session
-   id written as a key of its own source is taken as the session id. */
+/* The key the table keeps for `x`. A Claude Code session id written as a key of its own source is taken as the session
+   id. */
 function managedId(x) {
   if (typeof x !== 'string') return '';
   if (SESSION.test(x)) return x.toLowerCase();

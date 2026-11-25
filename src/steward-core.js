@@ -10,7 +10,7 @@
  *
  * allConversations() is kept current only while something listens to onDidChangeAllConversations. An Agent Plus window
  * writes its attention files, which src/agent-states.js reads for what each conversation is doing, only while its
- * notifications are on or something listens. So the steward listens, while link().want(true) says it has a use for
+ * notifications are on or something listens. So the steward subscribes, while link().want(true) says it has a use for
  * them, and a change only redraws the panel.
  */
 const keys = require('./steward-keys');
@@ -43,7 +43,7 @@ function others(core) {
   return out;
 }
 
-/* The plan file of the conversation of `key`, or '' when its source gives none or one that keys.planFileOk refuses. */
+/* The plan file of `key`'s conversation, or ''. */
 function planPathOf(core, key) {
   const p = ready(core) && keys.isOther(key) ? keys.parse(key) : null;
   if (!p) return '';
@@ -55,7 +55,7 @@ function planPathOf(core, key) {
 /* Resolves to { outcome, reason } and never rejects. */
 function deliverTo(core, key, text) {
   const p = keys.isOther(key) ? keys.parse(key) : null;
-  if (!p) return Promise.resolve({ outcome: 'notReceived', reason: 'that is not another agent\'s conversation' });
+  if (!p) return Promise.resolve({ outcome: 'notReceived', reason: 'the key names no other agent\'s conversation' });
   if (!(core && Array.isArray(core.features) && core.features.includes('deliver') && typeof core.deliver === 'function')) {
     return Promise.resolve({ outcome: 'notReceived', reason: UPDATE });
   }

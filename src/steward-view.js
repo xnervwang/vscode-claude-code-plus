@@ -178,7 +178,7 @@ function ago(ms, now) {
 
 /* Returns the managed conversations named in an open row of the steward's plan, by title, session id, or for a Claude
    Code conversation the id's first eight characters. Every key of another agent starts with its source's name, so
-   such a conversation counts only by its whole key, its whole session id or its title. names: key -> title. */
+   such a conversation counts only by its title or by its key or session id in full. names: key -> title. */
 function waitedOn(plan, ids, names) {
   const texts = [];
   const walk = (nodes) => {
@@ -428,7 +428,6 @@ function create(vscode, deps) {
     for (const t of Object.values(stewards.read(deps.dir))) Object.assign(out, t.paths || {});
     return out;
   };
-  /* The plan of another agent's conversation is wherever its source keeps it: its key holds a colon and names no file. */
   const planFile = (id) => (keys.isOther(id) ? stewardCore.planPathOf(core(), id) || recorded[id] || '' : path.join(deps.dir, id + '.json'));
   const plansOf = (list) => {
     const out = {};
@@ -624,7 +623,6 @@ function create(vscode, deps) {
       if (now - (workAt.get(steward) || 0) >= WORK_CHECK_MS) {
         workAt.set(steward, now);
         const t = toldOf(steward), running = {};
-        // Only Claude Code conversations have background work and processes here, and only their keys name files.
         for (const id of manages.filter(keys.isClaude)) {
           const cur = watch.runningWork(id, live(), deps.dir), was = t.running[id] || {};
           for (const key of Object.keys(was)) {
@@ -791,7 +789,8 @@ function create(vscode, deps) {
     await takeRequest();
     watchRelays();
     await takeRelays();
-    // Agent Plus is asked for other agents' conversations only while this window has a use for them.
+    // Listening keeps Agent Plus's list and attention files current (src/steward-core.js), so it is done only while
+    // this window needs them.
     const needed = (view && view.visible) || Object.keys(stewards.read(deps.dir)).some((id) => deps.shownHere(id));
     link.want(needed);
     if (!needed) return;

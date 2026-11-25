@@ -21,8 +21,7 @@
  * Last, a steward's message to an OpenCode Agent Plus conversation, played by a source registered with Agent Plus
  * here: the relay request goes through the window that shows the steward, Agent Plus's deliver() and its answers
  * folder, to that source's deliverAnswer. With an Agent Plus that has 'stewards', the checks then take that
- * conversation's side: Agent Plus says who its steward is, tells when the stewards table changes, and delivers a handoff
- * from it to the steward's panel.
+ * conversation's side.
  */
 const fs = require('fs');
 const os = require('os');
@@ -116,7 +115,7 @@ async function run() {
   const selfContext = context('self', root, 'xnervwang.claude-code-plus', selfPkg);
   const handed = [];
   let report = { sent: true, reason: '' };
-  /* The steward of the last part, whose panel this window shows from then on. */
+  /* The steward of the OpenCode Agent Plus checks at the end, whose panel this window shows. */
   const STEWARD = 'efefefef-1111-4222-8333-444444444444', toSteward = [];
   globalThis.__cceAnswer = (id, text, key) => {
     if (id !== SID && id !== STEWARD) return false;
@@ -222,7 +221,6 @@ async function run() {
     eq([second.kind, typeof second.reason === 'string' && second.reason.length > 0, /Not yet\.$/.test(control.state.clipboard)],
       ['notReceived', true, true], 'an answer the panel could not type comes back not received and goes to the clipboard');
 
-    /* A steward's message to an OpenCode Agent Plus conversation. */
     const OC = 'ses_WithCore01Ab', KEY = `opencode-plus:${OC}`;
     const TEXT = 'Use the new grammar for the parser.';
     const reached = [];

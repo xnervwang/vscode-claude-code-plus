@@ -224,8 +224,8 @@ function createClaudeSource(deps) {
     onDidChangePlanNotice: noticeChanged.event,
     onDidChangeStewards: stewardsChanged.event,
 
-    /* The steward of a conversation of any agent, as the Steward panel's ticks have it. Agent Plus asks it so that
-       another agent's conversation is told a steward watches it and can hand that steward messages. */
+    /* Agent Plus asks this so that another agent's conversation is told a steward watches it and can hand that steward
+       messages. */
     stewardOf(sourceId, sessionId) {
       if (!enabled() || typeof deps.stewardOf !== 'function') return null;
       let s = '';

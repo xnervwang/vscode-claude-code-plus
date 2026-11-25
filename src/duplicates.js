@@ -17,9 +17,10 @@
  * has no window. An entry without pageAt, as older builds write, counts as having one.
  *
  * Two processes can also run one conversation from different working directories. Claude Code files a conversation's
- * transcript under the folder of the directory it runs in, and one continued from another directory has a transcript in
- * each, so a window opened on the other folder resumes the copy kept there, which may be weeks behind. Each process then
- * writes its own copy, and the old process is the one on the copy that was furthest behind, not the one started first.
+ * transcript under the project folder named after the directory it runs in, and one continued from another directory
+ * has a transcript in each, so a window opened on the other folder resumes the copy kept there, which may be weeks
+ * behind. Each process then writes its own copy, and the old process is the one on the copy that was furthest behind,
+ * not the one started first.
  */
 const fs = require('fs');
 const path = require('path');
@@ -137,9 +138,9 @@ function folderOf(cwd) {
   const name = cwd.replace(/[^a-zA-Z0-9]/g, '-');
   return process.platform === 'win32' || process.platform === 'darwin' ? name.toLowerCase() : name;
 }
-/* The transcript a process in working directory `cwd` writes for conversation `id`, or ''. A folder name over 200
-   characters carries a hash this code does not compute, so the project folders are searched for one that filedUnder()
-   matches. */
+/* Where a process in working directory `cwd` writes the transcript of conversation `id`, or '' when that is not found.
+   A folder name over 200 characters carries a hash this code does not compute, so the project folders are searched for
+   one that filedUnder() matches. */
 function transcriptIn(cwd, id, projects) {
   const name = cwd.replace(/[^a-zA-Z0-9]/g, '-');
   if (name.length <= 200) return path.join(projects, name, id + '.jsonl');
@@ -150,8 +151,8 @@ function transcriptIn(cwd, id, projects) {
   return '';
 }
 
-/* How far back from its end a transcript is read for the newest entry before a time, and the newest such entry by file
-   and time. The cached answer holds while the file grows, since anything appended is newer than that time. */
+/* How far back from its end a transcript is read for the newest entry before a time (READ_BACK), and a cache of the
+   entries found, by file and time (lastSeen). The cached answer holds while the file grows, since anything appended is newer than that time. */
 const READ_BACK = 16 * 1024 * 1024;
 const READ_CHUNK = 256 * 1024;
 const lastSeen = new Map();
@@ -192,14 +193,13 @@ function newestBefore(file, before) {
   } finally { fs.closeSync(fd); }
 }
 
-/* How far behind the next copy a copy must be to count as stale (copiesOf). */
 const STALE_GAP_MS = 10 * 60000;
 /*
  * For processes running conversation `id` from different working directories: by folder name, { lastBefore, stale,
  * writtenAt }. lastBefore is the time of the newest entry its copy held before the last of the processes started. The
  * stale copy is the one furthest behind, when the next copy's newest entry is STALE_GAP_MS or more later; otherwise
  * no copy is stale.
- * writtenAt is when its copy was last written, for telling whether its process is idle.
+ * writtenAt, the time of its copy's last write, tells whether its process is idle.
  */
 function copiesOf(id, records, projects) {
   const before = Math.max(...records.map((r) => Number(r.startedAt) || 0));
@@ -231,13 +231,12 @@ function describe(p) {
   return `pid ${p.pid}, started ${at}, ${where}, on the copy kept for ${p.cwd}, ${copy}${p.stale ? ' (stale)' : ''}`;
 }
 
-/* The idle processes in hosts with no window, to be stopped without asking; none unless another process has a window.
-   With copies in different folders, only a process on the stale copy counts. */
+/* The idle processes in hosts with no window, to be stopped without asking; none unless another process has a
+   window. */
 function autoStops(group) {
   return group.some((p) => !p.windowless) ? group.filter((p) => p.windowless && p.idle && (!p.copy || p.stale)) : [];
 }
-/* The one the Stop button stops. With copies in different folders it is the process on the stale copy, or none when
-   no copy is stale; otherwise it is one in a host with no window, or failing that the oldest. */
+/* The process the Stop button stops, or undefined for none. */
 function oldOne(group) {
   if (group.some((p) => p.copy)) return group.find((p) => p.stale);
   return group.find((p) => p.windowless) || group[0];

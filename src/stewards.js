@@ -24,9 +24,9 @@
  * A key is a Claude Code session id, or `<source id>:<session id>` for another agent's conversation (src/steward-keys.js);
  * a steward is always a Claude Code conversation. "paths" gives the plan file of each such conversation, as its source
  * gave it when the conversation was ticked: the plugin's hooks cannot ask Agent Plus, and the file's name is the
- * source's own. Version 1 had only session ids and no "paths"; it reads as it is and is written as version 2 at the
- * next change. A table of a later version is read for what this build understands and never written, so that this
- * build does not drop what the later one added.
+ * source's own. Version 1 had only session ids and no "paths"; such a table is read unchanged and is written as version
+ * 2 at its next change. A table of a later version is read for what this build understands and never written, so that
+ * this build does not drop what the later one added.
  *
  * "all" is there only when the user ticked "All, including new ones": the panel in the steward's window then keeps
  * "manages" equal to every conversation open in a VS Code window that is no steward and that no other steward has
@@ -59,7 +59,6 @@ const POST_TIMEOUT_MS = 3000;
 const ids = (list, not) => [...new Set((Array.isArray(list) ? list : [])
   .map(keys.managedId).filter((x) => x && x !== not))].slice(0, MAX_MANAGED);
 
-/* The entries of `given` whose key is in `manages` and whose path can be that conversation's plan (keys.planFileOk). */
 function pathsOf(given, manages) {
   const out = {};
   if (!given || typeof given !== 'object') return out;
@@ -208,8 +207,7 @@ function stewardOf(table, key) {
  * default, those ticked before); with it off, the whole list counts as ticked. Left out of the list: conversations that
  * are stewards and ones another steward ticked; "all" stays off while another steward has it on. Ticking a
  * conversation another steward has only through "all" takes it from that one, and a steward that comes to manage
- * something leaves every other list. An empty list removes the steward from the table unless "all" is on. When the
- * file holds a table of a later version, nothing is written and the table as read is returned.
+ * something leaves every other list. An empty list removes the steward from the table unless "all" is on.
  */
 function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked, paths = {} } = {}) {
   const all = read(dir);
@@ -267,7 +265,7 @@ function changes(before, after, manages) {
   return out;
 }
 
-/* What a steward's notice says about stopping one of the processes that run a conversation (src/duplicates.js). */
+/* The notice's line on stopping one of a conversation's processes (src/duplicates.js). */
 function stopLine(procs) {
   const p = duplicates.oldOne(procs);
   if (p) return `The Stop the old process button in the Steward panel stops pid ${p.pid}, and so does kill ${p.pid}.`;

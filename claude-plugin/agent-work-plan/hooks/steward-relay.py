@@ -75,8 +75,8 @@ OPEN_WAIT_SECONDS = 50
 # A resume waits for a tab to show the conversation (30 seconds), for a long one to load (up to 3 minutes) and then for
 # it to take the message (20 seconds more). The script waits less, to stay inside a tool call's time; the window goes on.
 RESUME_WAIT_SECONDS = 110
-# A message to another agent's conversation: the window takes the request within a pass (5 seconds), finds the steward's
-# call in up to 6.5 seconds, and Agent Plus's deliver() settles within about 40.
+# How long a message to another agent's conversation can take: up to 5 seconds until a window's next pass takes the
+# request, up to 6.5 more to find the steward's call, and about 40 for Agent Plus's deliver() to settle.
 OTHER_WAIT_SECONDS = 55
 TAIL_BYTES = 256 * 1024
 SAID = {
@@ -87,8 +87,8 @@ SAID = {
 }
 SENT_OTHER = "Sent: it reached the conversation as the user's message."
 DRAFTED = "Not sent: the text was left in the conversation's message input as a draft."
-NO_ACTIONS = ("Not done: a conversation of %s takes only plain messages from its steward; rename, close or open it in "
-              "its own window.")
+NO_ACTIONS = ("Not done: a steward can only send plain messages to %s conversations; the user renames, closes or "
+              "opens one in its own window.")
 
 
 WINDOWS_DIR = "windows"

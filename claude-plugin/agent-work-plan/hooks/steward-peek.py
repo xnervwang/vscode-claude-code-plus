@@ -167,7 +167,6 @@ def said(path):
 
 
 def recorded_plan(directory, key):
-    """The plan file the Steward panel recorded in stewards.json for the conversation of `key`, or ""."""
     for entry in steward_table.read(directory).values():
         if entry["paths"].get(key):
             return entry["paths"][key]
@@ -175,7 +174,6 @@ def recorded_plan(directory, key):
 
 
 def reply_file(plan):
-    """Reads the reply file beside `plan` as (format, body); (0, None) when it is missing or has no integer format."""
     try:
         with open(os.path.splitext(plan)[0] + REPLY_SUFFIX, encoding="utf-8") as fh:
             d = json.load(fh)

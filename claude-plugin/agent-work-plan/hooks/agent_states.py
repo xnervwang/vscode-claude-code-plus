@@ -2,9 +2,9 @@
 # Copyright (c) 2026, Xnerv Wang
 # All rights reserved.
 
-"""What other agents' conversations are doing, for a steward: the attention files every VS Code window with Agent Plus
-writes in the shared folder (Agent Plus's docs/protocol.md, "Notifications"), read the same way as in the extension's
-src/agent-states.js.
+"""What other agents' conversations are doing, as steward.py and steward-peek.py report it: the attention files every VS
+Code window with Agent Plus writes in the shared folder (Agent Plus's docs/protocol.md, "Notifications"), read the same
+way as in the extension's src/agent-states.js.
 
 A window lists its sources' running conversations there, leaving out stopped ones whose reply has been read, so a
 conversation missing from every file is stopped, or open in no window.
@@ -90,7 +90,6 @@ def read(now=None, directory=None):
 
 
 def words(st):
-    """The words for a conversation's state in the steward's list, from its entry in read()."""
     if not st:
         return "idle, or not open in any window"
     if st["activity"] == "waiting":
