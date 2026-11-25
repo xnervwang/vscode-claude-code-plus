@@ -307,34 +307,35 @@ const needToasts = (d) => d.page.evaluate(() => {
   if (items.some((n) => n.closest('.notification-toast-container').getAnimations({ subtree: true }).some((a) => a.playState === 'running'))) return null;
   return items.map((n) => ((n.querySelector('.notification-list-item-message') || {}).innerText || '').replace(/\s+/g, ' ').trim());
 }).catch(() => null);
-/* Whether an Agent Plus window has written down conversation `id` as working (its src/attention.js). Agent Plus tells
-   of a reply left unread only in a conversation it has seen working. */
-function seenWorking(d, id) {
+/* Whether an Agent Plus window has written down conversation `id` in an item for which `test` holds (its src/attention.js). */
+function attentionHas(d, id, test) {
   const dir = path.join(d.profile.home, '.agent-work-plan', 'attention');
   let names = [];
   try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch (_) { return false; }
   return names.some((n) => {
-    try { return (JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')).items || []).some((x) => x.sessionId === id && x.activity === 'working'); } catch (_) { return false; }
+    try { return (JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')).items || []).some((x) => x.sessionId === id && test(x)); } catch (_) { return false; }
   });
 }
+/* As working: Agent Plus tells of a reply left unread only in a conversation it has seen working. */
+const seenWorking = (d, id) => attentionHas(d, id, (x) => x.activity === 'working');
+/* As stopped with a reply not read. */
+const seenUnread = (d, id) => attentionHas(d, id, (x) => x.activity === 'stopped' && !!x.unseen);
 /* How long Agent Plus can take to see a conversation's new activity: two of its 30 s refreshes (ui.js says why). */
 const SEEN_MS = 60000;
-/* The box of Agent Plus's status bar entry that counts the conversations waiting for you or stopped with a reply not
-   read, with that count as `text`, or null while it counts none. An Agent Plus with a bell entry of its own counts them
-   there; one without it lists them in its Conversations entry, after the line below, one line each, with "and N more"
-   after the tenth. */
-const needCountBox = (d) => d.page.evaluate((seen) => {
-  const items = [...document.querySelectorAll('.statusbar-item')];
-  const box = (e, text) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height, text }; };
-  const bell = items.find((x) => /agentPlus\.attention$/.test(x.id) && x.offsetParent);
-  if (bell) return box(bell, bell.innerText.trim());
-  const e = items.find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
-  const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(seen);
+/* The box of Agent Plus's Conversations entry in the status bar while it counts conversations waiting for you to
+   approve something or answer, with how many as `text` and the entry's own words as `says`; null while it counts none.
+   VS Code puts the entry's hover after its text in its aria-label, where those conversations come last, after the line
+   below, one line each, with "and N more" after the tenth. */
+const needCountBox = (d) => d.page.evaluate((head) => {
+  const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
+  const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(head);
   if (at < 0) return null;
-  const rest = label.slice(at + seen.length);
-  const n = (rest.match(/(?:^|\s)(?:Waiting|Finished): /g) || []).length + Number((/\band (\d+) more\b/.exec(rest) || [0, 0])[1]);
-  return n ? box(e, String(n)) : null;
-}, 'Finished or waiting for you, not looked at yet:');
+  const lines = label.slice(at + head.length).split('\n').map((l) => l.trim()).filter(Boolean);
+  const more = /^and (\d+) more$/.exec(lines[lines.length - 1] || '');
+  const n = more ? lines.length - 1 + Number(more[1]) : lines.length;
+  const r = e.getBoundingClientRect();
+  return n ? { x: r.left, y: r.top, width: r.width, height: r.height, text: String(n), says: e.innerText.trim() } : null;
+}, 'Waiting for you to approve something or answer:');
 /*
  * Another window of this machine reporting `items` to Agent Plus, which reads every window's file in the folder they
  * share (its src/attention.js), so this window treats them as conversations of that other window. A file not rewritten
@@ -718,10 +719,10 @@ const STEPS = [
   {
     name: 'plan-bar', features: ['plan-bar'],
     expect: 'Right above the message box, a bar exactly as wide as the box: a list mark and "Plan" in bold; a short track of '
-      + 'coloured segments, orange, yellow, purple and grey for the open rows by state, with no green; "19 open"; a dot; an '
-      + 'orange clock and "3.1.1 One amount for every month, or one per month", ending in an ellipsis if it does not fit; at the '
-      + 'right a reddish part with a red dot and "3 to decide"; and an arrow. The bar is one line, nothing in it is cut at the top '
-      + 'or bottom, and it covers neither the conversation nor the message box.',
+      + 'coloured segments, orange, yellow, purple and grey for the open rows by state, with no green; "19 open"; then empty '
+      + 'space and no row named, as no row is being worked on; at the right a yellowish part with a yellow dot and "3 to '
+      + 'decide", not red; and an arrow. The bar is one line, nothing in it is cut at the top or bottom, and it covers '
+      + 'neither the conversation nor the message box.',
     unchanged: 'The conversation above the bar and the message box below it are as before.',
     act: async (d) => {
       await demoAt(d, CSV, { focus: true });
@@ -736,10 +737,9 @@ const STEPS = [
   },
   {
     name: 'plan-bar-hover', features: ['plan-bar'],
-    expect: 'The mouse rests on the plan bar, whose border is drawn in the focus colour. A box next to it shows first the current '
-      + 'row\'s whole title, "3.1.1 One amount for every month, or one per month", then "19 rows not done", then the open rows, '
-      + 'each with its number and a mark for its state in the colours of the track, each nested row indented below its '
-      + 'parent. Nothing in the box is cut off or outside the window.',
+    expect: 'The mouse rests on the plan bar, whose border is drawn in the focus colour. A box next to it shows first "19 rows '
+      + 'not done", with no row title above it, then the open rows, each with its number and a mark for its state in the '
+      + 'colours of the track, each nested row indented below its parent. Nothing in the box is cut off or outside the window.',
     unchanged: 'The bar reads as before.',
     act: async (d) => {
       await demoAt(d, CSV, { focus: true });
@@ -2010,7 +2010,7 @@ const STEPS = [
       + 'same group: that tab\'s logo has no dot, and its title ends in a white envelope. Its row under OPEN SESSIONS in the '
       + 'side bar has no dot either and shows the envelope after the title and before the time; the title does not run '
       + 'into it, and the row\'s time lines up with the other rows\'. No red or blue dot anywhere. No notification at '
-      + 'the bottom right: Agent Plus only counts a conversation in this window, as the next step shows.',
+      + 'the bottom right: Agent Plus shows none for a conversation this window shows.',
     unchanged: 'The tab bar has the same Claude Code tabs as before, plus notes.txt.',
     act: async (d) => {
       const frame = await live(d);
@@ -2028,31 +2028,39 @@ const STEPS = [
       await d.sleep(800);
       d.model.release();
       await d.away();
-      if (!await d.until(async () => ((await needCountBox(d)) || {}).text === '1', 30000, 300)) {
-        throw new Error(`Agent Plus did not count the conversation in 30 s: ${JSON.stringify(await needCountBox(d))}`);
-      }
+      if (!await d.until(() => seenUnread(d, d.threads[0].id), SEEN_MS, 300)) throw new Error('Agent Plus did not see the reply unread in 60 s');
       const said = `"${d.threads[0].title}" finished.`;
       if (await d.until(async () => ((await needToasts(d)) || []).includes(said), 9000, 300)) throw new Error('Agent Plus showed a notice for a conversation this window shows');
+      const counted = await needCountBox(d);
+      if (counted) throw new Error(`Agent Plus counted a reply not read as waiting for you: ${JSON.stringify(counted)}`);
       return d.body();
     },
   },
   {
     name: 'need-you-count', features: ['need-you-notices'],
-    expect: 'A close-up of the status bar around Agent Plus\'s entry for the conversations that need you: it shows either a bell '
-      + 'and the number 1, or "1 conversation needs you" on a yellow background.',
+    expect: 'A close-up of the status bar around Agent Plus\'s Conversations entry: on a yellow background it reads "2 '
+      + 'conversations need you", a conversation of another window waiting for you to approve Bash and the demo conversation, '
+      + 'whose plan has questions for you. The conversation with a reply not read is not among them.',
     unchanged: 'The window is as before.',
     act: async (d) => {
-      const b = await d.until(() => needCountBox(d), 15000, 300);
-      if (!b) throw new Error('Agent Plus counted nothing in the status bar');
-      if (b.text !== '1') throw new Error(`the count reads "${b.text}"`);
+      otherWindow(d, [{ sessionId: LOOK_ID(15), title: 'Tag the release build', waitingFor: { kind: 'permission', tool: 'Bash' } }]);
+      const b = await d.until(async () => { const c = await needCountBox(d); return c && c.text === '1' && c; }, 20000, 300);
+      if (!b) throw new Error(`Agent Plus did not count the waiting conversation of another window in 20 s: ${JSON.stringify(await needCountBox(d))}`);
+      if (b.says !== '2 conversations need you') throw new Error(`the entry reads "${b.says}"`);
       const width = await d.page.evaluate(() => innerWidth);
       const x = Math.max(0, b.x - 200);
       return { x, y: b.y - 4, width: Math.min(width, b.x + b.width + 200) - x, height: b.height + 8 };
     },
+    undo: async (d) => {
+      noOtherWindow(d);
+      await d.until(async () => !(await needCountBox(d)), 20000, 300);
+      await d.exec('notifications.clearAll');
+      await d.sleep(1500);
+    },
   },
   {
     name: 'need-you-list', features: ['need-you-notices'],
-    expect: 'After a click on that count (Agent Plus: Show the Conversations That Need You), a list opens at the top of the '
+    expect: 'After Agent Plus: Show the Conversations That Need You, a list opens at the top of the '
       + 'window with the placeholder "Conversations that need you" and one row: "Find where the retry delay for the inventory '
       + 'sync is set", described as finished.',
     unchanged: 'The editor and the side bar are as before.',
@@ -2775,7 +2783,7 @@ const STEPS = [
     expect: 'In the light theme, a reply landed while the conversation "Where the retry delay..." was behind notes.txt: its tab\'s '
       + 'title ends in an envelope drawn as a dark outline on the light tab, not a white or faint shape; '
       + 'its rows in the session list show the same dark envelope after the title, before the time. No colour emoji envelope anywhere. '
-      + 'No notification at the bottom right: the conversation is in this window, so Agent Plus only counts it, with a 1 in the status bar.',
+      + 'No notification at the bottom right: Agent Plus shows none for a conversation this window shows.',
     unchanged: 'The session list is as before, apart from the envelopes.',
     act: async (d) => {
       const frame = await live(d);
@@ -2806,9 +2814,7 @@ const STEPS = [
         .filter((r) => r.id.endsWith(id) || r.querySelector(`[data-cce-pin="${id}"]`))
         .map((r) => { const e = r.querySelector('[data-cce-envelope]'); return e ? getComputedStyle(e, '::after').content : null; }), d.threads[0].id);
       if (forms.length < 2 || !forms.every((f) => f === '"\u2709\uFE0E"')) throw new Error(`the session list draws ${JSON.stringify(forms)}`);
-      if (!await d.until(async () => Number(((await needCountBox(d)) || {}).text) >= 1, 30000, 300)) {
-        throw new Error(`Agent Plus did not count the conversation in 30 s: ${JSON.stringify(await needCountBox(d))}`);
-      }
+      if (!await d.until(() => seenUnread(d, d.threads[0].id), SEEN_MS, 300)) throw new Error('Agent Plus did not see the reply unread in 60 s');
       if (await d.until(async () => ((await needToasts(d)) || []).some((x) => / finished\.$/.test(x) && x.includes('Where the retry delay')), 9000, 300)) {
         throw new Error('Agent Plus showed a notice for a conversation this window shows');
       }

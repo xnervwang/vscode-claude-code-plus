@@ -12871,7 +12871,7 @@ console.log('\nanswering from the Conversations tab');
       p.bar().fire('click');
       p.bar().find('apb-q').fire('click');
       same(p.sent.filter((m) => m.type === 'cce_plan_bar_open'), [{ type: 'cce_plan_bar_open', sessionId: 'S1', part: 'plan' }, { type: 'cce_plan_bar_open', sessionId: 'S1', part: 'answer' }],
-        'a click on the bar asks for the work plan view at this conversation, one on its red part for the Answer view');
+        'a click on the bar asks for the work plan view at this conversation, one on its questions part for the Answer view');
       p.wrapper.insertBefore(new N('div', { banner: '2' }), p.form);
       p.env.out.ensure();
       same(p.bar().nextSibling === p.form, true, 'a banner the panel puts between the bar and the form moves the bar back next to the form');
@@ -12919,7 +12919,7 @@ console.log('\nanswering from the Conversations tab');
       if (!r.error) vm.runInContext(r.out + ';eT({info(){}},{type:"cce_plan_bar_ask",sessionId:"s1"});eT({info(){}},{type:"cce_plan_bar_ask"});'
         + 'eT({info(){}},{type:"cce_plan_bar_open",sessionId:"s1",part:"answer"});eT({info(){}},{type:"cce_plan_bar_open",sessionId:"s1",part:"x"});', henv);
       same([r.error || '', got], ['', [['ask', 's1'], ['open', 's1', 'answer'], ['open', 's1', 'plan']]],
-        'in the patched host, a panel asking for its plan summary and a click on its plan bar each reach their hook, a click on anything but the red part as the bar');
+        'in the patched host, a panel asking for its plan summary and a click on its plan bar each reach their hook, a click on anything but the questions part as the bar');
     } catch (e) { bad(`the plan bar's messages in the host threw: ${(e && e.stack) || e}`); }
   }
 
@@ -15255,7 +15255,7 @@ const repo = path.join(__dirname, '..');
       await b.open('S1', 'answer');
       await b.open('', 'plan');
       eq(ran, [['agentPlus.showWorkPlanOf', { sourceId: 'claude-code', sessionId: 'S1' }], ['agentPlus.answerQuestionOf', { sourceId: 'claude-code', sessionId: 'S1' }]],
-        'a click on the bar opens Agent Plus\'s work plan view at the conversation, one on its red part the Answer view');
+        'a click on the bar opens Agent Plus\'s work plan view at the conversation, one on its questions part the Answer view');
       on = false;
       b.settingChanged();
       const n = toPanel.length;

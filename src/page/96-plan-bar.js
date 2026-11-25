@@ -11,7 +11,7 @@
    * wide as the input box, and the room Claude Code keeps under the messages for the input area grows with it. The
    * extension sends the summary of this panel's conversation (cce_plan_bar, src/plan-bar.js) when asked and whenever it
    * changes; a summary of another conversation is ignored. A click goes back to the extension, which opens Agent Plus's
-   * work plan view, or its Answer view for the red part, at this conversation. Switched off
+   * work plan view, or its Answer view for the questions part, at this conversation. Switched off
    * (claudeCodePlus.show.planBar), or with the extension switched off, the bar is taken out and the panel stops asking
    * for summaries.
    */

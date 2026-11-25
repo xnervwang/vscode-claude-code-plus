@@ -140,8 +140,8 @@ async function run() {
     await until(() => rowsNow().length, 5000);
     const rows = rowsNow();
     const status = control.state.status.find((i) => i.id === 'agentPlus.conversations');
-    /* An Agent Plus without a bell entry also counts, in this entry, the conversations that wait or stopped unread. */
-    eq([rows.map((r) => r.id), rows[0] && rows[0].label, rows[0] && rows[0].description.split(' · ')[0], !!status && /(?:2 to decide|\d+ conversations? needs? you)$/.test(status.text)],
+    /* The status bar entry counts it for its questions. */
+    eq([rows.map((r) => r.id), rows[0] && rows[0].label, rows[0] && rows[0].description.split(' · ')[0], !!status && /\d+ conversations? needs? you$/.test(status.text)],
       [[`conversations/claude-code/${SID}`], 'Asks two questions', 'needs you', true],
       'the Claude Code conversation in this workspace shows in the Conversations tree with its two questions');
 
@@ -193,25 +193,35 @@ async function run() {
 
     /* Notices: this window's unread reply, and a permission prompt in a folder no window here has open. */
     globalThis.__cceStatesHook([], '', [], [SID]);
-    /* The conversations that wait or stopped unread, as { n, tip }. An Agent Plus with a bell entry of its own counts them
-       there; one without it lists them in the hover of its Conversations entry, after SEEN, one line each, with
-       "and N more" after the tenth. */
-    const SEEN = 'Finished or waiting for you, not looked at yet:';
-    const seenCount = () => {
-      const shown = (id) => control.state.status.find((i) => i.id === id && !i.disposed && i.shown);
-      const bell = shown('agentPlus.attention');
-      if (bell) return { n: Number((/(\d+)$/.exec(bell.text) || [])[1]), tip: String(bell.tooltip || '') };
-      const tip = String((shown('agentPlus.conversations') || {}).tooltip || ''), at = tip.indexOf(SEEN);
+    /* The conversations Agent Plus counts as waiting for the user to approve something or answer, as { n, tip }: the
+       hover of its Conversations entry lists them last, after WAITS, one line each, with "and N more" after the tenth. */
+    const WAITS = 'Waiting for you to approve something or answer:';
+    const waitCount = () => {
+      const tip = String((control.state.status.find((i) => i.id === 'agentPlus.conversations' && !i.disposed && i.shown) || {}).tooltip || '');
+      const at = tip.indexOf(WAITS);
       if (at < 0) return null;
-      const rest = tip.slice(at + SEEN.length);
-      return { n: (rest.match(/^(?:Waiting|Finished): /gm) || []).length
-        + Number((/^and (\d+) more$/m.exec(rest) || [0, 0])[1]), tip: rest };
+      const lines = tip.slice(at + WAITS.length).split('\n').filter(Boolean), more = /^and (\d+) more$/.exec(lines[lines.length - 1] || '');
+      return { n: more ? lines.length - 1 + Number(more[1]) : lines.length, tip: lines.join('\n') };
     };
-    await until(() => (seenCount() || {}).n === 2, 15000);
-    const b = seenCount();
-    eq([!!b, b && b.n, b && /Waiting: Runs elsewhere/.test(b.tip), b && /Finished: Asks two questions/.test(b.tip)],
-      [true, 2, true, true],
-      'Agent Plus counts this window\'s unread reply and a conversation waiting in a folder no window here has open');
+    /* Agent Plus's list of the conversations that need the user, which names the unread reply as finished. */
+    const needing = async () => {
+      let rows = [];
+      const pick = vscode.window.showQuickPick;
+      vscode.window.showQuickPick = async (items) => { rows = items.map((x) => [x.label, x.description]); return undefined; };
+      try { await control.state.handlers['agentPlus.showAttention'](); } finally { vscode.window.showQuickPick = pick; }
+      return rows;
+    };
+    await until(() => (waitCount() || {}).n === 1, 15000);
+    let listed = [];
+    for (const end = Date.now() + 15000; Date.now() < end; await wait(100)) {
+      listed = await needing();
+      if (listed.some(([label, what]) => label === 'Asks two questions' && what === 'finished')) break;
+    }
+    const b = waitCount();
+    eq([!!b, b && b.n, b && /^Runs elsewhere\b/.test(b.tip), b && b.tip.includes('Asks two questions'),
+      listed.some(([label, what]) => label === 'Asks two questions' && what === 'finished')],
+    [true, 1, true, false, true],
+    'Agent Plus counts a conversation waiting in a folder no window here has open, and lists this window\'s unread reply among those that need you without counting it');
 
     /* Answers: the first is sent by the panel, the second finds the input already holding text. */
     const conv = () => tree.getChildren().find((e) => e.kind === 'conversation');

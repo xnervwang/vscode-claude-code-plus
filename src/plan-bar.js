@@ -11,7 +11,7 @@
  * A panel asks for its conversation's summary when it starts to show one and when the bar is switched back on. The
  * extension answers, and sends it again whenever Agent Plus reports that summary changed, to the panel showing that
  * conversation; when no panel is found by the conversation's id, the message goes to every panel, and each page keeps
- * only its own conversation's. A click on the bar runs agentPlus.showWorkPlanOf, one on its red part
+ * only its own conversation's. A click on the bar runs agentPlus.showWorkPlanOf, one on its questions part
  * agentPlus.answerQuestionOf.
  *
  * Nothing is asked or sent while claudeCodePlus.show.planBar is off, nor with an Agent Plus that lacks planSummary: the

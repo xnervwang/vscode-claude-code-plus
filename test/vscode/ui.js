@@ -22,8 +22,8 @@
  *   the dots       the filled dot on the tab's logo while a turn sent through fake-model.js runs, and on both its
  *                  session list rows; the envelope after the tab's title once its reply lands with the tab in the
  *                  background, after the name and before the time on its rows, and still whole when a narrow side bar
- *                  cuts the name short, Agent Plus's notice that it finished and its count in the status bar; the red
- *                  dot while Claude Code waits for permission to run a command, with no notice and no count for the
+ *                  cuts the name short, and Agent Plus seeing the reply unread with no count in the status bar; the
+ *                  red dot while Claude Code waits for permission to run a command, with no notice and no count for the
  *                  conversation in front; no blue
  *   the agent map's sections
  *                  with nothing running, only the conversation's row, under its own heading; then a helper, a command
@@ -118,11 +118,12 @@
  *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
  *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn picked or
  *                  highlighted, and only the conversation in a tab in front drawn as the current one
- *   the plan bar   the bar above the input box, drawn from the conversation's plan whether its current row is being
- *                  worked on, waiting or parked, or every row is done: as wide as the input box with the same height
- *                  however many rows the plan has, compact in a narrow panel, redrawn when the plan changes, gone
- *                  without a plan and with claudeCodePlus.show.planBar off, and its two clicks opening Agent Plus's
- *                  Work plan view and Answer view at this conversation
+ *   the plan bar   the bar above the input box, drawn from the conversation's plan with a row being worked on as its
+ *                  current row, with no row being worked on and no current row, or with every row done: as wide as the
+ *                  input box with the same height however many rows the plan has, compact in a narrow panel, redrawn
+ *                  when the plan changes, gone without a plan and with claudeCodePlus.show.planBar off, its questions
+ *                  part in the status bar's warning colour, and its two clicks opening Agent Plus's Work plan view and
+ *                  Answer view at this conversation
  *   writing about a work plan row
  *                  Agent Plus's pen on a Work plan row: the conversation's tab comes to the front with the row's text in
  *                  its input, after the user's own text with one space or none after a space, the focus and the caret
@@ -394,26 +395,23 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /* Presses `label` on the toast of the notice about `t`. */
   const pressNotice = (t, label, p = page) => p.locator('.notifications-toasts .notification-list-item').filter({ hasText: `"${t.title}"` }).first()
     .locator('.monaco-button').filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) }).first().click({ timeout: 5000 });
-  /* In the window of `p`, how many conversations Agent Plus counts in the status bar as waiting for the user or stopped
-     with a reply not read; null while it counts none. An Agent Plus with a bell entry of its own counts them there; one
-     without it lists them in its Conversations entry, after the line below, one line each, with "and N more" after the
-     tenth. */
-  const needCount = (p = page) => p.evaluate((seen) => {
-    const items = [...document.querySelectorAll('.statusbar-item')];
-    const bell = items.find((x) => /agentPlus\.attention$/.test(x.id) && x.offsetParent);
-    if (bell) return { n: Number((/\d+/.exec(bell.innerText) || ['-1'])[0]), text: bell.innerText.trim(), label: bell.getAttribute('aria-label') || '' };
-    const e = items.find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
-    const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(seen);
+  /* The heading in the hover of Agent Plus's Conversations entry over the conversations waiting for the user to approve
+     something or answer, the last group there. */
+  const WAITS_HEAD = 'Waiting for you to approve something or answer:';
+  /* In the window of `p`, how many conversations Agent Plus counts in the status bar as waiting for the user to approve
+     something or answer; null while it counts none. VS Code puts the entry's hover after its text in the entry's
+     aria-label, one line for each conversation, with "and N more" after the tenth. */
+  const needCount = (p = page) => p.evaluate((head) => {
+    const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
+    const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(head);
     if (at < 0) return null;
-    const rest = label.slice(at + seen.length);
-    const n = (rest.match(/(?:^|\s)(?:Waiting|Finished): /g) || []).length + Number((/\band (\d+) more\b/.exec(rest) || [0, 0])[1]);
+    const lines = label.slice(at + head.length).split('\n').map((l) => l.trim()).filter(Boolean);
+    const more = /^and (\d+) more$/.exec(lines[lines.length - 1] || '');
+    const n = more ? lines.length - 1 + Number(more[1]) : lines.length;
     return n ? { n, text: e.innerText.trim(), label } : null;
-  }, 'Finished or waiting for you, not looked at yet:').catch(() => undefined);
+  }, WAITS_HEAD).catch(() => undefined);
   /* The status bar entry needCount reads. */
-  const needEntry = async (p = page) => {
-    const bell = p.locator('.statusbar-item[id$="agentPlus.attention"]');
-    return (await bell.count()) ? bell.first() : p.locator('.statusbar-item[id$="agentPlus.conversations"]').first();
-  };
+  const needEntry = async (p = page) => p.locator('.statusbar-item[id$="agentPlus.conversations"]').first();
   /* What Agent Plus's windows wrote of conversation `id` to the folder they share (its src/attention.js): its activity,
      whether its reply is unread, and whether a window that has the focus shows it in front. */
   const attentionOf = (id) => {
@@ -1249,22 +1247,22 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         return x && x.label.endsWith(ENVELOPE) && d && d.running === 0 && d.waiting === 0 && { label: x.label, dots: d };
       }, 30000, 500);
       check(!!unread, 'once the reply lands with the tab in the background, the dot goes and the tab\'s title ends in an envelope', await claudeTabs());
-      /* Agent Plus counts the reply once it has stayed unread for a moment. The window with the focus shows the
+      /* Agent Plus writes the reply down as unread once it has seen the turn end. The window with the focus shows the
          conversation, behind another editor, so Agent Plus shows no notice of it there; an Agent Plus without
          'waitingFor' does. The toast moves to the notification list after a while, so the list is read when no toast is found. */
+      const seenUnread = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'stopped' && a.unseen && a; }, SEEN_MS, 300);
       if (apWaits) {
-        const countedFirst = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 30000, 300);
-        const none = countedFirst ? await noticesWithin(tab0, 'finished') : null;
-        check(!!countedFirst && !none.length, 'Agent Plus counts the reply left unread in a tab hidden behind another editor, in the window with the focus, and shows no notice of it there',
-          { count: countedFirst || await needCount(), notices: none, agentPlus: timeline() });
+        const none = seenUnread ? await noticesWithin(tab0, 'finished') : null;
+        check(!!seenUnread && !none.length, 'Agent Plus sees the reply left unread in a tab hidden behind another editor, in the window with the focus, and shows no notice of it there',
+          { agentPlus: timeline(), notices: none });
       } else {
         const told = await until(() => noticeOf(tab0), 30000, 250) || (await listedNotices()).find(about(tab0));
         check(!!told && told.text === `"${tab0.title}" finished.` && ['Open', 'Dismiss'].every((b) => told.buttons.includes(b)),
           'Agent Plus shows a notice that the conversation finished, with Open and Dismiss', told || { toasts: await needNotices(), listed: await listedNotices(), agentPlus: timeline() });
       }
       timeline();
-      const counted = await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 10000, 300);
-      check(!!counted, 'and counts it in the status bar as 1', counted || await needCount());
+      check(!!seenUnread && (await needCount()) === null, 'and does not count it in the status bar, which counts only the conversations waiting for you',
+        { agentPlus: seenUnread || attentionOf(tab0.id), count: await needCount() });
       await shot('tab-dot-unread-notice');
       const listUnread = await until(async () => {
         const d = await listDot(tab0), env = await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${tab0.id}"] [data-cce-envelope]`).count();
@@ -1289,7 +1287,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await page.bringToFront().catch(() => {});
       const read = await until(async () => { const d = await dotsOn(t.label); return d && d.running === 0 && !(await claudeTabs()).some((y) => y.label.endsWith(ENVELOPE)) && d; }, 20000, 500);
       check(!!read, 'and bringing the tab to the front clears it', { dots: await dotsOn(t.label), windowFocused: await call('return vscode.window.state.focused;') });
-      check(!!await until(async () => (await needCount()) === null, 15000, 300), 'and Agent Plus no longer counts it', await needCount());
+      check(!!await until(() => !(attentionOf(tab0.id) || {}).unseen, 20000, 300), 'and Agent Plus no longer has its reply as unread', attentionOf(tab0.id));
       /* A notice is never taken back; these would otherwise lie over the panel's buttons. */
       await exec('notifications.clearAll');
       const after = await stampsIn(conv);
@@ -2139,7 +2137,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await setNotify('enabled', null);
         await show();
 
-        /* With agentPlus.notifications.finished off, a reply that lands unread is counted, and no notice is shown. */
+        /* With agentPlus.notifications.finished off, a reply that lands unread gets no notice, and no count either. */
         await setNotify('finished', false);
         model.hold();
         const turns = model.turns();
@@ -2152,12 +2150,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await hide();
         } finally { model.release(); }
         const unread = await until(async () => (await claudeTabs()).find((y) => y.label.endsWith(ENVELOPE) && titled(y.label.replace(ENVELOPE, ''), tab0.title)), 30000, 500);
-        const countedUnread = unread ? await until(async () => { const c = await needCount(); return c && c.n === 1 && c; }, 20000, 300) : null;
-        const notFinished = countedUnread ? await noticesWithin(tab0, 'finished') : null;
-        check(!!countedUnread && !notFinished.length, 'with agentPlus.notifications.finished off, a reply that lands unread is counted, and no notice says it finished',
-          { tab: unread, count: countedUnread || await needCount(), notices: notFinished });
+        const seenUnread = unread ? await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'stopped' && a.unseen && a; }, SEEN_MS, 300) : null;
+        const notFinished = seenUnread ? await noticesWithin(tab0, 'finished') : null;
+        check(!!seenUnread && !notFinished.length && (await needCount()) === null,
+          'with agentPlus.notifications.finished off, a reply that lands unread gets no notice that it finished, and is not counted in the status bar',
+          { tab: unread, agentPlus: seenUnread || attentionOf(tab0.id), count: await needCount(), notices: notFinished });
         await show();
-        check(!!await uncounted(), 'and once the tab is in front, Agent Plus no longer counts it', await needCount());
+        check(!!await until(() => !(attentionOf(tab0.id) || {}).unseen, 20000, 300), 'and once the tab is in front, Agent Plus no longer has its reply as unread', attentionOf(tab0.id));
         await setNotify('finished', null);
 
         /* A choice box with the tab in front of the focused window: the dot turns red, and Agent Plus shows nothing. */
@@ -4294,7 +4293,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('notifications.clearAll');
         const counted = await until(async () => { const c = await needCount(); return c && c.n >= 1 && c; }, 15000, 300);
         const tip = counted ? await hoverText(await needEntry()) : '';
-        check(!!counted && tip.includes(`Waiting: ${named.title}`) && !tip.includes(BELL), 'the hover of its count in the status bar names it the same way', { count: counted, hover: tip, why: hoverWhy });
+        const waits = tip.indexOf(WAITS_HEAD);
+        check(!!counted && waits >= 0 && tip.slice(waits).includes(named.title) && !tip.includes(BELL),
+          'the hover of its count in the status bar names it the same way, among those waiting for you', { count: counted, hover: tip, why: hoverWhy });
         await start('agentPlus.showAttention');
         const picks = await until(() => page.evaluate(() => {
           const q = document.querySelector('.quick-input-widget');
@@ -5728,8 +5729,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
      * conversation the panel shows, in each state a plan can be in; it is compact in a narrow panel, and gone without a
      * plan or with claudeCodePlus.show.planBar off; it is redrawn when the plan changes; and it stays as wide as the
      * input box, with the same height and the title in the same place, however many rows the plan has. A click on it
-     * opens Agent Plus's Work plan view at this conversation, and a click on its red part opens the Answer view at this
-     * conversation's question.
+     * opens Agent Plus's Work plan view at this conversation, and a click on its questions part opens the Answer view at
+     * this conversation's question.
      */
     await step('the plan bar', async () => {
       if (!conv) throw new Error('the conversation did not open');
@@ -5759,8 +5760,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const send = document.querySelector('button[type="submit"][data-permission-mode]'), form = send && send.closest('form');
           const box = (e) => { if (!e) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height }; };
           if (!b || b.style.display === 'none' || !b.offsetParent) return { shown: false, there: !!b };
-          const text = b.querySelector('.apb-row .apb-text'), q = b.querySelector('.apb-q');
+          const text = b.querySelector('.apb-row .apb-text'), q = b.querySelector('.apb-q'), dot = q && q.querySelector('.apb-dot');
+          /* The colour of the status bar's warning entries in this theme, which the questions part's dot is drawn in. */
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--vscode-statusBarItem-warningBackground)';
+          document.body.appendChild(probe);
+          const warning = getComputedStyle(probe).color;
+          probe.remove();
           return { shown: true, compact: b.getAttribute('data-compact') === '1', label: b.getAttribute('aria-label') || '',
+            dot: dot ? getComputedStyle(dot).backgroundColor : '', warning,
             segments: [...b.querySelectorAll('.apb-seg')].map((s) => s.getAttribute('data-state')),
             count: ((b.querySelector('.apb-count') || {}).textContent || ''),
             current: ((b.querySelector('.apb-row') || { getAttribute: () => '' }).getAttribute('data-state') || ''),
@@ -5776,8 +5784,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           row('Which month to default to', 'discussing', { waitingOn: 'user', question: 'This month or last month?' }), row('Document it', 'todo')]);
         const doing = await barIs((s) => s.shown && s.count === '4 open');
         check(!!doing && doing.beforeForm && same(doing.segments, ['doing', 'discussing', 'todo']) && doing.current === 'doing'
-          && doing.title === '2.1 Write the CSV exporter' && doing.questions === '1 to decide' && !doing.compact,
-        'with a plan, a bar sits right above the input box: the open rows by state, 4 open, the deepest row being worked on as the current row, and 1 to decide in red',
+          && doing.title === '2.1 Write the CSV exporter' && doing.questions === '1 to decide' && !doing.compact && !!doing.dot && doing.dot === doing.warning,
+        'with a plan, a bar sits right above the input box: the open rows by state, 4 open, the deepest row being worked on as the current row, and 1 to decide with a dot in the status bar\'s warning colour',
         doing || await bar());
         await shot('plan-bar-doing');
         /* The input area sits over the bottom of the messages, and Claude Code keeps room under them for its height; the
@@ -5792,13 +5800,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }), 10000, 500);
         check(!!clear, 'scrolled to the bottom, the last message ends above the bar', clear);
         write([row('Read the code', 'done'), row('Export', 'waiting', { waitingOn: 'build' }), row('Document it', 'todo')]);
-        const waiting = await barIs((s) => s.shown && s.current === 'waiting');
-        check(!!waiting && same(waiting.segments, ['waiting', 'todo']) && waiting.count === '2 open' && waiting.title === '2 Export' && !waiting.questions,
-          'with nothing being done and no question, the first waiting row is the current one and there is no red part', waiting || await bar());
+        const waiting = await barIs((s) => s.shown && s.count === '2 open');
+        check(!!waiting && same(waiting.segments, ['waiting', 'todo']) && !waiting.current && !waiting.title && !waiting.questions && waiting.label === 'Work plan: 2 rows open',
+          'with nothing being done and no question, the bar has no current row and no questions part, only the count of open rows', waiting || await bar());
         write([row('Read the code', 'done'), row('Handle refunds later', 'parked')]);
-        const parked = await barIs((s) => s.shown && s.current === 'parked');
-        check(!!parked && parked.dim && parked.count === '1 open' && same(parked.segments, ['parked']),
-          'with only a parked row left, it is the current one, in grey', parked || await bar());
+        const parked = await barIs((s) => s.shown && s.count === '1 open');
+        check(!!parked && !parked.current && !parked.title && same(parked.segments, ['parked']),
+          'with only a parked row left, there is no current row either', parked || await bar());
         write([row('Read the code', 'done'), row('Export', 'done')]);
         const allDone = await barIs((s) => s.shown && s.current === 'done');
         check(!!allDone && allDone.title === 'All rows done' && allDone.count === '' && !allDone.segments.length,
@@ -5857,7 +5865,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await panel.locator('[data-agent-plus-plan-bar] .apb-q').first().click({ timeout: 10000 });
         const asked = await frameWhere((t) => { const m = document.getElementById('main'), q = document.getElementById('question'), c = document.getElementById('conversation');
           return !!m && m.style.display === 'flex' && !!q && q.textContent === 'This month or last month?' && !!c && c.textContent === t; }, 20000, tab0.title);
-        check(!!asked, 'a click on its red part opens Agent Plus\'s Answer view at this conversation\'s question');
+        check(!!asked, 'a click on its questions part opens Agent Plus\'s Answer view at this conversation\'s question');
         await shot('plan-bar-answer');
 
         /* The switch, without a reload. */
