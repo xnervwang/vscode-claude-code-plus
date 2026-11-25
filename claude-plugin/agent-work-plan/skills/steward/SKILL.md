@@ -188,7 +188,6 @@ conversation's own plan is where its work is recorded, and a copy in yours would
 
 ## Conversations of other agents
 
-Besides Claude Code conversations, the user can tick OpenCode Agent Plus conversations for you in the Steward panel.
 OpenCode Agent Plus is another VS Code extension. Both Claude Code Plus and OpenCode Agent Plus use the Agent Plus
 extension, which passes your messages to OpenCode Agent Plus.
 
@@ -203,7 +202,7 @@ The key is `opencode-plus:` followed by the session id. Wherever this skill call
 
 A plain message sent with `steward-relay.py` goes through Agent Plus and reaches the conversation as the user's own
 message in the VS Code window where it is open. The script waits up to 55 seconds for the answer. It refuses `--rename`,
-`--close` and `--resume` without sending anything. The user renames, closes or reopens the conversation in its own
+`--close` and `--resume` without sending anything; those changes are for the user to make, in the conversation's own
 window.
 
 While the conversation waits for the user to approve a tool or answer a question, it does not accept your message.
