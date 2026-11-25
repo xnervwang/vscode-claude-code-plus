@@ -137,7 +137,6 @@ function read(dir = planDir()) {
   return settle(entriesOf(parse(dir)));
 }
 
-/** The table file's version if a later build wrote it, otherwise 0. */
 function newer(dir = planDir()) {
   const d = parse(dir);
   return d && typeof d.version === 'number' && d.version > VERSION ? d.version : 0;

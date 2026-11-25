@@ -15,7 +15,7 @@ for the user, and the text it wrote after the user's last message, without tool 
 typed into it, also while a turn ran, and not messages from other sessions or notices. A steward checks a handoff
 against them. Read-only.
 
-For another agent's conversation, named by its key "<source id>:<session id>" (steward_table.py), the state comes from
+For another agent's conversation, whose key is "<source id>:<session id>" (steward_table.py), the state comes from
 Agent Plus's attention files (agent_states.py) and the plan from the path the Steward panel recorded in stewards.json.
 The latest reply and --said come from <session id>.reply.json, which its agent writes beside that plan at the end of
 each turn: { format, at, lastUserAt, said: [{ text, at }], reply }, cut to the limits below already.

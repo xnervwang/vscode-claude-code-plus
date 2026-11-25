@@ -46,7 +46,7 @@ def _detail(r):
 
 
 def read(now=None, directory=None):
-    """key -> {"activity", "unseen", "waitingFor"} for other agents' conversations."""
+    """key -> {"activity", "unseen", "waitingFor"}."""
     now = time.time() * 1000 if now is None else now
     directory = directory or os.path.join(shared_home(), ATTENTION_DIR)
     out = {}

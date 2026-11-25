@@ -138,9 +138,8 @@ function folderOf(cwd) {
   const name = cwd.replace(/[^a-zA-Z0-9]/g, '-');
   return process.platform === 'win32' || process.platform === 'darwin' ? name.toLowerCase() : name;
 }
-/* Where a process in working directory `cwd` writes the transcript of conversation `id`. A folder name over 200
-   characters carries a hash this code does not compute, so the project folders are searched for one that filedUnder()
-   matches. */
+/* A folder name over 200 characters carries a hash this code does not compute, so the project folders are searched for
+   one that filedUnder() matches. */
 function transcriptIn(cwd, id, projects) {
   const name = cwd.replace(/[^a-zA-Z0-9]/g, '-');
   if (name.length <= 200) return path.join(projects, name, id + '.jsonl');
@@ -157,8 +156,8 @@ function transcriptIn(cwd, id, projects) {
 const READ_BACK = 16 * 1024 * 1024;
 const READ_CHUNK = 256 * 1024;
 const lastSeen = new Map();
-/* The time of the newest entry in `file` written before `before`. It is -Infinity when the file cannot be read or holds
-   no entry, and `before` itself when no older entry turns up in the last READ_BACK bytes. */
+/* Returns -Infinity when the file cannot be read or holds no entry, and `before` itself when no older entry turns up in
+   the last READ_BACK bytes. */
 function newestBefore(file, before) {
   const key = file + '\0' + before;
   let fd, size;
@@ -197,9 +196,7 @@ function newestBefore(file, before) {
 const STALE_GAP_MS = 10 * 60000;
 /*
  * For processes running conversation `id` from different working directories: by folder name, { lastBefore, stale,
- * writtenAt }. lastBefore is the time of the newest entry its copy had when the latest process started. The stale copy
- * is the one furthest behind, when the next copy's newest entry is STALE_GAP_MS or more later; otherwise no copy is
- * stale.
+ * writtenAt }.
  */
 function copiesOf(id, records, projects) {
   const before = Math.max(...records.map((r) => Number(r.startedAt) || 0));

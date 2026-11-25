@@ -11745,8 +11745,7 @@ console.log('\nthe Steward panel');
           + 'for such a key without leaving a request, waits 55 seconds for an answer, and says no window showing the steward took a request that no window took');
       } else bad(`steward-relay.py with an OpenCode key: ${JSON.stringify([sub, dra, flagged.map((r) => [r.status, r.stdout]), [noTaker.status, noTaker.stdout, noTaker.stderr]])}`);
 
-      /* steward.py and steward-peek.py: state from the attention files, the plan from the recorded path, the reply from
-         the file beside it. */
+      /* steward.py and steward-peek.py. */
       const odata = path.join(root, 'oc-data');
       fs.mkdirSync(odata, { recursive: true });
       fs.writeFileSync(path.join(odata, st.FILE), JSON.stringify({ version: 2, stewards: { [S(1)]: { manages: [S(2), O(1), O(2), O(5), O(6)],

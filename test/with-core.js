@@ -20,8 +20,7 @@
  *
  * Last, a steward's message to an OpenCode Agent Plus conversation of a stand-in source registered with Agent Plus
  * here: the relay request goes through the window that shows the steward, Agent Plus's deliver() and its answers
- * folder, to that source's deliverAnswer. With an Agent Plus that has 'stewards', the checks then take that
- * conversation's side.
+ * folder, to that source's deliverAnswer.
  */
 const fs = require('fs');
 const os = require('os');

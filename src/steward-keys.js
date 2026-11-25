@@ -9,19 +9,19 @@
  * Agent Plus is `<source id>:<session id>`, the session id in its own case, since OpenCode's ids are case sensitive.
  * hooks/steward_table.py checks keys with the same pattern.
  *
- * A key holds a colon, which a Windows file name cannot, so a file is never named after a key: the plan of another
- * agent's conversation is the path its source gives (planPathOf in src/steward-core.js), kept in the table.
+ * A Windows file name cannot contain a colon, so no file is named after a key: the plan of another agent's conversation
+ * is the path its source gives (planPathOf in src/steward-core.js), kept in the table.
  *
  * The table keeps every well-formed key, including keys of sources this build does not know, so that a later build's
- * ticks survive this one rewriting the table; which sources the panel lists and the relay passes messages to is
- * OTHER_SOURCES.
+ * ticks survive this one rewriting the table; OTHER_SOURCES says which sources the panel lists and the relay passes
+ * messages to.
  */
 const path = require('path');
 const { SESSION } = require('./claude-files');
 
 const CLAUDE = 'claude-code';
-/* A source id cannot contain a colon, so the first colon ends it. The session id takes what OpenCode Agent Plus accepts
-   in a conversation's URI (sessionOfUri in its src/host/agentplus-source.js). */
+/* The session id takes what OpenCode Agent Plus accepts in a conversation's URI (sessionOfUri in its
+   src/host/agentplus-source.js). */
 const KEY = /^([a-z0-9][a-z0-9-]{0,63}):([A-Za-z0-9][A-Za-z0-9_-]{0,199})$/;
 const OTHER_SOURCES = ['opencode-plus'];
 /* Source names for a conversation that Agent Plus lists without a label. */
@@ -46,7 +46,7 @@ const isClaude = (key) => typeof key === 'string' && SESSION.test(key);
 const isOther = (key) => typeof key === 'string' && !SESSION.test(key) && KEY.test(key) && !key.startsWith(CLAUDE + ':');
 const allowed = (key) => isOther(key) && OTHER_SOURCES.includes(parse(key).sourceId);
 
-/* The key the table keeps for `x`. `claude-code:<session id>` is kept as the session id alone. */
+/* The key the table keeps for `x`. */
 function managedId(x) {
   if (typeof x !== 'string') return '';
   if (SESSION.test(x)) return x.toLowerCase();

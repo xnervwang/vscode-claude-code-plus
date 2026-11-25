@@ -227,8 +227,8 @@ function writesTable(mine, others) {
 const windowLabel = (w) => String(w.name || '').replace(/\s*\[[^\]]*\]\s*$/, '')
   || (w.folders[0] ? path.basename(w.folders[0]) : 'Window with no folder');
 
-/* Groups by window, the front window first, then by agent for the other agents' conversations. `rows` are all open in
-   one of `wins`, or another agent's. Agent Plus does not report which window has another agent's conversation open. */
+/* `rows` are all open in one of `wins`, or another agent's. Agent Plus does not report which window has another agent's
+   conversation open. */
 function grouped(rows, wins, front) {
   const groups = new Map();
   const frontWin = wins.find((w) => w.sessions.includes(front));
@@ -405,8 +405,8 @@ function shell(list, nonce) {
  * duplicates() for the conversations run by several processes and stopDuplicate(id) to stop the old one
  * (src/duplicates.js), pageAt() for the time of a page's last heartbeat, otherFront() -> { agent, title, manageable }
  * while another agent's conversation tab is in front (src/other-agents.js), or null, and optionally openOther(target)
- * and otherStates(), which default to the agentPlus.openConversation command and src/agent-states.js read(). The
- * agentPlus interface comes through attachCore() once this extension is registered with Agent Plus.
+ * and otherStates(). The agentPlus interface comes through attachCore() once this extension is registered with Agent
+ * Plus.
  */
 function create(vscode, deps) {
   deps = Object.assign({ isBackground: bgSessions.isBackground, records: () => liveRecords(), post: stewards.post, alive, readState,
@@ -420,8 +420,7 @@ function create(vscode, deps) {
   const states = new Map();
   const link = stewardCore.link({ changed: () => { pass(); }, log: deps.log });
   const core = () => link.core();
-  /* Plan paths the stewards table records for other agents' conversations, read once per pass, for when this window's
-     Agent Plus gives no plan path. */
+  /* Plan paths the stewards table records for other agents' conversations, read once per pass. */
   let recorded = {};
   const recordedPaths = () => {
     const out = {};

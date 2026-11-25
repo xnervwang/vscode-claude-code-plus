@@ -50,7 +50,6 @@ def allowed(key):
 
 
 def managed_id(x):
-    """The key the table keeps for `x`."""
     p = parse(x)
     if not p:
         return ""
