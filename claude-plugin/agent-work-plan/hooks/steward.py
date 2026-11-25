@@ -14,6 +14,11 @@ whether it has background work running, and how many questions it has for the us
 Plus's windows last found (WORKING_FILE, written by extension.js), used only while the window that wrote it still
 runs. Then what changed since the steward's previous turn, kept in <steward>.steward-seen beside its plan.
 
+Another agent's conversation (a key "<source id>:<session id>", steward_table.py) gets its state from Agent Plus's
+attention files (agent_states.py) and its plan from the path the table recorded for it; it has no background work
+here. Such a conversation takes only plain messages, and none while it waits on a permission or a question in its
+window, so the list ends with a line that says so.
+
 If nothing in the list changed since the steward's previous turn, it gets one sentence saying so: the list is already
 in its context, and a steward wakes many times with nothing new. After each compaction the whole list is sent again
 (COMPACTED_SUFFIX, written by resume-work-plan.py).
@@ -31,6 +36,7 @@ from plan_common import (  # noqa: E402
     COMPACTED_SUFFIX, SESSION_NAME, children, data_dir, launcher, listed, read_payload, side_file, write_quietly,
 )
 from proc_alive import alive  # noqa: E402
+import agent_states  # noqa: E402
 import steward_table  # noqa: E402
 
 SEEN_SUFFIX = ".steward-seen"
@@ -41,6 +47,9 @@ STATE_WORDS = {"busy": "working", "shell": "running a command", "waiting": "wait
 STOPPED = "not running"
 RELAY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "steward-relay.py")
 WORKING_FILE = "working.json"
+OTHERS_HINT = ("The conversations of other agents above take only plain messages: no --rename, --close or --resume. While "
+               "one waits for the user to approve a tool or to answer a question in its window, no message reaches it; "
+               "only the user can answer it there, so ask the user to.")
 
 
 def claude_dir():
@@ -85,10 +94,10 @@ def background(directory):
     return {s.lower() for s in listed(d.get("sessions")) if isinstance(s, str) and SESSION_NAME.match(s)}
 
 
-def plan_summary(directory, sid):
-    """(titles of rows in progress, questions waiting on the user) from a conversation's plan."""
+def plan_summary(path):
+    """(titles of rows in progress, questions waiting on the user) from the plan at `path`."""
     try:
-        with open(os.path.join(directory, sid + ".json"), encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             plan = json.load(fh)
     except (OSError, ValueError):
         return [], 0
@@ -109,11 +118,11 @@ def plan_summary(directory, sid):
 
 
 def managed_by(directory, sid):
-    """(ids, names) this conversation manages, or ([], {})."""
+    """(keys, names, plan paths) of what this conversation manages, or ([], {}, {})."""
     entry = steward_table.read(directory).get(sid)
     if not entry:
-        return [], {}
-    return entry["manages"][:MAX_LISTED], entry["names"]
+        return [], {}, {}
+    return entry["manages"][:MAX_LISTED], entry["names"], entry["paths"]
 
 
 def stewards_of(directory, sid):
@@ -135,32 +144,46 @@ def watched():
             % handoff)
 
 
-def lines_of(ids, names, now, directory):
+def lines_of(ids, names, now, directory, paths=None):
     lines = []
     running = background(directory)
+    paths = paths or {}
     for m in ids:
         name = str(names.get(m) or m)[:TITLE_CHARS]
-        doing, questions = plan_summary(directory, m)
+        other = steward_table.is_other(m)
+        plan = paths.get(m) if other else os.path.join(directory, m + ".json")
+        doing, questions = plan_summary(plan) if plan else ([], 0)
         parts = [now.get(m, STOPPED)]
+        if other and not plan:
+            parts.append("where its plan is was not recorded")
         if m in running:
             parts.append("background work running")
         if doing:
             parts.append("doing: " + " / ".join(doing))
         if questions:
             parts.append("%d question%s for the user" % (questions, "" if questions == 1 else "s"))
-        lines.append('- "%s" (%s): %s' % (name, m, "; ".join(parts)))
+        where = "%s, %s" % (m, steward_table.label_of(m)) if other else m
+        lines.append('- "%s" (%s): %s' % (name, where, "; ".join(parts)))
     return lines
 
 
 def lead(ids):
-    return ("You are the steward of %d Claude Code conversation%s the user picked for you in the Steward panel; "
-            "follow the steward skill." % (len(ids), "" if len(ids) == 1 else "s"))
+    others = [steward_table.label_of(m) for m in ids if steward_table.is_other(m)]
+    if not others:
+        return ("You are the steward of %d Claude Code conversation%s the user picked for you in the Steward panel; "
+                "follow the steward skill." % (len(ids), "" if len(ids) == 1 else "s"))
+    counts = ["%d Claude Code" % (len(ids) - len(others))] if len(ids) > len(others) else []
+    counts += ["%d %s" % (others.count(label), label) for label in sorted(set(others))]
+    return ("You are the steward of %d conversation%s the user picked for you in the Steward panel (%s); "
+            "follow the steward skill." % (len(ids), "" if len(ids) == 1 else "s", ", ".join(counts)))
 
 
 def block(ids, names, now, seen, lines):
     changed = ['"%s": %s -> %s' % (str(names.get(m) or m)[:TITLE_CHARS], seen[m], now.get(m, STOPPED))
                for m in ids if m in seen and seen[m] != now.get(m, STOPPED)]
     text = lead(ids) + " Where they stand now:\n" + "\n".join(lines)
+    if any(steward_table.is_other(m) for m in ids):
+        text += "\n" + OTHERS_HINT
     if changed:
         text += "\nChanged since your previous turn: " + "; ".join(changed) + "."
     return text
@@ -175,7 +198,7 @@ def main():
     if not SESSION_NAME.match(sid):
         return 0
     directory = data_dir()
-    ids, names = managed_by(directory, sid)
+    ids, names, paths = managed_by(directory, sid)
     over = stewards_of(directory, sid)
     if not ids:
         if over:
@@ -183,6 +206,11 @@ def main():
                 "hookEventName": payload.get("hook_event_name", "UserPromptSubmit"), "additionalContext": watched()}}))
         return 0
     now = states()
+    if any(steward_table.is_other(m) for m in ids):
+        found = agent_states.read()
+        for m in ids:
+            if steward_table.is_other(m):
+                now[m] = agent_states.words(found.get(m))
     seen_path = side_file(os.path.join(directory, sid + ".json"), SEEN_SUFFIX)
     try:
         with open(seen_path, encoding="utf-8") as fh:
@@ -197,7 +225,7 @@ def main():
             compacted = fh.read().strip()
     except OSError:
         compacted = ""
-    lines = lines_of(ids, names, now, directory)
+    lines = lines_of(ids, names, now, directory, paths)
     digest = hashlib.sha1("\n".join(lines).encode("utf-8")).hexdigest()
     if last.get("digest") == digest and last.get("compacted", "") == compacted:
         text = lead(ids) + " Nothing has changed since the list you were given at your previous turn."

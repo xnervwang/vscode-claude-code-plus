@@ -6,7 +6,7 @@
 """Print one conversation's state, open plan rows and latest reply text, for a steward.
 
     python3 steward-peek.py <session id> [<plugin data directory>]
-    python3 steward-peek.py --said <session id>
+    python3 steward-peek.py --said <session id> [<plugin data directory>]
 
 Prints the conversation's state from Claude Code's session records, its plan's open rows with the questions it has
 for the user, and the text it wrote after the user's last message, without tool calls, tool output or thinking.
@@ -14,18 +14,26 @@ for the user, and the text it wrote after the user's last message, without tool 
 --said prints the user's latest messages in that conversation instead, oldest first, each with its time: what was
 typed into it, also while a turn ran, and not messages from other sessions or notices. A steward checks a handoff
 against them. Read-only.
+
+For another agent's conversation, named by its key "<source id>:<session id>" (steward_table.py), the state comes from
+Agent Plus's attention files (agent_states.py), the plan from the path the Steward panel recorded in stewards.json, and
+the latest reply and --said from the file its agent writes beside that plan at the end of each turn,
+<session id>.reply.json: { format, at, lastUserAt, said: [{ text, at }], reply }, cut to the limits below already.
 """
 
 import glob
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from plan_common import OPEN_STATES, SESSION_NAME, children, listed, open_tail  # noqa: E402
+from plan_common import OPEN_STATES, children, listed, open_tail  # noqa: E402
 import plan_agent as A  # noqa: E402
 from proc_alive import alive  # noqa: E402
+import agent_states  # noqa: E402
+import steward_table  # noqa: E402
 
 TAIL_BYTES = 4 * 1024 * 1024
 MAX_REPLY_CHARS = 6000
@@ -34,6 +42,8 @@ MAX_SAID_CHARS = 2000
 # Text that reaches a conversation as a user message without the user typing it.
 NOT_TYPED = ("<cross-session-message", "<task-notification", "Steward notice from Claude Code Plus", "Handoff from ")
 STATE_WORDS = {"busy": "working", "shell": "running a command", "waiting": "waiting for the user", "idle": "idle"}
+REPLY_SUFFIX = ".reply.json"
+REPLY_FORMAT = 1
 
 
 def claude_dir():
@@ -58,9 +68,9 @@ def state_of(sid):
     return next((w for w in found if w != "idle"), "idle")
 
 
-def plan_lines(directory, sid):
+def plan_lines(path):
     try:
-        with open(os.path.join(directory, sid + ".json"), encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             plan = json.load(fh)
     except (OSError, ValueError):
         return ["(no work plan)"]
@@ -156,24 +166,85 @@ def said(path):
     return list(reversed(out))
 
 
-def main(argv):
-    if len(argv) == 3 and argv[1] == "--said" and SESSION_NAME.match(argv[2]):
-        path = transcript(argv[2].lower())
-        found = said(path) if path else []
-        for at, text in found:
-            print("%s UTC:" % at if at else "(no time):")
-            print("  " + (text if len(text) <= MAX_SAID_CHARS else text[:MAX_SAID_CHARS] + "...").replace("\n", "\n  "))
-        if not found:
-            print("No message from the user was found in that conversation.")
+def recorded_plan(directory, key):
+    """The plan file the Steward panel recorded for another agent's conversation, or ""."""
+    for entry in steward_table.read(directory).values():
+        if entry["paths"].get(key):
+            return entry["paths"][key]
+    return ""
+
+
+def reply_file(plan):
+    """(format, body) of the latest reply file beside `plan`, or (0, None)."""
+    try:
+        with open(os.path.splitext(plan)[0] + REPLY_SUFFIX, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return 0, None
+    if not isinstance(d, dict) or not isinstance(d.get("format"), int) or isinstance(d.get("format"), bool):
+        return 0, None
+    return d["format"], d
+
+
+def utc(ms):
+    if not isinstance(ms, (int, float)) or isinstance(ms, bool) or ms <= 0:
+        return ""
+    try:
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(ms / 1000))
+    except (OverflowError, ValueError, OSError):
+        return ""
+
+
+def print_said(found):
+    for at, text in found:
+        print("%s UTC:" % at if at else "(no time):")
+        print("  " + (text if len(text) <= MAX_SAID_CHARS else text[:MAX_SAID_CHARS] + "...").replace("\n", "\n  "))
+    if not found:
+        print("No message from the user was found in that conversation.")
+
+
+def peek_other(key, directory, said_only):
+    """steward-peek.py for another agent's conversation."""
+    plan = recorded_plan(directory, key)
+    fmt, body = reply_file(plan) if plan else (0, None)
+    if said_only:
+        found = [(utc(x.get("at")), x["text"].strip()) for x in listed(body.get("said"))
+                 if isinstance(x, dict) and isinstance(x.get("text"), str) and x["text"].strip()] if fmt == REPLY_FORMAT else []
+        print_said(found)
         return 0
-    if len(argv) < 2 or not SESSION_NAME.match(argv[1]):
-        sys.stderr.write("usage: steward-peek.py <session id> [<plugin data directory>] | --said <session id>\n")
+    print("source: " + steward_table.label_of(key))
+    print("state: " + agent_states.words(agent_states.read().get(key)))
+    print("plan:")
+    for line in plan_lines(plan) if plan else ["(where its plan is was not recorded; the Steward panel records it when the "
+                                               "conversation is ticked)"]:
+        print("  " + line)
+    print("latest reply:")
+    if fmt > REPLY_FORMAT:
+        print("(written by a later version of %s, which this script does not read)" % steward_table.label_of(key))
+    else:
+        reply = body.get("reply") if fmt == REPLY_FORMAT else ""
+        print(reply.strip() if isinstance(reply, str) and reply.strip() else "(none found)")
+    return 0
+
+
+def main(argv):
+    if len(argv) in (3, 4) and argv[1] == "--said" and steward_table.managed_id(argv[2]):
+        key = steward_table.managed_id(argv[2])
+        if steward_table.is_other(key):
+            return peek_other(key, argv[3] if len(argv) > 3 else A.FALLBACK, True)
+        path = transcript(key)
+        print_said(said(path) if path else [])
+        return 0
+    if len(argv) < 2 or not steward_table.managed_id(argv[1]):
+        sys.stderr.write("usage: steward-peek.py <session id> [<plugin data directory>] | --said <session id> [<plugin data directory>]\n")
         return 2
-    sid = argv[1].lower()
+    sid = steward_table.managed_id(argv[1])
     directory = argv[2] if len(argv) > 2 else A.FALLBACK
+    if steward_table.is_other(sid):
+        return peek_other(sid, directory, False)
     print("state: " + state_of(sid))
     print("plan:")
-    for line in plan_lines(directory, sid):
+    for line in plan_lines(os.path.join(directory, sid + ".json")):
         print("  " + line)
     path = transcript(sid)
     print("latest reply:")
