@@ -2553,6 +2553,26 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its steward', table);
+        /* A new body that reaches the panel between a box's press and its release replaces the box under the pointer;
+           the panel holds it until the click is over, so that click still ticks the box. */
+        const second = boxes.map(([id]) => id).find((id) => id !== chosen);
+        if (second) {
+          const managesIt = (on) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(second) === on; } catch (_) { return false; } };
+          const at = await frame.locator(`input[data-id="${second}"]`).first().boundingBox();
+          if (at) {
+            await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+            await page.mouse.down();
+            await frame.evaluate(() => window.postMessage({ type: 'body', html: document.getElementById('root').innerHTML }, '*'));
+            await sleep(300);
+            await page.mouse.up();
+          }
+          const kept = !!at && await until(() => managesIt(true), 10000, 300);
+          check(!!kept, 'a box pressed while a redraw of the panel arrives is still ticked by that click', { box: at, table: (() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return null; } })() });
+          if (kept) {
+            await frame.locator(`input[data-id="${second}"]`).first().click();
+            await until(() => managesIt(false), 10000, 300);
+          }
+        }
         const belled = (label) => typeof label === 'string' && label.endsWith(' \u{1F451}') && (label.match(/\u{1F451}/gu) || []).length === 1
           && titled(label.slice(0, -' \u{1F451}'.length), front.title);
         const marked = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);

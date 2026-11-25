@@ -382,9 +382,21 @@ function shell(list, nonce) {
   window.addEventListener('blur', away);
   // A group's box shows a part of its conversations ticked as neither ticked nor clear, which only a property can say.
   const mixed = () => { for (const b of document.querySelectorAll('input[data-mixed]')) b.indeterminate = true; };
+  const apply = (html) => { under = null; tips.hide(); document.getElementById('root').innerHTML = html; mixed(); };
+  /* A body that arrives while a pointer is down waits until the click is over: replacing the boxes between the press and
+     the release would make that click land on nothing. */
+  let pressed = false, held = null;
+  const release = () => {
+    pressed = false;
+    if (held !== null) setTimeout(() => { if (held !== null && !pressed) { const h = held; held = null; apply(h); } }, 0);
+  };
+  document.addEventListener('pointerdown', () => { pressed = true; }, true);
+  document.addEventListener('pointerup', release, true);
+  document.addEventListener('pointercancel', release, true);
+  window.addEventListener('blur', release);
   window.addEventListener('message', (e) => {
     const m = e.data;
-    if (m && m.type === 'body' && typeof m.html === 'string') { under = null; tips.hide(); document.getElementById('root').innerHTML = m.html; mixed(); }
+    if (m && m.type === 'body' && typeof m.html === 'string') { if (pressed || held !== null) held = m.html; else apply(m.html); }
   });
   mixed();
   vscode.postMessage({ type: 'ready' });
