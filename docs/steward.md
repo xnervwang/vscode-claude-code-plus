@@ -64,7 +64,9 @@ On each turn, Claude Code Plus gives a managed conversation the title and sessio
 
 Claude Code Plus sends a notice when a managed conversation needs you. If several stewards watch it, only one gets the question from the conversation's plan or the item waiting for your response, such as a permission prompt. That steward is the one you last typed to among the stewards open in a VS Code window. If another steward gets a notice about that conversation for a different reason, it also learns which steward is handling the question or prompt.
 
-When the conversation stops, Claude Code Plus sends a notice only to the steward that started the turn with a message and to stewards with an open row naming the conversation in their own work plans. It also sends a notice if a managed conversation has a background session or `claude -p` worker that ended without finishing. "Stops" means the turn has ended, no background work is left, and that is still so two seconds later. The wait keeps a conversation that starts its next turn at once, for a message you sent while it was working, from counting as stopped.
+When the conversation stops, Claude Code Plus sends a notice only to the steward that started the turn with a message and to stewards with an open row naming the conversation in their own work plans. It also sends a notice if a managed conversation has a background session or `claude -p` worker that ended without finishing.
+
+"Stops" means the turn has ended, no background work is left, and that is still so two seconds later. The wait keeps a conversation that starts its next turn at once, for a message you sent while it was working, from counting as stopped.
 
 For a conversation waiting on a permission prompt, the steward is told which command it is for, and each question is passed to the steward once. When nothing in a notice needs you, the steward replies with only `[[quiet]]` or a single dash. The Claude Code panel where the steward conversation is shown hides such a reply, along with the folded row of tool calls just before it.
 
