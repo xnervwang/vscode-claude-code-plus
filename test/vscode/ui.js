@@ -389,12 +389,26 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /* Presses `label` on the toast of the notice about `t`. */
   const pressNotice = (t, label, p = page) => p.locator('.notifications-toasts .notification-list-item').filter({ hasText: `"${t.title}"` }).first()
     .locator('.monaco-button').filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) }).first().click({ timeout: 5000 });
-  /* In the window of `p`, the number Agent Plus shows in the status bar for the conversations that need the user; null
-     while it is hidden. */
-  const needCount = (p = page) => p.evaluate(() => {
-    const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.attention$/.test(x.id));
-    return e && e.offsetParent ? { n: Number((/\d+/.exec(e.innerText) || ['-1'])[0]), text: e.innerText.trim(), label: e.getAttribute('aria-label') || '' } : null;
-  }).catch(() => undefined);
+  /* In the window of `p`, how many conversations Agent Plus counts in the status bar as waiting for the user or stopped
+     with a reply not read; null while it counts none. An Agent Plus with a bell entry of its own counts them there; one
+     without it lists them in its Conversations entry, after the line below, one line each, with "and N more" after the
+     tenth. */
+  const needCount = (p = page) => p.evaluate((seen) => {
+    const items = [...document.querySelectorAll('.statusbar-item')];
+    const bell = items.find((x) => /agentPlus\.attention$/.test(x.id) && x.offsetParent);
+    if (bell) return { n: Number((/\d+/.exec(bell.innerText) || ['-1'])[0]), text: bell.innerText.trim(), label: bell.getAttribute('aria-label') || '' };
+    const e = items.find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
+    const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(seen);
+    if (at < 0) return null;
+    const rest = label.slice(at + seen.length);
+    const n = (rest.match(/(?:^|\s)(?:Waiting|Finished): /g) || []).length + Number((/\band (\d+) more\b/.exec(rest) || [0, 0])[1]);
+    return n ? { n, text: e.innerText.trim(), label } : null;
+  }, 'Finished or waiting for you, not looked at yet:').catch(() => undefined);
+  /* The status bar entry needCount reads. */
+  const needEntry = async (p = page) => {
+    const bell = p.locator('.statusbar-item[id$="agentPlus.attention"]');
+    return (await bell.count()) ? bell.first() : p.locator('.statusbar-item[id$="agentPlus.conversations"]').first();
+  };
   /* What Agent Plus's windows wrote of conversation `id` to the folder they share (its src/attention.js): its activity,
      whether its reply is unread, and whether a window that has the focus shows it in front. */
   const attentionOf = (id) => {
@@ -4277,7 +4291,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await shot('steward-old-bell-notice');
         await exec('notifications.clearAll');
         const counted = await until(async () => { const c = await needCount(); return c && c.n >= 1 && c; }, 15000, 300);
-        const tip = counted ? await hoverText(page.locator('.statusbar-item[id$="agentPlus.attention"]').first()) : '';
+        const tip = counted ? await hoverText(await needEntry()) : '';
         check(!!counted && tip.includes(`Waiting: ${named.title}`) && !tip.includes(BELL), 'the hover of its count in the status bar names it the same way', { count: counted, hover: tip, why: hoverWhy });
         await start('agentPlus.showAttention');
         const picks = await until(() => page.evaluate(() => {

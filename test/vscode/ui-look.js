@@ -319,14 +319,22 @@ function seenWorking(d, id) {
 }
 /* How long Agent Plus can take to see a conversation's new activity: two of its 30 s refreshes (ui.js says why). */
 const SEEN_MS = 60000;
-/* The box of the number Agent Plus shows in the status bar for the conversations that need you, or null while it is
-   hidden. */
-const needCountBox = (d) => d.page.evaluate(() => {
-  const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.attention$/.test(x.id));
-  if (!e || !e.offsetParent) return null;
-  const r = e.getBoundingClientRect();
-  return { x: r.left, y: r.top, width: r.width, height: r.height, text: e.innerText.trim() };
-});
+/* The box of Agent Plus's status bar entry that counts the conversations waiting for you or stopped with a reply not
+   read, with that count as `text`, or null while it counts none. An Agent Plus with a bell entry of its own counts them
+   there; one without it lists them in its Conversations entry, after the line below, one line each, with "and N more"
+   after the tenth. */
+const needCountBox = (d) => d.page.evaluate((seen) => {
+  const items = [...document.querySelectorAll('.statusbar-item')];
+  const box = (e, text) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height, text }; };
+  const bell = items.find((x) => /agentPlus\.attention$/.test(x.id) && x.offsetParent);
+  if (bell) return box(bell, bell.innerText.trim());
+  const e = items.find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
+  const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(seen);
+  if (at < 0) return null;
+  const rest = label.slice(at + seen.length);
+  const n = (rest.match(/(?:^|\s)(?:Waiting|Finished): /g) || []).length + Number((/\band (\d+) more\b/.exec(rest) || [0, 0])[1]);
+  return n ? box(e, String(n)) : null;
+}, 'Finished or waiting for you, not looked at yet:');
 /*
  * Another window of this machine reporting `items` to Agent Plus, which reads every window's file in the folder they
  * share (its src/attention.js), so this window treats them as conversations of that other window. A file not rewritten
@@ -1992,8 +2000,8 @@ const STEPS = [
   },
   {
     name: 'need-you-count', features: ['need-you-notices'],
-    expect: 'A close-up of the status bar around Agent Plus\'s entry for the conversations that need you: it shows a bell and the '
-      + 'number 1.',
+    expect: 'A close-up of the status bar around Agent Plus\'s entry for the conversations that need you: it shows either a bell '
+      + 'and the number 1, or "1 conversation needs you" on a yellow background.',
     unchanged: 'The window is as before.',
     act: async (d) => {
       const b = await d.until(() => needCountBox(d), 15000, 300);

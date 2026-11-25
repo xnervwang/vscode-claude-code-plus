@@ -192,11 +192,24 @@ async function run() {
 
     /* Notices: this window's unread reply, and a permission prompt in a folder no window here has open. */
     globalThis.__cceStatesHook([], '', [], [SID]);
-    const bell = () => control.state.status.find((i) => i.id === 'agentPlus.attention' && !i.disposed);
-    await until(() => bell() && bell().shown && /\b2$/.test(bell().text), 15000);
-    const b = bell();
-    eq([b && b.shown, b && /\b2$/.test(b.text), b && /Waiting: Runs elsewhere/.test(b.tooltip), b && /Finished: Asks two questions/.test(b.tooltip)],
-      [true, true, true, true],
+    /* The conversations that wait or stopped unread, as { n, tip }. An Agent Plus with a bell entry of its own counts them
+       there; one without it lists them in the hover of its Conversations entry, after SEEN, one line each, with
+       "and N more" after the tenth. */
+    const SEEN = 'Finished or waiting for you, not looked at yet:';
+    const seenCount = () => {
+      const shown = (id) => control.state.status.find((i) => i.id === id && !i.disposed && i.shown);
+      const bell = shown('agentPlus.attention');
+      if (bell) return { n: Number((/(\d+)$/.exec(bell.text) || [])[1]), tip: String(bell.tooltip || '') };
+      const tip = String((shown('agentPlus.conversations') || {}).tooltip || ''), at = tip.indexOf(SEEN);
+      if (at < 0) return null;
+      const rest = tip.slice(at + SEEN.length);
+      return { n: (rest.match(/^(?:Waiting|Finished): /gm) || []).length
+        + Number((/^and (\d+) more$/m.exec(rest) || [0, 0])[1]), tip: rest };
+    };
+    await until(() => (seenCount() || {}).n === 2, 15000);
+    const b = seenCount();
+    eq([!!b, b && b.n, b && /Waiting: Runs elsewhere/.test(b.tip), b && /Finished: Asks two questions/.test(b.tip)],
+      [true, 2, true, true],
       'Agent Plus counts this window\'s unread reply and a conversation waiting in a folder no window here has open');
 
     /* Answers: the first is sent by the panel, the second finds the input already holding text. */
