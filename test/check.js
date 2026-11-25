@@ -11701,6 +11701,27 @@ console.log('\nthe Steward panel');
         && c5.includes(`- "Two" (${S(2)}): idle`) && !c5.includes('Changed since') && c6 === c4) {
       ok('a steward\'s list that has not changed since its previous turn is one sentence, and is given whole again after a compaction');
     } else bad(`steward.py on unchanged turns said ${JSON.stringify([c4, c5, c6])}`);
+    /* The skill's version in the seen file: a steward told of an older skill, or kept by a build that noted none, is
+       told once to load it again; a new steward's first turn is not. */
+    {
+      const seenFile = path.join(data, S(1) + '.steward-seen');
+      const skillFile = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'skills', 'steward', 'SKILL.md');
+      const version = require('crypto').createHash('sha1').update(fs.readFileSync(skillFile)).digest('hex').slice(0, 8);
+      const SAY = `The steward skill has changed since this conversation last read it (it is now version ${version}): load it again with the Skill tool`;
+      let saved = {};
+      try { saved = JSON.parse(fs.readFileSync(seenFile, 'utf8')); } catch (_) { saved = {}; }
+      fs.writeFileSync(seenFile, JSON.stringify(Object.assign({}, saved, { skill: '00000000' })));
+      const v1 = ctx(hook(S(1))), v2 = ctx(hook(S(1)));
+      const older = Object.assign({}, saved);
+      delete older.skill;
+      fs.writeFileSync(seenFile, JSON.stringify(older));
+      const v3 = ctx(hook(S(1))), v4 = ctx(hook(S(1)));
+      if (saved.skill === version && ![c1, c2, c4, c5].some((c) => c.includes('steward skill has changed'))
+          && v1 === c4 + '\n' + SAY + ' before you act, and follow the new one where the two differ.' && v2 === c4 && v3.includes(SAY) && v4 === c4) {
+        ok('a steward is told once to load the steward skill again when the skill has changed since it was last told, or when its record of the last turn is from a build that kept no version; '
+          + 'a new steward and an unchanged skill add nothing');
+      } else bad(`the skill version lines: ${JSON.stringify([saved.skill, version, v1, v2, v3, v4])}`);
+    }
     if (c3.startsWith(`A steward, ${S(1)}, watches this one`) && c3.includes('Do not send it status messages')
         && c3.includes('starts with the line `Sent by the steward "<title>" (<session id>) for the user:`, which names the steward that sent it') && managed.status === 0) {
       ok('a managed conversation hears which steward watches it, by its session id, how that steward\'s messages start, and is asked to leave questions in its plan, not message the steward');

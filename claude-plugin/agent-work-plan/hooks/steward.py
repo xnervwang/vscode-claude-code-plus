@@ -21,6 +21,11 @@ here.
 If nothing in the list changed since the steward's previous turn, it gets one sentence saying so: the list is already
 in its context, and a steward wakes many times with nothing new. After each compaction the whole list is sent again
 (COMPACTED_SUFFIX, written by resume-work-plan.py).
+
+A steward reads the steward skill once and then works from what it read, so when an update of Claude Code Plus brings
+a new skill, a steward already running keeps following the old one. The seen file keeps a short hash of the skill the
+steward was last told about; when the skill's hash differs, or the seen file is from a build that kept none, the turn
+also tells it to load the skill again (SKILL_CHANGED).
 """
 
 import hashlib
@@ -45,6 +50,9 @@ TITLE_CHARS = 80
 STATE_WORDS = {"busy": "working", "shell": "running a command", "waiting": "waiting for the user", "idle": "idle"}
 STOPPED = "not running"
 RELAY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "steward-relay.py")
+SKILL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "steward", "SKILL.md")
+SKILL_CHANGED = ("The steward skill has changed since this conversation last read it (it is now version %s): load it again "
+                 "with the Skill tool before you act, and follow the new one where the two differ.")
 WORKING_FILE = "working.json"
 OTHERS_HINT = ("The conversations of other agents above take only plain messages: no --rename, --close or --resume. While "
                "one waits for the user to approve a tool or to answer a question in its window, no message reaches it; "
@@ -175,6 +183,15 @@ def lines_of(ids, names, now, directory, paths=None):
     return lines
 
 
+def skill_version():
+    """The first 8 hex digits of the SHA-1 of the steward skill's file, or '' when it cannot be read."""
+    try:
+        with open(SKILL, "rb") as fh:
+            return hashlib.sha1(fh.read()).hexdigest()[:8]
+    except OSError:
+        return ""
+
+
 def lead(ids):
     others = [steward_table.label_of(m) for m in ids if steward_table.is_other(m)]
     if not others:
@@ -220,12 +237,13 @@ def main():
             if steward_table.is_other(m):
                 now[m] = agent_states.words(found.get(m))
     seen_path = side_file(os.path.join(directory, sid + ".json"), SEEN_SUFFIX)
+    known = True
     try:
         with open(seen_path, encoding="utf-8") as fh:
             last = json.load(fh)
         last = last if isinstance(last, dict) else {}
     except (OSError, ValueError):
-        last = {}
+        last, known = {}, False
     # Older builds stored the states map on its own.
     seen = last.get("states") if isinstance(last.get("states"), dict) else ({} if "digest" in last else last)
     try:
@@ -239,9 +257,14 @@ def main():
         text = lead(ids) + " Nothing has changed since the list you were given at your previous turn."
     else:
         text = block(ids, names, now, seen, lines)
+    # A steward's first turn reads the skill anyway; a seen file without a skill entry is from a build that kept none.
+    version = skill_version()
+    if version and known and last.get("skill") != version:
+        text += "\n" + SKILL_CHANGED % version
     if over:
         text += "\n" + watched(over, table)
-    write_quietly(seen_path, json.dumps({"states": {m: now.get(m, STOPPED) for m in ids}, "digest": digest, "compacted": compacted}))
+    write_quietly(seen_path, json.dumps({"states": {m: now.get(m, STOPPED) for m in ids}, "digest": digest, "compacted": compacted,
+                                         "skill": version}))
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": payload.get("hook_event_name", "UserPromptSubmit"), "additionalContext": text}}))
     return 0
