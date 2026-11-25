@@ -18,7 +18,6 @@ const { writeAtomic, SESSION } = require('./claude-files');
 const NOTICES_DIR = 'steward-notices';
 /* { "<key>": { "<row>\n<question>" or "wait\n<what it waits on>": { steward, at } } }, beside stewards.json. */
 const GIVEN_FILE = 'steward-questions.json';
-/* How long the record keeps the entries of a conversation that no window lists any more. */
 const GIVEN_KEEP_MS = 24 * 3600000;
 /* Bytes read from the end of a transcript to find its latest tool calls. */
 const TAIL_BYTES = 512 * 1024;
@@ -198,8 +197,7 @@ function loadGiven(dir) {
 
 /*
  * Writes the record back. `current(id)` gives a listed conversation's question rows ("<row>\n<question>"), or null for
- * one not listed: a listed one keeps its wait entries and only the questions it still asks; one not listed keeps its
- * entries for GIVEN_KEEP_MS.
+ * one not listed.
  */
 function saveGiven(dir, given, { now = Date.now(), current = () => null } = {}) {
   const out = {};

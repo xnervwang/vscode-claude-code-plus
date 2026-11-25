@@ -20,9 +20,7 @@
  * conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation hands
  * something it thinks belongs elsewhere to one of its stewards (`from` is then the one asking, and `to` the steward it
  * named, or empty). A window showing that steward takes it and posts it, as a notice and never as the user's message,
- * to the steward's inbox. Without a steward named, the one whose message started the asking conversation's current
- * turn is tried first, then the others from the one the user typed to most recently; the first that can be reached
- * takes it.
+ * to the steward's inbox; handOff says which steward that is when the conversation named none.
  *
  * Every message a steward sends starts with a line naming that steward (fromLine in src/stewards.js), which tells the
  * conversation whom it heard from. A window that sends one records it in SENDS_FILE, where steward-relay.py looks for
@@ -172,8 +170,8 @@ function noteSend(dir, key, steward, title, text, now) {
 }
 
 /*
- * Notes that Claude Code Plus is typing `text` into a Claude Code panel for someone other than the user who sees it, so
- * that a steward's list does not change for a message the user never typed (typedBefore). `planDir` is the plan
+ * Records each text that Claude Code Plus types into a Claude Code panel when the user of that panel did not write it,
+ * so that a steward's list does not change for a message the user never typed (typedBefore). `planDir` is the plan
  * directory. Entries older than TYPED_KEEP_MS are removed now and then.
  */
 let typedPruned = 0;
@@ -392,10 +390,10 @@ function turnStart(file) {
   return '';
 }
 
-/* The steward whose message started the conversation's current turn, or ''. */
 const turnStarter = (file) => { const f = stewardTable.senderOf(turnStart(file)); return f ? f.steward : ''; };
 
-/* Why `text`, in transcript row `line`, is not a message the user typed in this conversation, or ''. */
+/* Says why `text` (in transcript row `line`) does not count as typed by the user in this conversation; '' when it
+   does. */
 function notTyped(line, text, planDir, now) {
   if (text.startsWith('Steward notice from Claude Code Plus')) return 'it is a steward notice from Claude Code Plus';
   if (text.startsWith('Handoff from ')) return 'it is a handoff from a managed conversation';
@@ -569,7 +567,7 @@ async function carryOut(req, action, to, dir, deps, now) {
   }
   if (listing) {
     const not = typedBefore(file, call.id, path.dirname(dir), deps.now ? deps.now() : Date.now());
-    if (not) return { outcome: 'refused', reason: `only the user, typing in this steward conversation, can change its list, and the message before the call does not count: ${not}` };
+    if (not) return { outcome: 'refused', reason: `only the user, typing in this steward conversation, can change its list. The message before the call does not count: ${not}` };
   }
   const key = [asker, to, call.id, action].join(' ');
   if (readSent(dir, now)[key] || carrying.has(key)) return { outcome: 'refused', reason: 'that call has already been carried out' };

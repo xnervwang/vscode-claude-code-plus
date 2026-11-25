@@ -2643,7 +2643,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             await page.mouse.up();
           }
           const kept = !!at && await until(() => managesIt(true), 10000, 300);
-          check(!!kept, 'a box pressed while a redraw of the panel arrives is still ticked by that click', { box: at, table: (() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return null; } })() });
+          check(!!kept, 'a box pressed and released while a redraw of the panel arrives ends up ticked', { box: at, table: (() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return null; } })() });
           if (kept) {
             await frame.locator(`input[data-id="${second}"]`).first().click();
             await until(() => managesIt(false), 10000, 300);
@@ -3340,7 +3340,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await setLoad(true);
       await reloadAndWait(front);
       const withIt = await until(() => loaded(behind), 60000, 1000);
-      /* Showing the tab behind loads it; the tab that was in front is then shown again. */
       const inFront = await until(async () => { const t = (await claudeTabs()).find((x) => x.active); return t && titled(t.label, front.title) && t; }, 10000, 300)
         || (await claudeTabs()).find((t) => t.active);
       check(!without && !!withIt && !!inFront && titled(inFront.label, front.title),
@@ -3978,8 +3977,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         return b ? { checked: b.checked, disabled: b.disabled, why: w ? w.dataset.why : '' } : null;
       }, id).catch(() => null);
       const header = (f) => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; }).catch(() => '');
-      /* Reads a row's eye: its count, whether anything follows it in the row, its colour against the row's text,
-         whether its list shows, and the stewards that list names. */
       const eyesIn = (f, id) => f.evaluate((id) => {
         const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'), e = li && li.querySelector('.eyes');
         if (!e) return li ? { none: true, by: !!li.querySelector('.by') } : null;
@@ -4046,10 +4043,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!eyeA && !!eyeB && eyeA.last && eyeB.last && eyeA.svg && !eyeA.shown && !eyeA.by && !eyeB.by && eyeA.colour !== eyeA.text,
           'in each panel the managed conversation\'s row ends in a light eye with 1, the other steward, and names no steward in the row itself', { a: eyeA || await eyesIn(panelA, X.id), b: eyeB || await eyesIn(panelB, X.id) });
         const plain = await until(async () => { const e = await eyesIn(panelA, Q1.id); return e && e; }, 30000, 500);
-        check(!!plain && plain.none === true && plain.by === true, 'a steward\'s row, which no steward manages, says it is a steward and shows no eye', plain);
+        check(!!plain && plain.none === true && plain.by === true, 'a steward\'s own row says "a steward" and has no eye', plain);
         await shot('stewards-eye-in-a');
 
-        /* Hovered, the eye lists the other steward by name. */
         await panelB.locator(eyeOf(X.id)).first().hover();
         const named = await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown && e; }, 5000, 200);
         check(!!named && named.names.length === 1 && named.names[0].to === SA.id && named.names[0].name.includes(SA.title.slice(0, 20)),
@@ -4119,7 +4115,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         /* A handoff with --to goes to the steward it names, not to the one whose message started the turn. */
         const moved = 'The user asked here for the release notes, which belong in another conversation.';
         const handed = await actAs(X, ['--handoff', '--to', SA.id], moved);
-        /* On native Windows no handoff reaches a steward's inbox; it says so for the one --to names and tries no other. */
+        /* On native Windows no handoff reaches a steward's inbox: the answer names the steward --to gave as
+           unreachable, and no other steward is tried. */
         const gotA = process.platform === 'win32'
           ? /^Not done: no steward of this conversation could be reached/.test(handed) && handed.includes(SA.id) && !handed.includes(Q1.id)
           : handed.startsWith('Handed off to the steward ') && handed.includes(`(${SA.id})`)
@@ -4131,8 +4128,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           { handed, stranger });
 
         /* A steward changes its own list when the user asks for it in the steward conversation, and refuses when a
-           notice asks. New conversations goes on first: with it off, unticking the steward's only conversation would
-           leave it no longer a steward, and only a steward changes its list this way. */
+           notice asks. New conversations goes on first, so that unticking the steward's only conversation leaves it a
+           steward that can still change its list. */
         userSays(SA, 'Turn on New conversations.');
         const newOn = await actAs(SA, ['--new', 'on']);
         const laterBox = /^Done: /.test(newOn) && !!table()[SA.id].newSince
@@ -4146,8 +4143,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         userSays(SA, 'Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:', 'cross-session');
         const refused = await actAs(SA, ['--new', 'off']);
         check(!!offBox && !!onBox && !!laterBox && /^Not done: only the user, typing in this steward conversation, can change its list/.test(refused) && !!table()[SA.id].newSince,
-          'asked by the user in the steward conversation, the steward turns New conversations on, unticks a conversation and ticks it again by its title, each shown in its panel; '
-          + 'a call after a notice changes nothing and says why', { dropped, taken, newOn, refused });
+          'asked by the user in the steward conversation, the steward turns New conversations on, unticks a conversation and ticks it again by its title, and its panel shows each change; '
+          + 'a call made after a notice changes nothing and says why', { dropped, taken, newOn, refused });
         userSays(SA, 'Turn New conversations off.');
         await actAs(SA, ['--new', 'off']);
         await shot('stewards-list-changed');

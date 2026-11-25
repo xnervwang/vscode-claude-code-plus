@@ -475,7 +475,6 @@ async function stewardPanel(d) {
   return frame;
 }
 const stewardsFile = (d) => path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
-/* Opens the Steward panel on the demo conversation, with t2 ticked both by it and by t1, which is a steward. */
 async function severalPanel(d) {
   const [t1, t2] = d.threads.slice(1);
   for (const t of [t1, t2]) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
@@ -493,7 +492,6 @@ async function severalPanel(d) {
   d.several = frame;
   return frame;
 }
-/* Appends to the transcript of conversation `id` a row for a message the user typed. */
 function typed(d, id, text) {
   fs.appendFileSync(transcriptFile(d, id), JSON.stringify({ sessionId: id, cwd: d.profile.folder, isSidechain: false, type: 'user',
     uuid: `${id.slice(0, 24)}${String(795000 + relayCalls++).padStart(12, '0')}`, timestamp: new Date().toISOString(), permissionMode: 'default',

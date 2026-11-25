@@ -110,7 +110,7 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   hand(sessionId, text, key, confirm)  gives the answer to the panel; its result comes back through answered().
  *                                   With `confirm` the panel says when it is ready and waits for go(key) to type it
  *   confirms(sessionId)             optional: whether the panel showing it waits for a go (src/page/91-answer.js)
- *   go(key)                         optional: tells the panel holding that answer to type it; false if no panel was told
+ *   go(key)                         optional: tells the panel holding that answer to type it; false if none got it
  *   typedFor(text)                  optional: whether this extension typed that text into a panel for someone else in
  *                                   the last day (typedForOthers in src/relay.js)
  *   typed(text)                     optional: told of each text before it is handed to a panel, since that text was
@@ -270,8 +270,7 @@ function createClaudeSource(deps) {
     onDidChangeStewards: stewardsChanged.event,
 
     /* Agent Plus asks these so that another agent's conversation is told which stewards watch it and can hand one of
-       them messages: every steward of the conversation, ordered by when the user last typed to each (most recent
-       first), and the first of them. */
+       them messages: every steward of the conversation, and the first of them. */
     stewardsOf(sourceId, sessionId) {
       if (!enabled() || typeof deps.stewardsOf !== 'function') return [];
       let list = [];

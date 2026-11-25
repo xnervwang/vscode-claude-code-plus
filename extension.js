@@ -1110,8 +1110,7 @@ function start(context, log, renamed, handing = false) {
     const table = stewardTable();
     return stewards.byUser(stewards.stewardsOf(table, key), (s) => userAtOf(transcriptOf(s))).map((s) => ({ sessionId: s, title: stewardTitleOf(s, table) }));
   };
-  /* Their order and titles change without the table changing: a steward's newest message from the user, a rename.
-     Looked at every few seconds, and onDidChangeStewards fired when either changed. */
+  /* Their order and titles change without the table changing: a steward's newest message from the user, a rename. */
   let stewardOrder = '';
   const stewardOrderTimer = setInterval(() => {
     try {

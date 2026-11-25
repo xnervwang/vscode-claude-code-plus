@@ -80,9 +80,10 @@
     typeAnswer(m);
   };
   /*
-   * With `confirm`, the panel says it is ready and types only once the host answers go within GO_WAIT_MS. A host that has
-   * given up never says go, so an answer that reached the panel late, after a lost connection or a frozen page, is
-   * dropped rather than typed after the host has reported it (ANSWER_READY_MS in src/claude-source.js).
+   * With `confirm`, the panel tells the host it is ready and types the answer only if the host's go arrives within
+   * GO_WAIT_MS. A host that has given up never says go, so an answer that reached the panel late, after a lost
+   * connection or a frozen page, is dropped rather than typed after the host has reported it (ANSWER_READY_MS in
+   * src/claude-source.js).
    */
   var GO_WAIT_MS = 2000;
   /* Enter is pressed no later than this after the page said it was ready, or the text is taken back out: a throttled
@@ -100,7 +101,6 @@
     if (!w) return;
     delete awaitingGo[id];
     clearTimeout(w.timer);
-    /* A frozen page can get to the go after its own timer was due. */
     if (Date.now() - w.at > GO_WAIT_MS) { answerResult(id, false, 'late'); return; }
     var no = refusal(w.m);
     if (no) { answerResult(id, false, no.reason, no.detail); return; }

@@ -2562,7 +2562,7 @@ console.log('\ndetached commands in the agent map');
   }
   {
     /* A `claude -p` worker of SID has ended, and a program it started with setsid still runs. Its link file ties the
-       worker to SID, so SID counts as having work running and SID's map lists the program. */
+       worker to SID. */
     const bgm = require(path.join(__dirname, '..', 'src', 'background.js'));
     const WORKER = 'abcdef01-0000-4000-8000-000000000031';
     const plans = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-worker-left-'));
@@ -10373,7 +10373,7 @@ console.log('\nthe Steward panel');
           const results = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, r.outcome + ': ' + r.reason]));
           process.stdout.write(JSON.stringify({ results, did }));
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
-      const lr = listed.results || {}, ONLY = 'refused: only the user, typing in this steward conversation, can change its list, and the message before the call does not count: ';
+      const lr = listed.results || {}, ONLY = 'refused: only the user, typing in this steward conversation, can change its list. The message before the call does not count: ';
       const want = {
         [R('01')]: 'submitted: done take', [R('08')]: 'submitted: done drop',
         [R('02')]: ONLY + 'it is a message from another session', [R('03')]: ONLY + 'it is a steward notice from Claude Code Plus',
@@ -10745,8 +10745,8 @@ console.log('\nthe Steward panel');
           && results[R(1)] === 'submitted' && results[R(7)] === 'submitted' && results[R(2)] === 'refused' && results[R(3)] === 'refused'
           && again.length === 1 && again[0].outcome === 'refused' && /already/.test(again[0].reason)
           && left.includes(R(5) + '.json') && !left.includes(R(4) + '.json') && !left.some((n) => n.includes('.taken-'))) {
-        ok('a window types the steward\'s text, after a line naming the steward, into a conversation it shows when the steward manages it and sent it, refuses text the steward did not send, '
-          + 'other conversations and a second request from one call, leaves a request for another window, and drops a stale one');
+        ok('a window types the steward\'s text, after a line naming the steward, into a conversation it shows when the steward manages it and sent it. '
+          + 'It refuses text the steward did not send, other conversations and a second request from one call; it leaves a request for another window alone and drops a stale one');
       } else bad(`relaying gave ${JSON.stringify(relayed)}`);
       if (results && results[R(8)] === 'submitted' && relayed.waits > 0 && relayed.waits <= relay.RAN_WAITS_MS.length * 2) {
         ok('a steward\'s call that reaches its transcript a moment after the request is found by reading the transcript again, not refused');
@@ -11241,9 +11241,9 @@ console.log('\nthe Steward panel');
           + 'or the next when that one\'s inbox refuses; nowhere when none can be reached, and the answer says so; one from a conversation no steward '
           + 'manages is left, and one without its call is refused');
       } else bad(`handoffs gave ${JSON.stringify({ lastAt, results: Object.fromEntries(Object.entries(hr).map(([k, v]) => [k, `${v.outcome} ${v.steward || ''} ${v.reason || ''}`])), tried, left: gave.left, error: gave.error })}`);
-      /* With a steward of all as well, whom the user typed to last: a handoff goes to that one, whichever list has the
-         conversation; to the steward whose message started the conversation's turn; and to the steward --to names, if it
-         is one of the conversation's. */
+      /* A steward of all is added, and the user typed to it last. A handoff goes to it whichever list has the
+         conversation, to the steward whose message started the conversation's turn when there is one, and to the
+         steward --to names if that is one of the conversation's stewards. */
       const adir = path.join(root, 'relay-handoff-all');
       fs.mkdirSync(path.join(adir, relay.RELAY_DIR), { recursive: true });
       const stw = require('../src/stewards');
@@ -13055,7 +13055,7 @@ console.log('\nanswering from the Conversations tab');
         ['c2', false, 'late'], ['d1', false, 'draft']]) && JSON.stringify(got2.sent) === JSON.stringify(['typed beside\nyour field', 'after the go'])
         && JSON.stringify(got2.focusAt) === JSON.stringify(['other', 'empty before go', 'other', 'other']) && draft2 && draft2.detail === 'left there'
         && got2.box === 'left there') {
-        ok('in a browser an answer is typed and sent while the focus stays in the field the user is in; with confirm it waits for the go, and a go that comes too late types nothing; text left in the input is sent back with the refusal');
+        ok('in a browser an answer is typed and sent while the focus stays in the field the user is in; with confirm it waits for the go, and nothing is typed when the go comes too late; text left in the input is sent back with the refusal');
       } else bad(`answer with the focus elsewhere and a go: ${at2 === -1 ? 'no result (exit ' + r2.status + ')' : JSON.stringify(got2)}`);
     }
   }
@@ -13604,8 +13604,8 @@ console.log('\nClaude Code\'s own source');
       ok('reveal() passes the session id to the extension and returns its answer');
     } else bad(`reveal ${JSON.stringify([o.revealed, o.shown])}`);
 
-    /* A panel whose page types an answer only on the host's go: the host sends the go only while it is still waiting,
-       and a panel that never says it is ready has typed nothing. The waits are cut short as above. */
+    /* A panel whose page types an answer only on the host's go: a panel that never says it is ready has typed nothing.
+       The waits are cut short as above. */
     const confirmScript = `
       const Module = require('module'), realResolve = Module._resolveFilename;
       Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
@@ -13683,7 +13683,7 @@ console.log('\nClaude Code\'s own source');
     } else bad(`deliveries a panel confirms: ${JSON.stringify(q).slice(0, 900)}`);
     if (is(q.ownDraft, 'notReceived') && /Claude Code Plus typed into a panel/.test(said(q.ownDraft))
         && is(q.userDraft, 'notReceived') && said(q.userDraft) === 'the message input already had text in it') {
-      ok('text left in the input that Claude Code Plus typed there for someone else is named as such, and text of the user\'s is not');
+      ok('text left in the input that Claude Code Plus typed there for someone else is named as such, and the user\'s own text is not');
     } else bad(`a draft in the input: ${JSON.stringify([q.ownDraft, q.userDraft])}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }

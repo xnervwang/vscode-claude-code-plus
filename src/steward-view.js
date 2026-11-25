@@ -503,7 +503,7 @@ function create(vscode, deps) {
   /* The title the panel uses when its text names a conversation. */
   const nameOf = (id, all = last) => (all.get(id) && all.get(id).title)
     || titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: id, name: '', cwd: '' }, deps.titles({ sessionId: id }), () => deps.readPlan(id))) || id;
-  /* Only the box of a steward is locked, since stewards are never managed. Other stewards' ticks leave a box free. */
+  /* Only the box of a steward is locked, since stewards are never managed. */
   const lockOf = (table, id) => (table[id] ? { lock: true, why: 'This conversation is a steward, and a steward is not managed by another', by: 'a steward' }
     : { lock: false, why: '', by: '' });
 
@@ -852,8 +852,7 @@ function create(vscode, deps) {
   };
   /*
    * Carries out a steward's request to change its own list: `take` or `drop` one conversation, or turn `all` or `new`
-   * on or off. The user made the request in that steward conversation, which src/relay.js checks. Returns
-   * { outcome, reason }; the reason says what was done.
+   * on or off. The user made the request in that steward conversation, which src/relay.js checks.
    */
   const listChange = (steward, action, target) => {
     const refuse = (reason) => ({ outcome: 'refused', reason });

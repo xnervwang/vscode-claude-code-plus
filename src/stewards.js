@@ -8,9 +8,9 @@
  * conversation for it in the Steward panel (src/steward-view.js), and stops being one when nothing is ticked.
  *
  * Who manages whom is kept in stewards.json in the plan directory, so every window and the plugin's steward hooks
- * (claude-plugin/agent-work-plan/hooks/steward.py, steward_table.py) read the same answer. The panel writes it; so does
- * the window that shows a steward, when it carries out that steward's request to change its own list or ticks a
- * conversation the steward has just opened (src/relay.js).
+ * (claude-plugin/agent-work-plan/hooks/steward.py, steward_table.py) read the same answer. The panel writes it.
+ * src/relay.js writes it too, in the window that shows a steward: when that steward asks to change its own list, and
+ * when it ticks a conversation the steward has just opened.
  *
  * A conversation can have several stewards, and each one ticks it on its own. A steward has none: a conversation that
  * becomes a steward leaves every list it was on.
@@ -282,8 +282,8 @@ function senderOf(text) {
 }
 const withFrom = (steward, title, text) => fromLine(steward, title) + '\n' + text;
 
-/* The hash a record of typed text is kept under: whitespace counts for nothing, as the transcript check
-   (src/sent-check.js) compares a message. */
+/* Records of typed text are kept under this hash, which ignores whitespace as the transcript check (src/sent-check.js)
+   does when it compares a message. */
 const textHash = (text) => crypto.createHash('sha256').update(String(text || '').replace(/[\s\u200b]+/g, ''), 'utf8').digest('hex');
 
 /*
