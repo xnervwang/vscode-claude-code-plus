@@ -16,7 +16,7 @@ The **New conversations** switch beside it leaves existing checkboxes as they ar
 
 ## Who manages whom
 
-A conversation can have several stewards, and a steward has none. Each checkbox in a steward's panel shows only whether that steward manages the conversation. Ticking it in one panel doesn't change or disable it in another. The checkbox for another steward is disabled, and its row says "a steward". Hover over the checkbox to see the full reason. A conversation that becomes a steward leaves every steward's list. Several stewards can have **All, including new ones** on in their own panels at the same time, and several can have **New conversations** on at the same time.
+A conversation can have several stewards, and a steward has none. Each checkbox in a steward's panel shows only whether that steward manages the conversation. Ticking it in one panel doesn't change or disable it in another. The checkbox for another steward is disabled, and its row says "a steward". Hover over the checkbox to see the full reason. A conversation that becomes a steward leaves every steward's list. Several stewards can have **All, including new ones** on in their own panels at the same time, and several can have **New conversations** on.
 
 If other stewards also manage a conversation, its row ends with a small eye icon in a lighter color than the row text. The number beside the eye counts those other stewards. Hover over the eye to see their names, then click a name to open that steward's conversation. In the session list, hover over a managed conversation's row. The last line says "Managed by" followed by the names of its stewards.
 
@@ -56,7 +56,7 @@ In the steward conversation, you can ask the steward to start or stop managing a
 
 The steward changes the list only when you type the request in the steward conversation itself. If the request comes from another conversation, a notice, a handoff, a subagent's work or an answer you typed in Agent Plus's Answer view, the steward tells you it could not change the list.
 
-Only a conversation that is already a steward can change its list this way. If you ask any other conversation, it tells you it is not a steward and changes nothing. To make a conversation a steward, tick a conversation in its Steward panel or turn on either switch there. If a steward's last conversation is unticked and both switches are off, it is no longer a steward.
+If the conversation isn't already a steward, it tells you so and changes nothing. To make a conversation a steward, tick a conversation in its Steward panel or turn on either switch there. If a steward's last conversation is unticked and both switches are off, it is no longer a steward.
 
 ### Questions and notices
 
@@ -64,7 +64,7 @@ On each turn, Claude Code Plus gives a managed conversation the title and sessio
 
 Claude Code Plus sends a notice when a managed conversation needs you. If several stewards watch it, only one gets the question from its plan or the item waiting for your response, such as a permission prompt. That steward is the one you last typed to among the stewards shown in a VS Code window. If another steward gets a notice about the same conversation for a different reason, the notice names the steward handling the question or prompt.
 
-When the conversation stops, Claude Code Plus notifies only the steward whose message started that turn and any steward whose own work plan has an open row naming the conversation. It also sends a notice if a managed conversation has a background session or `claude -p` worker that ended without finishing. "Stops" means the turn has ended, no background work is left, and that is still so two seconds later. The wait keeps a conversation that starts its next turn at once, for a message you sent while it was working, from counting as stopped.
+When the conversation stops, Claude Code Plus sends the notice only to the steward that started the turn with a message and to stewards with an open row naming the conversation in their own work plans. It also sends a notice if a managed conversation has a background session or `claude -p` worker that ended without finishing. "Stops" means the turn has ended, no background work is left, and that is still so two seconds later. The wait keeps a conversation that starts its next turn at once, for a message you sent while it was working, from counting as stopped.
 
 For a conversation waiting on a permission prompt, the steward is told which command it is for, and each question is passed to the steward once. When nothing in a notice needs you, the steward replies with only `[[quiet]]` or a single dash. The Claude Code panel where the steward conversation is shown hides such a reply, along with the folded row of tool calls just before it.
 
