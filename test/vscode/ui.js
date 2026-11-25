@@ -5939,11 +5939,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       };
       const clearInput = async (f) => {
         await f.locator(SEL).first().click();
-        await page.keyboard.press('Control+a');
+        /* On macOS Ctrl+A moves the caret to the start of the line rather than selecting all. */
+        await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
         await page.keyboard.press('Delete');
       };
-      /* Types `text` into the input of `f`, emptied first. A key typed right after Ctrl+A and Delete can be lost, so the
-         input is read back and, if it does not hold `text`, emptied and typed once more. */
+      /* Types `text` into the input of `f`, emptied first. A key typed right after selecting all and Delete can be
+         lost, so the input is read back and, if it does not hold `text`, emptied and typed once more. */
       const typeInto = async (f, text) => {
         for (let i = 0; i < 2; i++) {
           await clearInput(f);
