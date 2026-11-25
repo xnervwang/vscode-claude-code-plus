@@ -108,6 +108,8 @@
     { "id": "work-plan-view", "what": "Agent Plus's work plan view in the side bar, showing the conversation's plan, read from the plan files this extension's plugin keeps.",
       "agentPlus": { "settings": ["agentPlus.workPlanView"], "commands": ["agentPlus.refreshWorkPlan", "agentPlus.openWorkPlanFile", "agentPlus.showWorkPlanDetail"],
         "views": ["agentPlus.workPlan"] } },
+    { "id": "write-about-row", "what": "The pen at the end of a row in Agent Plus's work plan view brings the plan's conversation to the front, opening it in a tab here when no tab shows it, with \"About row N (title): \" in its message box after anything already typed there, the focus in the box and nothing sent; when that cannot be done, Agent Plus puts the text on the clipboard and says why.",
+      "agentPlus": { "commands": ["agentPlus.writeAboutRow"] }, "window": ["writing about a work plan row"] },
     { "id": "conversations-view", "what": "Agent Plus's Conversations view at the bottom of the window, listing Claude Code conversations and their questions, and the Answer view for one question.",
       "agentPlus": { "settings": ["agentPlus.conversationsView"], "commands": ["agentPlus.showConversations", "agentPlus.openConversation", "agentPlus.goToConversation"],
         "views": ["agentPlus.conversations", "agentPlus.answer"] } },

@@ -1858,6 +1858,47 @@ const STEPS = [
     unchanged: 'The Steward panel is closed, the extra tabs are gone, and the first tab\'s title has no crown.',
     act: async (d) => { await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.widen(); await d.away(); return d.sidebar(); },
   },
+  /* The pen on a work plan row, which puts "About row N (title): " into the conversation's message box (prefill in
+     src/claude-source.js). The undo empties the box again: an answer sent later is refused while the box holds text. */
+  {
+    name: 'work-plan-pen', features: ['write-about-row'],
+    expect: 'In the side bar, Agent Plus\'s work plan view with the mouse on the row "3. Monthly budgets per category, with an '
+      + 'over-budget warning in report", which shows a pen button at its right end; the box of that row\'s details that VS Code '
+      + 'shows for a row under the mouse may cover part of the view. In the demo conversation on the right, the '
+      + 'message box holds "About row 3 (Monthly budgets per category, with an over-budget warning in report): " and nothing '
+      + 'else, wholly readable, with the box\'s focus border drawn; the conversation above it has no new message of yours.',
+    unchanged: 'The work plan view lists the same rows as before.',
+    act: async (d) => {
+      const text = 'About row 3 (Monthly budgets per category, with an over-budget warning in report): ';
+      await demoAt(d, '', { focus: true });
+      /* As a click on the plan bar does: the view follows the conversation in front only once its tab has reported its
+         session to Agent Plus. */
+      await d.exec('agentPlus.showWorkPlanOf', { sourceId: 'claude-code', sessionId: d.sid });
+      await d.sleep(1500);
+      const row = d.page.locator('[id="workbench.parts.sidebar"] .monaco-list-row')
+        .filter({ has: d.page.locator('.label-name', { hasText: /^3\. Monthly budgets per category/ }) }).first();
+      if (!await d.until(() => row.isVisible().catch(() => false), 15000, 500)) throw new Error('no row 3 in the work plan view');
+      await row.hover();
+      const pen = row.locator('.action-label[aria-label="Agent Plus: Write About This Row in Its Conversation"]');
+      if (!await d.until(() => pen.isVisible().catch(() => false), 5000, 200)) throw new Error('no pen on the row: the Agent Plus installed may not have one');
+      await pen.click();
+      const box = () => d.conv.evaluate(() => { const b = document.querySelector('[role="textbox"][aria-label="Message input"]'); return b ? b.textContent : null; });
+      if (!await d.until(async () => (await box()) === text, 10000, 200)) throw new Error(`the message box holds ${JSON.stringify(await box())}`);
+      await row.hover();
+      await d.sleep(500);
+      const sb = await d.sidebar(), ed = await d.editor();
+      if (!sb || !ed) return ed || sb;
+      const x = Math.min(sb.x, ed.x), y = Math.min(sb.y, ed.y);
+      return { x, y, width: Math.max(sb.x + sb.width, ed.x + ed.width) - x, height: Math.max(sb.y + sb.height, ed.y + ed.height) - y };
+    },
+    undo: async (d) => {
+      await d.conv.locator('[role="textbox"][aria-label="Message input"]').first().click();
+      await d.page.keyboard.press('Control+a');
+      await d.page.keyboard.press('Delete');
+      await d.sleep(400);
+      await rest(d, d.conv);
+    },
+  },
   {
     name: 'conversations-view', features: ['conversations-view'],
     expect: 'Agent Plus\'s Conversations view at the bottom of the window. It lists the demo conversation, with its questions '
