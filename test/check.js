@@ -5599,8 +5599,6 @@ console.log('\nthe work plan plugin after an uninstall and a reinstall');
     else bad(`${what}: said ${got}`);
     fs.rmSync(h, { recursive: true, force: true });
   }
-  /* Which registrations of the marketplace this extension registers its own copy over: one at a folder that is gone or
-     at the old id's staged copy, and not one at another folder that exists. */
   {
     const h = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-stray-')));
     try {
@@ -5621,7 +5619,7 @@ console.log('\nthe work plan plugin after an uninstall and a reinstall');
       got.push([pi.registeredAt(cfg), pi.strayRegistration(mine, legacy, cfg)]);
       const want = [[mine, false], [gone, true], [legacy, true], [other, false], ['', false], ['', false], [gone, true]];
       if (JSON.stringify(got) === JSON.stringify(want)) {
-        ok('a marketplace registered at a folder that is gone, or at the old extension\'s copy, is taken back; one at this copy, at another folder that exists, or not listed is left alone');
+        ok('a marketplace registered at a folder that is gone, or at the old extension\'s copy, is taken back; a registration at this copy or at another folder that exists, or none at all, is left alone');
       } else bad(`taking the marketplace back gave ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
     } catch (e) { bad('taking the marketplace back: ' + e.message); } finally { fs.rmSync(h, { recursive: true, force: true }); }
   }
@@ -13086,9 +13084,7 @@ console.log('\nanswering from the Conversations tab');
       } else bad(`answer with the focus elsewhere and a go: ${at2 === -1 ? 'no result (exit ' + r2.status + ')' : JSON.stringify(got2)}`);
 
       /* A prefill in the same framed page, with the focus in the field around it and a session found the way the panel's
-         is, through the send button's React props: it waits for the go, is put after the input's text with a space only
-         where that text does not end in white space, takes the focus with the caret at its end, leaves composerDraft
-         holding the input's text, and no key is pressed. */
+         is, through the send button's React props. */
       const mark3 = ['CCE', 'PREFILL:'].join('-');
       const html3 = '<!doctype html><html><body><pre id="out"></pre><input id="other"><iframe id="f"></iframe><script>'
         + 'var posted = [], keys = [], states = [];'
@@ -13856,7 +13852,7 @@ console.log('\nClaude Code\'s own source');
         && pfIs(pf.badId, 'notReceived') && pfIs(pf.noText, 'notReceived') && !events(pf.badId).includes('prefillTo') && !events(pf.noText).includes('prefillTo')
         && JSON.stringify(pf.reasons) === JSON.stringify({ drafted: 'drafted', 'not-shown': 'notReceived', 'no-input': 'notReceived', insert: 'notReceived',
           late: 'notReceived', unconfirmed: 'uncertain', error: 'uncertain', '': 'uncertain' }) && neverSent) {
-      ok('prefill() brings a conversation shown here to the front and hands its text to the panel, which types it only on the go. The result is drafted when the panel says so; the panel is asked again '
+      ok('prefill() brings a conversation shown here to the front and hands its text to the panel, which types it only after the go. The result is drafted when the panel says so; the panel is asked again '
         + 'while it has no input; not received when it refuses, is not told to go, or never answers; uncertain when it goes silent after the go or finds the input holding something else. '
         + 'Nothing is ever sent or noted as typed, and the source lists prefill only when given the deps it needs');
     } else bad(`prefill() for a conversation shown here: ${JSON.stringify(pf).slice(0, 1500)}`);
@@ -13868,7 +13864,7 @@ console.log('\nClaude Code\'s own source');
         && ['noTranscript', 'otherFolder', 'otherWindow', 'process', 'noList'].every((k) => !events(pf[k]).includes('openTab') && !events(pf[k]).includes('prefillTo'))
         && pfIs(pf.openFails, 'notReceived', /could not open it: no such command/) && pfIs(pf.neverLoads, 'notReceived', /no panel here showed it/)
         && !events(pf.neverLoads).includes('prefillTo') && pfIs(pf.noOpen, 'notReceived') && !events(pf.noOpen).includes('openTab')) {
-      ok('a conversation no panel here shows is opened in a tab here and given its text once that tab listens, and a restored tab is opened without the checks; a conversation is not opened, '
+      ok('a conversation not shown in any panel here is opened in a tab and given its text once that tab listens, and a restored tab is opened without the checks; a conversation is not opened, '
         + 'and comes back not received with the reason, when Claude Code here has no transcript of it, when it was started in another folder, or when another window shows it or another '
         + 'process runs it; one whose tab never loads also comes back not received');
     } else bad(`prefill() for a conversation not shown here: ${JSON.stringify(pf).slice(0, 1500)}`);

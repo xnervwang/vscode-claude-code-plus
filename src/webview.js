@@ -896,8 +896,7 @@ function liveFiles(claudeExtensionPath) {
  * begun reading the old one, and the editor's service worker, which reads the panel's bundle for the webview iframe, can
  * be such a reader. It and this write both start with the window, so a window opened with the patch out of date
  * replaces the file as the panel reads it. Yet a restart that has to rewrite the bundle during startup opens the panel
- * as quickly as one that writes nothing, so a slow open logged beside a write of this file is not evidence that the
- * write caused it.
+ * as quickly as one that writes nothing.
  */
 /* Every window writes these files, so each write has a temporary name of its own (src/files.js), carrying this tag. A
    rename that fails is tried once more from scratch. */

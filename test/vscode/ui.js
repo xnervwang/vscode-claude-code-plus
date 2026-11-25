@@ -22,9 +22,9 @@
  *   the dots       the filled dot on the tab's logo while a turn sent through fake-model.js runs, and on both its
  *                  session list rows; the envelope after the tab's title once its reply lands with the tab in the
  *                  background, after the name and before the time on its rows, and still whole when a narrow side bar
- *                  cuts the name short, and Agent Plus seeing the reply unread with no count in the status bar; the
- *                  red dot while Claude Code waits for permission to run a command, with no notice and no count for the
- *                  conversation in front; no blue
+ *                  cuts the name short, and Agent Plus marking that reply unread without counting it in the status bar;
+ *                  the red dot while Claude Code waits for permission to run a command, with no notice and no count for
+ *                  the conversation in front; no blue
  *   the agent map's sections
  *                  with nothing running, only the conversation's row, under its own heading; then a helper, a command
  *                  in the background and a scheduled prompt, each section after that row under a heading in capitals
@@ -118,12 +118,11 @@
  *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
  *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn picked or
  *                  highlighted, and only the conversation in a tab in front drawn as the current one
- *   the plan bar   the bar above the input box, drawn from the conversation's plan in three cases (a row being worked
- *                  on, which is its current row; none being worked on, so no current row; every row done): as wide as
- *                  the input box with the same height however many rows the plan has, compact in a narrow panel,
- *                  redrawn when the plan changes, gone without a plan and with claudeCodePlus.show.planBar off, its
- *                  questions part in the status bar's warning colour, and its two clicks opening Agent Plus's Work plan
- *                  view and Answer view at this conversation
+ *   the plan bar   the bar above the input box, drawn from the conversation's plan: as wide as the input box with the
+ *                  same height however many rows the plan has, compact in a narrow panel, redrawn when the plan
+ *                  changes, gone without a plan and with claudeCodePlus.show.planBar off, its questions part in the
+ *                  status bar's warning colour, and its two clicks opening Agent Plus's Work plan view and Answer view
+ *                  at this conversation
  *   writing about a work plan row
  *                  Agent Plus's pen on a Work plan row: the conversation's tab comes to the front with the row's text in
  *                  its input, after the user's own text with one space between (none when that text ends in a space),
@@ -399,9 +398,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /* Agent Plus's Conversations entry lists the conversations waiting for the user to approve something or answer last
      in its hover, under this heading. */
   const WAITS_HEAD = 'Waiting for you to approve something or answer:';
-  /* In the window of `p`, how many conversations Agent Plus counts in the status bar as waiting for the user to approve
-     something or answer; null while it counts none. VS Code puts the entry's hover after its text in the entry's
-     aria-label, one line for each conversation, with "and N more" after the tenth. */
+  /* In the window of `p`, how many conversations of the WAITS_HEAD group Agent Plus counts in the status bar; null
+     while it counts none. VS Code puts the entry's hover after its text in the entry's aria-label, one line for each
+     conversation, with "and N more" after the tenth. */
   const needCount = (p = page) => p.evaluate((head) => {
     const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
     const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(head);
@@ -1262,7 +1261,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'Agent Plus shows a notice that the conversation finished, with Open and Dismiss', told || { toasts: await needNotices(), listed: await listedNotices(), agentPlus: timeline() });
       }
       timeline();
-      check(!!seenUnread && (await needCount()) === null, 'and does not count it in the status bar, which counts only the conversations waiting for you',
+      check(!!seenUnread && (await needCount()) === null, 'and leaves it out of the status bar count, which is only of conversations waiting for you',
         { agentPlus: seenUnread || attentionOf(tab0.id), count: await needCount() });
       await shot('tab-dot-unread-notice');
       const listUnread = await until(async () => {
@@ -5803,7 +5802,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         write([row('Read the code', 'done'), row('Export', 'waiting', { waitingOn: 'build' }), row('Document it', 'todo')]);
         const waiting = await barIs((s) => s.shown && s.count === '2 open');
         check(!!waiting && same(waiting.segments, ['waiting', 'todo']) && !waiting.current && !waiting.title && !waiting.questions && waiting.label === 'Work plan: 2 rows open',
-          'with nothing being done and no question, the bar has no current row and no questions part, only the count of open rows', waiting || await bar());
+          'with no row being worked on and no question, the bar shows its track and the open-row count, with no current row or questions part', waiting || await bar());
         write([row('Read the code', 'done'), row('Handle refunds later', 'parked')]);
         const parked = await barIs((s) => s.shown && s.count === '1 open');
         check(!!parked && !parked.current && !parked.title && same(parked.segments, ['parked']),
@@ -5888,8 +5887,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js), clicked in the Work plan view of an Agent
        Plus that has it. The row's conversation comes to the front with "About row N (title): " in its input after what
        is there, unsent, with the focus in the input and the caret after it. A conversation that no tab here shows is
-       opened in a tab first; one this window cannot open, started in a folder the window does not have first, is left
-       alone, and Agent Plus puts the text on the clipboard and says why. */
+       opened in a tab first; one started in a folder other than this window's first folder, which this window cannot
+       open, is left alone, and Agent Plus puts the text on the clipboard and says why. */
     await step('writing about a work plan row', async () => {
       if (!conv) throw new Error('the conversation did not open');
       const apDir = fs.readdirSync(profile.exts).find((n) => n.startsWith('xnervwang.agent-plus-'));
@@ -5906,8 +5905,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         fs.writeFileSync(planFile(t), JSON.stringify({ nodes: titles.map((title, i) => ({ title, state: i ? 'todo' : 'doing' })) }, null, 2));
       };
       /* The input of the page in `f`: its text, whether it has the focus, where the caret is, and the composerDraft of
-         the session the page shows, read from the send button's React props, where the page itself gets the session
-         (src/page/25-session.js). */
+         the session the page shows, read from the send button's React props (src/page/25-session.js). */
       const input = (f) => f.evaluate((sel) => {
         const b = document.querySelector(sel);
         if (!b) return null;
@@ -5989,7 +5987,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await shot('prefill-empty');
         await page.keyboard.type('and the lexer');
         const typed = await until(async () => { const s = await input(conv); return s && s.text === one + 'and the lexer' && s; }, 5000, 200);
-        check(!!typed, 'the next keys the user types go on after it', await input(conv));
+        check(!!typed, 'the user\'s next keys land after it', await input(conv));
 
         /* The user's own text ends in a letter. */
         await openNotes();
@@ -6035,7 +6033,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         fs.mkdirSync(elsewhere, { recursive: true });
         fakeHome.writeThreads(profile.home, elsewhere, [away]);
         writePlan(away, ['Add the missing index']);
-        check(!!await showPlan(away, '1. Add the missing index'), 'the Work plan view shows the plan of a conversation started in another folder', await planRows());
+        check(!!await showPlan(away, '1. Add the missing index'), 'the Work plan view shows a conversation started in another folder', await planRows());
         await exec('notifications.clearAll');
         const tabsBefore = (await claudeTabs()).length;
         await pen('1. Add the missing index');

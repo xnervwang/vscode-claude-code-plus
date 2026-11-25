@@ -323,9 +323,8 @@ const seenUnread = (d, id) => attentionHas(d, id, (x) => x.activity === 'stopped
 /* How long Agent Plus can take to see a conversation's new activity: two of its 30 s refreshes (ui.js says why). */
 const SEEN_MS = 60000;
 /* The status bar box of Agent Plus's Conversations entry, or null when the entry counts no conversation waiting for you
-   to approve something or answer. `text` is that count and `says` is what the entry reads. VS Code puts the entry's
-   hover after its text in its aria-label, where those conversations come last, after the line below, one line each,
-   with "and N more" after the tenth. */
+   to approve something or answer. VS Code puts the entry's hover after its text in its aria-label; the conversations
+   waiting for you are its last group, under the line below, one per line, with "and N more" after the tenth. */
 const needCountBox = (d) => d.page.evaluate((head) => {
   const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
   const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(head);
@@ -720,7 +719,7 @@ const STEPS = [
     name: 'plan-bar', features: ['plan-bar'],
     expect: 'Right above the message box, a bar exactly as wide as the box: a list mark and "Plan" in bold; a short track of '
       + 'coloured segments, orange, yellow, purple and grey for the open rows by state, with no green; "19 open"; then an empty '
-      + 'space where the current row would be, since no row is being worked on; at the right a yellowish part with a yellow dot and "3 to '
+      + 'space where the current row would be; at the right a yellowish part with a yellow dot and "3 to '
       + 'decide", not red; and an arrow. The bar is one line, nothing in it is cut at the top or bottom, and it covers '
       + 'neither the conversation nor the message box.',
     unchanged: 'The conversation above the bar and the message box below it are as before.',
@@ -1866,7 +1865,7 @@ const STEPS = [
       + 'over-budget warning in report", which shows a pen button at its right end; VS Code\'s hover box for that '
       + 'row may cover part of the view. In the demo conversation on the right, the '
       + 'message box holds "About row 3 (Monthly budgets per category, with an over-budget warning in report): " and nothing '
-      + 'else, wholly readable, with the box\'s focus border drawn; the conversation above it has no new message of yours.',
+      + 'else, fully readable, with its focus border drawn. The conversation above it has no new message from you.',
     unchanged: 'The work plan view lists the same rows as before.',
     act: async (d) => {
       const text = 'About row 3 (Monthly budgets per category, with an over-budget warning in report): ';

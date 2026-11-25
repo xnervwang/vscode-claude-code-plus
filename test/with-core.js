@@ -193,8 +193,9 @@ async function run() {
 
     /* Notices: this window's unread reply, and a permission prompt in a folder no window here has open. */
     globalThis.__cceStatesHook([], '', [], [SID]);
-    /* { n, tip } for the conversations Agent Plus counts as waiting for the user to approve something or answer. The
-       hover of its Conversations entry lists them last, after WAITS, one line each, with "and N more" after the tenth. */
+    /* { n, tip } for the conversations Agent Plus counts as waiting for the user to approve something or answer. Its
+       Conversations entry's hover puts them in its last group, under WAITS, one per line, with "and N more" after the
+       tenth. */
     const WAITS = 'Waiting for you to approve something or answer:';
     const waitCount = () => {
       const tip = String((control.state.status.find((i) => i.id === 'agentPlus.conversations' && !i.disposed && i.shown) || {}).tooltip || '');

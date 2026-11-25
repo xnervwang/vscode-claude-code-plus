@@ -19,8 +19,8 @@ Several marks per window
 ------------------------
 Three for each window size, arranged around its compaction line - see MARKS_ANY_WINDOW for the arithmetic. One mark
 alone can be stepped over: a single batch of tool results can carry a session from below a mark to past the compaction
-line. So two sit before the line. A fast climb trips the earlier one, and a slow climb goes on to the later one and gets
-a fresher update. The third sits after the line, for a compaction that arrives late.
+line. Two sit before the line. A fast climb trips the earlier one, and a slow climb goes on to the later one and gets a
+fresher update. The third sits after the line, for a compaction that arrives late.
 
 Each mark fires once. A compaction is detected when the measured context drops below a mark that has already fired: the
 marks then reset and fire again on the next climb. If a mark fired and the plan has not been written since while a row

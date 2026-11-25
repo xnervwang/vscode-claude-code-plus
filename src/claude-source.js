@@ -19,7 +19,7 @@
  *                    page getting focus (src/page/92-focus.js), the only signal a sidebar conversation gives
  *   answers          typed into the panel showing the conversation (src/page/91-answer.js)
  *   prefill          Agent Plus's pen on a Work plan row: the text goes into the message input of the panel showing the
- *                    conversation, opened in a tab here first if no panel here shows it, and is not sent
+ *                    conversation, opened in a tab here first if no panel shows it, and is not sent
  *   plan notice      the plugin that writes plans failed to install, or there is no Python 3 to run the hooks
  *
  * The host also writes activeSessionId back unchanged, for example when a background panel's state changes, so only a
@@ -162,7 +162,7 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   prefillTo(sessionId, text, key) optional, with go(): gives a prefill to the panel showing the conversation, which
  *                                   says when it is ready, through answered(), and types it on go(key); false if no
  *                                   panel was given it. Without both, 'prefill' is not among the features
- *   listens(sessionId)              optional: whether the panel showing it here has said it listens (src/page/91-answer.js);
+ *   listens(sessionId)              optional: whether its panel here has reported that it listens (src/page/91-answer.js);
  *                                   canDeliver when not given
  *   openTab(sessionId)              optional: Promise; asks Claude Code to open the conversation in an editor tab here
  *   transcriptOf(sessionId)         optional: the path of its transcript, or ''
@@ -380,7 +380,7 @@ function createClaudeSource(deps) {
         const done = answerOf(key, by - Date.now());
         if (Date.now() > by - T.go || !yes('go', key)) {
           pending.delete(key);
-          return notReceived('the panel that took the text could not be told to type it in time');
+          return notReceived('the panel was ready to type the text, but the go-ahead could not be sent to it in time');
         }
         const r = await done;
         if (!r) return { outcome: 'uncertain', reason: `the panel was told to type it but did not report back within ${T.go / 1000} seconds; look at its message input before writing again` };
