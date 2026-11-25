@@ -218,8 +218,7 @@ function copiesOf(id, records, projects) {
 }
 
 const utc = (t) => new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
-/* A process's pid, start time and window, as the Steward panel and a steward's notice put it. For a process on a copy
-   kept in another folder, it adds that folder and how recent the copy was. */
+/* A process's pid, start time and window, as the Steward panel and a steward's notice put it. */
 function describe(p) {
   const at = p.startedAt ? utc(p.startedAt) : 'at an unknown time';
   const where = p.windowless ? 'in an extension host whose window is gone' : p.window ? `in window "${p.window}"` : 'in a window not known here';

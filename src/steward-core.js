@@ -23,7 +23,6 @@ const ready = (core) => !!(core && Array.isArray(core.features) && FEATURES.ever
   && typeof core.allConversations === 'function' && typeof core.onDidChangeAllConversations === 'function'
   && typeof core.deliver === 'function' && typeof core.planPathOf === 'function');
 
-/* The conversations open on this machine: { key, sourceId, label, sessionId, title, cwd, lastActiveAt }. */
 function others(core) {
   if (!ready(core)) return [];
   let list = [];

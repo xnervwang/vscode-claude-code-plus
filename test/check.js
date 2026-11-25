@@ -11235,8 +11235,7 @@ console.log('\nthe Steward panel');
           ok('only an idle process whose window is gone is stopped without asking, and only while another one has a window; the button stops the one with no window, else the oldest');
         } else bad(`what may be stopped: ${JSON.stringify([auto, both, busy])}`);
         /* One conversation run from two working directories, each process on the copy of the transcript kept for its
-           own folder: the stale one is the copy furthest behind when the later process started. The test starts the
-           processes in both orders. */
+           own folder. */
         {
           const projects = path.join(root, 'dup-projects'), D = 'dddddddd-0000-4000-8000-000000000004';
           const t1 = now - 30 * 60000, day = 24 * 3600000;
@@ -11480,7 +11479,7 @@ console.log('\nthe Steward panel');
         ok('the plugin\'s hooks read keys, plan paths and a later version\'s table exactly as the extension does');
       } else bad(`the hooks read ${(py2.stdout || py2.stderr || '').slice(0, 600)} where the extension read ${canon2(settledJs).slice(0, 600)}`);
 
-      /* The Steward panel and the notices, with a stand-in Agent Plus and attention files in a folder of their own. */
+      /* The Steward panel and the notices. */
       const ocShared = path.join(root, 'oc-shared'), att = path.join(ocShared, 'attention'), pdir = path.join(root, 'oc-panel');
       fs.mkdirSync(att, { recursive: true });
       fs.mkdirSync(pdir, { recursive: true });

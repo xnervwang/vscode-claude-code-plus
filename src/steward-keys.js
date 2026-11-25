@@ -10,7 +10,7 @@
  * hooks/steward_table.py checks keys with the same pattern.
  *
  * A Windows file name cannot contain a colon, so no file is named after a key: the plan of another agent's conversation
- * is the path its source gives (planPathOf in src/steward-core.js), kept in the table.
+ * is the path its source gives (planPathOf in src/steward-core.js), and the table keeps that path.
  *
  * The table keeps every well-formed key, including keys of sources this build does not know, so that a later build's
  * ticks survive this one rewriting the table; OTHER_SOURCES says which sources the panel lists and the relay passes
@@ -20,7 +20,7 @@ const path = require('path');
 const { SESSION } = require('./claude-files');
 
 const CLAUDE = 'claude-code';
-/* The session id takes what OpenCode Agent Plus accepts in a conversation's URI (sessionOfUri in its
+/* The session id may be anything OpenCode Agent Plus accepts in a conversation's URI (sessionOfUri in its
    src/host/agentplus-source.js). */
 const KEY = /^([a-z0-9][a-z0-9-]{0,63}):([A-Za-z0-9][A-Za-z0-9_-]{0,199})$/;
 const OTHER_SOURCES = ['opencode-plus'];
