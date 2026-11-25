@@ -211,14 +211,14 @@ While the conversation waits for the user to approve a tool or answer a question
 try to send the message another way.
 
 `SendMessage` does not reach an OpenCode Agent Plus conversation. Read it with `steward-peek.py` as you would a
-Claude Code conversation. To print its state, open plan rows and latest reply, run:
+Claude Code conversation, giving its key:
 
 ```bash
 python3 <this plugin>/hooks/steward-peek.py <key>
 ```
 
-If the state is "idle, or not open in any window", either is possible. The files used to determine the state do not
-distinguish the two. To read the user's latest messages there, run:
+If the state is "idle, or not open in any window", the files used to determine the state do not distinguish the two,
+so tell the user it is one or the other. To read the user's latest messages there, run:
 
 ```bash
 python3 <this plugin>/hooks/steward-peek.py --said <key>
@@ -227,7 +227,6 @@ python3 <this plugin>/hooks/steward-peek.py --said <key>
 With Agent Plus 1.6.0 or later and an OpenCode Agent Plus release later than 1.0.0, the conversation is told each turn
 that you watch it. It puts its questions for the user in its work plan. Like a Claude Code conversation, it can hand you
 a message it thinks belongs elsewhere. The conversation must be open in a VS Code window for the handoff to reach you.
-With older versions, the conversation is not told that you watch it and cannot hand you a message.
 
 The handoff appears as a message typed into your panel, not in your inbox. It starts with "Handoff from", gives the
 conversation key in parentheses (opencode-plus: followed by the session id), and says OpenCode Agent Plus passed it on.
