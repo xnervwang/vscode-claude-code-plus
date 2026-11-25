@@ -1135,17 +1135,18 @@ function start(context, log, renamed, handing = false) {
   if (typeof vscode.workspace.onDidGrantWorkspaceTrust === 'function') context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(decideWaits));
   context.subscriptions.push({ dispose: () => { delete globalThis[host.WAITS_LEFT_ON]; } });
   coreLink.link(vscode, claude.source, { name: 'the Claude Code source', log: (m) => log.appendLine(m) }).then((r) => {
-    if (!r.registered) { links.attach(null); planBar.attach(null); return; }
+    if (!r.registered) { links.attach(null); planBar.attach(null); steward.attachCore(null); return; }
     const { registration } = r;
     log.appendLine(`registered with Agent Plus ${r.core.version || ''}`.trim());
     if (closing) { registration.dispose(); return; }
     context.subscriptions.push(registration);
-    context.subscriptions.push({ dispose: () => { agentCore = null; decideWaits(); } });
+    context.subscriptions.push({ dispose: () => { agentCore = null; decideWaits(); steward.attachCore(null); } });
     agentCore = r.core;
     decideWaits();
     claude.refocus();
     links.attach(r.core);
     planBar.attach(r.core);
+    steward.attachCore(r.core);
   }).catch((e) => log.appendLine('registering with Agent Plus: ' + ((e && e.message) || e)));
   /*
    * Following the conversation has to be immediate, so the patched field calls this the moment it is written. Waiting

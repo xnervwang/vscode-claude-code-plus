@@ -5,13 +5,16 @@
 'use strict';
 /*
  * The Steward panel, in VS Code's bottom panel. It is about the conversation in the active Claude Code panel: it lists
- * every other Claude Code conversation open in a VS Code window on this machine, grouped by window, and the ticked rows
+ * every other Claude Code conversation open in a VS Code window on this machine, grouped by window, then the open
+ * conversations of the other agents the steward manages (keys.OTHER_SOURCES), one group per agent, and the ticked rows
  * are what that conversation manages (src/stewards.js). A conversation open in no window is not listed, since a
  * steward has no way to reach it; ticked ones among them are counted, with a button to untick them.
  *
- * The candidates are the conversations `claude agents --json` reports, less `claude --bg` sessions and `claude -p`
- * workers, which belong to the conversation that started them; and the stopped conversations whose plans still have
- * open rows, as Agent Plus's Conversations view shows them. The managed ones come first, with what each is doing, how
+ * The Claude Code candidates are the conversations `claude agents --json` reports, less `claude --bg` sessions and
+ * `claude -p` workers, which belong to the conversation that started them; and the stopped conversations whose plans
+ * still have open rows, as Agent Plus's Conversations view shows them. The other agents' come from Agent Plus
+ * (src/steward-core.js), which lists only the open ones and does not say in which window; what each is doing is read
+ * from Agent Plus's attention files (src/agent-states.js). The managed ones come first, with what each is doing, how
  * many questions it has for the user, and when it was last active.
  *
  * The same pass tells a steward when one of its conversations stops (src/stewards.js changes), by a line posted to the
@@ -29,8 +32,11 @@ const bgSessions = require('./bgsessions');
 const { planQuestions } = require('./folders');
 const { writeAtomic, SESSION, transcriptOf } = require('./claude-files');
 const { liveRecords, readState } = require('./background');
-const { OPEN_STATES } = require('./workplan');
+const { OPEN_STATES, readPlanAt } = require('./workplan');
 const activity = require('./activity');
+const keys = require('./steward-keys');
+const agentStates = require('./agent-states');
+const stewardCore = require('./steward-core');
 const titleMarks = require('./title-marks');
 const { GREEN, RED } = require('./tabdot');
 const envelope = require('./envelope');
@@ -94,8 +100,10 @@ function rowState(s, live, unread, deps) {
 }
 
 /*
- * Every conversation the panel can list, by session id: { sessionId, title, cwd, state, dot, unseen, running,
- * lastActiveAt, doing, questions }. `deps` are those of create() below.
+ * Every conversation the panel can list, by key (src/steward-keys.js): { sessionId (the key), title, cwd, state, dot,
+ * unseen, running, lastActiveAt, doing, questions }, and for another agent's conversation also sourceId, label and
+ * waitingFor. `deps` are those of create() below, with others() for the other agents' conversations
+ * (src/steward-core.js) and otherStates() for what they are doing (src/agent-states.js).
  */
 function gather(records, deps) {
   const all = records ? waiting.merge(records) : new Map();
@@ -131,6 +139,17 @@ function gather(records, deps) {
   };
   for (const s of running.values()) add(s, true);
   for (const s of stopped.values()) add(s, false);
+  const listed = deps.others ? deps.others() : [];
+  const states = listed.length && deps.otherStates ? deps.otherStates() : new Map();
+  for (const o of listed) {
+    const plan = deps.readPlan(o.key), qs = planQuestions(plan && plan.nodes), st = states.get(o.key);
+    // One in no attention file is stopped with its reply read, or its window writes none.
+    const act = st ? st.activity : 'stopped', unseen = !!(st && st.unseen);
+    out.set(o.key, { sessionId: o.key, sourceId: o.sourceId, label: o.label, title: o.title, cwd: o.cwd,
+      state: STATE_OF[act] || (unseen ? 'unread' : 'idle'), dot: activity.dotOf(act, false), unseen, running: true, processes: [],
+      lastActiveAt: o.lastActiveAt, doing: doingRows(plan && plan.nodes), questions: qs.length,
+      asks: qs.slice(0, MAX_ASKS).map((q) => String(q.question || '').slice(0, MAX_ASK)), waitingFor: act === 'waiting' && st ? st.waitingFor : null });
+  }
   return out;
 }
 
@@ -157,8 +176,9 @@ function ago(ms, now) {
   return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
 }
 
-/* Returns the managed conversations named in an open row of the steward's plan, by title, session id, or the id's first
-   eight characters. names: session id -> title. */
+/* Returns the managed conversations named in an open row of the steward's plan, by title, session id, or for a Claude
+   Code conversation the id's first eight characters. Every key of another agent starts with its source's name, so
+   such a conversation counts only by its whole key, its whole session id or its title. names: key -> title. */
 function waitedOn(plan, ids, names) {
   const texts = [];
   const walk = (nodes) => {
@@ -170,8 +190,18 @@ function waitedOn(plan, ids, names) {
   walk(plan && plan.nodes);
   const all = texts.join('\n');
   // Skip an eight-character prefix that more than one of them has.
-  const prefix = (id) => ids.filter((x) => x.slice(0, 8) === id.slice(0, 8)).length === 1 && all.includes(id.slice(0, 8));
-  return new Set(ids.filter((id) => all.includes(id) || prefix(id) || (names[id] && names[id].trim().length >= 2 && all.includes(names[id].trim()))));
+  const prefix = (id) => keys.isClaude(id) && ids.filter((x) => x.slice(0, 8) === id.slice(0, 8)).length === 1 && all.includes(id.slice(0, 8));
+  const session = (id) => keys.isOther(id) && all.includes(keys.parse(id).sessionId);
+  return new Set(ids.filter((id) => all.includes(id) || prefix(id) || session(id)
+    || (names[id] && names[id].trim().length >= 2 && all.includes(names[id].trim()))));
+}
+
+/* A notice's words for what another agent's conversation waits on (src/agent-states.js reasonOf). The user answers it
+   in that window, where Agent Plus refuses a message meanwhile. */
+function otherWait(reason) {
+  const what = reason && reason.kind === 'permission' ? `the user to approve ${reason.tool || 'a tool'} in its window`
+    : reason && reason.kind === 'question' ? 'the user\'s answer to a question in its window' : 'the user in its window';
+  return `${what} (only the user can answer that, there; a message from you does not reach it while it waits)`;
 }
 
 /* Signal 0 only checks; EPERM still means the process exists. */
@@ -197,11 +227,18 @@ function writesTable(mine, others) {
 const windowLabel = (w) => String(w.name || '').replace(/\s*\[[^\]]*\]\s*$/, '')
   || (w.folders[0] ? path.basename(w.folders[0]) : 'Window with no folder');
 
-/* One group per window, the one in front first. `rows` are all open in one of `wins`. */
+/* One group per window, the one in front first, then one per other agent. `rows` are all open in one of `wins`, or
+   another agent's. Agent Plus does not say in which window another agent's conversation is open. */
 function grouped(rows, wins, front) {
   const groups = new Map();
   const frontWin = wins.find((w) => w.sessions.includes(front));
   for (const c of rows) {
+    if (keys.isOther(c.sessionId)) {
+      const key = 's:' + c.sourceId;
+      if (!groups.has(key)) groups.set(key, { key, name: c.label || keys.labelOf(c.sessionId), rank: 2, rows: [] });
+      groups.get(key).rows.push(c);
+      continue;
+    }
     const w = wins.find((x) => x.sessions.includes(c.sessionId)) || hostWindow(c, wins);
     if (!w) continue;
     const key = 'w:' + w.pid;
@@ -254,8 +291,10 @@ function body(model) {
       VS Code window, so the steward cannot send ${model.hidden === 1 ? 'it' : 'them'} anything; not listed.
       <button data-act="drop-hidden">Untick ${model.hidden === 1 ? 'it' : 'them'}</button></p>` : '';
   if (model.other) {
-    const name = model.other.title ? `"${esc(model.other.title)}" is a ${esc(model.other.agent)} conversation` : `The tab in front is a ${esc(model.other.agent)} conversation`;
-    return `<p class="empty">${name}. The Steward panel works only with Claude Code conversations.</p>`;
+    const name = model.other.title ? `"${esc(model.other.title)}"` : 'The tab in front';
+    return model.other.manageable
+      ? `<p class="empty">${name} is an ${esc(model.other.agent)} conversation, which cannot be a steward. To have it managed, bring a Claude Code conversation to the front and tick it there.</p>`
+      : `<p class="empty">${name} is a ${esc(model.other.agent)} conversation. A ${esc(model.other.agent)} conversation can neither be a steward nor be managed.</p>`;
   }
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
@@ -264,7 +303,7 @@ function body(model) {
            <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''} ${model.everyBy ? 'disabled' : ''}> All, including new ones</label>
          ${model.everyBy ? `<span class="everyby" data-why="${esc(model.everyBy)} has All on">on for <a href="#" data-open="${esc(model.everyById)}">${esc(model.everyBy)}</a></span>` : ''}
          <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${stale}${away}
-       ${model.groups.length ? model.groups.map(group).join('') : '<p class="empty">No other Claude Code conversation is open in a VS Code window.</p>'}`;
+       ${model.groups.length ? model.groups.map(group).join('') : '<p class="empty">No other conversation is open in a VS Code window.</p>'}`;
 }
 
 /*
@@ -364,31 +403,53 @@ function shell(list, nonce) {
  * steward's other requests (src/relay.js), with agentsFresh() -> Promise<{ records, error }> from a fresh
  * `claude agents --json` before a resume, readState(id) for a `claude --bg` session's state (src/background.js),
  * duplicates() for the conversations run by several processes and stopDuplicate(id) to stop the old one
- * (src/duplicates.js), pageAt() for the time of a page's last heartbeat, and otherFront() -> { agent, title } while
- * another agent's conversation tab is in front (src/other-agents.js), or null.
+ * (src/duplicates.js), pageAt() for the time of a page's last heartbeat, otherFront() -> { agent, title, manageable }
+ * while another agent's conversation tab is in front (src/other-agents.js), or null, and optionally openOther(target)
+ * in place of agentPlus.openConversation and otherStates() in place of src/agent-states.js read(). The agentPlus
+ * interface comes through attachCore() once this extension is registered with Agent Plus.
  */
 function create(vscode, deps) {
   deps = Object.assign({ isBackground: bgSessions.isBackground, records: () => liveRecords(), post: stewards.post, alive, readState,
     windowName: () => '', windowFolders: () => [], shownList: () => [], changed: () => {}, focusWindow: () => {}, transcriptOf,
     canShare: () => deps.canWrite(), otherFront: () => null, replaced: () => false, build: () => null, offerReload: () => {},
     reload: () => vscode.commands.executeCommand('workbench.action.reloadWindow'),
+    openOther: (target) => vscode.commands.executeCommand('agentPlus.openConversation', target),
     deliver: () => Promise.resolve({ outcome: 'notReceived', reason: 'this window cannot type into a conversation' }) }, deps);
   let view = null, timer = 0, busy = false, last = new Map(), lastFront = '', shown = null;
   const frontKey = () => { const o = deps.otherFront(); return o ? 'other:' + o.agent + ':' + o.title : deps.activeChat(); };
   const states = new Map();
+  const link = stewardCore.link({ changed: () => { pass(); }, log: deps.log });
+  const core = () => link.core();
+  /* The plan files of other agents' conversations the stewards table has, read once per pass: where the plan is when
+     this window's Agent Plus does not say. */
+  let recorded = {};
+  const recordedPaths = () => {
+    const out = {};
+    for (const t of Object.values(stewards.read(deps.dir))) Object.assign(out, t.paths || {});
+    return out;
+  };
+  /* The plan of another agent's conversation is wherever its source keeps it; a key is no file name. */
+  const planFile = (id) => (keys.isOther(id) ? stewardCore.planPathOf(core(), id) || recorded[id] || '' : path.join(deps.dir, id + '.json'));
+  const plansOf = (list) => {
+    const out = {};
+    for (const id of list) { const f = keys.isOther(id) ? stewardCore.planPathOf(core(), id) : ''; if (f) out[id] = f; }
+    return out;
+  };
   /* A pass reads the plan of every conversation listed, every REFRESH_MS. A plan whose file has the same size and
      modification time as at the last read is taken from here instead. */
   const planSeen = new Map();
   const readPlan = (id) => {
+    const other = keys.isOther(id), file = planFile(id);
     let st;
-    try { st = fs.statSync(path.join(deps.dir, id + '.json')); } catch (_) { planSeen.delete(id); return deps.readPlan(id); }
-    const key = st.mtimeMs + ':' + st.size, hit = planSeen.get(id);
+    try { st = fs.statSync(file); } catch (_) { planSeen.delete(id); return other ? null : deps.readPlan(id); }
+    const key = file + ':' + st.mtimeMs + ':' + st.size, hit = planSeen.get(id);
     if (hit && hit.key === key) return hit.plan;
-    const plan = deps.readPlan(id);
+    const plan = other ? readPlanAt(file, keys.parse(id).sessionId) : deps.readPlan(id);
     planSeen.set(id, { key, plan });
     return plan;
   };
-  const cached = Object.assign({}, deps, { readPlan });
+  const cached = Object.assign({}, deps, { readPlan, others: () => stewardCore.others(core()),
+    otherStates: () => (deps.otherStates ? deps.otherStates() : agentStates.read()) });
 
   /* The Claude Code conversation the panel is for: none while another agent's conversation tab is in front. Agent Plus's
      work plan view has moved to that conversation, and a tick here would still change the last Claude Code one's list. */
@@ -398,7 +459,7 @@ function create(vscode, deps) {
     const mine = new Set(front && table[front] ? table[front].manages : []);
     const every = !!(front && table[front] && table[front].all);
     const wins = windows();
-    const open = (id) => wins.some((w) => w.sessions.includes(id));
+    const open = (id) => (keys.isOther(id) ? !!(all.get(id)) : wins.some((w) => w.sessions.includes(id)));
     const steward = (id) => { const t = table[id] || table[String(id).toLowerCase()]; return !!(t && (t.all || (t.manages || []).length)); };
     const rows = [...all.values()].filter((c) => c.sessionId !== front && (open(c.sessionId) || hostWindow(c, wins)))
       .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c, lockOf(table, c.sessionId, front, all)));
@@ -459,12 +520,12 @@ function create(vscode, deps) {
       + 'installed, and a window running that one keeps the stewards list. Reload the window to change what a steward manages.');
   };
 
-  /* The list for a steward with "all" set: every conversation open in a window, except itself, other stewards, and
-     ones another steward has. */
+  /* The list for a steward with "all" set: every conversation open in a window, another agent's included, except
+     itself, other stewards, and ones another steward has. */
   const everyIds = (steward, table) => {
     const wins = windows();
     return [...last.keys()].filter((id) => id !== steward && !table[id] && !stewards.holderOf(table, id, steward)
-      && wins.some((w) => w.sessions.includes(id)));
+      && (keys.isOther(id) ? keys.allowed(id) : wins.some((w) => w.sessions.includes(id))));
   };
   const titlesOf = (list) => {
     const names = {};
@@ -495,7 +556,7 @@ function create(vscode, deps) {
       if (want.length === t.manages.length && want.every((id) => t.manages.includes(id))) continue;
       const names = titlesOf(want);
       for (const id of want) if (!names[id] && t.names && t.names[id]) names[id] = t.names[id];
-      stewards.setManaged(steward, want, names, { dir: deps.dir, every: true });
+      stewards.setManaged(steward, want, names, { dir: deps.dir, every: true, paths: plansOf(want) });
       changed = true;
     }
     if (changed) deps.changed();
@@ -563,7 +624,8 @@ function create(vscode, deps) {
       if (now - (workAt.get(steward) || 0) >= WORK_CHECK_MS) {
         workAt.set(steward, now);
         const t = toldOf(steward), running = {};
-        for (const id of manages) {
+        // Background work and processes are Claude Code's; another agent's key is no file name either.
+        for (const id of manages.filter(keys.isClaude)) {
           const cur = watch.runningWork(id, live(), deps.dir), was = t.running[id] || {};
           for (const key of Object.keys(was)) {
             if (cur.includes(key)) continue;
@@ -580,7 +642,7 @@ function create(vscode, deps) {
         t.running = running;
         // Conversations run by several processes, reported once per set of pids, and old processes stopped since.
         const groups = (deps.duplicates && deps.duplicates()) || new Map(), twice = {};
-        for (const id of manages) {
+        for (const id of manages.filter(keys.isClaude)) {
           const g = groups.get(id);
           if (!g) continue;
           twice[id] = g.map((p) => p.pid).join(' ');
@@ -612,7 +674,7 @@ function create(vscode, deps) {
         asks[c.id] = (now.asks || []).slice();
         details[c.id] = { state: NOTICE_STATE[now.state] || now.state, doing: now.doing,
           asks: asks[c.id].filter((q) => !before.includes(q)),
-          waitingOn: now.state === 'prompt' ? watch.waitingOn(deps.transcriptOf(c.id)) : '' };
+          waitingOn: now.state !== 'prompt' ? '' : keys.isOther(c.id) ? otherWait(now.waitingFor) : watch.waitingOn(deps.transcriptOf(c.id)) };
       }
       // Taken off before the post is awaited: a second pass running meanwhile would otherwise send the same notice.
       pending.delete(steward);
@@ -628,8 +690,14 @@ function create(vscode, deps) {
   };
 
   /* Shows a conversation: here if this window has its tab, otherwise by writing a request file for the window that
-     has it. Returns 'here', 'sent' or 'nowhere'. */
+     has it; another agent's through Agent Plus, which says so itself when no window has it. Returns 'here', 'sent' or
+     'nowhere'. */
   const open = async (id) => {
+    if (keys.isOther(id)) {
+      const p = keys.parse(id), c = last.get(id);
+      try { await deps.openOther({ sourceId: p.sourceId, sessionId: p.sessionId, title: c ? c.title : '', cwd: c ? c.cwd : '' }); return 'sent'; }
+      catch (e) { deps.log('steward panel: ' + ((e && e.message) || e)); return 'nowhere'; }
+    }
     if (typeof id !== 'string' || !SESSION.test(id)) return 'nowhere';
     if (deps.shownHere(id) && await deps.reveal(id)) return 'here';
     const w = windows().find((x) => x.pid !== process.pid && x.sessions.includes(id));
@@ -684,7 +752,8 @@ function create(vscode, deps) {
       for (const r of await relay.take(deps.dir, { shownHere: deps.shownHere, stewards: () => stewards.read(deps.dir),
         transcriptOf: deps.transcriptOf, deliver: deps.deliver, rename: deps.rename, close: deps.close, open: deps.open,
         resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsFresh || deps.freshAgents,
-        records: deps.records, post: deps.post, titleOf,
+        records: deps.records, post: deps.post, titleOf, deliverOther: (key, text) => stewardCore.deliverTo(core(), key, text),
+        later: (r) => deps.log(`steward relay to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`),
         manage: (steward, id) => {
           if (!writes()) return false;
           const t = stewards.read(deps.dir)[steward];
@@ -712,20 +781,32 @@ function create(vscode, deps) {
   };
 
   /* Skipped while the panel is hidden and no steward here needs notices: a pass reads every plan and transcript end. */
+  /* Said once per window. */
+  let toldNewer = false;
   const pass = async () => {
-    if (busy || !deps.enabled()) return;
+    if (!deps.enabled()) { link.want(false); return; }
+    if (busy) return;
     publish();
     watchRequests();
     await takeRequest();
     watchRelays();
     await takeRelays();
-    if (!(view && view.visible) && !Object.keys(stewards.read(deps.dir)).some((id) => deps.shownHere(id))) return;
+    // Agent Plus is asked for other agents' conversations only while this window has a use for them.
+    const needed = (view && view.visible) || Object.keys(stewards.read(deps.dir)).some((id) => deps.shownHere(id));
+    link.want(needed);
+    if (!needed) return;
     busy = true;
     try {
       const r = await deps.freshAgents();
       if (planSeen.size > 1000) planSeen.clear();
+      recorded = recordedPaths();
       last = gather(r && r.records, cached);
       if (writes()) {
+        const v = stewards.newer(deps.dir);
+        if (v && !toldNewer) {
+          toldNewer = true;
+          deps.log(`steward panel: stewards.json is version ${v}, from a later build of Claude Code Plus; this window reads it and does not write it`);
+        }
         if (stewards.migrate(deps.dir)) deps.log('steward panel: rewrote stewards.json so that each conversation has one steward at most');
         const names = {};
         for (const [id, c] of last) names[id] = c.title;
@@ -763,7 +844,7 @@ function create(vscode, deps) {
     if (m.type === 'every') {
       if (m.on === true && stewards.everyOf(table, front)) { render(true); return; }
       const list = m.on ? everyIds(front, table) : [...mine];
-      stewards.setManaged(front, list, titlesOf(list), { dir: deps.dir, every: m.on === true, ticked: [...mine] });
+      stewards.setManaged(front, list, titlesOf(list), { dir: deps.dir, every: m.on === true, ticked: [...mine], paths: plansOf(list) });
       render(true);
       deps.changed();
       return;
@@ -780,7 +861,7 @@ function create(vscode, deps) {
     else if (m.type === 'none') mine.clear();
     else if (m.type === 'drop-hidden') for (const id of model(last, front).hiddenIds) mine.delete(id);
     else return;
-    stewards.setManaged(front, [...mine], titlesOf(mine), { dir: deps.dir });
+    stewards.setManaged(front, [...mine], titlesOf(mine), { dir: deps.dir, paths: plansOf(mine) });
     render(true);
     deps.changed();
   };
@@ -807,6 +888,7 @@ function create(vscode, deps) {
   return {
     dispose() {
       clearInterval(timer);
+      link.dispose();
       reg.dispose();
       themeWatch.dispose();
       if (requestWatch) { try { requestWatch.close(); } catch (_) { /* closed */ } }
@@ -814,12 +896,14 @@ function create(vscode, deps) {
       if (published) windowEntries.withdraw(deps.dir);
     },
     refresh() { render(); },
+    /* The agentPlus interface, or null once this extension is no longer registered with Agent Plus. */
+    attachCore(next) { link.attach(next); },
     open,
     /* Whether this window keeps the files every window shares; writesTable decides. */
     keepsShared: () => writes(),
     _gather: gather, _model: model, _notify: notify, _pass: pass, _onMessage: onMessage, _takeRequest: takeRequest, _syncEvery: syncEvery,
-    _takeRelays: takeRelays, _writes: writes, _last: () => last,
+    _takeRelays: takeRelays, _writes: writes, _last: () => last, _listening: () => link.listening(),
   };
 }
 
-module.exports = { create, gather, grouped, doingRows, waitedOn, body, shell, writesTable, VIEW, REFRESH_MS, NOTICE_GAP_MS, WORK_CHECK_MS, WINDOWS_DIR };
+module.exports = { create, gather, grouped, doingRows, waitedOn, otherWait, body, shell, writesTable, VIEW, REFRESH_MS, NOTICE_GAP_MS, WORK_CHECK_MS, WINDOWS_DIR };
