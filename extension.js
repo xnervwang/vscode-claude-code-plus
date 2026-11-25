@@ -1930,11 +1930,17 @@ function start(context, log, renamed, handing = false) {
        with an uninstalled extension, so the registration can outlive the files it names. Check the copy's digest, not
        just that it exists: a partly written copy, or one another window is replacing, exists but is not this plugin. */
     const staged = !!state.staged && pluginInstall.digest(to) === state.staged;
-    if (!retry && registered && state.stamp === stamp && staged) return;
+    /* The marketplace can stay registered at a folder that is gone, or at the old id's staged copy (src/carryover.js),
+       which the editor deletes with that extension: Claude Code then loads no plugin, and registering here again moves
+       it to this copy. */
+    const legacyCopy = path.join(carryover.legacyStorage(context.globalStorageUri.fsPath), 'claude-plugin');
+    const strayAt = registered && pluginInstall.strayRegistration(to, legacyCopy) ? pluginInstall.registeredAt() : '';
+    if (!retry && registered && state.stamp === stamp && staged && !strayAt) return;
     if (undone) log.appendLine('work plan plugin: registering again - Claude Code lists neither it nor its marketplace, which is what uninstalling this extension leaves');
+    if (strayAt) log.appendLine(`work plan plugin: registering again - Claude Code has its marketplace at ${strayAt}, which is gone or is the old extension's copy`);
     // A registered plugin on a new version of this extension needs its files refreshed, not registering again: the
     // path stays where it is, and re-running the install is what would undo a deliberate uninstall.
-    const refreshOnly = !retry && registered;
+    const refreshOnly = !retry && registered && !strayAt;
     const dirs = claudeFolders();
     const claudeBin = pluginInstall.findClaude(dirs);
     if (!claudeBin && !refreshOnly) {

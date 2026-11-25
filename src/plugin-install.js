@@ -74,6 +74,32 @@ function registrationGone(dir = configDir()) {
   return !Object.prototype.hasOwnProperty.call(listed, REF) && !Object.prototype.hasOwnProperty.call(markets, MARKETPLACE);
 }
 
+/** The folder Claude Code's record says the marketplace is registered at, or '' when the record cannot be read or does
+    not list it. */
+function registeredAt(dir = configDir()) {
+  const markets = readRecord(dir, 'known_marketplaces.json');
+  const m = markets && typeof markets === 'object' ? markets[MARKETPLACE] : null;
+  if (!m || typeof m !== 'object') return '';
+  const source = m.source && typeof m.source === 'object' && typeof m.source.path === 'string' ? m.source.path : '';
+  return typeof m.installLocation === 'string' && m.installLocation ? m.installLocation : source;
+}
+
+/**
+ * Whether the marketplace is registered at a folder that this extension takes back by registering its own copy again:
+ * a folder that no longer exists, or `legacy`, the staged copy of the id this extension was published under before.
+ * Claude Code then loads no plugin from it, and the editor deletes the old id's folder once that extension is
+ * uninstalled. A registration at another folder that exists is left alone: it is this extension staged by another
+ * editor, or a change made on purpose. Registering the same marketplace name again moves it to the new folder and
+ * keeps the plugin's data.
+ */
+function strayRegistration(to, legacy, dir = configDir()) {
+  const at = registeredAt(dir);
+  if (!at) return false;
+  const same = (a, b) => path.resolve(a) === path.resolve(b);
+  if (same(at, to)) return false;
+  return !fs.existsSync(at) || (!!legacy && same(at, legacy));
+}
+
 /* src/python-runtime.js, shared with Codex Plus, finds the Python 3 that runs the hooks; fitHooks fits the staged copy
    to it. */
 const { PYTHONS, findPython } = require('./python-runtime');
@@ -357,7 +383,7 @@ function listed(dir = configDir()) {
 }
 
 module.exports = {
-  install, disable, enable, enabledIn, followTokenMode, UNLOADED_MARKER, removeSync, rescuePlans, listed, RESCUE_PREFIX, findClaude, findPython, fitHooks, digest, stage, registrationGone, MARKETPLACE,
+  install, disable, enable, enabledIn, followTokenMode, UNLOADED_MARKER, removeSync, rescuePlans, listed, RESCUE_PREFIX, findClaude, findPython, fitHooks, digest, stage, registrationGone, registeredAt, strayRegistration, MARKETPLACE,
   PLUGIN, REF, BINARY, PYTHONS, SKILL_RUN,
   DATA_DIR,
 };

@@ -5600,6 +5600,32 @@ console.log('\nthe work plan plugin after an uninstall and a reinstall');
     else bad(`${what}: said ${got}`);
     fs.rmSync(h, { recursive: true, force: true });
   }
+  /* Where the marketplace is registered, and when that is a registration this extension takes back: a folder that is gone,
+     or the old id's staged copy, but not another folder that exists. */
+  {
+    const h = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-stray-')));
+    try {
+      const cfg = path.join(h, '.claude');
+      const mine = path.join(h, 'storage', 'xnervwang.claude-code-plus', 'claude-plugin');
+      const legacy = path.join(h, 'storage', 'xnervwang.claude-code-extras', 'claude-plugin');
+      const other = path.join(h, 'other-editor', 'xnervwang.claude-code-plus', 'claude-plugin');
+      for (const d of [mine, legacy, other]) fs.mkdirSync(d, { recursive: true });
+      fs.mkdirSync(path.join(cfg, 'plugins'), { recursive: true });
+      const at = (where) => fs.writeFileSync(path.join(cfg, 'plugins', 'known_marketplaces.json'), JSON.stringify(where === null ? { elsewhere: {} }
+        : { [pi.MARKETPLACE]: { source: { source: 'directory', path: where }, installLocation: where } }));
+      const ask = (where) => { at(where); return [pi.registeredAt(cfg), pi.strayRegistration(mine, legacy, cfg)]; };
+      const gone = path.join(h, 'storage', 'removed', 'claude-plugin');
+      const got = [ask(mine), ask(gone), ask(legacy), ask(other), ask(null)];
+      fs.writeFileSync(path.join(cfg, 'plugins', 'known_marketplaces.json'), '{oops');
+      got.push([pi.registeredAt(cfg), pi.strayRegistration(mine, legacy, cfg)]);
+      fs.writeFileSync(path.join(cfg, 'plugins', 'known_marketplaces.json'), JSON.stringify({ [pi.MARKETPLACE]: { source: { source: 'directory', path: gone } } }));
+      got.push([pi.registeredAt(cfg), pi.strayRegistration(mine, legacy, cfg)]);
+      const want = [[mine, false], [gone, true], [legacy, true], [other, false], ['', false], ['', false], [gone, true]];
+      if (JSON.stringify(got) === JSON.stringify(want)) {
+        ok('a marketplace registered at a folder that is gone, or at the old extension\'s copy, is taken back; one at this copy, at another folder that exists, or not listed is left alone');
+      } else bad(`taking the marketplace back gave ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+    } catch (e) { bad('taking the marketplace back: ' + e.message); } finally { fs.rmSync(h, { recursive: true, force: true }); }
+  }
   /* With CLAUDE_CONFIG_DIR set, Claude Code keeps its plugin records and every plugin's data there instead of in
      ~/.claude, and so does this extension. */
   {
@@ -5627,9 +5653,13 @@ console.log('\nthe work plan plugin after an uninstall and a reinstall');
   }
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const body = (/const syncPlugin = async \(retry\) => \{([\s\S]*?)\n  \};/.exec(ext) || [])[1] || '';
-  if (/registrationGone\(\)/.test(body) && /!undone/.test(body) && /&& staged\) return;/.test(body)) {
+  if (/registrationGone\(\)/.test(body) && /!undone/.test(body) && /&& staged && !strayAt\) return;/.test(body)) {
     ok('registering consults Claude Code\'s records and the staged copy, not only its own memory');
   } else bad('syncPlugin still trusts only its remembered state');
+  if (/strayRegistration\(to, legacyCopy\)/.test(body) && /const refreshOnly = !retry && registered && !strayAt;/.test(body)
+    && /carryover\.legacyStorage\(/.test(body)) {
+    ok('a marketplace left at a folder that is gone, or at the old extension\'s copy, is registered again at this copy on start');
+  } else bad('syncPlugin leaves the marketplace registered at a folder that is gone');
   /* The staged copy is there or not by its contents: one cut short, or being replaced by another window, is there. Its
      contents are the fitted copy, so they are compared with what was recorded when it was staged. */
   if (/const staged = !!state\.staged && pluginInstall\.digest\(to\) === state\.staged;/.test(body)
