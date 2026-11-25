@@ -1,5 +1,5 @@
 {
-  "core": "9d038853a0d32d409b18af10356ae03ac1a674b4",
+  "core": "b1a4a1277da8f257f1665ae73ad1614e20fed4a5",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -171,6 +171,41 @@
       "path": "src/load-tabs.js",
       "from": "shared/host/load-tabs.js",
       "sha256": "82611d16e2aa1fde553a27dc6ffaeb2b548fb6baf3c830143e324144d850ed29"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/hooks/steward-relay.py",
+      "from": "shared/plugin/claude/steward-relay.py",
+      "sha256": "ea669825b7776f382763d1f705a8e3dfebe14bd60646732d947740812b493f88"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/hooks/steward.py",
+      "from": "shared/plugin/claude/steward.py",
+      "sha256": "4e5fb11dbb3905e52252d7f1019bc0de28c903d9913962721fce63c17016d6c1"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/hooks/steward-peek.py",
+      "from": "shared/plugin/claude/steward-peek.py",
+      "sha256": "a988cd7d7260b4338c2636e191710270e3f8b6c3f026200a2cc9de7840e5a6f7"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/hooks/steward_table.py",
+      "from": "shared/plugin/claude/steward_table.py",
+      "sha256": "41cc9374c7db1b577c2bbe81dd8e08c03dfb9d4aea715cae4f8b0d5e0425e74b"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/hooks/proc_alive.py",
+      "from": "shared/plugin/claude/proc_alive.py",
+      "sha256": "d242e1ae75873c539cd406f48d48fc581daf6159726cbbb42284c7b820dff4ae"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/hooks/agent_states.py",
+      "from": "shared/plugin/claude/agent_states.py",
+      "sha256": "1fdbd5263dbe2cf25e21099a7c7337d232e179b2da894107131600701363bc8b"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/skills/steward/SKILL.md",
+      "from": "shared/plugin/claude/steward-skill.md",
+      "sha256": "3439313286becc824642edc911e61306be2476fb08ef64ddb0f8cd2b63fa4ce9"
     }
   ]
 }

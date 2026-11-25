@@ -1,6 +1,7 @@
 # BSD 3-Clause License
 # Copyright (c) 2026, Xnerv Wang
 # All rights reserved.
+# Source: vscode-agent-plus shared/plugin/claude/proc_alive.py; sync-shared.js copies it, so edit it there.
 
 """os.kill(pid, 0) tells whether a process is running only on Linux and macOS. On Windows 0 is CTRL_C_EVENT, a Ctrl+C
 sent to the console process group the pid names, and any other signal terminates the process, so there the process is

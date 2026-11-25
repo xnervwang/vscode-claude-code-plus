@@ -1,6 +1,7 @@
 # BSD 3-Clause License
 # Copyright (c) 2026, Xnerv Wang
 # All rights reserved.
+# Source: vscode-agent-plus shared/plugin/claude/agent_states.py; sync-shared.js copies it, so edit it there.
 
 """What other agents' conversations are doing, as steward.py and steward-peek.py report it: the attention files every VS
 Code window with Agent Plus writes in the shared folder (Agent Plus's docs/protocol.md, "Notifications"), read the same

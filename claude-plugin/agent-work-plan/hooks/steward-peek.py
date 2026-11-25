@@ -2,6 +2,7 @@
 # BSD 3-Clause License
 # Copyright (c) 2026, Xnerv Wang
 # All rights reserved.
+# Source: vscode-agent-plus shared/plugin/claude/steward-peek.py; sync-shared.js copies it, so edit it there.
 
 """Print one conversation's state, open plan rows and latest reply text, for a steward.
 

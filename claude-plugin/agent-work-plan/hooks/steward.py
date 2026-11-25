@@ -2,6 +2,7 @@
 # BSD 3-Clause License
 # Copyright (c) 2026, Xnerv Wang
 # All rights reserved.
+# Source: vscode-agent-plus shared/plugin/claude/steward.py; sync-shared.js copies it, so edit it there.
 
 """UserPromptSubmit hook: for a steward, list the conversations it manages and the state of each; for a managed
 conversation, name the stewards that watch it.

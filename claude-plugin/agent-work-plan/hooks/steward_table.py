@@ -1,6 +1,7 @@
 # BSD 3-Clause License
 # Copyright (c) 2026, Xnerv Wang
 # All rights reserved.
+# Source: vscode-agent-plus shared/plugin/claude/steward_table.py; sync-shared.js copies it, so edit it there.
 
 """The stewards table: stewards.json in this plugin's data directory, read with the same rules the extension uses
 (settle in src/stewards.js), so that a table written by an older build reads the same here.

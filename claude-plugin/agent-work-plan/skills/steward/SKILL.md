@@ -4,6 +4,7 @@ description: How to act as the user's steward for other Claude Code conversation
 version: 1.0.0
 tags: [steward, cross-session, monitoring, relay]
 ---
+<!-- Source: vscode-agent-plus shared/plugin/claude/steward-skill.md; sync-shared.js copies it, so edit it there. -->
 
 # Acting as the user's steward
 
