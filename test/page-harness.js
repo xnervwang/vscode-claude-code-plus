@@ -284,8 +284,8 @@ const SETUP = String.raw`
       c[1].forEach(function(m){ quietReply(m, n); });
     });
   }
-  /* Focus view's fold rows as Claude Code draws them: aria-expanded on the row, and the fold's component with its props
-     above the row's own. The first two start open, as if opened by hand. */
+  /* Like the ones Claude Code draws in Focus view, each fold row carries aria-expanded, and the fold's component, with
+     its props, sits one fiber above the row. The first two start open, as if opened by hand. */
   var handRows = [];
   if (CFG.handFolds) {
     [true, true, false, 'pending'].forEach(function(open, n){

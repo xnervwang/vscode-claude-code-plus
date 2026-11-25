@@ -236,7 +236,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const claudeButtons = () => page.evaluate(() => [...document.querySelectorAll('.editor-group-container.active .editor-actions .action-item .action-label')]
     .map((a) => a.getAttribute('aria-label') || a.title || '').filter((t) => /Claude/.test(t)));
   const claudeButton = () => page.locator('.editor-group-container.active .editor-actions .action-item .action-label[aria-label*="Claude"]').first();
-  /* Whether an animation frame comes in frame `f` within 1.5 s. A page that gets no frames still runs its timers, but
+  /* Whether an animation frame comes in `f` within 1.5 s. A page that gets no frames still runs its timers, but
      handles input whose effect waits for the next frame only once it draws again. */
   const paints = (f) => f.evaluate(() => new Promise((r) => {
     const now = (raf) => r({ raf, visibility: document.visibilityState, focus: document.hasFocus(),
@@ -247,7 +247,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   })).catch((e) => ({ error: String(e).slice(0, 80) }));
   /* The text of VS Code's hover over `loc`, or '' with the reason in hoverWhy. VS Code starts a hover when the pointer
      enters an element, so an element drawn again under a resting pointer never shows one: the helper marks the element
-     it hovered, and hovers its new copy when the mark is gone, at most twice, noting each time. */
+     it hovered and hovers the new copy when the mark is gone. It tries that at most twice and notes each try. */
   let hoverWhy = null;
   const hoverText = async (loc) => {
     hoverWhy = null;
