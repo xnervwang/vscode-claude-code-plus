@@ -140,7 +140,7 @@ async function run() {
     await until(() => rowsNow().length, 5000);
     const rows = rowsNow();
     const status = control.state.status.find((i) => i.id === 'agentPlus.conversations');
-    eq([rows.map((r) => r.id), rows[0] && rows[0].label, rows[0] && rows[0].description.split(' · ')[0], !!status && status.text.endsWith('2 to decide')],
+    eq([rows.map((r) => r.id), rows[0] && rows[0].label, rows[0] && rows[0].description.split(' · ')[0], !!status && /(?:2 to decide|1 conversation needs you)$/.test(status.text)],
       [[`conversations/claude-code/${SID}`], 'Asks two questions', 'needs you', true],
       'the Claude Code conversation in this workspace shows in the Conversations tree with its two questions');
 
