@@ -8,7 +8,7 @@ Bring a Claude Code conversation to the front, then tick the other Claude Code c
 
 The panel groups open Claude Code conversations by VS Code window. OpenCode Agent Plus conversations appear together at the end under the name OpenCode Agent Plus. OpenCode Agent Plus registers its conversations with Agent Plus, an extension it shares with Claude Code Plus. Agent Plus does not report which window has each OpenCode Agent Plus conversation open.
 
-With a Codex conversation in front, the panel shows no ticks to change and says the conversation can neither be a steward nor be managed by one. The panel also hides the ticks when you bring an OpenCode Agent Plus conversation to the front. The panel says this conversation cannot be a steward and tells you to tick it after switching to a Claude Code conversation. The list returns when you switch back to a Claude Code conversation; on a file or other non-conversation tab, the panel stays on the last Claude Code conversation that was in front.
+With a Codex conversation in front, the panel shows no ticks to change and says the conversation can neither be a steward nor be managed by one. The panel also hides the list when you bring an OpenCode Agent Plus conversation to the front. The panel says this conversation cannot be a steward and tells you to tick it after switching to a Claude Code conversation. The list returns when you switch back to a Claude Code conversation; on a file or other non-conversation tab, the panel stays on the last Claude Code conversation that was in front.
 
 Turn on **All, including new ones** to have this steward manage all conversations in the list and any opened later, except other stewards and conversations another steward ticked. While the switch is on, the checkboxes in the list are disabled.
 
@@ -30,7 +30,7 @@ The panel lists OpenCode Agent Plus conversations only when both OpenCode Agent 
 
 ### Messages and notices
 
-As with a Claude Code conversation, you can ask the steward to send a message to a managed OpenCode Agent Plus conversation. Claude Code Plus passes it to Agent Plus, which delivers it to OpenCode Agent Plus in the window where the conversation is open. It appears there as your own message. If the conversation is waiting for you to approve a tool or answer a question, the steward tells you the conversation won't accept its message, so respond in that conversation's window.
+As with a Claude Code conversation, you can ask the steward to send a message to a managed OpenCode Agent Plus conversation. Claude Code Plus passes it to Agent Plus, which delivers it to OpenCode Agent Plus in the window where the conversation is open. It appears there as your own message. If the conversation is waiting for you to approve a tool or answer a question, the steward tells you the conversation won't accept the message, so respond in that conversation's window.
 
 When the conversation starts waiting for you or stops, the steward gets a notice under the same conditions as for a Claude Code conversation. A notice of a wait names the tool that needs approval or says a question is waiting. The steward can read the conversation's work plan, its latest reply and your latest messages in that conversation. OpenCode Agent Plus writes the reply and messages to a file beside the plan at the end of each turn.
 
@@ -40,7 +40,7 @@ A managed OpenCode Agent Plus conversation gets a reminder each turn that a stew
 
 On Linux, when Claude Code runs a conversation in more than one process at once, as after a window went away while its extension host stayed, the conversation is marked in the Steward panel and the session list and the steward is told each process's pid, start time and window. Claude Code Plus stops the old process when it is idle and its window is gone, and tells the steward; otherwise the panel's Stop the old process button does it. The process that keeps the conversation is told which background commands, monitors and subagents stopped with the old one.
 
-Claude Code keeps a conversation's transcript in a folder for the directory it runs in. If the conversation continues from another directory, each folder has a copy. A window open on the earlier directory resumes the copy in that directory's folder, which is older. If a conversation is open in another window but not in the current one, clicking its session list entry here brings it to the front in that window.
+Claude Code keeps a conversation's transcript in a folder for the directory it runs in. If the conversation continues from another directory, each folder has a copy. A window open on the earlier directory resumes that directory's copy, which is the older one. If a conversation is open in another window but not in the current one, clicking its session list entry here brings it to the front in that window.
 
 When the processes run copies in different folders, Claude Code Plus compares the copies as they stood when the later process started. If the copies' newest entries were at least ten minutes apart, Claude Code Plus treats the process running the older copy as the old process, whichever started first. For a smaller gap, the panel shows no Stop the old process button, and Claude Code Plus stops neither process on its own.
 
