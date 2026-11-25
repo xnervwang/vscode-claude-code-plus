@@ -4,7 +4,8 @@
 
 // An answer from the Conversations tab (src/answers.js), sent from this panel as if typed here: the text goes into
 // the message input and Enter sends it, so it reaches the conversation as the user's own message and is queued like
-// one when a turn is running. The host only hands it to the panel showing that conversation.
+// one when a turn is running. The host only hands it to the panel showing that conversation. A prefill from Agent Plus's
+// Work plan view goes into the same input and is left there for the user to send.
 // Fragment of the in-page script - see README.md in this folder.
 
   var ANSWER_INPUT = '[role="textbox"][aria-label="Message input"]';
@@ -89,10 +90,11 @@
      throttled timer must not send it once the host has stopped waiting. */
   var GO_SEND_MS = 3000;
   var awaitingGo = {};
-  var waitForGo = function(m){
+  /* `go`, when given, runs in place of typing the answer once the host says go in time. */
+  var waitForGo = function(m, go){
     var at = Date.now();
     var drop = function(){ if (awaitingGo[m.id]) { delete awaitingGo[m.id]; answerResult(m.id, false, 'late'); } };
-    awaitingGo[m.id] = { m: m, at: at, timer: setTimeout(drop, GO_WAIT_MS) };
+    awaitingGo[m.id] = { m: m, at: at, go: go, timer: setTimeout(drop, GO_WAIT_MS) };
     answerResult(m.id, false, 'ready');
   };
   var takeGo = function(id){
@@ -101,6 +103,7 @@
     delete awaitingGo[id];
     clearTimeout(w.timer);
     if (Date.now() - w.at > GO_WAIT_MS) { answerResult(id, false, 'late'); return; }
+    if (w.go) { w.go(); return; }
     var no = refusal(w.m);
     if (no) { answerResult(id, false, no.reason, no.detail); return; }
     typeAnswer(w.m, w.at + GO_SEND_MS);
@@ -149,6 +152,72 @@
       done(false, 'left-in-input', inputDetail(box, now));
     };
     setTimeout(look, 50);
+  };
+
+  /*
+   * Agent Plus's pen on a Work plan row (prefill in src/claude-source.js): a text that the user goes on writing after and
+   * sends. It goes after whatever is in the input, with one space between when that does not end in white space, and is
+   * never sent. Unlike an answer it takes the focus, with the caret after it: the user asked for it and types next. Like
+   * a confirmed answer it is typed only on the host's go. The answer is 'drafted' once the input holds its old text
+   * followed by this one; 'insert' when the input is as it was, and 'unconfirmed' when it holds something else.
+   */
+  var caretToEnd = function(box){
+    var range = document.createRange();
+    range.selectNodeContents(box);
+    range.collapse(false);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  };
+  var caretAtEnd = function(box){
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !sel.isCollapsed || !box.contains(sel.focusNode)) return false;
+    var rest = document.createRange();
+    rest.selectNodeContents(box);
+    rest.setStart(sel.focusNode, sel.focusOffset);
+    return !String(rest.toString()).replace(/\u200b/g, '');
+  };
+  /* Claude Code writes composerDraft only as it drops an input element; it is set to the new text now, so that an input
+     that replaces this one, which Claude Code fills from composerDraft, holds the text too. */
+  var keepDraft = function(box){
+    try {
+      if (sessionRef && typeof sessionRef.composerDraft === 'string') sessionRef.composerDraft = String(box.textContent || '');
+    } catch (e) { /* the element still holds it */ }
+  };
+  var prefillRefusal = function(m){
+    if (showsOther(m)) return 'not-shown';
+    if (!document.querySelector(ANSWER_INPUT)) return 'no-input';
+    return '';
+  };
+  var takePrefill = function(m){
+    var no = prefillRefusal(m);
+    if (no) { answerResult(m.id, false, no); return; }
+    waitForGo(m, function(){
+      var again = prefillRefusal(m);
+      if (again) { answerResult(m.id, false, again); return; }
+      typePrefill(m);
+    });
+  };
+  var typePrefill = function(m){
+    var box = document.querySelector(ANSWER_INPUT);
+    var text = m.text.replace(/\r\n?/g, '\n');
+    var had = String(box.textContent || '').replace(/\u200b/g, '');
+    var add = (had && !/\s$/.test(had) ? ' ' : '') + text;
+    try {
+      box.focus();
+      caretToEnd(box);
+      typeLines(add);
+    } catch (e) { /* checked below */ }
+    var now = currentInput(box);
+    var after = String(now.textContent || '').replace(/\u200b/g, '');
+    if (after === had) { answerResult(m.id, false, 'insert'); return; }
+    if (after !== had + add) { answerResult(m.id, false, 'unconfirmed'); return; }
+    keepDraft(now);
+    try {
+      if (document.activeElement !== now) now.focus();
+      if (!caretAtEnd(now)) caretToEnd(now);
+    } catch (e) { /* the text is in; only the caret may be elsewhere */ }
+    answerResult(m.id, false, 'drafted');
   };
 
   /* A steward's new conversation (src/relay.js). The host opened this tab with the first message already in its input,
@@ -200,6 +269,10 @@
       }
       if (m && m.type === 'cce_answer_go' && typeof m.id === 'string') {
         try { takeGo(m.id); } catch (e) { answerResult(m.id, false, 'error'); }
+        return;
+      }
+      if (m && m.type === 'cce_prefill' && typeof m.text === 'string' && typeof m.id === 'string') {
+        try { takePrefill(m); } catch (e) { answerResult(m.id, false, 'error'); }
         return;
       }
       if (!m || m.type !== 'cce_answer' || typeof m.text !== 'string' || typeof m.id !== 'string') return;

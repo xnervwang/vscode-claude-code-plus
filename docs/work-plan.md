@@ -21,6 +21,8 @@ Rows have numbers such as 1, 2 and 2.1. You can answer several rows in one messa
 3: go ahead
 ```
 
+The pen at the end of a row in Agent Plus's Work plan view brings the conversation to the front with `About row 2.1 (title): ` in its message box, after anything you typed there, for you to finish and send.
+
 A row's number is its position in the plan file, so it does not change: finishing row 2 leaves a gap instead of renumbering the rows after it. A child row such as 2.1 is work that has to be done before its parent can be finished.
 
 ## States

@@ -13055,6 +13055,65 @@ console.log('\nanswering from the Conversations tab');
         && got2.box === 'left there') {
         ok('in a browser an answer is typed and sent while the focus stays in the field the user is in; with confirm it waits for the go, and nothing is typed when the go comes too late; text left in the input is sent back with the refusal');
       } else bad(`answer with the focus elsewhere and a go: ${at2 === -1 ? 'no result (exit ' + r2.status + ')' : JSON.stringify(got2)}`);
+
+      /* A prefill in the same framed page, with the focus in the field around it and a session found the way the panel's
+         is, through the send button's React props: it waits for the go, goes after the input's text with a space only
+         where that text does not end in white space, takes the focus with the caret at its end, leaves composerDraft
+         holding the input's text, and no key is pressed. */
+      const mark3 = ['CCE', 'PREFILL:'].join('-');
+      const html3 = '<!doctype html><html><body><pre id="out"></pre><input id="other"><iframe id="f"></iframe><script>'
+        + 'var posted = [], keys = [], states = [];'
+        + 'var f = document.getElementById("f"), fw = f.contentWindow, d = f.contentDocument, other = document.getElementById("other");'
+        + 'fw.acquireVsCodeApi = function(){ return { postMessage: function(m){ posted.push(m); } }; };'
+        + 'var session = { agentMapAgents: { value: new Map() }, subagentTasks: { value: new Map() }, sessionId: { value: "S" }, composerDraft: "" };'
+        + 'var send = d.createElement("button"); send.type = "submit"; send.setAttribute("data-permission-mode", "default"); d.body.appendChild(send);'
+        + 'send["__reactFiber$cceprefill"] = { memoizedProps: {}, return: { memoizedProps: { session: session }, return: null } };'
+        + 'var box = d.createElement("div"); box.setAttribute("role", "textbox"); box.setAttribute("aria-label", "Message input");'
+        + 'box.contentEditable = "plaintext-only"; d.body.appendChild(box);'
+        + 'box.addEventListener("keydown", function(e){ keys.push(e.key); });'
+        + 'var s = d.createElement("script"); s.textContent = ' + pageScript + '; d.body.appendChild(s);'
+        + 'other.focus();'
+        + 'var to = function(m){ fw.postMessage({ type: "from-extension", message: m }, "*"); };'
+        + 'var prefill = function(text, id, sid){ to({ type: "cce_prefill", sessionId: sid || "S", text: text, id: id }); };'
+        + 'var go = function(id){ to({ type: "cce_answer_go", id: id }); };'
+        + 'var caret = function(){ var sel = fw.getSelection(); if (!sel.rangeCount || !sel.isCollapsed || !box.contains(sel.focusNode)) return "none";'
+        + '  var r = d.createRange(); r.selectNodeContents(box); r.setStart(sel.focusNode, sel.focusOffset); return r.toString() === "" ? "end" : "inside"; };'
+        + 'var look = function(name){ states.push({ name: name, box: box.textContent, draft: session.composerDraft, focus: d.activeElement === box && d.hasFocus(), caret: caret() }); };'
+        + 'setTimeout(function(){ prefill("About row 1 (Port the parser): ", "p1"); }, 2500);'
+        + 'setTimeout(function(){ look("before go"); go("p1"); }, 2700);'
+        + 'setTimeout(function(){ look("empty"); other.focus(); box.textContent = "mine"; prefill("About row 2 (Tests): ", "p2"); }, 3000);'
+        + 'setTimeout(function(){ go("p2"); }, 3100);'
+        + 'setTimeout(function(){ look("after mine"); d.execCommand("insertText", false, "X"); look("typed"); other.focus(); box.textContent = "mine "; prefill("About row 3 (Docs): ", "p3"); }, 3400);'
+        + 'setTimeout(function(){ go("p3"); }, 3500);'
+        + 'setTimeout(function(){ look("after a space"); box.textContent = ""; prefill("About row 4:\\nsecond line", "p4"); }, 3800);'
+        + 'setTimeout(function(){ go("p4"); }, 3900);'
+        + 'setTimeout(function(){ look("two lines"); box.textContent = "kept"; prefill("never told", "p5"); }, 4200);'
+        + 'setTimeout(function(){ look("no go"); prefill("elsewhere", "p6", "OTHER"); }, 6600);'
+        + 'setTimeout(function(){ look("another conversation"); document.getElementById("out").textContent = "' + mark3 + '" + JSON.stringify({ posted: posted, keys: keys, states: states }); }, 7000);'
+        + '</script></body></html>';
+      const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-prefill-'));
+      const file3 = path.join(dir3, 'panel.html');
+      fs.writeFileSync(file3, html3);
+      const r3 = cp.spawnSync(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=10000', '--dump-dom',
+        'file://' + file3], { encoding: 'utf8', timeout: 120000 });
+      fs.rmSync(dir3, { recursive: true, force: true });
+      const at3 = (r3.stdout || '').indexOf(mark3);
+      let got3 = null;
+      try {
+        got3 = JSON.parse(r3.stdout.slice(at3 + mark3.length, r3.stdout.indexOf('<', at3)).replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&').replace(/&quot;/g, '"'));
+      } catch (_) { got3 = null; }
+      const results3 = got3 ? got3.posted.filter((m) => m.type === 'cce_answer_result' && /^p\d$/.test(m.id)).map((m) => [m.id, m.sent, m.reason]) : [];
+      const state3 = (name) => (got3 ? got3.states.find((x) => x.name === name) || null : null);
+      const holds = (name, box, more) => { const x = state3(name); return !!x && x.box === box && (!more || (x.draft === box && x.focus === true && x.caret === 'end')); };
+      if (got3 && JSON.stringify(results3) === JSON.stringify([['p1', false, 'ready'], ['p1', false, 'drafted'], ['p2', false, 'ready'], ['p2', false, 'drafted'],
+        ['p3', false, 'ready'], ['p3', false, 'drafted'], ['p4', false, 'ready'], ['p4', false, 'drafted'], ['p5', false, 'ready'], ['p5', false, 'late'], ['p6', false, 'not-shown']])
+          && holds('before go', '') && holds('empty', 'About row 1 (Port the parser): ', true) && holds('after mine', 'mine About row 2 (Tests): ', true)
+          && holds('typed', 'mine About row 2 (Tests): X') && holds('after a space', 'mine About row 3 (Docs): ', true)
+          && holds('two lines', 'About row 4:\nsecond line', true) && holds('no go', 'kept') && holds('another conversation', 'kept') && got3.keys.length === 0) {
+        ok('in a browser a prefill waits for the go, fills an empty input with exactly its text, goes after your text with one space, or none after a space, keeps its line break, '
+          + 'takes the focus with the caret at its end so the next key lands after it, leaves composerDraft holding the input\'s text, presses no key, and types nothing without the go or for another conversation');
+      } else bad(`prefill in the page: ${at3 === -1 ? 'no result (exit ' + r3.status + ')' : JSON.stringify({ results3, states: got3 && got3.states, keys: got3 && got3.keys })}`);
     }
   }
 
@@ -13682,6 +13741,110 @@ console.log('\nClaude Code\'s own source');
         && is(q.userDraft, 'notReceived') && said(q.userDraft) === 'the message input already had text in it') {
       ok('text left in the input that Claude Code Plus typed there for someone else is named as such, and the user\'s own text is not');
     } else bad(`a draft in the input: ${JSON.stringify([q.ownDraft, q.userDraft])}`);
+
+    /* prefill(), Agent Plus's pen on a Work plan row, against a stand-in panel that answers each prefill with what the
+       case says: first to the hand-over, then to the go. The waits are cut short through prefillTimes. */
+    const prefillScript = `
+      const Module = require('module'), realResolve = Module._resolveFilename;
+      Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+      const C = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+      const A = 'abababab-1111-4222-8333-444444444441', B = 'abababab-1111-4222-8333-444444444442';
+      const FOLDER = '/work/shop', PROJECTS = '/home/u/.claude/projects';
+      const filed = (folder, id) => PROJECTS + '/' + folder.replace(/[^a-zA-Z0-9]/g, '-') + '/' + id + '.jsonl';
+      const make = (o) => {
+        const s = { events: [], panels: new Set(o.panels || []), listening: new Set(o.panels || []), replies: (o.replies || []).slice() };
+        const answer = (key) => { const r = s.replies.shift(); if (r) setTimeout(() => s.c.answered(key, false, r), 5); };
+        s.c = C.createClaudeSource(Object.assign({ planDir: () => '/plans', enabled: () => true, timeZone: () => '',
+          listAgents: async () => (o.agents || { records: [], error: '' }), folders: () => [FOLDER], readPlan: () => null,
+          titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
+          activeChat: () => '', logo: () => null, canDeliver: (id) => s.panels.has(id), shown: () => [...s.panels].concat(o.tabs || []),
+          reveal: async (id) => { s.events.push(['reveal', id]); return true; },
+          hand: () => { s.events.push(['hand']); return false; }, typed: () => s.events.push(['typed']),
+          prefillTo: (id, text, key) => { s.events.push(['prefillTo', id, text]); if (o.handThrows) throw new Error('x'); if (!s.panels.has(id)) return false; answer(key); return true; },
+          go: (key) => { s.events.push(['go']); if (o.noGo) return false; answer(key); return true; },
+          listens: (id) => s.listening.has(id),
+          transcriptOf: (id) => (o.transcript === undefined ? filed(FOLDER, id) : o.transcript),
+          elsewhere: () => o.elsewhere || [],
+          prefillTimes: { all: 600, ready: 100, go: 100, check: 150, retry: 20, ask: 10 },
+        }, o.openTab === false ? {} : { openTab: async (id) => {
+          s.events.push(['openTab', id]);
+          if (o.openFails) throw new Error('no such command');
+          if (o.loads !== false) setTimeout(() => { s.panels.add(id); s.listening.add(id); }, 30);
+        } }, o.noPrefillDeps ? { prefillTo: undefined } : {}));
+        return s;
+      };
+      const run = async (o, id = A, text = 'About row 3 (Port the parser): ') => {
+        const s = make(o), t0 = Date.now();
+        const r = await s.c.source.prefill(id, text);
+        return { r, ms: Date.now() - t0, events: s.events.map((e) => e[0]), first: s.events.find((e) => e[0] === 'prefillTo') || null,
+          features: s.c.source.features };
+      };
+      (async () => {
+        const out = {};
+        out.drafted = await run({ panels: [A], replies: ['ready', 'drafted'] });
+        out.retried = await run({ panels: [A], replies: ['no-input', 'ready', 'drafted'] });
+        out.notShown = await run({ panels: [A], replies: ['not-shown'] });
+        out.insert = await run({ panels: [A], replies: ['ready', 'insert'] });
+        out.lateGo = await run({ panels: [A], replies: ['ready', 'late'] });
+        out.unconfirmed = await run({ panels: [A], replies: ['ready', 'unconfirmed'] });
+        out.silent = await run({ panels: [A], replies: [] });
+        out.toldThenSilent = await run({ panels: [A], replies: ['ready'] });
+        out.noGo = await run({ panels: [A], replies: ['ready', 'drafted'], noGo: true });
+        out.handThrows = await run({ panels: [A], handThrows: true });
+        out.opened = await run({ replies: ['ready', 'drafted'] });
+        out.restoredTab = await run({ tabs: [A], transcript: '', replies: ['ready', 'drafted'] });
+        out.noTranscript = await run({ transcript: '' });
+        out.otherFolder = await run({ transcript: filed('/work/other', A) });
+        out.otherWindow = await run({ elsewhere: ['Shop (second window)'] });
+        out.process = await run({ agents: { records: [{ sessionId: A, pid: 4242, kind: 'interactive' }], error: '' } });
+        out.noList = await run({ agents: { records: null, error: 'no cli' } });
+        out.openFails = await run({ openFails: true });
+        out.neverLoads = await run({ loads: false, replies: ['ready', 'drafted'] });
+        out.noOpen = await run({ openTab: false });
+        out.badId = await run({ panels: [A] }, 'not-an-id');
+        out.noText = await run({ panels: [A] }, A, '');
+        out.without = await run({ panels: [A], noPrefillDeps: true });
+        const reasons = {};
+        for (const x of ['drafted', 'not-shown', 'no-input', 'insert', 'late', 'unconfirmed', 'error', '']) reasons[x] = C.prefillOutcomeOf(x).outcome;
+        out.reasons = reasons;
+        process.stdout.write(JSON.stringify(out));
+      })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
+    const rp = cp.spawnSync(process.execPath, ['-e', prefillScript], { encoding: 'utf8', timeout: 60000 });
+    let pf = {};
+    try { pf = JSON.parse(rp.stdout); } catch (_) { pf = { threw: rp.stdout + rp.stderr }; }
+    const pfIs = (x, outcome, re) => !!x && !!x.r && x.r.outcome === outcome && (outcome === 'drafted' || (typeof x.r.reason === 'string' && x.r.reason.length > 0))
+      && (!re || re.test(x.r.reason || ''));
+    const events = (x) => (x && x.events ? x.events.join(' ') : '');
+    const neverSent = Object.values(pf).filter((x) => x && x.events).every((x) => !x.events.includes('hand') && !x.events.includes('typed'));
+    if (!pf.threw && pfIs(pf.drafted, 'drafted') && events(pf.drafted) === 'reveal prefillTo go'
+        && JSON.stringify(pf.drafted.first) === JSON.stringify(['prefillTo', 'abababab-1111-4222-8333-444444444441', 'About row 3 (Port the parser): '])
+        && pf.drafted.features.includes('prefill') && !pf.without.features.includes('prefill') && pfIs(pf.without, 'notReceived')
+        && pfIs(pf.retried, 'drafted') && events(pf.retried) === 'reveal prefillTo prefillTo go'
+        && pfIs(pf.notShown, 'notReceived', /switched to another conversation/) && pfIs(pf.insert, 'notReceived', /could not be typed/)
+        && pfIs(pf.lateGo, 'notReceived', /too late/) && pfIs(pf.unconfirmed, 'uncertain')
+        && pfIs(pf.silent, 'notReceived', /will not be typed later/) && !pf.silent.events.includes('go')
+        && pfIs(pf.toldThenSilent, 'uncertain', /look at its message input/) && pfIs(pf.noGo, 'notReceived') && pfIs(pf.handThrows, 'notReceived')
+        && pfIs(pf.badId, 'notReceived') && pfIs(pf.noText, 'notReceived') && !events(pf.badId).includes('prefillTo') && !events(pf.noText).includes('prefillTo')
+        && JSON.stringify(pf.reasons) === JSON.stringify({ drafted: 'drafted', 'not-shown': 'notReceived', 'no-input': 'notReceived', insert: 'notReceived',
+          late: 'notReceived', unconfirmed: 'uncertain', error: 'uncertain', '': 'uncertain' }) && neverSent) {
+      ok('prefill() brings a conversation shown here to the front and hands its text to the panel, which types it only on the go: drafted when the panel says so, asked again while it has no input, '
+        + 'not received when it refuses, gets no go or never answers, unclear when it goes silent after the go or finds the input holding something else; no answer is ever sent or noted as typed, and the source lists prefill only with the deps it needs');
+    } else bad(`prefill() for a conversation shown here: ${JSON.stringify(pf).slice(0, 1500)}`);
+    if (!pf.threw && pfIs(pf.opened, 'drafted') && events(pf.opened) === 'openTab prefillTo go'
+        && pfIs(pf.restoredTab, 'drafted') && events(pf.restoredTab) === 'openTab prefillTo go'
+        && pfIs(pf.noTranscript, 'notReceived', /no transcript/) && pfIs(pf.otherFolder, 'notReceived', /started in a folder other than/)
+        && pfIs(pf.otherWindow, 'notReceived', /"Shop \(second window\)" shows it/) && pfIs(pf.process, 'notReceived', /process 4242 runs it/)
+        && pfIs(pf.noList, 'notReceived', /could not be checked that no other process runs it: no cli/)
+        && ['noTranscript', 'otherFolder', 'otherWindow', 'process', 'noList'].every((k) => !events(pf[k]).includes('openTab') && !events(pf[k]).includes('prefillTo'))
+        && pfIs(pf.openFails, 'notReceived', /could not open it: no such command/) && pfIs(pf.neverLoads, 'notReceived', /no panel here showed it/)
+        && !events(pf.neverLoads).includes('prefillTo') && pfIs(pf.noOpen, 'notReceived') && !events(pf.noOpen).includes('openTab')) {
+      ok('a conversation no panel here shows is opened in a tab here and given its text once that tab listens, a restored tab without the checks; one Claude Code here cannot find, '
+        + 'one of another folder, one another window shows and one another process runs are not opened and come back not received with the reason, as does one whose tab never loads');
+    } else bad(`prefill() for a conversation not shown here: ${JSON.stringify(pf).slice(0, 1500)}`);
+    const slowest = Object.values(pf).filter((x) => x && typeof x.ms === 'number').reduce((m, x) => Math.max(m, x.ms), 0);
+    if (!pf.threw && slowest > 0 && slowest <= 600 + 150) {
+      ok('every prefill() settles within its time, the 600 ms these cases give it standing in for PREFILL_MS, and none rejects');
+    } else bad(`prefill() took up to ${slowest} ms: ${JSON.stringify(Object.fromEntries(Object.entries(pf).map(([k, x]) => [k, x && x.ms])))}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
@@ -14634,8 +14797,9 @@ console.log('\nthe token mode');
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
     const f = r.features || {}, d = r.redraws || {};
-    if (f.interface === '["shows"]' && f.essential === '["shows","stewards","stewardList"]' && f.all === '["shows","brief","stewards","stewardList"]' && d.interface > 0 && d.essential > 0 && d.all > 0) {
-      ok('the brief is offered to Agent Plus only in a mode that runs it, and stewards only in one that runs the work plan, and every change of mode redraws its list');
+    if (f.interface === '["shows","prefill"]' && f.essential === '["shows","stewards","stewardList","prefill"]' && f.all === '["shows","brief","stewards","stewardList","prefill"]'
+        && d.interface > 0 && d.essential > 0 && d.all > 0) {
+      ok('the brief is offered to Agent Plus only in a mode that runs it, and stewards only in one that runs the work plan, prefill in every mode, and every change of mode redraws its list');
     } else bad(`features ${JSON.stringify(f)}, redraws ${JSON.stringify(d)}`);
     const told = r.told || [];
     if (told.length === 1 && /^Claude Code Plus: the token mode is Essential features, so claudeCodePlus\.conversationBrief has no effect/.test(told[0][0])

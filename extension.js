@@ -858,6 +858,17 @@ function start(context, log, renamed, handing = false) {
     },
     shown: () => shownList(),
     open: (sessionId) => (openAnywhere ? openAnywhere(sessionId) : 'nowhere'),
+    /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js). A conversation no panel here shows opens in
+       a tab as a steward's --resume opens it (resumeConversation below), and its text waits for that tab's page. */
+    prefillTo: (sessionId, text, key) => typeof globalThis.__cceToPanel === 'function'
+      && globalThis.__cceToPanel(sessionId, { type: 'cce_prefill', sessionId, text, id: key }) === true,
+    listens: (sessionId) => claude.source.canDeliver(sessionId) && answersReady.has(sessionId),
+    openTab: (sessionId) => {
+      answersReady.delete(sessionId);
+      return vscode.commands.executeCommand('claude-vscode.editor.open', sessionId, undefined, undefined, undefined, undefined, { programmatic: 'pin-to-panel' });
+    },
+    transcriptOf: (sessionId) => transcriptOf(sessionId),
+    elsewhere: (sessionId) => deleteSession.shownElsewhere(planDir()).get(sessionId) || [],
   });
   context.subscriptions.push(claude);
   /* The other agent's conversation tab that came to the front last; null once a Claude Code panel comes to the front.

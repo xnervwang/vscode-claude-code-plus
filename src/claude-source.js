@@ -18,6 +18,8 @@
  *   focus            a change of the host's activeSessionId; a panel's onDidChangeViewState; sessionForTab(); and the
  *                    page getting focus (src/page/92-focus.js), the only signal a sidebar conversation gives
  *   answers          typed into the panel showing the conversation (src/page/91-answer.js)
+ *   prefill          Agent Plus's pen on a Work plan row: the text goes into the message input of the panel showing the
+ *                    conversation, opened in a tab here first if no panel here shows it, and is not sent
  *   plan notice      the plugin that writes plans failed to install, or there is no Python 3 to run the hooks
  *
  * The host also writes activeSessionId back unchanged, for example when a background panel's state changes, so only a
@@ -30,6 +32,7 @@ const waiting = require('./waiting');
 const conversations = require('./conversations');
 const { SESSION } = require('./claude-files');
 const { oncePerDelivery } = require('./core-link');
+const { opensHere, heldBy } = require('./relay');
 const titleMarks = require('./title-marks');
 const waitingFor = require('./waiting-for');
 
@@ -65,9 +68,39 @@ const NOT_RECEIVED = {
 /* Earlier than the hand-over, for a transcript entry stamped a moment before this host read its clock. */
 const SENT_SLACK_MS = 1000;
 
+/*
+ * A prefill settles within PREFILL_MS, inside the 10 seconds Agent Plus waits for one. The page answers a prefill with
+ * 'ready' and types it on the host's go, as it does a confirmed answer; the go is sent only while PREFILL_READY_MS and
+ * PREFILL_GO_MS are still left, so a panel that answers late types nothing. Whether a conversation no panel here shows
+ * may be opened here is decided within PREFILL_CHECK_MS. A panel that has the conversation but no message input yet, as
+ * a tab still loading, is asked again every PREFILL_RETRY_MS; whether a panel listens is looked at every PREFILL_ASK_MS.
+ */
+const PREFILL_MS = 9000;
+const PREFILL_READY_MS = 1500;
+const PREFILL_GO_MS = 1500;
+const PREFILL_CHECK_MS = 4000;
+const PREFILL_RETRY_MS = 250;
+const PREFILL_ASK_MS = 100;
+/* The page's reasons for not typing a prefill (src/page/91-answer.js). In each of these the input is as it was. */
+const PREFILL_NOT_RECEIVED = {
+  'not-shown': 'the panel had switched to another conversation',
+  'no-input': 'the panel has no message input',
+  insert: 'the text could not be typed into the message input',
+  late: 'the panel answered too late, so it dropped the text without typing it',
+};
+
 function outcomeOf(sent, reason) {
   if (sent === true) return { outcome: 'submitted' };
   if (Object.prototype.hasOwnProperty.call(NOT_RECEIVED, reason)) return { outcome: 'notReceived', reason: NOT_RECEIVED[reason] };
+  return { outcome: 'uncertain', reason: reason ? `the panel reported "${reason}"` : 'the panel gave no reason' };
+}
+
+/* What the page's answer to a prefill means for Agent Plus. 'unconfirmed': it typed the text, and the input then did not
+   hold the user's text followed by it. */
+function prefillOutcomeOf(reason) {
+  if (reason === 'drafted') return { outcome: 'drafted' };
+  if (Object.prototype.hasOwnProperty.call(PREFILL_NOT_RECEIVED, reason)) return { outcome: 'notReceived', reason: PREFILL_NOT_RECEIVED[reason] };
+  if (reason === 'unconfirmed') return { outcome: 'uncertain', reason: 'the text was typed into the message input, but the input did not hold it as expected afterwards' };
   return { outcome: 'uncertain', reason: reason ? `the panel reported "${reason}"` : 'the panel gave no reason' };
 }
 
@@ -125,6 +158,15 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   isSteward(sessionId)            optional: whether the conversation is a steward, which gets the crown
  *   stewardsOf(sourceId, sessionId) optional: the stewards that look after that conversation, as [{ sessionId, title }],
  *                                   ordered by when the user last typed to each, most recent first
+ *   prefillTo(sessionId, text, key) optional, with go(): gives a prefill to the panel showing the conversation, which
+ *                                   says when it is ready, through answered(), and types it on go(key); false if no
+ *                                   panel was given it. Without both, 'prefill' is not among the features
+ *   listens(sessionId)              optional: whether the panel showing it here has said it listens (src/page/91-answer.js);
+ *                                   canDeliver when not given
+ *   openTab(sessionId)              optional: Promise; asks Claude Code to open the conversation in an editor tab here
+ *   transcriptOf(sessionId)         optional: the path of its transcript, or ''
+ *   elsewhere(sessionId)            optional: the names of the other VS Code windows that show it
+ *   prefillTimes                    optional, for tests: { all, ready, go, check, retry, ask } in place of the PREFILL_ waits
  *   isBackground(id, cwd)           optional, for tests
  */
 function createClaudeSource(deps) {
@@ -250,13 +292,120 @@ function createClaudeSource(deps) {
      An answer that never reached a panel can be handed over again (src/core-link.js). */
   const deliverOnce = oncePerDelivery(deliver);
 
+  const prefills = typeof deps.prefillTo === 'function' && typeof deps.go === 'function';
+  const times = () => Object.assign({ all: PREFILL_MS, ready: PREFILL_READY_MS, go: PREFILL_GO_MS, check: PREFILL_CHECK_MS,
+    retry: PREFILL_RETRY_MS, ask: PREFILL_ASK_MS }, deps.prefillTimes || {});
+  const notReceived = (reason) => ({ outcome: 'notReceived', reason });
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+  /* `p`'s value, or `late` once `ms` have passed without it; a rejection is { failed }. */
+  const within = (p, ms, late) => new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(late), Math.max(0, ms));
+    Promise.resolve().then(() => p()).then((v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); resolve({ failed: String((e && e.message) || e || 'it failed') }); });
+  });
+  /* The page's next answer for `key`, as { reason }, or null after `ms`. */
+  const answerOf = (key, ms) => new Promise((resolve) => {
+    const timer = setTimeout(() => { if (pending.get(key) === take) pending.delete(key); resolve(null); }, Math.max(0, ms));
+    const take = (sent, reason) => { clearTimeout(timer); resolve({ reason }); };
+    pending.set(key, take);
+  });
+  const shownHere = (id) => {
+    try { return typeof deps.shown === 'function' && (deps.shown() || []).includes(id); } catch (_) { return false; }
+  };
+  const listens = (id) => (typeof deps.listens === 'function' ? yes('listens', id) : yes('canDeliver', id));
+  /* Why Claude Code in this window must not open the conversation, which no panel here shows; '' when it may. It finds
+     only conversations filed under this window's first folder, and opening one that another window or process runs
+     would run it twice. */
+  const whyNotHere = async (id) => {
+    let file = '';
+    try { file = typeof deps.transcriptOf === 'function' ? deps.transcriptOf(id) || '' : ''; } catch (_) { file = ''; }
+    if (!file) return 'Claude Code has no transcript of it on this machine';
+    if (!opensHere(id, deps.folders(), () => file)) {
+      return 'it was started in a folder other than this window\'s first one, and Claude Code opens it only in a window of that folder';
+    }
+    let where = [];
+    try { where = typeof deps.elsewhere === 'function' ? deps.elsewhere(id) || [] : []; } catch (_) { where = []; }
+    if (where.length) return `the VS Code window ${where.map((n) => `"${n}"`).join(', ')} shows it, and opening it here as well would run it twice`;
+    const got = await freshAgents();
+    if (!got || !Array.isArray(got.records)) return `it could not be checked that no other process runs it: ${(got && got.error) || '`claude agents --json` gave no list'}`;
+    const held = heldBy(got.records, id);
+    return held ? `${held}, and opening it here as well would run it twice` : '';
+  };
+  /*
+   * Agent Plus's pen on a Work plan row (its docs/protocol.md, Writing about a row): the conversation comes to the front
+   * in this window and `text` goes into its message input after whatever is there, unsent, with the focus in the input.
+   * A panel here that shows it is brought to the front and given the text at once. A conversation no panel here shows is
+   * opened in an editor tab as a steward's --resume opens one (src/relay.js), and the text waits until that tab's page
+   * says it listens. The text is not noted as typed for someone else (deps.typed): the user sends it, with words of
+   * their own.
+   */
+  const prefill = async (sessionId, text) => {
+    const T = times(), by = Date.now() + T.all, handBy = by - T.ready - T.go;
+    const id = typeof sessionId === 'string' ? sessionId : '';
+    if (!SESSION.test(id)) return notReceived('it is not the id of a Claude Code conversation');
+    if (typeof text !== 'string' || !text) return notReceived('there was no text to put in');
+    if (yes('canDeliver', id)) {
+      await within(() => deps.reveal(id), T.check, false);
+    } else {
+      if (typeof deps.openTab !== 'function') return notReceived('no Claude Code panel in this window shows the conversation');
+      /* A tab of this window that holds it but has not loaded is opened like any other, without the checks. */
+      if (!shownHere(id)) {
+        const why = await within(() => whyNotHere(id), T.check, null);
+        if (why === null) return notReceived(`it could not be checked within ${T.check / 1000} seconds whether another process runs it`);
+        if (typeof why === 'object') return notReceived('it could not be checked whether another process runs it: ' + why.failed);
+        if (why) return notReceived(why);
+      }
+      const opened = await within(() => deps.openTab(id), handBy - Date.now(), null);
+      if (opened && typeof opened === 'object' && opened.failed) return notReceived('Claude Code could not open it: ' + opened.failed);
+      while (!listens(id)) {
+        if (Date.now() >= handBy) {
+          return notReceived(shownHere(id) ? `its tab here opened, but the conversation had not loaded within ${Math.round(T.all / 1000)} seconds`
+            : `Claude Code was asked to open it, but no panel here showed it within ${Math.round(T.all / 1000)} seconds`);
+        }
+        await pause(T.ask);
+      }
+    }
+    for (;;) {
+      const key = 'cc-pf-' + Date.now().toString(36) + '-' + (++keys);
+      const ready = answerOf(key, by - T.go - Date.now());
+      let handed = false;
+      try { handed = deps.prefillTo(id, text, key) === true; } catch (_) { handed = false; }
+      if (!handed) { pending.delete(key); return notReceived('no Claude Code panel in this window shows the conversation'); }
+      const first = await ready;
+      if (!first) {
+        return notReceived(`the panel showing it did not answer within ${Math.round(T.all / 1000)} seconds, as when its window has lost its connection; it was not typed and will not be typed later`);
+      }
+      if (first.reason === 'ready') {
+        const done = answerOf(key, by - Date.now());
+        if (Date.now() > by - T.go || !yes('go', key)) {
+          pending.delete(key);
+          return notReceived('the panel that took the text could not be told to type it in time');
+        }
+        const r = await done;
+        if (!r) return { outcome: 'uncertain', reason: `the panel was told to type it but did not report back within ${T.go / 1000} seconds; look at its message input before writing again` };
+        return prefillOutcomeOf(r.reason);
+      }
+      if (first.reason === 'no-input' && Date.now() + T.retry < handBy) { await pause(T.retry); continue; }
+      return prefillOutcomeOf(first.reason);
+    }
+  };
+  /* Never rejects, and settles within PREFILL_MS. Each outcome other than drafted is logged with its reason. */
+  const prefillSafe = (sessionId, text) => Promise.resolve().then(() => prefill(sessionId, text))
+    .catch((e) => ({ outcome: 'uncertain', reason: 'it failed here: ' + String((e && e.message) || e).slice(0, 160) }))
+    .then((r) => {
+      if (r.outcome !== 'drafted') log(`prefill for ${String(sessionId).slice(0, 36)}: ${r.outcome} (${r.reason || ''})`);
+      return r;
+    });
+
   const source = {
     protocol: PROTOCOL,
     /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. 'shows': it asks shows(). 'stewards'
-       and 'stewardList': it asks stewardOf() and stewardsOf(), for any agent's conversation. */
+       and 'stewardList': it asks stewardOf() and stewardsOf(), for any agent's conversation. 'prefill': its Work plan
+       view's rows get a pen that calls prefill(). */
     get features() {
       const on = enabled();
-      return ['shows'].concat(on && briefOn() ? ['brief'] : [], on && typeof deps.stewardsOf === 'function' ? ['stewards', 'stewardList'] : []);
+      return ['shows'].concat(on && briefOn() ? ['brief'] : [], on && typeof deps.stewardsOf === 'function' ? ['stewards', 'stewardList'] : [],
+        prefills ? ['prefill'] : []);
     },
     id: ID,
     label: 'Claude Code',
@@ -368,6 +517,8 @@ function createClaudeSource(deps) {
 
     deliverAnswer(sessionId, text, opts) { return deliverOnce(sessionId, text, opts); },
 
+    prefill(sessionId, text) { return prefills ? prefillSafe(sessionId, text) : Promise.resolve(notReceived('this window cannot put text into a panel')); },
+
     planNotice: () => notice,
     timeZone: () => { try { return deps.timeZone ? deps.timeZone() || '' : ''; } catch (_) { return ''; } },
   };
@@ -463,4 +614,5 @@ function createClaudeSource(deps) {
   };
 }
 
-module.exports = { createClaudeSource, isPanelTab, outcomeOf, emitter, PROTOCOL, ID, EXTENSION_ID, ANSWER_WAIT_MS, ANSWER_READY_MS, ANSWER_GO_MS };
+module.exports = { createClaudeSource, isPanelTab, outcomeOf, prefillOutcomeOf, emitter, PROTOCOL, ID, EXTENSION_ID, ANSWER_WAIT_MS, ANSWER_READY_MS, ANSWER_GO_MS,
+  PREFILL_MS };
