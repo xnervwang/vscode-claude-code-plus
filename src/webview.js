@@ -760,14 +760,15 @@ const EDITS = [
        one place, so the page gets to amend the finished text - the only field that needs to know about both kinds.
        Its dot follows the agents alone, so a conversation whose only work running is a command, a worker or a
        session it started had a grey dot beside a label counting that work; the page gets to amend the dot too, and
-       the hover text that names the dot's state. Parameters after onOpen (2.1.331 adds `failed`) are kept as they are. */
+       the hover text that names the dot's state. Parameters after onOpen (2.1.331 adds `failed`, 2.1.332 `words`) are
+       kept as they are, and so are declarations after the hover text's (2.1.332 adds one). */
     name: 'agent button label and dot',
-    re: /function ([\w$]+)\(\{count:([\w$]+),dot:([\w$]+),onOpen:([\w$]+)((?:,[\w$]+:[\w$]+(?:=[\w$.!"]+)?)*)\}\)\{let ([\w$]+)=([\w$]+)\(\2\),([\w$]+)=([\w$]+)\(\3\);/g,
-    to: (m, fn, count, dot, onOpen, rest, label, make, title, says) =>
+    re: /function ([\w$]+)\(\{count:([\w$]+),dot:([\w$]+),onOpen:([\w$]+)((?:,[\w$]+:[\w$]+(?:=[\w$.!"]+)?)*)\}\)\{let ([\w$]+)=([\w$]+)\(\2\),([\w$]+)=([\w$]+)\(\3\)([,;])/g,
+    to: (m, fn, count, dot, onOpen, rest, label, make, title, says, next) =>
       `function ${fn}({count:${count},dot:${dot},onOpen:${onOpen}${rest}}){let cceDotWas=${dot};`
       + `${dot}=(typeof window.__cceAgentsDot==="function"?window.__cceAgentsDot(${dot}):${dot});`
       + `let ${label}=(typeof window.__cceAgentsLabel==="function"?window.__cceAgentsLabel(${make}(${count}),${count}):${make}(${count})),`
-      + `${title}=(typeof window.__cceAgentsTitle==="function"?window.__cceAgentsTitle(${says}(${dot}),${dot},cceDotWas):${says}(${dot}));`,
+      + `${title}=(typeof window.__cceAgentsTitle==="function"?window.__cceAgentsTitle(${says}(${dot}),${dot},cceDotWas):${says}(${dot}))${next}`,
   },
   {
     /* The conversation's own row in the agent map has a green dot only while a turn runs. The page draws it as the

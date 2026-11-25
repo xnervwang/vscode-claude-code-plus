@@ -32,6 +32,14 @@
         "Claude Code panel / tool result": "2.1.285 and later: setToolResult takes options",
         "Claude Code panel / context meter always visible": "2.1.330 and later: one check against the threshold"
       }
+    },
+    "2.1.332": {
+      "shapes": {
+        "Claude Code panel / permission notice left to Agent Plus": "2.1.331 and later: a function shows the notice, given whether the request is still open",
+        "Claude Code panel / auto mode notice left to Agent Plus": "2.1.331 and later: a function shows the notice, given whether the dialog is still open",
+        "Claude Code panel / tool result": "2.1.285 and later: setToolResult takes options",
+        "Claude Code panel / context meter always visible": "2.1.330 and later: one check against the threshold"
+      }
     }
   }
 }

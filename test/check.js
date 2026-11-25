@@ -708,11 +708,11 @@ function checkEdits(adapter, src, label) {
 /* The panel's notices with a View button, shown only while the conversation is off screen, are all notices of a wait,
    and each is left to Agent Plus while Agent Plus shows the notices of waits (src/waiting-for.js). A build with a third
    such notice would show it beside Agent Plus's. From 2.1.331 one function shows that notice for each wait it is given,
-   so each call to it counts as one notice. */
+   so each call to it counts as one notice; from 2.1.332 it puts the conversation's title in front of the text. */
 function checkWaitNotices(out, label) {
   let shown = out.split('"info",["View"],!0)').length - 1;
   const left = out.split('(' + webview.WAITS_LEFT + '?void 0:').length - 1;
-  const shows = /async function ([\w$]+)\([\w$]+,([\w$]+),[\w$]+\)\{[\s\S]{0,300}?\.showNotification\(\2,"info",\["View"\],!0\)/.exec(out);
+  const shows = /async function ([\w$]+)\([\w$]+,([\w$]+),[\w$]+\)\{[\s\S]{0,600}?\.showNotification\((?:\2|[\w$]+\([\w$]+\)),"info",\["View"\],!0\)/.exec(out);
   if (shows) {
     // Counted in the panel's own code only: the script appended after the marker may use the same short name.
     const own = out.slice(0, out.indexOf(webview.MARK)), name = shows[1].replace(/\$/g, '\\$');
