@@ -3957,7 +3957,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!first && !!free, 'once one steward ticks a conversation, its box in the other window\'s panel is neither greyed nor ticked', { table: table(), box: free || await boxIn(panelB, X.id) });
         await panelB.locator(`input[data-id="${X.id}"]`).first().click();
         const both = await until(() => has(SA.id, X.id) && has(Q1.id, X.id), 10000, 300);
-        const sa = await boxIn(panelB, SA.id);
+        /* B's panel draws SA as a steward once its next body arrives, which can come after the table is written. */
+        const sa = await until(async () => { const b = await boxIn(panelB, SA.id); return b && b.disabled && b; }, 10000, 300) || await boxIn(panelB, SA.id);
         check(!!both && !!sa && sa.disabled && sa.why === 'This conversation is a steward, and a steward is not managed by another',
           'the second steward ticks it as well, so both lists have it; a steward\'s own box is still greyed in the other\'s panel', { table: table(), sa });
 
