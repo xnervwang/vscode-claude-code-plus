@@ -15,10 +15,15 @@
  * The page of each Claude Code panel messages its host every ALIVE_MS (src/page/99-sweep.js), and the host writes the
  * time it last heard into its window entry as pageAt (src/steward-view.js). A host that has heard nothing for NO_PAGE_MS
  * has no window. An entry without pageAt, as older builds write, counts as having one.
+ *
+ * Two processes can also run one conversation from different working directories. Claude Code files a conversation's
+ * transcript under the folder of the directory it runs in, and one continued from another directory has a transcript in
+ * each, so a window opened on the other folder resumes the copy kept there, which may be weeks behind. Each process then
+ * writes its own copy, and the old process is the one on the copy that was furthest behind, not the one started first.
  */
 const fs = require('fs');
 const path = require('path');
-const { transcriptOf, writeAtomic } = require('./claude-files');
+const { transcriptOf, writeAtomic, projectsDir, projectFolders, filedUnder } = require('./claude-files');
 
 const ALIVE_MS = 60000;
 /* Chromium runs the timers of a page that has been hidden a while once a minute at most. */
@@ -80,7 +85,7 @@ const windowName = (w) => String((w && w.name) || '').replace(/\s*\[[^\]]*\]\s*$
  * startedAt, host, window, windowless, idle }], oldest first. `records` are the live session records
  * (src/background.js liveRecords).
  */
-function find({ records, dir, proc = '/proc', now = Date.now(), transcript = transcriptOf }) {
+function find({ records, dir, proc = '/proc', now = Date.now(), transcript = transcriptOf, projects = projectsDir() }) {
   const by = new Map();
   for (const r of records || []) {
     if (!r || r.kind === 'bg' || !Number.isInteger(r.pid) || typeof r.sessionId !== 'string') continue;
@@ -102,34 +107,138 @@ function find({ records, dir, proc = '/proc', now = Date.now(), transcript = tra
       if (host) procs.push({ r, host });
     }
     if (procs.length < 2) continue;
+    const folders = new Set(procs.map(({ r }) => folderOf(r.cwd)));
+    const copies = folders.size > 1 && !folders.has('') ? copiesOf(id, procs.map(({ r }) => r), projects) : null;
     let written = 0;
     try { written = fs.statSync(transcript(id)).mtimeMs; } catch (_) { /* none yet */ }
     out.set(id, procs.map(({ r, host }) => {
       const w = wins.get(host);
-      return {
+      const p = {
         pid: r.pid, procStart: typeof r.procStart === 'string' ? r.procStart : '', startedAt: Number(r.startedAt) || 0, host,
         window: windowName(w),
         windowless: !!(w && typeof w.pageAt === 'number' && now - w.pageAt > NO_PAGE_MS),
         idle: r.status === 'idle' && now - (Number(r.statusUpdatedAt) || 0) > IDLE_MS && now - written > IDLE_MS,
       };
+      if (copies) {
+        const c = copies.get(folderOf(r.cwd));
+        Object.assign(p, { copy: true, cwd: r.cwd, lastBefore: c.lastBefore, stale: c.stale });
+        p.idle = r.status === 'idle' && now - (Number(r.statusUpdatedAt) || 0) > IDLE_MS && now - c.writtenAt > IDLE_MS;
+      }
+      return p;
     }).sort((a, b) => a.startedAt - b.startedAt || a.pid - b.pid));
   }
   return out;
 }
 
-/* A process's pid, start time and window, as the Steward panel and a steward's notice put it. */
-function describe(p) {
-  const at = p.startedAt ? new Date(p.startedAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'at an unknown time';
-  const where = p.windowless ? 'in an extension host whose window is gone' : p.window ? `in window "${p.window}"` : 'in a window not known here';
-  return `pid ${p.pid}, started ${at}, ${where}`;
+/* The project folder name Claude Code files the conversations of working directory `cwd` under, as filedUnder() in
+   src/claude-files.js matches it; '' when there is no directory. */
+function folderOf(cwd) {
+  if (typeof cwd !== 'string' || !cwd) return '';
+  const name = cwd.replace(/[^a-zA-Z0-9]/g, '-');
+  return process.platform === 'win32' || process.platform === 'darwin' ? name.toLowerCase() : name;
+}
+/* The transcript a process in working directory `cwd` writes for conversation `id`, or ''. A folder name over 200
+   characters carries a hash this code does not compute, so such a folder is looked for among the project folders. */
+function transcriptIn(cwd, id, projects) {
+  const name = cwd.replace(/[^a-zA-Z0-9]/g, '-');
+  if (name.length <= 200) return path.join(projects, name, id + '.jsonl');
+  for (const dir of projectFolders(projects) || []) {
+    const file = path.join(dir, id + '.jsonl');
+    if (filedUnder(path.basename(dir), cwd) && fs.existsSync(file)) return file;
+  }
+  return '';
 }
 
-/* The idle processes in hosts with no window, to be stopped without asking; none unless another process has a window. */
-function autoStops(group) {
-  return group.some((p) => !p.windowless) ? group.filter((p) => p.windowless && p.idle) : [];
+/* How far back from its end a transcript is read for the newest entry before a time, and the newest such entry by file
+   and time. An entry written later is newer than that time, so a found entry stays the answer while the file grows. */
+const READ_BACK = 16 * 1024 * 1024;
+const READ_CHUNK = 256 * 1024;
+const lastSeen = new Map();
+/* The time of the newest entry in `file` written before `before`; `before` itself when every entry read is newer, or
+   the last READ_BACK bytes hold none older; -Infinity when the file cannot be read or holds no entry. */
+function newestBefore(file, before) {
+  const key = file + '\0' + before;
+  let fd, size;
+  try { fd = fs.openSync(file, 'r'); size = fs.fstatSync(fd).size; } catch (_) { if (fd !== undefined) fs.closeSync(fd); return -Infinity; }
+  try {
+    const known = lastSeen.get(key);
+    if (known && size >= known.size) return known.at;
+    let end = size, rest = Buffer.alloc(0), at = -Infinity, found = false, any = false;
+    while (end > 0 && size - end < READ_BACK && !found) {
+      const start = Math.max(0, end - READ_CHUNK), buf = Buffer.alloc(end - start);
+      const n = fs.readSync(fd, buf, 0, buf.length, start);
+      let text = Buffer.concat([buf.subarray(0, n), rest]);
+      end = start;
+      if (start > 0) {
+        // The bytes before the first newline end a line that began in the chunk before this one.
+        const cut = text.indexOf(10);
+        if (cut < 0) { rest = text; continue; }
+        rest = text.subarray(0, cut);
+        text = text.subarray(cut + 1);
+      }
+      const lines = text.toString('utf8').split('\n');
+      for (let i = lines.length - 1; i >= 0 && !found; i--) {
+        let t = NaN;
+        try { const d = JSON.parse(lines[i]); t = d && typeof d.timestamp === 'string' ? Date.parse(d.timestamp) : NaN; } catch (_) { /* cut or empty */ }
+        if (t >= before) any = true;
+        else if (t < before) { at = t; found = true; }
+      }
+    }
+    if (!found && (any || size - end >= READ_BACK)) at = before;
+    if (lastSeen.size > 64) lastSeen.clear();
+    lastSeen.set(key, { size, at });
+    return at;
+  } finally { fs.closeSync(fd); }
 }
-/* The one the Stop button stops: one in a host with no window, otherwise the oldest. */
+
+/* A copy counts as stale when the others had an entry this much later than its newest before the later process
+   started. */
+const STALE_GAP_MS = 10 * 60000;
+/*
+ * For processes running conversation `id` from different working directories: by folder name, { lastBefore, stale,
+ * writtenAt }. lastBefore is the time of the newest entry its copy held before the last of the processes started. The
+ * stale copy is the one furthest behind, by STALE_GAP_MS or more; when none is that far behind, none is stale.
+ * writtenAt is when its copy was last written, for telling whether its process is idle.
+ */
+function copiesOf(id, records, projects) {
+  const before = Math.max(...records.map((r) => Number(r.startedAt) || 0));
+  const out = new Map();
+  for (const r of records) {
+    const f = folderOf(r.cwd);
+    if (out.has(f)) continue;
+    const file = transcriptIn(r.cwd, id, projects);
+    let writtenAt = 0;
+    try { writtenAt = fs.statSync(file).mtimeMs; } catch (_) { /* none */ }
+    out.set(f, { lastBefore: file ? newestBefore(file, before) : -Infinity, stale: false, writtenAt });
+  }
+  const times = [...out.values()].map((c) => c.lastBefore).sort((a, b) => a - b);
+  const [first, second] = times;
+  if (second - first >= STALE_GAP_MS) {
+    for (const c of out.values()) if (c.lastBefore === first) c.stale = true;
+  }
+  return out;
+}
+
+const utc = (t) => new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+/* A process's pid, start time and window, as the Steward panel and a steward's notice put it, and for one running a copy
+   kept in another folder, that folder and how recent its copy was. */
+function describe(p) {
+  const at = p.startedAt ? utc(p.startedAt) : 'at an unknown time';
+  const where = p.windowless ? 'in an extension host whose window is gone' : p.window ? `in window "${p.window}"` : 'in a window not known here';
+  if (!p.copy) return `pid ${p.pid}, started ${at}, ${where}`;
+  const copy = p.lastBefore > -Infinity ? `whose newest entry then was from ${utc(p.lastBefore)}` : 'which could not be read';
+  return `pid ${p.pid}, started ${at}, ${where}, on the copy kept for ${p.cwd}, ${copy}${p.stale ? ' (the stale copy)' : ''}`;
+}
+
+/* The idle processes in hosts with no window, to be stopped without asking; none unless another process has a window.
+   Of processes on copies in different folders, only one on the stale copy. */
+function autoStops(group) {
+  return group.some((p) => !p.windowless) ? group.filter((p) => p.windowless && p.idle && (!p.copy || p.stale)) : [];
+}
+/* The one the Stop button stops: of processes on copies in different folders, one on the stale copy, or none when
+   which copy is stale cannot be told; otherwise one in a host with no window, else the oldest. */
 function oldOne(group) {
+  if (group.some((p) => p.copy)) return group.find((p) => p.stale);
   return group.find((p) => p.windowless) || group[0];
 }
 
@@ -165,4 +274,4 @@ function stopped(dir, since, now = Date.now()) {
   return out.sort((a, b) => a.at - b.at);
 }
 
-module.exports = { find, autoStops, oldOne, stop, stopped, describe, hostOf, ALIVE_MS, NO_PAGE_MS, IDLE_MS, STOPPED_DIR };
+module.exports = { find, autoStops, oldOne, stop, stopped, describe, hostOf, newestBefore, ALIVE_MS, NO_PAGE_MS, IDLE_MS, STALE_GAP_MS, STOPPED_DIR };

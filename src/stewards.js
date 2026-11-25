@@ -224,6 +224,14 @@ function changes(before, after, manages) {
   return out;
 }
 
+/* What a steward's notice says about stopping one of the processes that run a conversation (src/duplicates.js). */
+function stopLine(procs) {
+  const p = duplicates.oldOne(procs);
+  if (p) return `The Stop the old process button in the Steward panel stops pid ${p.pid}, and so does kill ${p.pid}.`;
+  return 'They run copies kept in different folders, and which one is stale cannot be told, so the Steward panel offers no '
+    + 'button to stop one; the user closes the tab of the one that should not run.';
+}
+
 /*
  * The notice text, which opens by saying it is from this extension and not from the user. `details` gives, by session
  * id, { state, doing, asks, waitingOn }: carrying them saves the steward a tool call per conversation, and each call
@@ -238,8 +246,7 @@ function noticeText(list, names, details = {}) {
     const head = c.what === 'waiting' ? `- ${name} (${c.id}) is waiting for the user.`
       : c.what === 'ended' ? `- ${name} (${c.id}): its ${c.why}.`
         : c.what === 'twice' ? `- ${name} (${c.id}) is run by ${c.procs.length} processes at once: `
-          + `${c.procs.map(duplicates.describe).join('; ')}. The Stop the old process button in the Steward panel stops `
-          + `pid ${duplicates.oldOne(c.procs).pid}, and so does kill ${duplicates.oldOne(c.procs).pid}.`
+          + `${c.procs.map(duplicates.describe).join('; ')}. ${stopLine(c.procs)}`
           : c.what === 'stopped' ? `- ${name} (${c.id}): Claude Code Plus stopped its process ${duplicates.describe(c.stop)}, `
             + `${c.stop.how === 'auto' ? 'as it was idle and its window was gone' : 'from the Stop the old process button'}.`
             : `- ${name} (${c.id}) finished its turn.`;

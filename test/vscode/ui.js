@@ -78,8 +78,9 @@
  *                  takes a message; through three reloads with the setting on, each background tab still opens its
  *                  conversation rather than Claude Code's notice that it was not reopened
  *   two windows    a second window of the same VS Code on a folder of its own: a conversation open there comes to the
- *                  front, in that window, from the first window's Steward panel and from a steward's link, and no copy
- *                  of it opens; a link to a conversation open nowhere reports that; its title in a reply in the first
+ *                  front, in that window, from the first window's Steward panel, from a steward's link and from the
+ *                  first window's session list when a copy of it is kept under that window's folder, and no copy of it
+ *                  opens; a link to a conversation open nowhere reports that; its title in a reply in the first
  *                  window, linked and clicked, does the same; once that window has reloaded with the conversation's tab
  *                  restored behind another and not loaded, deleting it from the first window is refused and names the
  *                  second
@@ -3636,6 +3637,33 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             await own.locator(`[data-testid="assistant-message"] a[href="${mention}"]`).last().click({ timeout: 15000 }).catch(() => {});
             await jumped('X\'s title in a reply, clicked in window A');
             await shotB('two-windows-mention-jump');
+          }
+          /* A copy of X kept under window A's folder as well, as Claude Code keeps one of a conversation continued from
+             another folder: window A's session list then shows X, and a click on that row goes to window B, where X is
+             open, rather than resuming the copy here in a second process. */
+          const copyA = path.join(profile.home, '.claude', 'projects', folderName(profile.folder), `${X.id}.jsonl`);
+          const relist = () => call('if (typeof globalThis.__cceSessionsChanged === "function") globalThis.__cceSessionsChanged(); return true;').catch(() => false);
+          fs.writeFileSync(copyA, fs.readFileSync(transcriptIn(X), 'utf8').split('\n').map((l) => {
+            try { const d = JSON.parse(l); if (d && typeof d.cwd === 'string') d.cwd = profile.folder; return JSON.stringify(d); } catch (_) { return l; }
+          }).join('\n'));
+          try {
+            await relist();
+            check(!!await backToA(), 'window A is in front before X\'s row in its session list is clicked', { front: await frontTitle(both), titleA: await page.title() });
+            await openList();
+            const xRow = () => list.locator(`[id="sessions-list-row-${X.id}"]:not([data-cce-section] *)`).first();
+            const shown = list ? await until(async () => (await xRow().count()) > 0, 30000, 500) : false;
+            check(!!shown, 'with a copy of X kept under window A\'s folder, window A\'s session list shows X',
+              list ? await list.evaluate(() => [...document.querySelectorAll('[class*="sessionItem_"][id]')].map((r) => r.id)) : 'no session list');
+            if (shown) {
+              frontWith(profile.folder);
+              await exec('notifications.clearAll');
+              await xRow().click({ timeout: 15000 });
+              await jumped('X\'s row in window A\'s session list clicked, with a copy of X kept under A\'s folder');
+              await shotB('two-windows-list-row-jump');
+            }
+          } finally {
+            fs.rmSync(copyA, { force: true });
+            await relist();
           }
         } else note('window A\'s own conversation did not load, so the link was not clicked');
 

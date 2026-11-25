@@ -136,7 +136,7 @@ function gather(records, deps) {
 
 const twiceText = (procs) => `Claude Code runs this conversation in ${procs.length} processes at once, and what is sent to it can reach `
   + `any of them: ${procs.map(duplicates.describe).join('; ')}.`;
-const stopText = (procs) => `Stops ${duplicates.describe(duplicates.oldOne(procs))}. The conversation stays in its transcript.`;
+const stopText = (p) => `Stops ${duplicates.describe(p)}. The conversation stays in its transcript.`;
 
 const STATE_TEXT = { working: 'working', background: 'running background work', prompt: 'waiting for you',
   unread: 'finished, not read yet', idle: 'idle' };
@@ -231,7 +231,7 @@ function body(model) {
       ${c.by ? `<span class="by" data-why="${esc(c.why)}">${c.byId ? `managed by <a href="#" data-open="${esc(c.byId)}">${esc(c.by)}</a>${c.byAll ? ' through All' : ''}` : esc(c.by)}</span>` : ''}
       ${c.unseen ? `<span class="env" title="${ENVELOPE_TEXT}" aria-label="${ENVELOPE_TEXT}">${htmlChars(model.envelope || envelope.COLOUR)}</span>` : ''}
       ${c.processes.length > 1 ? `<span class="twice" title="${esc(twiceText(c.processes))}">${c.processes.length} processes</span>
-      <button class="stop-old" data-stop-old="${esc(c.sessionId)}" title="${esc(stopText(c.processes))}">Stop the old process</button>` : ''}
+      ${duplicates.oldOne(c.processes) ? `<button class="stop-old" data-stop-old="${esc(c.sessionId)}" title="${esc(stopText(duplicates.oldOne(c.processes)))}">Stop the old process</button>` : ''}` : ''}
       ${c.managed ? `<span class="doing">${esc(c.doing.join(' · ') || (c.running ? STATE_TEXT[c.state] : 'stopped'))}</span>
       ${c.questions ? `<span class="questions">${c.questions} question${c.questions === 1 ? '' : 's'} for you</span>` : ''}
       <span class="when">${esc(ago(c.lastActiveAt, now))}</span>` : `<span class="when">${esc(ago(c.lastActiveAt, now))}</span>`}

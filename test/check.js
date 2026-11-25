@@ -7089,6 +7089,28 @@ console.log('\nconversation links, wired up at activation');
     'claudeCodePlus.show.conversationLinks off stops listening and sends nothing, a panel\'s question included; on again it listens and sends what changed meanwhile');
 }
 
+console.log('\na session list row of a conversation another window shows');
+{
+  const A = 'aaaaaaaa-0000-4000-8000-0000000000a1', B = 'aaaaaaaa-0000-4000-8000-0000000000b2';
+  const r = activateStub({ after: 1500, preamble: `
+    const wdir = path.join(process.env.HOME, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'windows');
+    fs.mkdirSync(wdir, { recursive: true });
+    fs.writeFileSync(path.join(wdir, process.ppid + '.json'), JSON.stringify({ at: Date.now(), name: 'other window', sessions: ['${A}'] }));
+    globalThis.__elseOut = {};
+    setTimeout(async () => {
+      const o = globalThis.__elseOut;
+      try {
+        o.there = await globalThis.__cceOpenElsewhere('${A.toUpperCase()}');
+        o.nowhere = await globalThis.__cceOpenElsewhere('${B}');
+      } catch (e) { o.threw = String(e && e.stack || e); }
+    }, 700);`, report: 'globalThis.__elseOut' });
+  const o = r.extra || {};
+  const opens = (r.executed || []).filter((a) => a[0] === 'agentPlus.openConversation').map((a) => a[1]);
+  if (!r.threw && !o.threw && o.there === true && o.nowhere === false && JSON.stringify(opens) === JSON.stringify([{ sourceId: 'claude-code', sessionId: A }])) {
+    ok('a session list row of a conversation another window shows goes there through agentPlus.openConversation, and one no other window shows opens here');
+  } else bad(`opening a conversation another window shows: ${JSON.stringify([r.threw, o, opens])}`);
+}
+
 /* ── 24. a panel whose bundle never arrives says so ──
    The watch runs inline in the panel's HTML, ahead of the panel's stylesheet (src/panel-load-watch.js says why). Two
    things are checked against a fake page whose clock the test drives. It must never break the panel it watches: the
@@ -11208,6 +11230,42 @@ console.log('\nthe Steward panel');
             && dup.oldOne(g.map((p) => Object.assign({}, p, { windowless: false }))).pid === 100) {
           ok('only an idle process whose window is gone is stopped without asking, and only while another one has a window; the button stops the one with no window, else the oldest');
         } else bad(`what may be stopped: ${JSON.stringify([auto, both, busy])}`);
+        /* One conversation run from two working directories, each process on the copy of the transcript kept for its own
+           folder: the stale one is the copy furthest behind when the later process started, not the process started first. */
+        {
+          const projects = path.join(root, 'dup-projects'), D = 'dddddddd-0000-4000-8000-000000000004';
+          const t1 = now - 30 * 60000, day = 24 * 3600000;
+          const copy = (cwd, lines) => {
+            const d = path.join(projects, cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+            fs.mkdirSync(d, { recursive: true });
+            fs.writeFileSync(path.join(d, D + '.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+            fs.utimesSync(path.join(d, D + '.jsonl'), old / 1000, old / 1000);
+          };
+          const at = (t, o) => Object.assign({ type: 'user', timestamp: new Date(t).toISOString() }, o);
+          copy('/w/fresh', [at(t1 - 3 * day), at(t1 - 60000), { type: 'summary' }, at(t1 + 5000)]);
+          copy('/w/old', [at(t1 - 21 * day), at(t1 - 21 * day + 1000, { pad: 'x'.repeat(300000) }), at(t1 + 1000), '{"type":"user","timest']);
+          const two = (first, second) => dup.find({ dir: ddir, proc, now, transcript: () => tr, projects, records: [
+            rec(200, D, { cwd: first, startedAt: t1 - 3600000, procStart: '222' }), rec(600, D, { cwd: second, startedAt: t1, procStart: '666' })] }).get(D) || [];
+          const later = two('/w/fresh', '/w/old'), earlier = two('/w/old', '/w/fresh');
+          if (later.length === 2 && later.every((p) => p.copy) && dup.oldOne(later) && dup.oldOne(later).pid === 600
+              && later[1].lastBefore === t1 - 21 * day + 1000 && later[0].lastBefore === t1 - 60000
+              && earlier.length === 2 && dup.oldOne(earlier).pid === 200
+              && /on the copy kept for \/w\/old, whose newest entry then was from .* \(the stale copy\)$/.test(dup.describe(later[1]))
+              && !/stale/.test(dup.describe(later[0]))) {
+            ok('of two processes on copies of one conversation kept in different folders, the one on the copy furthest behind is the old one, whichever started first, read back past a line longer than a chunk');
+          } else bad(`stale copies: ${JSON.stringify([later, earlier, later[1] && dup.describe(later[1])])}`);
+          copy('/w/near', [at(t1 - 5 * 60000)]);
+          const near = two('/w/fresh', '/w/near');
+          const st = require('../src/stewards'), sv = require('../src/steward-view');
+          const notice = st.noticeText([{ id: D, what: 'twice', procs: near }], {}, {});
+          const row = (procs) => sv.body({ front: { title: 'S' }, managed: 0, groups: [{ key: 'w:1', name: 'here', rows: [{ sessionId: D, title: 'T', cwd: '/w',
+            managed: false, processes: procs, doing: [], lastActiveAt: 0 }] }] });
+          if (near.length === 2 && near.every((p) => p.copy && !p.stale) && dup.oldOne(near) === undefined && !dup.autoStops(near.map((p) => Object.assign({}, p, { windowless: p.pid === 600, idle: true }))).length
+              && /which one is stale cannot be told/.test(notice) && !/Stop the old process button/.test(notice)
+              && row(near).includes('2 processes') && !row(near).includes('data-stop-old') && row(later).includes(`data-stop-old="${D}"`)) {
+            ok('when neither copy is ten minutes behind the other, no process is offered to be stopped, by the button, by the steward\'s notice or without asking');
+          } else bad(`copies too close to tell: ${JSON.stringify([near, notice])}`);
+        }
         const killed = [];
         const done = dup.stop(A, g[0], 'auto', { dir: ddir, proc, kill: (pid) => killed.push(pid), now });
         const moved = dup.stop(A, Object.assign({}, g[1], { procStart: '999' }), 'button', { dir: ddir, proc, kill: (pid) => killed.push(pid), now });
@@ -13844,6 +13902,27 @@ const repo = path.join(__dirname, '..');
   await require('./shared-copies.js')(t, repo);
   console.log('\nthe package');
   await require('./pack-check.js')(t, repo);
+
+  console.log('\nthe host, for a session list row of a conversation another window shows');
+  {
+    const { applyEdits } = require('../src/edits');
+    const ee = host.EDITS.find((e) => e.name === 'session list open of a conversation another window shows');
+    const esrc = 'async function h($){if($.request.type==="x"){}else if($.request.type==="open_in_editor"){if($.request.sessionId!==void 0&&!xw($.request.sessionId))return{type:"open_in_editor_response"};'
+      + 'await D1.commands.executeCommand("claude-vscode.editor.open",$.request.sessionId);return{type:"open_in_editor_response"}}}function xw(i){return i!=="bad"}';
+    const er = ee ? applyEdits(esrc, [ee]) : { error: 'no such edit' };
+    if (er.error) bad('the host edit for a conversation another window shows did not apply: ' + er.error);
+    else {
+      const eenv = { opened: [], asked: [], D1: { commands: { executeCommand: (...a) => { eenv.opened.push(a[1]); } } } };
+      vm.createContext(eenv);
+      vm.runInContext(er.out + ';var done=(async()=>{await h({request:{type:"open_in_editor",sessionId:"before"}});'
+        + 'globalThis.__cceOpenElsewhere=async(i)=>{asked.push(i);return i==="there"};'
+        + 'for(const i of ["there","here","bad"])await h({request:{type:"open_in_editor",sessionId:i}});await h({request:{type:"open_in_editor"}});})();', eenv);
+      await eenv.done;
+      if (JSON.stringify([eenv.opened, eenv.asked]) === JSON.stringify([['before', 'here', undefined], ['there', 'here']])) {
+        ok('the patched host leaves a session list row to another window when the extension says that window shows it, and opens it here otherwise');
+      } else bad(`the host opened ${JSON.stringify([eenv.opened, eenv.asked])}`);
+    }
+  }
 
   console.log('\nconversation links, what the extension sends the panels');
   {

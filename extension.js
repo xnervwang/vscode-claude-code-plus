@@ -878,7 +878,7 @@ function start(context, log, renamed, handing = false) {
     const group = dupGroups.get(sessionId);
     if (!group) return null;
     const p = duplicates.oldOne(group);
-    return stopProcess(sessionId, p, 'button') ? p : null;
+    return p && stopProcess(sessionId, p, 'button') ? p : null;
   };
   /*
    * Rename, close and open requests from a steward (src/relay.js). A rename goes through the panel showing the
@@ -1033,6 +1033,24 @@ function start(context, log, renamed, handing = false) {
     log: (m) => log.appendLine(m),
   });
   context.subscriptions.push(links);
+  /* A session list row in this window for a conversation that another window shows and this one does not: Agent Plus
+     brings it to the front there, and the row is not opened here (the patch in src/host.js). */
+  globalThis.__cceOpenElsewhere = async (sessionId) => {
+    try {
+      if (removed() || !enabled() || typeof sessionId !== 'string') return false;
+      const id = sessionId.toLowerCase();
+      if (shownList().some((s) => s.toLowerCase() === id)) return false;
+      const where = deleteSession.shownElsewhere(planDir()).get(id);
+      if (!where || !where.length) return false;
+      log.appendLine(`session list: ${id} is shown in ${where.map((n) => `"${n}"`).join(', ')}, so it is opened there`);
+      await vscode.commands.executeCommand('agentPlus.openConversation', { sourceId: conversationLinks.OWN_SOURCE, sessionId: id });
+      return true;
+    } catch (e) {
+      log.appendLine('session list: ' + ((e && e.message) || e));
+      return false;
+    }
+  };
+  context.subscriptions.push({ dispose: () => { delete globalThis.__cceOpenElsewhere; } });
   globalThis.__cceOpenConversationHook = (sourceId, id) => { links.open(sourceId, id).catch((e) => log.appendLine('conversation links: ' + ((e && e.message) || e))); };
   globalThis.__cceConversationsAskHook = () => { links.ask(); };
   context.subscriptions.push({ dispose: () => { delete globalThis.__cceOpenConversationHook; delete globalThis.__cceConversationsAskHook; } });

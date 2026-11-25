@@ -160,6 +160,17 @@ const EDITS = [
       + `this.fromClientStream.enqueue(${msg})}`,
   },
   /*
+   * A row of the session list whose conversation another window shows, and this one does not, goes to that window
+   * (__cceOpenElsewhere in extension.js). A window lists the conversations filed under its own folders, and one
+   * continued from another folder has an older copy there: opening it here would resume that copy in a second process.
+   */
+  {
+    name: 'session list open of a conversation another window shows',
+    re: /else if\(([\w$]+)\.request\.type==="open_in_editor"\)\{if\(\1\.request\.sessionId!==void 0&&!([\w$]+)\(\1\.request\.sessionId\)\)return\{type:"open_in_editor_response"\};/g,
+    to: (m, msg) => `${m}if(${msg}.request.sessionId!==void 0&&typeof globalThis.__cceOpenElsewhere==="function"`
+      + `&&await globalThis.__cceOpenElsewhere(${msg}.request.sessionId))return{type:"open_in_editor_response"};`,
+  },
+  /*
    * A conversation opened from the session list in the place asked for (src/page/86-open-in-tab-or-sidebar.js). The
    * list's own open request carries where, and the host passes it to the open command in place of the preferred
    * location; a request that does not say is opened as before.
