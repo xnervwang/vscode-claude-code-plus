@@ -2436,12 +2436,16 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     await step('a closed tab', async () => {
       if (!list) throw new Error('the session list did not open');
+      /* Earlier steps may have closed tabs of their own, so the count is taken before this one closes. */
+      const countOf = (x) => { const c = x.find((y) => y.closed); const m = c && /(\d+)\s*$/.exec(c.head); return m ? Number(m[1]) : 0; };
+      const before = countOf(await sections());
       const closed = await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)});
         if (!t) return false; await vscode.window.tabGroups.close(t); return true;`);
       if (!closed) throw new Error('no Claude Code tab to close');
-      const s = await until(async () => { const x = await sections(); const c = x.find((y) => y.closed); return c && !x.some((y) => y.open && y.rows.length) && x; }, 20000, 500);
+      const s = await until(async () => { const x = await sections(); const c = x.find((y) => y.closed); return c && countOf(x) === before + 1 && !x.some((y) => y.open && y.rows.length) && x; }, 20000, 500);
       const c = s && s.find((y) => y.closed);
-      check(!!c && /^RECENTLY CLOSED 1$/i.test(c.head) && c.collapsed, 'closing the tab puts RECENTLY CLOSED, folded, at the top of the list, and leaves OPEN SESSIONS empty', s || await sections());
+      check(!!c && /^RECENTLY CLOSED \d+$/i.test(c.head) && countOf(s) === before + 1 && c.collapsed,
+        'closing the tab puts RECENTLY CLOSED, folded, at the top of the list, with one more conversation than before, and leaves OPEN SESSIONS empty', { before, sections: s || await sections() });
       await page.mouse.move(5, 880);
       await sleep(300);
       await shot('recently-closed');
@@ -3320,7 +3324,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await setLoad(true);
       await reloadAndWait(front);
       const withIt = await until(() => loaded(behind), 60000, 1000);
-      const inFront = (await claudeTabs()).find((t) => t.active);
+      /* The tab behind is loaded by showing it, and the one that was in front is then brought back. */
+      const inFront = await until(async () => { const t = (await claudeTabs()).find((x) => x.active); return t && titled(t.label, front.title) && t; }, 10000, 300)
+        || (await claudeTabs()).find((t) => t.active);
       check(!without && !!withIt && !!inFront && titled(inFront.label, front.title),
         'a reload leaves a Claude Code tab behind another unloaded; with claudeCodePlus.loadRestoredTabs on it is loaded, and the tab in front stays in front',
         { without, withIt: !!withIt, tabs: await claudeTabs() });
