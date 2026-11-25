@@ -1134,6 +1134,62 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!back && await until(async () => await theirTimes() === 0, 10000, 500), 'turned back on, they are back, and Claude Code\'s are hidden again', await stampsIn(conv));
     });
 
+    /* A message typed into a conversation for someone else, through Agent Plus as its Answer view and a steward's messages
+       go, while the user types in another conversation's panel beside it. The panel says it is ready and types only on
+       the host's go, and the user's focus and keys stay in the other panel. */
+    await step('a message typed for someone else', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t1 = threads[1];
+      const SEL = '[role="textbox"][aria-label="Message input"]';
+      const inputOf = (f) => f.evaluate((sel) => { const b = document.querySelector(sel); return b ? b.textContent : null; }, SEL).catch(() => null);
+      const groupOf = async (t) => { const g = (await tabs()).find((x) => x.tabs.some((y) => y.active && titled(y.label.replace(ENVELOPE, ''), t.title))); return g ? g.column : 0; };
+      await exec('claude-vscode.editor.open', t1.id);
+      if (!await conversation(t1, 60000)) throw new Error('the second conversation did not open');
+      await exec('workbench.action.moveEditorToRightGroup');
+      await exec('claude-vscode.editor.open', tab0.id);
+      const apart = await until(async () => { const a = await groupOf(tab0), b = await groupOf(t1); return a && b && a !== b && [a, b]; }, 15000, 500);
+      if (!apart) throw new Error(`the two conversations are not side by side: ${JSON.stringify(await tabs())}`);
+      conv = await conversation(tab0, 30000) || conv;
+      const side = await conversation(t1, 30000);
+      if (!side) throw new Error('the second conversation\'s page was not found');
+      try {
+        await side.locator(SEL).first().click();
+        await page.keyboard.type('my own words ');
+        await call(`const prev = globalThis.__cceAnswerHook, seen = globalThis.__cceTestAnswers = [];
+          globalThis.__cceAnswerHook = (key, sent, reason, detail) => { if (key !== 'cce-answers-ready') seen.push([sent, reason]); return prev(key, sent, reason, detail); };
+          globalThis.__cceTestAnswersBack = () => { globalThis.__cceAnswerHook = prev; };
+          return true;`);
+        const text = 'Look at the retry delay once more.\nThen stop.';
+        let got = null, seen = null;
+        try {
+          got = await call(`return await vscode.extensions.getExtension('xnervwang.agent-plus').exports.agentPlus.deliver({ sourceId: 'claude-code', sessionId: arg.id, text: arg.text });`,
+            { id: tab0.id, text }, 60000);
+        } finally {
+          seen = await call('const s = globalThis.__cceTestAnswers || []; if (globalThis.__cceTestAnswersBack) globalThis.__cceTestAnswersBack(); return s;');
+        }
+        const arrived = await until(() => {
+          try { return fs.readFileSync(transcriptOf(tab0), 'utf8').split(JSON.stringify(text).slice(1, -1)).length - 1; } catch (_) { return 0; }
+        }, 30000, 500);
+        check(!!got && got.outcome === 'submitted' && JSON.stringify(seen) === JSON.stringify([[false, 'ready'], [true, '']]) && arrived >= 1,
+          'a message for a conversation is sent from its panel only after the panel said it was ready and the host said go, and arrives with its line break', { got, seen, arrived });
+        check(await inputOf(conv) === '' && await inputOf(side) === 'my own words ', 'its input is empty again, and what the user was typing in the panel beside it is untouched',
+          { here: await inputOf(conv), beside: await inputOf(side) });
+        await page.keyboard.type('and more');
+        const kept = await until(async () => (await inputOf(side)) === 'my own words and more', 5000, 200);
+        check(!!kept && await inputOf(conv) === '', 'and the user\'s next keys still go to the panel they were typing in, not to the one the message went to',
+          { here: await inputOf(conv), beside: await inputOf(side) });
+        await shot('typed-for-someone-else');
+      } finally {
+        await side.locator(SEL).first().click().catch(() => {});
+        await page.keyboard.press('Control+a').catch(() => {});
+        await page.keyboard.press('Delete').catch(() => {});
+        await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)} && x.label.startsWith(arg));
+          if (t) await vscode.window.tabGroups.close(t); return true;`, t1.title.slice(0, 12));
+        await exec('claude-vscode.editor.open', tab0.id);
+        conv = await conversation(tab0, 30000) || conv;
+      }
+    });
+
     await step('the dots on a tab', async () => {
       if (!conv) throw new Error('the conversation did not open');
       const t = (await claudeTabs()).find((x) => titled(x.label, tab0.title));

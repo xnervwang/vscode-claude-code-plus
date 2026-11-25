@@ -807,6 +807,8 @@ function start(context, log, renamed, handing = false) {
   /* The list of running conversations, shared between windows (listAgents in src/waiting.js). A shared list is at most
      20 seconds old when a window takes it, and src/claude-source.js caches it for that window like any other. */
   const AGENTS_FILE = 'agents.json', AGENTS_SHARE_MS = 20000;
+  /* The conversations whose page waits for a go before it types an answer (src/page/91-answer.js), by session id. */
+  const confirming = new Set();
   /* Created here because it reads globals the patched host sets in this process. */
   const claude = createClaudeSource({
     planDir,
@@ -838,7 +840,13 @@ function start(context, log, renamed, handing = false) {
     canDeliver: (sessionId) => {
       try { return typeof globalThis.__cceAnswer === 'function' && globalThis.__cceAnswer(sessionId) === true; } catch (_) { return false; }
     },
-    hand: (sessionId, text, key) => globalThis.__cceAnswer(sessionId, text, key) === true,
+    hand: (sessionId, text, key, confirm) => (confirm && typeof globalThis.__cceToPanel === 'function'
+      ? globalThis.__cceToPanel(sessionId, { type: 'cce_answer', sessionId, text, id: key, confirm: true }) === true
+      : globalThis.__cceAnswer(sessionId, text, key) === true),
+    confirms: (sessionId) => confirming.has(sessionId),
+    /* Every panel: only the one holding the answer acts on it, and the conversation may have moved to another panel. */
+    go: (key) => typeof globalThis.__cceToAllPanels === 'function' && globalThis.__cceToAllPanels({ type: 'cce_answer_go', id: key }) > 0,
+    typedFor: (text) => relay.typedForOthers(planDir(), text, Date.now()),
     sentSince: (sessionId, text, since) => sentCheck.sentSince(transcriptOf(sessionId), text, since),
     log: (line) => log.appendLine(line),
     /* An extension cannot raise another window, and opening the conversation here as well would start a second process on
@@ -1139,7 +1147,10 @@ function start(context, log, renamed, handing = false) {
   globalThis.__cceAnswerHook = (key, sent, reason, detail) => {
     if (key !== ANSWERS_READY) { claude.answered(key, sent, reason, detail); return; }
     if (answersReady.size > 500) answersReady.clear();
-    if (typeof detail === 'string' && detail) answersReady.add(detail);
+    if (confirming.size > 500) confirming.clear();
+    if (typeof detail !== 'string' || !detail) return;
+    answersReady.add(detail);
+    if (reason === 'confirms') confirming.add(detail); else confirming.delete(detail);
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceAnswerHook) delete globalThis.__cceAnswerHook; } });
   /*

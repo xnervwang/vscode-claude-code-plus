@@ -11379,11 +11379,11 @@ console.log('\nthe Steward panel');
           return { before: ctx.out.before, atStart, after: posted.slice(atStart.length), listeners };
         };
         process.stdout.write(JSON.stringify({ known: run('S-1'), unknown: run(undefined) }));`], { encoding: 'utf8', timeout: 30000 }));
-      const said = (sid) => ({ type: 'cce_answer_result', id: readyId, sent: false, reason: '', detail: sid });
+      const said = (sid) => ({ type: 'cce_answer_result', id: readyId, sent: false, reason: 'confirms', detail: sid });
       if (readyPage.known.before === 0 && JSON.stringify(readyPage.known.atStart) === JSON.stringify([said('S-1')])
           && JSON.stringify(readyPage.known.listeners) === '["message"]'
           && readyPage.unknown.atStart.length === 0 && JSON.stringify(readyPage.unknown.after) === JSON.stringify([said('S-LATER')])) {
-        ok('a page says it listens for answers only once it listens, and names its conversation, again when it learns which one it shows');
+        ok('a page says it listens for answers, and waits for a go before it types one, only once it listens, and names its conversation, again when it learns which one it shows');
       } else bad(`a page saying it listens: ${JSON.stringify(readyPage)}`);
       const sessionPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '25-session.js'), 'utf8');
       if (/sessionRef = s;\s*try \{ sayFocusIfFocused\(\); \} catch \(e\) \{\}\s*try \{ sayAnswersReady\(\); \} catch \(e\) \{\}/.test(sessionPage)) {
@@ -12960,6 +12960,54 @@ console.log('\nanswering from the Conversations tab');
       if (got && got.again === '' && put && /^input replaced: yes; inputs on the page: 1; page hidden: /.test(put.detail || '')) {
         ok('when the input is replaced by one holding the answer again, the new one is emptied and the host is told the input was replaced');
       } else bad(`answer put back into a new input: ${JSON.stringify(got && { again: got.again, put })}`);
+
+      /* The panel's page in a frame while the focus is in a field of the page around it, as when the user types in a panel
+         beside this one: an answer goes in and is sent, and the focus stays in that field. One handed over with
+         `confirm` waits for the host's go, and one whose go comes after GO_WAIT_MS is dropped untyped. Text already in
+         the input comes back with the refusal. */
+      const mark2 = ['CCE', 'GO:'].join('-');
+      const pageScript = JSON.stringify(require('../src/webview').SCRIPT).replace(/<\//g, '<\\/');
+      const html2 = '<!doctype html><html><body><pre id="out"></pre><input id="other"><iframe id="f"></iframe><script>'
+        + 'var posted = [], sent = [], focusAt = [];'
+        + 'var f = document.getElementById("f"), fw = f.contentWindow, d = f.contentDocument, other = document.getElementById("other");'
+        + 'fw.acquireVsCodeApi = function(){ return { postMessage: function(m){ posted.push(m); } }; };'
+        + 'var box = d.createElement("div"); box.setAttribute("role", "textbox"); box.setAttribute("aria-label", "Message input");'
+        + 'box.contentEditable = "plaintext-only"; d.body.appendChild(box);'
+        + 'box.addEventListener("keydown", function(e){ if (e.key !== "Enter" || e.shiftKey) return; e.preventDefault(); sent.push(box.textContent); box.textContent = ""; });'
+        + 'var s = d.createElement("script"); s.textContent = ' + pageScript + '; d.body.appendChild(s);'
+        + 'other.focus();'
+        + 'var to = function(m){ fw.postMessage({ type: "from-extension", message: m }, "*"); };'
+        + 'var answer = function(text, id, confirm){ to({ type: "cce_answer", sessionId: "S", text: text, id: id, confirm: confirm }); };'
+        + 'var focusNow = function(){ focusAt.push(document.activeElement === other && !d.hasFocus() ? "other" : "moved"); };'
+        + 'setTimeout(function(){ answer("typed beside\\nyour field", "f1"); }, 2500);'
+        + 'setTimeout(function(){ focusNow(); answer("after the go", "c1", true); }, 3500);'
+        + 'setTimeout(function(){ focusAt.push(box.textContent === "" ? "empty before go" : "typed before go"); to({ type: "cce_answer_go", id: "c1" }); }, 3800);'
+        + 'setTimeout(function(){ focusNow(); answer("never told", "c2", true); }, 5000);'
+        + 'setTimeout(function(){ to({ type: "cce_answer_go", id: "c2" }); }, 7600);'
+        + 'setTimeout(function(){ box.textContent = "left there"; answer("not now", "d1"); }, 8500);'
+        + 'setTimeout(function(){ focusNow(); document.getElementById("out").textContent = "' + mark2 + '" + JSON.stringify({ posted: posted, sent: sent, focusAt: focusAt,'
+        + '  box: box.textContent }); }, 9500);'
+        + '</script></body></html>';
+      const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-answer-go-'));
+      const file2 = path.join(dir2, 'panel.html');
+      fs.writeFileSync(file2, html2);
+      const r2 = cp.spawnSync(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=14000', '--dump-dom',
+        'file://' + file2], { encoding: 'utf8', timeout: 120000 });
+      fs.rmSync(dir2, { recursive: true, force: true });
+      const at2 = (r2.stdout || '').indexOf(mark2);
+      let got2 = null;
+      try {
+        got2 = JSON.parse(r2.stdout.slice(at2 + mark2.length, r2.stdout.indexOf('<', at2)).replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&').replace(/&quot;/g, '"'));
+      } catch (_) { got2 = null; }
+      const results2 = got2 ? got2.posted.filter((m) => m.type === 'cce_answer_result').map((m) => [m.id, m.sent, m.reason]) : [];
+      const draft2 = got2 ? got2.posted.find((m) => m.type === 'cce_answer_result' && m.id === 'd1') : null;
+      if (got2 && JSON.stringify(results2) === JSON.stringify([['f1', true, ''], ['c1', false, 'ready'], ['c1', true, ''], ['c2', false, 'ready'],
+        ['c2', false, 'late'], ['d1', false, 'draft']]) && JSON.stringify(got2.sent) === JSON.stringify(['typed beside\nyour field', 'after the go'])
+        && JSON.stringify(got2.focusAt) === JSON.stringify(['other', 'empty before go', 'other', 'other']) && draft2 && draft2.detail === 'left there'
+        && got2.box === 'left there') {
+        ok('in a browser an answer is typed and sent while the focus stays in the field the user is in; with confirm it waits for the go, and a go that comes too late types nothing; text left in the input is sent back with the refusal');
+      } else bad(`answer with the focus elsewhere and a go: ${at2 === -1 ? 'no result (exit ' + r2.status + ')' : JSON.stringify(got2)}`);
     }
   }
 
@@ -13506,6 +13554,88 @@ console.log('\nClaude Code\'s own source');
     if (o.revealed === false && JSON.stringify(o.shown) === JSON.stringify([['Z']])) {
       ok('reveal() passes the session id to the extension and returns its answer');
     } else bad(`reveal ${JSON.stringify([o.revealed, o.shown])}`);
+
+    /* A panel whose page waits for the host's go: the go comes only while the host still waits, and a panel that never
+       says it is ready has typed nothing. The waits are cut short as above. */
+    const confirmScript = `
+      const Module = require('module'), realResolve = Module._resolveFilename;
+      Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+      const C = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+      const realTimeout = setTimeout;
+      const short = { [C.ANSWER_WAIT_MS]: 20, [C.ANSWER_READY_MS]: 30, [C.ANSWER_GO_MS]: 30 };
+      global.setTimeout = (fn, ms, ...a) => realTimeout(fn, short[ms] || ms, ...a);
+      const handed = [], gone = [];
+      let goes = true;
+      const c = C.createClaudeSource({ planDir: () => '/plans', enabled: () => true, timeZone: () => '',
+        listAgents: async () => ({ records: null, error: 'no cli' }), folders: () => [], readPlan: () => null,
+        titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
+        activeChat: () => '', logo: () => null, canDeliver: () => true, reveal: async () => false,
+        confirms: (id) => id === 'A',
+        hand: (id, text, key, confirm) => { handed.push([id, text, key, confirm]); return true; },
+        go: (key) => { gone.push(key); return goes; },
+        typedFor: (text) => text === 'From the steward.\\nalready sent' });
+      const last = () => handed[handed.length - 1][2];
+      const wait = (ms) => new Promise((r) => realTimeout(r, ms));
+      (async () => {
+        const out = {};
+        let p = c.source.deliverAnswer('A', 'one', {});
+        await null;
+        out.flag = handed[handed.length - 1][3];
+        c.answered(last(), false, 'ready');
+        out.wentAfterReady = gone.slice();
+        c.answered(last(), true, '');
+        out.sent = await p;
+        p = c.source.deliverAnswer('A', 'nobody there', {});
+        await null;
+        const silentKey = last();
+        out.silent = await p;
+        c.answered(silentKey, false, 'ready');
+        out.goesAfterSilent = gone.length;
+        p = c.source.deliverAnswer('A', 'told, then nothing', {});
+        await null;
+        c.answered(last(), false, 'ready');
+        out.toldThenNothing = await p;
+        p = c.source.deliverAnswer('A', 'dropped late', {});
+        await null;
+        c.answered(last(), false, 'ready');
+        c.answered(last(), false, 'late');
+        out.late = await p;
+        goes = false;
+        p = c.source.deliverAnswer('A', 'no panel for the go', {});
+        await null;
+        c.answered(last(), false, 'ready');
+        out.noGo = await p;
+        goes = true;
+        p = c.source.deliverAnswer('A', 'x', {});
+        await null;
+        c.answered(last(), false, 'draft', 'From the steward.\\nalready sent');
+        out.ownDraft = await p;
+        p = c.source.deliverAnswer('A', 'y', {});
+        await null;
+        c.answered(last(), false, 'draft', 'the user typing');
+        out.userDraft = await p;
+        p = c.source.deliverAnswer('B', 'older page', {});
+        await null;
+        out.olderFlag = handed[handed.length - 1][3];
+        out.older = await p;
+        out.goes = gone.length;
+        process.stdout.write(JSON.stringify(out));
+      })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
+    const rc = cp.spawnSync(process.execPath, ['-e', confirmScript], { encoding: 'utf8', timeout: 30000 });
+    let q = {};
+    try { q = JSON.parse(rc.stdout); } catch (_) { q = { threw: rc.stdout + rc.stderr }; }
+    const said = (x) => (x && x.reason) || '';
+    if (q.flag === true && q.wentAfterReady && q.wentAfterReady.length === 1 && is(q.sent, 'submitted')
+        && is(q.silent, 'notReceived') && /will not be typed later/.test(said(q.silent)) && q.goesAfterSilent === 1
+        && is(q.toldThenNothing, 'uncertain') && /will not type it after this/.test(said(q.toldThenNothing))
+        && is(q.late, 'notReceived') && is(q.noGo, 'notReceived') && q.goes === 4
+        && q.olderFlag === false && is(q.older, 'uncertain') && /check the conversation's latest messages/.test(said(q.older))) {
+      ok('a panel that waits for a go is told to type only after it says it is ready and while the host still waits; one that never says so is reported as not sent, and one told but silent as unclear, both without a later typing; a panel of an earlier build is not asked to wait');
+    } else bad(`deliveries a panel confirms: ${JSON.stringify(q).slice(0, 900)}`);
+    if (is(q.ownDraft, 'notReceived') && /Claude Code Plus typed into a panel/.test(said(q.ownDraft))
+        && is(q.userDraft, 'notReceived') && said(q.userDraft) === 'the message input already had text in it') {
+      ok('text left in the input that Claude Code Plus typed there for someone else is named as such, and text of the user\'s is not');
+    } else bad(`a draft in the input: ${JSON.stringify([q.ownDraft, q.userDraft])}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 

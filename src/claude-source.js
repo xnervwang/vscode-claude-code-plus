@@ -41,6 +41,14 @@ const AGENTS_FRESH_MS = 30000;
 /* Shorter than Agent Plus's 20-second wait, after which it reports the answer as uncertain and drops a late
    "not received". */
 const ANSWER_WAIT_MS = 15000;
+/*
+ * A panel whose page waits for a go (src/page/91-answer.js) is given ANSWER_READY_MS to say it is ready, and
+ * ANSWER_GO_MS after that for its result. The page presses Enter within GO_SEND_MS (3 seconds) of saying it is ready, or
+ * takes the text back out, and then waits up to 800 ms for the input to empty. No go is sent after ANSWER_READY_MS, so
+ * such a panel types nothing once the host has reported.
+ */
+const ANSWER_READY_MS = 10000;
+const ANSWER_GO_MS = 5000;
 
 /*
  * The reasons the panel script (src/page/91-answer.js) gives for not sending. In each of these the answer is not in the
@@ -52,6 +60,7 @@ const NOT_RECEIVED = {
   draft: 'the message input already had text in it',
   insert: 'the answer could not be typed into the message input',
   'left-in-input': 'Enter did not send it, so it was taken back out of the message input',
+  late: 'the panel answered too late, so it dropped the text without typing it',
 };
 /* Earlier than the hand-over, for a transcript entry stamped a moment before this host read its clock. */
 const SENT_SLACK_MS = 1000;
@@ -98,7 +107,12 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   canDeliver(sessionId)           whether a panel in this window shows it, in a tab or the sidebar
  *   waitingFor(sessionId)           optional: the request or dialog this window's panel last reported showing,
  *                                   { tool } or { dialog }, or null
- *   hand(sessionId, text, key)      gives the answer to the panel; its result comes back through answered()
+ *   hand(sessionId, text, key, confirm)  gives the answer to the panel; its result comes back through answered().
+ *                                   With `confirm` the panel says when it is ready and waits for go(key) to type it
+ *   confirms(sessionId)             optional: whether the panel showing it waits for a go (src/page/91-answer.js)
+ *   go(key)                         optional: tells the panel holding that answer to type it; false if no panel was told
+ *   typedFor(text)                  optional: whether this extension typed that text into a panel for someone else in
+ *                                   the last day (typedForOthers in src/relay.js)
  *   typed(text)                     optional: told of each text before it is handed to a panel, since that text was
  *                                   not typed by the person who sees the panel (noteTyped in src/relay.js)
  *   sentSince(sessionId, text, ms)  optional: Promise of 'sent', 'queued' or '' from the transcript (src/sent-check.js)
@@ -184,25 +198,52 @@ function createClaudeSource(deps) {
     }
     return r;
   };
+  const yes = (name, ...a) => { try { return typeof deps[name] === 'function' && deps[name](...a) === true; } catch (_) { return false; } };
+  /* A text this extension typed there earlier and that is still in the input is named as such, so that the one asking
+     does not take it for the user's own draft. */
+  const refused = (reason, detail) => {
+    const r = outcomeOf(false, reason);
+    if (reason === 'draft' && detail && yes('typedFor', detail)) {
+      r.reason = 'the message input already had text in it, a message that Claude Code Plus typed into a panel for a steward or for Agent Plus in the last day; check whether the conversation received it, and the user can clear the input there';
+    }
+    return r;
+  };
   const deliver = (sessionId, text) => {
     const key = 'cc-' + Date.now().toString(36) + '-' + (++keys);
     const since = Date.now();
     let handed = false;
     try { if (typeof deps.typed === 'function') deps.typed(text); } catch (_) { /* a steward's list check then lets it through */ }
-    try { handed = deps.hand(sessionId, text, key) === true; } catch (_) { handed = false; }
+    const confirm = yes('confirms', sessionId);
+    try { handed = deps.hand(sessionId, text, key, confirm) === true; } catch (_) { handed = false; }
     if (!handed) return Promise.resolve({ outcome: 'notReceived', reason: 'no Claude Code panel in this window shows the conversation' });
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
+      let went = false, timer = 0;
+      const expire = () => {
         pending.delete(key);
-        resolve(recheck(sessionId, text, since,
-          { outcome: 'uncertain', reason: `the panel did not report within ${ANSWER_WAIT_MS / 1000} seconds` }));
-      }, ANSWER_WAIT_MS);
-      pending.set(key, (sent, reason, detail) => {
+        if (confirm && !went) {
+          resolve({ outcome: 'notReceived', reason: `the panel showing it did not answer within ${ANSWER_READY_MS / 1000} seconds, as when its window has lost its connection; it was not typed and will not be typed later` });
+          return;
+        }
+        resolve(recheck(sessionId, text, since, { outcome: 'uncertain', reason: went
+          ? `the panel was told to type it but did not report back within ${ANSWER_GO_MS / 1000} seconds; it will not type it after this, so check the conversation's latest messages before sending it again`
+          : `the panel did not report within ${ANSWER_WAIT_MS / 1000} seconds; check the conversation's latest messages before sending it again` }));
+      };
+      timer = setTimeout(expire, confirm ? ANSWER_READY_MS : ANSWER_WAIT_MS);
+      const result = (sent, reason, detail) => {
+        if (confirm && !went && !sent && reason === 'ready') {
+          went = true;
+          clearTimeout(timer);
+          if (!yes('go', key)) { resolve({ outcome: 'notReceived', reason: 'the panel that took the text could not be told to type it' }); return; }
+          pending.set(key, result);
+          timer = setTimeout(expire, ANSWER_GO_MS);
+          return;
+        }
         clearTimeout(timer);
-        if (!sent && detail) log(`answer to ${sessionId}: ${reason || 'not sent'} (${detail})`);
-        const r = outcomeOf(sent, reason);
+        if (!sent && detail && reason !== 'draft') log(`answer to ${sessionId}: ${reason || 'not sent'} (${detail.slice(0, 300)})`);
+        const r = sent ? outcomeOf(true, reason) : refused(reason, detail);
         resolve(!sent && reason === 'left-in-input' ? recheck(sessionId, text, since, r) : r);
-      });
+      };
+      pending.set(key, result);
     });
   };
   /* Agent Plus can hand over one answer twice under the same delivery id; it is typed once, even while the first try runs.
@@ -346,7 +387,7 @@ function createClaudeSource(deps) {
       const done = pending.get(key);
       if (!done) return;
       pending.delete(key);
-      done(sent === true, typeof reason === 'string' ? reason : '', typeof detail === 'string' ? detail.slice(0, 300) : '');
+      done(sent === true, typeof reason === 'string' ? reason : '', typeof detail === 'string' ? detail : '');
     },
     /* Returns whether the host's active session moved. The move is reported as focus only while the active tab is a
        Claude Code panel or there is none: the host keeps that id while another agent's tab is in front, as it is at
@@ -422,4 +463,4 @@ function createClaudeSource(deps) {
   };
 }
 
-module.exports = { createClaudeSource, isPanelTab, outcomeOf, emitter, PROTOCOL, ID, EXTENSION_ID, ANSWER_WAIT_MS };
+module.exports = { createClaudeSource, isPanelTab, outcomeOf, emitter, PROTOCOL, ID, EXTENSION_ID, ANSWER_WAIT_MS, ANSWER_READY_MS, ANSWER_GO_MS };

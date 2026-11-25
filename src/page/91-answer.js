@@ -61,15 +61,58 @@
       if (lines[i]) document.execCommand('insertText', false, lines[i]);
     }
   };
+  /* Why the answer cannot go into the input now, or null. The input's own text rides along with 'draft', so that the
+     host can tell a text it typed there itself. */
+  var MAX_DRAFT = 8000;
+  var refusal = function(m){
+    if (showsOther(m)) return { reason: 'not-shown' };
+    var box = document.querySelector(ANSWER_INPUT);
+    if (!box) return { reason: 'no-input' };
+    /* Text already in the input would be sent along with the answer. */
+    var had = inputText(box);
+    if (had) return { reason: 'draft', detail: had.slice(0, MAX_DRAFT) };
+    return null;
+  };
   var sendAnswer = function(m){
-    if (showsOther(m)) { answerResult(m.id, false, 'not-shown'); return; }
+    var no = refusal(m);
+    if (no) { answerResult(m.id, false, no.reason, no.detail); return; }
+    if (m.confirm === true) { waitForGo(m); return; }
+    typeAnswer(m);
+  };
+  /*
+   * With `confirm`, the panel says it is ready and types only once the host answers go within GO_WAIT_MS. A host that has
+   * given up never says go, so an answer that reached the panel late, after a lost connection or a frozen page, is
+   * dropped rather than typed after the host has reported it (ANSWER_READY_MS in src/claude-source.js).
+   */
+  var GO_WAIT_MS = 2000;
+  /* Enter is pressed no later than this after the page said it was ready, or the text is taken back out: a throttled
+     timer must not send it after the host has stopped waiting. */
+  var GO_SEND_MS = 3000;
+  var awaitingGo = {};
+  var waitForGo = function(m){
+    var at = Date.now();
+    var drop = function(){ if (awaitingGo[m.id]) { delete awaitingGo[m.id]; answerResult(m.id, false, 'late'); } };
+    awaitingGo[m.id] = { m: m, at: at, timer: setTimeout(drop, GO_WAIT_MS) };
+    answerResult(m.id, false, 'ready');
+  };
+  var takeGo = function(id){
+    var w = awaitingGo[id];
+    if (!w) return;
+    delete awaitingGo[id];
+    clearTimeout(w.timer);
+    /* A page that was frozen runs the go after its own timer was due. */
+    if (Date.now() - w.at > GO_WAIT_MS) { answerResult(id, false, 'late'); return; }
+    var no = refusal(w.m);
+    if (no) { answerResult(id, false, no.reason, no.detail); return; }
+    typeAnswer(w.m, w.at + GO_SEND_MS);
+  };
+  /* Typed with the caret placed in the input rather than by focusing it. The panel can be on screen beside the one the
+     user is typing in, and taking the focus would move the user's next keys into this conversation's input. */
+  var typeAnswer = function(m, sendBy){
     var box = document.querySelector(ANSWER_INPUT);
     if (!box) { answerResult(m.id, false, 'no-input'); return; }
-    /* Text already in the input would be sent along with the answer. */
-    if (inputText(box)) { answerResult(m.id, false, 'draft'); return; }
     var text = m.text.replace(/\r\n?/g, '\n');
     try {
-      box.focus();
       var range = document.createRange();
       range.selectNodeContents(box);
       range.collapse(false);
@@ -86,6 +129,7 @@
     }
     setTimeout(function(){
       if (showsOther(m)) { emptyInput(box); answerResult(m.id, false, 'not-shown'); return; }
+      if (sendBy && Date.now() > sendBy) { emptyInput(box); answerResult(m.id, false, 'late'); return; }
       pressSend(box, text, function(sent, reason, detail){ answerResult(m.id, sent, reason, detail); });
     }, 60);
   };
@@ -144,7 +188,8 @@
   var sayAnswersReady = function(){
     var sid = sigValue('sessionId');
     if (!answersOn || typeof sid !== 'string' || !sid) return;
-    try { acquireVsCodeApi().postMessage({ type: 'cce_answer_result', id: ANSWERS_READY, sent: false, reason: '', detail: sid }); }
+    /* 'confirms' tells the host that this page waits for its go (waitForGo above). */
+    try { acquireVsCodeApi().postMessage({ type: 'cce_answer_result', id: ANSWERS_READY, sent: false, reason: 'confirms', detail: sid }); }
     catch (e) { /* the steward's text then waits until its wait runs out */ }
   };
   var listenForAnswers = function(){
@@ -152,6 +197,10 @@
       var d = ev && ev.data, m = d && d.type === 'from-extension' ? d.message : null;
       if (m && m.type === 'cce_submit' && typeof m.text === 'string' && typeof m.id === 'string') {
         try { submitNew(m); } catch (e) { submitResult(m.id, false, 'error', ''); }
+        return;
+      }
+      if (m && m.type === 'cce_answer_go' && typeof m.id === 'string') {
+        try { takeGo(m.id); } catch (e) { answerResult(m.id, false, 'error'); }
         return;
       }
       if (!m || m.type !== 'cce_answer' || typeof m.text !== 'string' || typeof m.id !== 'string') return;
