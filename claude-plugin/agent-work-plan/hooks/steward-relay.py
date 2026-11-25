@@ -45,8 +45,9 @@ conversation thinks belongs elsewhere, as a notice that is not the user's messag
 conversation on its list, or, when none has, to the steward with All on.
 
 Another agent's conversation is named by its key, "<source id>:<session id>" (steward_table.py), and takes only a plain
-message: the window that shows the steward passes it to Agent Plus, which sends it as a user message in the window
-that has the conversation open. Agent Plus refuses it while the conversation waits on a permission or a question.
+message. The request goes to Agent Plus through the window that shows the steward, and Agent Plus sends the message as
+the user's in the window where the conversation is open. Agent Plus refuses it while the conversation waits for the
+user to approve a tool or answer a question.
 
 Prints what happened and exits 0 when it was done, 1 otherwise.
 """
@@ -85,7 +86,7 @@ SAID = {
     "refused": "Not sent",
 }
 SENT_OTHER = "Sent: it reached the conversation as the user's message."
-DRAFTED = "Not sent: it was put into the conversation's message input, and not sent."
+DRAFTED = "Not sent: the text was left in the conversation's message input as a draft."
 NO_ACTIONS = ("Not done: a conversation of %s takes only plain messages from its steward; rename, close or open it in "
               "its own window.")
 

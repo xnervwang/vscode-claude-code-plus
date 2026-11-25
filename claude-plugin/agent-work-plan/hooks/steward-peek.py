@@ -167,7 +167,7 @@ def said(path):
 
 
 def recorded_plan(directory, key):
-    """The plan file the Steward panel recorded for another agent's conversation, or ""."""
+    """The plan file the Steward panel recorded in stewards.json for the conversation of `key`, or ""."""
     for entry in steward_table.read(directory).values():
         if entry["paths"].get(key):
             return entry["paths"][key]
@@ -175,7 +175,7 @@ def recorded_plan(directory, key):
 
 
 def reply_file(plan):
-    """(format, body) of the latest reply file beside `plan`, or (0, None)."""
+    """Reads the reply file beside `plan` as (format, body); (0, None) when it is missing or has no integer format."""
     try:
         with open(os.path.splitext(plan)[0] + REPLY_SUFFIX, encoding="utf-8") as fh:
             d = json.load(fh)
@@ -204,7 +204,6 @@ def print_said(found):
 
 
 def peek_other(key, directory, said_only):
-    """steward-peek.py for another agent's conversation."""
     plan = recorded_plan(directory, key)
     fmt, body = reply_file(plan) if plan else (0, None)
     if said_only:

@@ -7107,7 +7107,7 @@ console.log('\na session list row of a conversation another window shows');
   const o = r.extra || {};
   const opens = (r.executed || []).filter((a) => a[0] === 'agentPlus.openConversation').map((a) => a[1]);
   if (!r.threw && !o.threw && o.there === true && o.nowhere === false && JSON.stringify(opens) === JSON.stringify([{ sourceId: 'claude-code', sessionId: A }])) {
-    ok('a session list row of a conversation another window shows goes there through agentPlus.openConversation, and one no other window shows opens here');
+    ok('a session list row goes through agentPlus.openConversation to the window that shows its conversation, and opens here when no other window shows it');
   } else bad(`opening a conversation another window shows: ${JSON.stringify([r.threw, o, opens])}`);
 }
 
@@ -10311,8 +10311,8 @@ console.log('\nthe Steward panel');
       ];
       if (JSON.stringify(got) === JSON.stringify([{ agent: 'Codex', title: 'Fix the parser', manageable: false }, { agent: 'Codex', title: 'Restored', manageable: false },
         { agent: 'OpenCode Agent Plus', title: 'Port the parser', manageable: true }, { agent: 'OpenCode Agent Plus', title: 'Tidy', manageable: true }, null, null, null])) {
-        ok('a Codex conversation tab, also one restored as a text editor, is another agent\'s that a steward cannot manage, and an OpenCode Agent Plus chat tab one it can; '
-          + 'a Claude Code panel, a file and no tab are not');
+        ok('a Codex conversation tab, also one restored as a text editor, is another agent\'s tab a steward cannot manage, and an OpenCode Agent Plus chat tab is one it can manage; '
+          + 'a Claude Code panel, a file and no tab are neither');
       } else bad(`other agents' tabs: ${JSON.stringify(got)}`);
 
       const sv = require('../src/steward-view');
@@ -10338,7 +10338,7 @@ console.log('\nthe Steward panel');
       v._onMessage({ type: 'toggle', id: S(2), on: true });
       const ticked = !!(st.read(odir)[S(1)] && st.read(odir)[S(1)].manages.includes(S(2)));
       v.dispose();
-      if (/"Fix the parser" is a Codex conversation\. A Codex conversation can neither be a steward nor be managed\./.test(page)
+      if (/"Fix the parser" is a Codex conversation, which can neither be a steward nor be managed\./.test(page)
           && !/type="checkbox"/.test(page) && !/Managed by/.test(page) && untouched && /Managed by/.test(back) && ticked) {
         ok('with a Codex tab in front the Steward panel names it as a Codex conversation, shows no ticks and changes nothing; '
           + 'with a Claude Code conversation in front again it shows that one and ticking works');
@@ -11254,9 +11254,9 @@ console.log('\nthe Steward panel');
           if (later.length === 2 && later.every((p) => p.copy) && dup.oldOne(later) && dup.oldOne(later).pid === 600
               && later[1].lastBefore === t1 - 21 * day + 1000 && later[0].lastBefore === t1 - 60000
               && earlier.length === 2 && dup.oldOne(earlier).pid === 200
-              && /on the copy kept for \/w\/old, whose newest entry then was from .* \(the stale copy\)$/.test(dup.describe(later[1]))
+              && /on the copy kept for \/w\/old, whose newest entry was from .* when the later process started \(stale\)$/.test(dup.describe(later[1]))
               && !/stale/.test(dup.describe(later[0]))) {
-            ok('of two processes on copies of one conversation kept in different folders, the one on the copy furthest behind is the old one, whichever started first, read back past a line longer than a chunk');
+            ok('of two processes on copies of one conversation kept in different folders, the one on the copy furthest behind is the old one, whichever started first, also when a line of a copy is longer than one read chunk');
           } else bad(`stale copies: ${JSON.stringify([later, earlier, later[1] && dup.describe(later[1])])}`);
           copy('/w/near', [at(t1 - 5 * 60000)]);
           const near = two('/w/fresh', '/w/near');
@@ -11265,7 +11265,7 @@ console.log('\nthe Steward panel');
           const row = (procs) => sv.body({ front: { title: 'S' }, managed: 0, groups: [{ key: 'w:1', name: 'here', rows: [{ sessionId: D, title: 'T', cwd: '/w',
             managed: false, processes: procs, doing: [], lastActiveAt: 0 }] }] });
           if (near.length === 2 && near.every((p) => p.copy && !p.stale) && dup.oldOne(near) === undefined && !dup.autoStops(near.map((p) => Object.assign({}, p, { windowless: p.pid === 600, idle: true }))).length
-              && /which one is stale cannot be told/.test(notice) && !/Stop the old process button/.test(notice)
+              && /no copy is far enough behind the others to count as stale/.test(notice) && !/Stop the old process button/.test(notice)
               && row(near).includes('2 processes') && !row(near).includes('data-stop-old') && row(later).includes(`data-stop-old="${D}"`)) {
             ok('when neither copy is ten minutes behind the other, no process is offered to be stopped, by the button, by the steward\'s notice or without asking');
           } else bad(`copies too close to tell: ${JSON.stringify([near, notice])}`);
@@ -11390,7 +11390,8 @@ console.log('\nthe Steward panel');
 
     /* Other agents' conversations: a key `<source id>:<session id>` with the session id's case kept (src/steward-keys.js),
        stewards.json version 2 with each one's plan path, the Steward panel's group for them from Agent Plus's
-       allConversations() and attention files, the relay through deliver(), the notices, and the two hooks. */
+       allConversations() and attention files, the relay through deliver() and steward-relay.py, the notices, and
+       steward.py and steward-peek.py. */
     {
       const keys = require('../src/steward-keys');
       const sv = require('../src/steward-view');
@@ -11402,7 +11403,7 @@ console.log('\nthe Steward panel');
       const planOf = (k) => path.join(ocDir, sid(k) + '.json');
       const vd = (name) => { const d = path.join(root, 'v2-' + name); fs.mkdirSync(d, { recursive: true }); return d; };
       const tableFile = (d) => JSON.parse(fs.readFileSync(path.join(d, st.FILE), 'utf8'));
-      /* Runs `code` in a child, since this script is not asynchronous; `code` sets `out`, which comes back. */
+      /* Runs `code` in a child process and returns the `out` object it fills, since this script is not asynchronous. */
       const child = (code, env = process.env) => {
         const r = cp.spawnSync(process.execPath, ['-e', `const out = {}; (async () => { ${code} })().then(() => process.stdout.write(JSON.stringify(out)), `
           + '(e) => process.stdout.write(JSON.stringify({ error: e.stack })));'], { encoding: 'utf8', timeout: 60000, env });
@@ -11436,8 +11437,8 @@ console.log('\nthe Steward panel');
       const r4 = st.setManaged(S(6), [O(3)], {}, { dir: d2, now: 6, every: true });
       if (same(r1[S(1)].manages, [O(1)]) && same(r1[S(3)].manages, [O(2)]) && same(r2[S(6)].manages, [O(3)]) && same(r2[S(5)].manages, [])
           && r2[S(5)].all === true && !r3[O(4)] && r4[S(6)].all === false && r4[S(5)].all === true) {
-        ok('another agent\'s conversation has one steward at most: one a steward ticked is not ticked for another, a tick takes one another steward has only through All, '
-          + 'and All stays with one steward; such a conversation cannot be a steward');
+        ok('another agent\'s conversation has one steward at most: a steward cannot tick one that another steward ticked, ticking takes one that another steward has only through All, '
+          + 'and only one steward has All on; such a conversation cannot be a steward');
       } else bad(`the rules with other agents' conversations: ${JSON.stringify([r1, r2, r3, r4])}`);
       const d3 = vd('v1');
       fs.writeFileSync(path.join(d3, st.FILE), JSON.stringify({ version: 1, stewards: { [S(1)]: { manages: [S(2), S(3)], names: { [S(2)]: 'Two' }, at: 3 } } }));
@@ -11589,7 +11590,7 @@ console.log('\nthe Steward panel');
           && htmlAt('proj-a') > 0 && htmlAt('proj-a') < htmlAt('OpenCode Agent Plus') && !(pf.html || '').includes('Not ours')
           && same(panel.listening, [true, 1])) {
         ok('the Steward panel lists the open OpenCode Agent Plus conversations Agent Plus gives, in one group after the window groups, with their dot, envelope, '
-          + 'what their plans have in progress and their questions; other sources are left out, and the panel listens to Agent Plus\'s list while it is shown');
+          + 'what their plans have in progress and their questions, and none of other sources. While the panel is shown, it listens to Agent Plus\'s list');
       } else bad(`the panel with OpenCode conversations: ${JSON.stringify(panel).slice(0, 1500)}`);
       if (same(panel.noPlanPathOf, [S(2)]) && same(panel.noDeliver, [S(2)])) {
         ok('with an Agent Plus that lacks deliver or planPathOf, the panel lists Claude Code conversations only');
@@ -11601,10 +11602,10 @@ console.log('\nthe Steward panel');
       const done = panel.done || [], waits = panel.waiting || [];
       if (done.length === 1 && done[0].includes(`"Port the parser" (${O(1)}) finished its turn`) && !done[0].includes(O(2))
           && waits.length === 1 && waits[0].includes(`"Port the parser" (${O(1)}) is waiting for the user.`)
-          && waits[0].includes('Waiting on the user to approve bash in its window (only the user can answer that, there; a message from you does not reach it while it waits)')
+          && waits[0].includes('Waiting on the user to approve bash in its window; only the user can answer it there, and a message from you does not reach it meanwhile')
           && same(panel.later, [])) {
-        ok('a steward hears that an OpenCode conversation its plan names stopped, once it has stayed stopped, and not of one its plan does not name; it hears of a wait '
-          + 'with the tool to approve and that only the user can answer it in that window; a stop shorter than the settling time, and a conversation Agent Plus stops listing, tell nothing');
+        ok('a steward is told when an OpenCode conversation its plan names has stopped and stayed stopped, and not when its plan does not name it; it is told of a wait, '
+          + 'with the tool to approve and that only the user can answer in that window; a stop shorter than the settling time, or a conversation Agent Plus no longer lists, tells it nothing');
       } else bad(`notices of OpenCode conversations: ${JSON.stringify([done, waits, panel.later])}`);
       const wo = (titles) => [...sv.waitedOn({ nodes: titles.map((t) => ({ title: t, state: 'todo' })) }, [O(1), S(2)], { [O(1)]: 'Port the parser', [S(2)]: 'Two' })];
       if (same(wo(['Ask opencode about tabs', 'opencode-plus is slow']), []) && same(wo([`Wait for ${sid(O(1))}`]), [O(1)]) && same(wo([`Wait for ${O(1)}`]), [O(1)])
@@ -11616,10 +11617,10 @@ console.log('\nthe Steward panel');
           && gone.manages && !gone.manages.includes(O(2)) && gone.manages.includes(O(1)) && !(O(2) in (gone.paths || {})) && gone.paths[O(1)] === planOf(O(1))
           && same(panel.hidden, [O(1)])) {
         ok('All takes in the OpenCode conversations too, with the plan path of one opened later, and drops one closed ten minutes before; a ticked one that is closed '
-          + 'counts as open in no window');
+          + 'is counted among those not open in any window');
       } else bad(`All with OpenCode conversations: ${JSON.stringify([panel.every, added, gone, panel.hidden])}`);
       if (same(panel.idle, [false, 0]) && panel.newer === 1) {
-        ok('the panel stops listening to Agent Plus when it is hidden and no steward is shown here, and says once in the log that it leaves a later version\'s table as it is');
+        ok('the panel stops listening to Agent Plus when it is hidden and no steward is shown here, and logs once that it will not rewrite a table of a later version');
       } else bad(`listening and a later table: ${JSON.stringify([panel.idle, panel.newer, panel.error])}`);
 
       /* The relay (src/relay.js): the window that shows the steward takes the request and hands it to Agent Plus. */
@@ -11684,7 +11685,7 @@ console.log('\nthe Steward panel');
       if (relayed.elsewhere === 0 && (relayed.left || []).includes(R(1) + '.json') && rr[0] && rr[0].outcome === 'submitted'
           && (relayed.got || []).some((g) => same(g, ['other', O(1), texts.one]))) {
         ok('a message to an OpenCode conversation is taken by the window that shows its steward, not by one that shows only other conversations, '
-          + 'and Agent Plus is given the key in its own case and the text; the result is submitted');
+          + 'and Agent Plus gets the key, with its case kept, and the text; the outcome is submitted');
       } else bad(`relaying to an OpenCode conversation: ${JSON.stringify(relayed).slice(0, 1500)}`);
       if (rr[1] && rr[1].outcome === 'notReceived' && reason(1) === 'bash is waiting for approval in its window' && rr[2] && rr[2].outcome === 'uncertain'
           && (relayed.sent || []).some((k) => k.includes(' t1 ')) && !(relayed.sent || []).some((k) => k.includes(' t3 '))) {
@@ -11692,16 +11693,16 @@ console.log('\nthe Steward panel');
       } else bad(`outcomes from Agent Plus: ${JSON.stringify([rr[1], rr[2], relayed.sent])}`);
       if (same(relayed.beforeHang, [null, true]) && same(relayed.claudeWhileHeld, [[S(2), 'submitted']]) && rr[8] && rr[8].outcome === 'submitted'
           && (relayed.later || []).some((l) => same(l, [R(9), 'submitted']))) {
-        ok('while Agent Plus has not answered, the same window takes and carries out the next request; the held one gets its result once Agent Plus answers');
+        ok('while a delivery waits for Agent Plus, the same window takes and carries out the next request, and the waiting one gets its result when Agent Plus answers');
       } else bad(`a held delivery: ${JSON.stringify([relayed.beforeHang, relayed.claudeWhileHeld, rr[8], relayed.later])}`);
       if (rr[3] && rr[3].outcome === 'refused' && /has not run steward-relay\.py/.test(reason(3))
-          && [4, 5, 6].every((i) => rr[i] && rr[i].outcome === 'refused' && reason(i) === 'OpenCode Agent Plus conversations take only a plain message; rename, close or open one in its own window')
+          && [4, 5, 6].every((i) => rr[i] && rr[i].outcome === 'refused' && reason(i) === 'OpenCode Agent Plus conversations take only a plain message; the user renames, closes or opens one in its own window')
           && rr[7] && rr[7].outcome === 'refused' && /cannot send to codex-plus conversations/.test(reason(7))
           && !(relayed.got || []).some((g) => g[2] === 'never ran' || g[1] === 'codex-plus:abc')) {
         ok('a request the steward did not run is refused as for a Claude Code conversation; a rename, close or resume of an OpenCode conversation is refused, '
           + 'and so is a message to a source the steward does not manage');
       } else bad(`refused requests: ${JSON.stringify(rr.slice(3, 8))}`);
-      if (relayed.update && relayed.update.outcome === 'notReceived' && /update Agent Plus/.test(relayed.update.reason)
+      if (relayed.update && relayed.update.outcome === 'notReceived' && /cannot pass messages to other agents' conversations; update it$/.test(relayed.update.reason)
           && relayed.thrown && relayed.thrown.outcome === 'notReceived' && relayed.thrown.reason === 'boom') {
         ok('without Agent Plus\'s deliver the message is not received and the reason says to update Agent Plus; a deliver() that throws reads as not received');
       } else bad(`deliverTo: ${JSON.stringify([relayed.update, relayed.thrown, relayed.error])}`);
@@ -11737,12 +11738,12 @@ console.log('\nthe Steward panel');
         + 'm.OTHER_WAIT_SECONDS = 1; sys.exit(m.main(["steward-relay.py", sys.argv[3], sys.argv[4]]))', hooks, relayScript, O(1), sdir],
       { input: 'Anyone?\n', encoding: 'utf8', timeout: 20000, env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: S(1) }) });
       if (sub.code === 0 && sub.to === O(1) && sub.out.trim() === 'Sent: it reached the conversation as the user\'s message.'
-          && dra.code === 1 && dra.out.trim() === 'Not sent: it was put into the conversation\'s message input, and not sent.'
+          && dra.code === 1 && dra.out.trim() === 'Not sent: the text was left in the conversation\'s message input as a draft.'
           && flagged.every((r) => r.status === 1 && r.stdout.includes('Not done: a conversation of OpenCode Agent Plus takes only plain messages from its steward'))
           && noTaker.status === 1 && noTaker.stdout.trim() === 'Not done: no VS Code window that shows this steward conversation took the request.'
           && fs.readdirSync(path.join(sdir, 'relay')).length === 0 && /^OTHER_WAIT_SECONDS = 55$/m.test(fs.readFileSync(relayScript, 'utf8'))) {
         ok('steward-relay.py keeps an OpenCode key\'s case, says a message reached the conversation or was only drafted, refuses --rename, --close and --resume '
-          + 'for such a key without leaving a request, waits 55 seconds for it, and says no window showing the steward took one nobody took');
+          + 'for such a key without leaving a request, waits 55 seconds for an answer, and says no window showing the steward took a request that no window took');
       } else bad(`steward-relay.py with an OpenCode key: ${JSON.stringify([sub, dra, flagged.map((r) => [r.status, r.stdout]), [noTaker.status, noTaker.stdout, noTaker.stderr]])}`);
 
       /* steward.py and steward-peek.py: state from the attention files, the plan from the recorded path, the reply from
@@ -11792,7 +11793,7 @@ console.log('\nthe Steward panel');
           && k6[0] === 0 && k6[1].includes('(where its plan is was not recorded') && k6[1].includes('latest reply:\n(none found)')
           && lower[1].includes('(where its plan is was not recorded')) {
         ok('steward-peek.py reads an OpenCode conversation\'s plan from the recorded path and its latest reply and --said from the file beside the plan, '
-          + 'with the times in UTC; it does not read a later format, nor a path not named after the conversation, and a key is found only in its own case');
+          + 'with the times in UTC; it does not read a later format, nor a path not named after the conversation, and a key in another case is not found');
       } else bad(`steward-peek.py with OpenCode keys: ${JSON.stringify([k1, s1, k2, s2, k6, lower])}`);
 
       /* What the panel says with another agent's tab in front, or nothing to list. */
@@ -11800,7 +11801,7 @@ console.log('\nthe Steward panel');
       const codexTab = sv.body({ other: { agent: 'Codex', title: '', manageable: false } });
       const empty = sv.body({ front: { id: S(1), title: 'Steward' }, groups: [], managed: 0 });
       if (fromTab.includes('"Port the parser" is an OpenCode Agent Plus conversation, which cannot be a steward. To have it managed, bring a Claude Code conversation to the front and tick it there.')
-          && !/type="checkbox"/.test(fromTab) && codexTab.includes('The tab in front is a Codex conversation. A Codex conversation can neither be a steward nor be managed.')
+          && !/type="checkbox"/.test(fromTab) && codexTab.includes('The tab in front is a Codex conversation, which can neither be a steward nor be managed.')
           && empty.includes('No other conversation is open in a VS Code window.')) {
         ok('with an OpenCode Agent Plus tab in front the panel says such a conversation cannot be a steward and is ticked from a Claude Code one; a Codex one can be neither; '
           + 'with nothing to list it says no other conversation is open');
@@ -13015,7 +13016,7 @@ console.log('\nClaude Code\'s own source');
       ok('features lists shows always, and brief only while both the work plan and the brief are on');
     } else bad(`features with plan and brief on, plan off, brief off: ${JSON.stringify(o.features)}`);
     if (JSON.stringify(o.stewards) === JSON.stringify(['["shows","stewards"]', { sourceId: 'claude-code', sessionId: 'cdcdcdcd-1111-4222-8333-444444444444' }, null, null, null, '["shows"]', null, 2])) {
-      ok('with a table to read, the source lists stewards and answers stewardOf with the steward\'s session id in lower case, null for none, a malformed one or an error, and nothing while the work plan is off; onDidChangeStewards fires on each change');
+      ok('with a table to read, the source offers stewards, and stewardOf gives the steward\'s session id in lower case, or null for none, a malformed one or an error; with the work plan off it offers neither; onDidChangeStewards fires on each change');
     } else bad(`stewardOf on the source: ${JSON.stringify(o.stewards)}`);
     {
       const st = require('../src/stewards');
@@ -13025,7 +13026,7 @@ console.log('\nClaude Code\'s own source');
       const got = ['opencode-plus:ses_A1', 'opencode-plus:ses_B2', C1, S1, S2, 'codex:0199a213', ''].map((k) => st.stewardOf(table, k));
       const none = st.stewardOf({ [S1]: { manages: [C1], ticked: [C1], all: false } }, 'opencode-plus:ses_B2');
       if (JSON.stringify(got) === JSON.stringify([S1, S2, S1, '', '', '', '']) && none === '') {
-        ok('the steward of a conversation is the one that ticked it, else the one with All on; a steward has none, nor a conversation of a source no steward can manage');
+        ok('the steward of a conversation is the one that ticked it, else the one with All on; a steward has no steward, and neither has a conversation of a source no steward can manage');
       } else bad(`stewardOf on the table: ${JSON.stringify([got, none])}`);
     }
     if (JSON.stringify(o.claims) === JSON.stringify(['A', 'C', null, null, '', '', false]) && o.listeners === 1 && o.afterDispose === '') {

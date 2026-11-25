@@ -5,19 +5,19 @@
 'use strict';
 /*
  * What the steward needs of Agent Plus to manage another agent's conversations (its docs/protocol.md, "The
- * interface"): allConversations() for the ones open on this machine, planPathOf() for where each keeps its plan, and
- * deliver() to send one a message. Without all three, the Steward panel lists Claude Code conversations only.
+ * interface"): allConversations() lists the ones open on this machine, planPathOf() gives where each keeps its plan,
+ * and deliver() sends one a message. Without all three, the Steward panel lists Claude Code conversations only.
  *
- * allConversations() is kept current only while something listens to onDidChangeAllConversations, and an Agent Plus
- * window writes its attention files, from which src/agent-states.js reads what each conversation is doing, only while
- * its notifications are on or something listens. So the steward listens, while link().want(true) says it has a use
- * for them, and a change only redraws the panel.
+ * allConversations() is kept current only while something listens to onDidChangeAllConversations. An Agent Plus window
+ * writes its attention files, which src/agent-states.js reads for what each conversation is doing, only while its
+ * notifications are on or something listens. So the steward listens, while link().want(true) says it has a use for
+ * them, and a change only redraws the panel.
  */
 const keys = require('./steward-keys');
 const titleMarks = require('./title-marks');
 
 const FEATURES = ['allConversations', 'deliver', 'planPathOf'];
-const UPDATE = 'Agent Plus in this window cannot pass messages to other agents\' conversations; update Agent Plus';
+const UPDATE = 'the Agent Plus in this window cannot pass messages to other agents\' conversations; update it';
 
 const ready = (core) => !!(core && Array.isArray(core.features) && FEATURES.every((f) => core.features.includes(f))
   && typeof core.allConversations === 'function' && typeof core.onDidChangeAllConversations === 'function'
@@ -43,7 +43,7 @@ function others(core) {
   return out;
 }
 
-/* The plan file of the conversation of `key`, or '' when its source does not give one fit for it. */
+/* The plan file of the conversation of `key`, or '' when its source gives none or one that keys.planFileOk refuses. */
 function planPathOf(core, key) {
   const p = ready(core) && keys.isOther(key) ? keys.parse(key) : null;
   if (!p) return '';

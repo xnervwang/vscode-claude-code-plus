@@ -319,8 +319,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   };
   /* Claude Code's own notices of a wait, which its panel shows in the conversation's window while the panel is not on
      screen, with a View button (src/waiting-for.js). */
-  /* A notice's text without the conversation's name in front: Claude Code names it as `In "<title>": ` while the panel is
-     off screen, and from 2.1.332 while it is on screen too. */
+  /* Strips the conversation's name from the front of a notice's text: Claude Code writes it as `In "<title>": ` while the
+     panel is off screen, and from 2.1.332 while it is on screen too. */
   const ccText = (t) => String(t || '').replace(/^In (?:".*?"|another conversation): /, '');
   const CC_WAIT = (n) => /^(Claude is requesting permission to |Claude is asking you a question|Claude has finished a plan|Auto mode is waiting for you)/.test(ccText(n.text));
   /* Claude Code's own notices of waits in the window of `p`: its toasts, or else its notification list. */
@@ -3668,7 +3668,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             await openList();
             const xRow = () => list.locator(`[id="sessions-list-row-${X.id}"]:not([data-cce-section] *)`).first();
             const shown = list ? await until(async () => (await xRow().count()) > 0, 30000, 500) : false;
-            check(!!shown, 'with a copy of X kept under window A\'s folder, window A\'s session list shows X',
+            check(!!shown, 'window A\'s session list shows X once a copy of X is kept under A\'s folder',
               list ? await list.evaluate(() => [...document.querySelectorAll('[class*="sessionItem_"][id]')].map((r) => r.id)) : 'no session list');
             if (shown) {
               frontWith(profile.folder);
@@ -5521,8 +5521,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* An OpenCode Agent Plus conversation in the Steward panel, from a source registered with Agent Plus from the test
-       helper under OpenCode Agent Plus's source id: it lists one running conversation and gives where its plan is. */
+    /* An OpenCode Agent Plus conversation in the Steward panel. The test helper registers a source with Agent Plus under
+       OpenCode Agent Plus's source id; the source lists one running conversation and gives the path of its plan. */
     await step('the steward panel with an OpenCode Agent Plus conversation', async () => {
       const front = threads[0], SID = 'ses_UiStep01AbCd', KEY = `opencode-plus:${SID}`;
       const plans = path.join(path.dirname(profile.folder), 'oc-plans'), planFile = path.join(plans, `${SID}.json`);
@@ -5535,7 +5535,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         globalThis.__cceTestOpenCode = r.registration;
         return { accepted: r.accepted, code: r.code, features: ap.features };`, { sid: SID, plans, sep: path.sep });
       check(!!reg && reg.accepted && ['allConversations', 'deliver', 'planPathOf'].every((f) => (reg.features || []).includes(f)),
-        'a source standing for OpenCode Agent Plus registers with an Agent Plus that offers allConversations, deliver and planPathOf', reg);
+        'a stand-in source with OpenCode Agent Plus\'s id registers with an Agent Plus that offers allConversations, deliver and planPathOf', reg);
       try {
         await exec('claude-vscode.editor.open', front.id);
         await sleep(1500);
@@ -5562,7 +5562,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             try { const x = JSON.parse(fs.readFileSync(file, 'utf8')), e = x.stewards && x.stewards[front.id]; return e && e.manages.includes(KEY) ? x : null; } catch (_) { return null; }
           }, 10000, 300);
           check(!!t && t.version === 2 && t.stewards[front.id].paths && t.stewards[front.id].paths[KEY] === planFile,
-            'ticking it makes the conversation in front its steward, with the plan path Agent Plus gives, in a version 2 table', t);
+            'ticking it makes the conversation in front its steward, and the version 2 table records the plan path Agent Plus gives', t);
           await frame.locator(`input[data-id="${KEY}"]`).first().click();
         } else note('the conversation in front has All on, so the OpenCode Agent Plus conversation was not ticked by hand');
       } finally {

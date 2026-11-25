@@ -27,7 +27,7 @@ const OTHER_SOURCES = ['opencode-plus'];
 /* Shown when Agent Plus gives a conversation no label of its source. */
 const LABELS = { 'opencode-plus': 'OpenCode Agent Plus' };
 
-/* The key of a conversation, or '' when the two ids make none. */
+/* The key of a conversation, or '' when its source id or session id is malformed. */
 function keyOf(sourceId, sessionId) {
   const id = String(sessionId || '');
   if (sourceId === CLAUDE) return SESSION.test(id) ? id.toLowerCase() : '';
@@ -45,11 +45,11 @@ function parse(key) {
 
 const isClaude = (key) => typeof key === 'string' && SESSION.test(key);
 const isOther = (key) => typeof key === 'string' && !SESSION.test(key) && KEY.test(key) && !key.startsWith(CLAUDE + ':');
-/* Whether the panel lists, and the relay passes messages to, conversations of this key's source. */
+/* Whether conversations of this key's source are listed in the panel and get messages through the relay. */
 const allowed = (key) => isOther(key) && OTHER_SOURCES.includes(parse(key).sourceId);
 
-/* The key the table keeps for `x`, or '' for anything it does not take. A Claude Code session id written as a key of
-   its own source is taken as the session id. */
+/* The key the table keeps for `x`, or '' when `x` is neither a session id nor a well-formed key. A Claude Code session
+   id written as a key of its own source is taken as the session id. */
 function managedId(x) {
   if (typeof x !== 'string') return '';
   if (SESSION.test(x)) return x.toLowerCase();
@@ -58,7 +58,7 @@ function managedId(x) {
   return p[1] === CLAUDE ? keyOf(CLAUDE, p[2]) : x;
 }
 
-/* Whether `file` can be the plan of the conversation of key `key`: an absolute path to <session id>.json. */
+/* Whether `file` can be the plan of `key`'s conversation: an absolute path to <session id>.json. */
 function planFileOk(key, file) {
   const p = isOther(key) ? parse(key) : null;
   return !!p && typeof file === 'string' && path.isAbsolute(file) && path.basename(file) === p.sessionId + '.json';

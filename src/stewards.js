@@ -59,7 +59,7 @@ const POST_TIMEOUT_MS = 3000;
 const ids = (list, not) => [...new Set((Array.isArray(list) ? list : [])
   .map(keys.managedId).filter((x) => x && x !== not))].slice(0, MAX_MANAGED);
 
-/* The plan files in `given` of the keys in `manages` that can be their plans. */
+/* The entries of `given` whose key is in `manages` and whose path can be that conversation's plan (keys.planFileOk). */
 function pathsOf(given, manages) {
   const out = {};
   if (!given || typeof given !== 'object') return out;
@@ -144,7 +144,7 @@ function newer(dir = planDir()) {
   return d && typeof d.version === 'number' && d.version > VERSION ? d.version : 0;
 }
 
-/* Returns false, writing nothing, over a table of a later version. */
+/* Returns false without writing when the file holds a table of a later version. */
 function write(table, dir) {
   if (newer(dir)) return false;
   const out = {};
@@ -208,8 +208,8 @@ function stewardOf(table, key) {
  * default, those ticked before); with it off, the whole list counts as ticked. Left out of the list: conversations that
  * are stewards and ones another steward ticked; "all" stays off while another steward has it on. Ticking a
  * conversation another steward has only through "all" takes it from that one, and a steward that comes to manage
- * something leaves every other list. An empty list removes the steward from the table unless "all" is on. Over a table
- * of a later version nothing is written, and the table as read is returned.
+ * something leaves every other list. An empty list removes the steward from the table unless "all" is on. When the
+ * file holds a table of a later version, nothing is written and the table as read is returned.
  */
 function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked, paths = {} } = {}) {
   const all = read(dir);
@@ -237,7 +237,7 @@ function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now
   return write(settled, dir) ? settled : read(dir);
 }
 
-/** Refreshes the saved titles. Writes the file only if a title changed; returns whether it wrote it. */
+/** Refreshes the saved titles. Writes the file, and returns true, only if a title changed. */
 function rename(names, { dir = planDir() } = {}) {
   const all = read(dir);
   let changed = false;
@@ -271,8 +271,8 @@ function changes(before, after, manages) {
 function stopLine(procs) {
   const p = duplicates.oldOne(procs);
   if (p) return `The Stop the old process button in the Steward panel stops pid ${p.pid}, and so does kill ${p.pid}.`;
-  return 'They run copies kept in different folders, and which one is stale cannot be told, so the Steward panel offers no '
-    + 'button to stop one; the user closes the tab of the one that should not run.';
+  return 'They run copies kept in different folders, and no copy is far enough behind the others to count as stale, so the '
+    + 'Steward panel offers no button to stop one; the user closes the tab of the process that should stop.';
 }
 
 /*

@@ -13,8 +13,8 @@
  * The Claude Code candidates are the conversations `claude agents --json` reports, less `claude --bg` sessions and
  * `claude -p` workers, which belong to the conversation that started them; and the stopped conversations whose plans
  * still have open rows, as Agent Plus's Conversations view shows them. The other agents' come from Agent Plus
- * (src/steward-core.js), which lists only the open ones and does not say in which window; what each is doing is read
- * from Agent Plus's attention files (src/agent-states.js). The managed ones come first, with what each is doing, how
+ * (src/steward-core.js), which lists only the open ones and does not say in which window; their states are read from
+ * Agent Plus's attention files (src/agent-states.js). The managed ones come first, with what each is doing, how
  * many questions it has for the user, and when it was last active.
  *
  * The same pass tells a steward when one of its conversations stops (src/stewards.js changes), by a line posted to the
@@ -100,10 +100,10 @@ function rowState(s, live, unread, deps) {
 }
 
 /*
- * Every conversation the panel can list, by key (src/steward-keys.js): { sessionId (the key), title, cwd, state, dot,
- * unseen, running, lastActiveAt, doing, questions }, and for another agent's conversation also sourceId, label and
- * waitingFor. `deps` are those of create() below, with others() for the other agents' conversations
- * (src/steward-core.js) and otherStates() for what they are doing (src/agent-states.js).
+ * Every conversation the panel can list, by key (src/steward-keys.js): { sessionId, title, cwd, state, dot, unseen,
+ * running, lastActiveAt, doing, questions }, with the key as sessionId, and for another agent's conversation also
+ * sourceId, label and waitingFor. `deps` are those of create() below, with others() for the other agents'
+ * conversations (src/steward-core.js) and otherStates() for what they are doing (src/agent-states.js).
  */
 function gather(records, deps) {
   const all = records ? waiting.merge(records) : new Map();
@@ -196,12 +196,12 @@ function waitedOn(plan, ids, names) {
     || (names[id] && names[id].trim().length >= 2 && all.includes(names[id].trim()))));
 }
 
-/* A notice's words for what another agent's conversation waits on (src/agent-states.js reasonOf). The user answers it
+/* What a notice says another agent's conversation is waiting for (reasonOf in src/agent-states.js). The user answers it
    in that window, where Agent Plus refuses a message meanwhile. */
 function otherWait(reason) {
   const what = reason && reason.kind === 'permission' ? `the user to approve ${reason.tool || 'a tool'} in its window`
     : reason && reason.kind === 'question' ? 'the user\'s answer to a question in its window' : 'the user in its window';
-  return `${what} (only the user can answer that, there; a message from you does not reach it while it waits)`;
+  return `${what}; only the user can answer it there, and a message from you does not reach it meanwhile`;
 }
 
 /* Signal 0 only checks; EPERM still means the process exists. */
@@ -294,7 +294,7 @@ function body(model) {
     const name = model.other.title ? `"${esc(model.other.title)}"` : 'The tab in front';
     return model.other.manageable
       ? `<p class="empty">${name} is an ${esc(model.other.agent)} conversation, which cannot be a steward. To have it managed, bring a Claude Code conversation to the front and tick it there.</p>`
-      : `<p class="empty">${name} is a ${esc(model.other.agent)} conversation. A ${esc(model.other.agent)} conversation can neither be a steward nor be managed.</p>`;
+      : `<p class="empty">${name} is a ${esc(model.other.agent)} conversation, which can neither be a steward nor be managed.</p>`;
   }
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
@@ -420,7 +420,7 @@ function create(vscode, deps) {
   const states = new Map();
   const link = stewardCore.link({ changed: () => { pass(); }, log: deps.log });
   const core = () => link.core();
-  /* The plan files of other agents' conversations the stewards table has, read once per pass: where the plan is when
+  /* Plan paths the stewards table records for other agents' conversations, read once per pass: where the plan is when
      this window's Agent Plus does not say. */
   let recorded = {};
   const recordedPaths = () => {
@@ -428,7 +428,7 @@ function create(vscode, deps) {
     for (const t of Object.values(stewards.read(deps.dir))) Object.assign(out, t.paths || {});
     return out;
   };
-  /* The plan of another agent's conversation is wherever its source keeps it; a key is no file name. */
+  /* The plan of another agent's conversation is wherever its source keeps it: its key holds a colon and names no file. */
   const planFile = (id) => (keys.isOther(id) ? stewardCore.planPathOf(core(), id) || recorded[id] || '' : path.join(deps.dir, id + '.json'));
   const plansOf = (list) => {
     const out = {};
@@ -624,7 +624,7 @@ function create(vscode, deps) {
       if (now - (workAt.get(steward) || 0) >= WORK_CHECK_MS) {
         workAt.set(steward, now);
         const t = toldOf(steward), running = {};
-        // Background work and processes are Claude Code's; another agent's key is no file name either.
+        // Only Claude Code conversations have background work and processes here, and only their keys name files.
         for (const id of manages.filter(keys.isClaude)) {
           const cur = watch.runningWork(id, live(), deps.dir), was = t.running[id] || {};
           for (const key of Object.keys(was)) {
@@ -896,7 +896,7 @@ function create(vscode, deps) {
       if (published) windowEntries.withdraw(deps.dir);
     },
     refresh() { render(); },
-    /* The agentPlus interface, or null once this extension is no longer registered with Agent Plus. */
+    /* Given null when the registration with Agent Plus ends. */
     attachCore(next) { link.attach(next); },
     open,
     /* Whether this window keeps the files every window shares; writesTable decides. */

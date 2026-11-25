@@ -15,9 +15,9 @@ Plus's windows last found (WORKING_FILE, written by extension.js), used only whi
 runs. Then what changed since the steward's previous turn, kept in <steward>.steward-seen beside its plan.
 
 Another agent's conversation (a key "<source id>:<session id>", steward_table.py) gets its state from Agent Plus's
-attention files (agent_states.py) and its plan from the path the table recorded for it; it has no background work
-here. Such a conversation takes only plain messages, and none while it waits on a permission or a question in its
-window, so the list ends with a line that says so.
+attention files (agent_states.py) and its plan from the path the table recorded for it. It has no background work
+here. Such a conversation takes only plain messages, and none while it waits for the user to approve a tool or answer
+a question in its window; the last line of the list tells the steward this.
 
 If nothing in the list changed since the steward's previous turn, it gets one sentence saying so: the list is already
 in its context, and a steward wakes many times with nothing new. After each compaction the whole list is sent again

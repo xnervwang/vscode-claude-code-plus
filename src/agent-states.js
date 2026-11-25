@@ -8,7 +8,7 @@
  * with Agent Plus writes in the shared folder (its docs/protocol.md, "Notifications", and readAll in its
  * src/attention.js, whose rules for one item are taken here). hooks/agent_states.py reads them the same way.
  *
- * A window lists its sources' running conversations there, except those stopped with no reply unread, so a
+ * A window lists its sources' running conversations there, leaving out stopped ones whose reply has been read, so a
  * conversation missing from every file is stopped, or open in no window; neither is waiting. A window writes only
  * while its notifications are on or something listens to onDidChangeAllConversations, which src/steward-core.js does.
  */
@@ -19,7 +19,7 @@ const keys = require('./steward-keys');
 
 const ATTENTION_DIR = 'attention';
 const FORMAT = 1;
-/* A file older than this is a window that has gone. */
+/* A file older than this was left by a window that has gone. */
 const STALE_MS = 60000;
 const MAX_ITEMS = 200;
 const MAX_TOOL = 80;
@@ -36,7 +36,8 @@ function reasonOf(raw) {
   const tool = typeof raw.tool === 'string' ? raw.tool.replace(/\s+/g, ' ').trim().slice(0, MAX_TOOL) : '';
   return tool ? { kind: 'permission', tool } : { kind: 'permission' };
 }
-/* A permission without its tool says less than any other reason. */
+/* For keeping the fuller of two windows' reasons for one wait: a permission that does not name its tool ranks below
+   any other reason. */
 const detail = (r) => (!r ? 0 : r.kind === 'permission' && !r.tool ? 1 : 2);
 
 /** key -> { activity, unseen, waitingFor, lastActiveAt } for the conversations of sources other than Claude Code. */

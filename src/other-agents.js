@@ -9,7 +9,7 @@
  * on an openai-codex: URI. Codex Plus checks its own tabs the same way (its src/codex-tabs.js). The Steward panel cannot
  * manage a Codex conversation.
  *
- * OpenCode Agent Plus's chat tabs are a custom editor of view type opencodeAgentPlus.chat (isChatTab in its
+ * An OpenCode Agent Plus chat tab is a custom editor of view type opencodeAgentPlus.chat (isChatTab in its
  * src/host/agentplus-source.js). A steward can manage such a conversation, ticked from a Claude Code one; it cannot be
  * a steward itself.
  */

@@ -1035,8 +1035,8 @@ function start(context, log, renamed, handing = false) {
     log: (m) => log.appendLine(m),
   });
   context.subscriptions.push(links);
-  /* A session list row in this window for a conversation that another window shows and this one does not: Agent Plus
-     brings it to the front there, and the row is not opened here (the patch in src/host.js). */
+  /* When another window shows a conversation and this one does not, a click on its row in this window's session list
+     has Agent Plus bring it to the front in that window instead of opening it in this one (the patch in src/host.js). */
   globalThis.__cceOpenElsewhere = async (sessionId) => {
     try {
       if (removed() || !enabled() || typeof sessionId !== 'string') return false;

@@ -20,9 +20,9 @@
  *
  * Last, a steward's message to an OpenCode Agent Plus conversation, played by a source registered with Agent Plus
  * here: the relay request goes through the window that shows the steward, Agent Plus's deliver() and its answers
- * folder, to that source's deliverAnswer. With an Agent Plus that has 'stewards', that conversation's side follows:
- * Agent Plus says who its steward is, tells when the stewards table changes, and passes its handoff to the steward's
- * panel.
+ * folder, to that source's deliverAnswer. With an Agent Plus that has 'stewards', the checks then take that
+ * conversation's side: Agent Plus says who its steward is, tells when the stewards table changes, and delivers a handoff
+ * from it to the steward's panel.
  */
 const fs = require('fs');
 const os = require('os');
@@ -230,7 +230,7 @@ async function run() {
       listConversations: async () => [{ sessionId: OC, title: 'Port the parser', cwd: ws, state: 'idle', activity: 'stopped', running: true }],
       planPath: (id) => path.join(home, 'oc-plans', `${id}.json`), canDeliver: (id) => id === OC,
       deliverAnswer: async (id, text) => { reached.push([id, text]); return { outcome: 'submitted' }; } });
-    eq(!!(oc && oc.accepted), true, 'a source standing for OpenCode Agent Plus registers with Agent Plus');
+    eq(!!(oc && oc.accepted), true, 'a stand-in source with OpenCode Agent Plus\'s id registers with Agent Plus');
     if (oc && oc.registration) selfContext.subscriptions.push(oc.registration);
     fs.writeFileSync(path.join(plans, 'stewards.json'), JSON.stringify({ version: 2, stewards: { [STEWARD]: { manages: [KEY], names: { [KEY]: 'Port the parser' },
       paths: { [KEY]: path.join(home, 'oc-plans', `${OC}.json`) }, at: Date.now() } } }));
@@ -250,7 +250,7 @@ async function run() {
     eq([reached, result && result.outcome], [[[OC, TEXT]], 'submitted'],
       'a steward\'s message to an OpenCode Agent Plus conversation goes through Agent Plus\'s deliver() to that source once, and the relay reports it submitted');
 
-    /* That conversation's side: who its steward is, a change of the table, and a handoff to the steward. */
+    /* The conversation's side, which needs an Agent Plus with 'stewards'. */
     const ap = exported.agentPlus;
     if (!(Array.isArray(ap.features) && ap.features.includes('stewards') && typeof ap.stewardOf === 'function')) {
       note('this Agent Plus has no \'stewards\': who looks after another agent\'s conversation was not checked');
@@ -258,7 +258,7 @@ async function run() {
       const asked = () => [ap.stewardOf('opencode-plus', OC), ap.stewardOf({ sourceId: 'opencode-plus', sessionId: 'ses_NobodysOwn01' })];
       const ready = await until(() => { const a = asked()[0]; return a && a.sessionId === STEWARD; }, 5000);
       eq([!!ready, asked().map((x) => (x ? [x.sourceId, x.sessionId] : null))], [true, [['claude-code', STEWARD], null]],
-        'Agent Plus says the steward that ticked an OpenCode Agent Plus conversation looks after it, and none for one nobody ticked');
+        'Agent Plus says the steward that ticked an OpenCode Agent Plus conversation looks after it, and that no steward looks after one nobody ticked');
       let changes = 0;
       const sub = ap.onDidChangeStewards(() => changes++);
       selfContext.subscriptions.push(sub);
@@ -273,7 +273,7 @@ async function run() {
       report = { sent: true, reason: '' };
       const r = await ap.deliver({ sourceId: 'claude-code', sessionId: STEWARD, text: handoff });
       eq([r && r.outcome, toSteward], ['submitted', [handoff]],
-        'a handoff from an OpenCode Agent Plus conversation reaches the steward\'s panel once through Agent Plus\'s deliver(), word for word');
+        'a handoff from an OpenCode Agent Plus conversation arrives in the steward\'s panel once and unchanged, through Agent Plus\'s deliver()');
     }
   } finally {
     for (const c of [selfContext, coreContext]) for (const d of c.subscriptions.splice(0)) { try { d.dispose(); } catch (_) { /* gone */ } }

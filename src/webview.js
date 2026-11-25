@@ -761,7 +761,7 @@ const EDITS = [
        Its dot follows the agents alone, so a conversation whose only work running is a command, a worker or a
        session it started had a grey dot beside a label counting that work; the page gets to amend the dot too, and
        the hover text that names the dot's state. Parameters after onOpen (2.1.331 adds `failed`, 2.1.332 `words`) are
-       kept as they are, and so are declarations after the hover text's (2.1.332 adds one). */
+       kept as they are, as are the declarations that follow the hover text's own (2.1.332 adds one). */
     name: 'agent button label and dot',
     re: /function ([\w$]+)\(\{count:([\w$]+),dot:([\w$]+),onOpen:([\w$]+)((?:,[\w$]+:[\w$]+(?:=[\w$.!"]+)?)*)\}\)\{let ([\w$]+)=([\w$]+)\(\2\),([\w$]+)=([\w$]+)\(\3\)([,;])/g,
     to: (m, fn, count, dot, onOpen, rest, label, make, title, says, next) =>

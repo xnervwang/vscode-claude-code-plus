@@ -11,8 +11,8 @@ with "all" on.
 
 A managed conversation is a key: a Claude Code session id in lower case, or "<source id>:<session id>" for another
 agent's conversation, its session id in its own case (src/steward-keys.js, the same pattern). "paths" gives the plan
-file of each of the latter, as the panel recorded it when the conversation was ticked; these hooks cannot ask Agent
-Plus where it is. A key holds a colon, so no file is ever named after one.
+file of each other agent's conversation, as the panel recorded it when the conversation was ticked; these hooks cannot
+ask Agent Plus where it is. A key holds a colon, so no file is ever named after one.
 """
 import json
 import os
@@ -45,13 +45,13 @@ def is_other(key):
 
 
 def allowed(key):
-    """Whether the steward can reach conversations of this key's source."""
+    """Whether the key is of another agent whose conversations a steward can manage (OTHER_SOURCES)."""
     p = parse(key)
     return bool(p) and p[0] in OTHER_SOURCES
 
 
 def managed_id(x):
-    """The key the table keeps for `x`, or "" for anything it does not take."""
+    """The key the table keeps for `x`, or "" when `x` is neither a session id nor a well-formed key."""
     p = parse(x)
     if not p:
         return ""
@@ -66,7 +66,7 @@ def label_of(key):
 
 
 def plan_file_ok(key, path):
-    """Whether `path` can be the plan of the conversation of key `key`: an absolute path to <session id>.json."""
+    """Whether `path` can be the plan of `key`'s conversation: an absolute path to <session id>.json."""
     p = parse(key)
     return bool(p) and p[0] != CLAUDE and isinstance(path, str) and os.path.isabs(path) \
         and os.path.basename(path) == p[1] + ".json"

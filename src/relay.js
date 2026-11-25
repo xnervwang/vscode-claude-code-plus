@@ -29,8 +29,9 @@
  * asking), and the asker's own transcript has the tool call that ran steward-relay.py for it in the last RAN_MS (ranBy),
  * with the action's flag, and at most once per call.
  *
- * Another agent's conversation (`to` is a key `<source id>:<session id>`, src/steward-keys.js) takes only a plain
- * send, which Agent Plus's deliver() passes on to the window that can type into it (src/steward-core.js). The window
+ * Another agent's conversation takes only a plain send; its `to` is a key `<source id>:<session id>`
+ * (src/steward-keys.js), and Agent Plus's deliver() passes the text on to the window that can type into it
+ * (src/steward-core.js). The window
  * that shows the steward takes such a request, since it can read the steward's transcript for the tool call; the
  * deliver() it then awaits can take some 40 seconds, so take() goes on to the other requests meanwhile.
  *
@@ -145,9 +146,9 @@ const settled = () => Promise.all([...inFlight]);
  * new conversation's, when known), manage(steward, id) to tick a conversation for the steward, which returns false when
  * this window may not, windows() -> the windows' entries { pid, name, folders, sessions }, agents() -> Promise<{
  * records, error }> from `claude agents --json`, records() -> the live session records and post(address, text) for a
- * handoff, deliverOther(key, text) -> Promise<{ outcome, reason }> for another agent's conversation, later(result)
- * with the result of such a send once it has one, titleOf(id), pid, now(), and sleep(ms) for tests. Returns the
- * results it wrote; those of sends to other agents' conversations go to later() instead.
+ * handoff, deliverOther(key, text) -> Promise<{ outcome, reason }> for another agent's conversation, later(result),
+ * called when such a send has its result, titleOf(id), pid, now(), and sleep(ms) for tests. Returns the results it
+ * wrote; a send to another agent's conversation reports to later() instead.
  */
 async function take(planDir, deps) {
   const dir = path.join(planDir, RELAY_DIR);
@@ -365,7 +366,7 @@ async function carryOut(req, action, to, dir, deps, now) {
     const label = keys.labelOf(to);
     if (!keys.allowed(to)) return { outcome: 'refused', reason: `a steward cannot send to ${label} conversations` };
     if (action !== 'send') {
-      return { outcome: 'refused', reason: `${label} conversations take only a plain message; rename, close or open one in its own window` };
+      return { outcome: 'refused', reason: `${label} conversations take only a plain message; the user renames, closes or opens one in its own window` };
     }
   }
   const { text, why } = textFor(action, req.text);
