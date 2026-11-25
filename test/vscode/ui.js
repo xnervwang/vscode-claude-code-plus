@@ -3944,7 +3944,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('workbench.view.extension.claudeCodePlusSteward');
         panelA = await stewardIn(page);
         panelB = await stewardIn(pageB);
-        const listed = panelA && panelB && await until(async () => (await boxIn(panelA, X.id)) && (await boxIn(panelB, X.id))
+        const listed = panelA && panelB && await until(async () => (await boxIn(panelA, X.id)) && (await boxIn(panelA, Q1.id)) && (await boxIn(panelB, X.id))
           && (await boxIn(panelB, SA.id)) && (await header(panelB)).includes(Q1.title.slice(0, 20))
           && (await header(panelA)).includes(SA.title.slice(0, 20)), 60000, 1000);
         check(!!listed, 'each window\'s Steward panel lists the conversations of both', { a: panelA && await panelA.evaluate(() => document.body.innerText.slice(0, 400)), b: panelB && await panelB.evaluate(() => document.body.innerText.slice(0, 400)) });
@@ -4012,7 +4012,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             kid.stdin.end(input || '');
           }).then((said) => { answered(said); return said; });
         };
-        const userSays = (t, text, from) => fs.appendFileSync(fileOf(t), JSON.stringify({ sessionId: t.id, cwd: profile.folder, isSidechain: false, type: 'user',
+        /* A message in the transcript, after its last entry: Claude Code opens a conversation along that chain, so one
+           with no parent would hide the turns before it the next time the conversation opens. */
+        const lastUuid = (t) => {
+          for (const l of fs.readFileSync(fileOf(t), 'utf8').split('\n').reverse()) {
+            try { const r = JSON.parse(l); if ((r.type === 'user' || r.type === 'assistant') && r.uuid) return r.uuid; } catch (_) { /* not an entry */ }
+          }
+          return null;
+        };
+        const userSays = (t, text, from) => fs.appendFileSync(fileOf(t), JSON.stringify({ parentUuid: lastUuid(t), sessionId: t.id, cwd: profile.folder, isSidechain: false, type: 'user',
           uuid: `${t.id.slice(0, 24)}${String(870000 + calls++).padStart(12, '0')}`, timestamp: new Date().toISOString(), permissionMode: 'default',
           promptSource: from ? 'system' : 'user', origin: { kind: from || 'human' }, message: { role: 'user', content: text } }) + '\n');
         const inX = (text) => { try { return fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(text).slice(1, -1)); } catch (_) { return false; } };
@@ -4032,8 +4040,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         /* A handoff with --to goes to the steward it names, not to the one whose message started the turn. */
         const moved = 'The user asked here for the release notes, which belong in another conversation.';
         const handed = await actAs(X, ['--handoff', '--to', SA.id], moved);
-        const gotA = handed.startsWith('Handed off to the steward ') && handed.includes(`(${SA.id})`)
-          && await until(() => { try { return fs.readFileSync(fileOf(SA), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`); } catch (_) { return false; } }, 30000, 1000);
+        /* On native Windows no handoff reaches a steward's inbox; it says so for the one --to names and tries no other. */
+        const gotA = process.platform === 'win32'
+          ? /^Not done: no steward of this conversation could be reached/.test(handed) && handed.includes(SA.id) && !handed.includes(Q1.id)
+          : handed.startsWith('Handed off to the steward ') && handed.includes(`(${SA.id})`)
+            && await until(() => { try { return fs.readFileSync(fileOf(SA), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`); } catch (_) { return false; } }, 30000, 1000);
         const notQ1 = !fs.readFileSync(fileOf(Q1), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`);
         const stranger = await actAs(X, ['--handoff', '--to', Q2.id], moved);
         check(!!gotA && notQ1 && /^Not done: .* is not a steward of this conversation; its stewards are /.test(stranger),
@@ -5622,8 +5633,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const t = await until(() => {
             try { const x = JSON.parse(fs.readFileSync(file, 'utf8')), e = x.stewards && x.stewards[front.id]; return e && e.manages.includes(KEY) ? x : null; } catch (_) { return null; }
           }, 10000, 300);
-          check(!!t && t.version === 2 && t.stewards[front.id].paths && t.stewards[front.id].paths[KEY] === planFile,
-            'ticking it makes the conversation in front its steward, and the version 2 table records the plan path Agent Plus gives', t);
+          check(!!t && t.version === 3 && t.stewards[front.id].paths && t.stewards[front.id].paths[KEY] === planFile,
+            'ticking it makes the conversation in front its steward, and the version 3 table records the plan path Agent Plus gives', t);
           await frame.locator(`input[data-id="${KEY}"]`).first().click();
         } else note('the conversation in front has All on, so the OpenCode Agent Plus conversation was not ticked by hand');
       } finally {

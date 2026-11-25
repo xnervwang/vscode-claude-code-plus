@@ -10804,7 +10804,7 @@ console.log('\nthe Steward panel');
         ok('steward-relay.py asks for a list change with the conversation named on the command line or in a here-document before the data directory, and for a switch with its value, '
           + 'and prints what the window did');
       } else bad(`list changes from the script gave ${JSON.stringify({ titled, byId, switched })}`);
-      const lines = (held.out || '').trim().split('\n');
+      const lines = (held.out || '').trim().split(/\r?\n/);
       if (held.code === 1 && !held.asked.length && lines[0] === 'Not sent: another steward sent this conversation a message in the last 30 minutes:'
           && lines[1].startsWith(`  - "Night steward" (${S(7)}), 5 minutes ago: Rewrite the totals query. x`) && lines[1].endsWith('...') && lines[1].length < 420
           && lines.length === 3 && /run the same command with --anyway\.$/.test(lines[2]) && !held.out.includes('Old steward') && !held.out.includes('mine')
