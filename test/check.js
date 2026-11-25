@@ -10303,19 +10303,23 @@ console.log('\nthe Steward panel');
       const got = [
         oa.agentOfTab(fake, { label: 'Fix the parser', input: new TabInputCustom(codexUri, 'chatgpt.conversationEditor') }),
         oa.agentOfTab(fake, { label: 'Restored', input: new TabInputText(codexUri) }),
+        oa.agentOfTab(fake, { label: 'Port the parser', input: new TabInputCustom({ scheme: 'opencodeagentplus-session', path: '/ses_1' }, 'opencodeAgentPlus.chat') }),
+        oa.agentOfTab(fake, { label: 'Tidy', input: new TabInputCustom({ scheme: 'opencodeagentplus-session', path: '/ses_2' }, 'mainThreadWebview-opencodeAgentPlus.chat') }),
         oa.agentOfTab(fake, { label: 'Claude', input: new TabInputWebview('mainThreadWebview-claudeVSCodePanel') }),
         oa.agentOfTab(fake, { label: 'a.js', input: new TabInputText({ scheme: 'file', path: '/w/a.js' }) }),
         oa.agentOfTab(fake, undefined),
       ];
-      if (JSON.stringify(got) === JSON.stringify([{ agent: 'Codex', title: 'Fix the parser' }, { agent: 'Codex', title: 'Restored' }, null, null, null])) {
-        ok('a Codex conversation tab, also one restored as a text editor, is another agent\'s; a Claude Code panel, a file and no tab are not');
+      if (JSON.stringify(got) === JSON.stringify([{ agent: 'Codex', title: 'Fix the parser', manageable: false }, { agent: 'Codex', title: 'Restored', manageable: false },
+        { agent: 'OpenCode Agent Plus', title: 'Port the parser', manageable: true }, { agent: 'OpenCode Agent Plus', title: 'Tidy', manageable: true }, null, null, null])) {
+        ok('a Codex conversation tab, also one restored as a text editor, is another agent\'s that a steward cannot manage, and an OpenCode Agent Plus chat tab one it can; '
+          + 'a Claude Code panel, a file and no tab are not');
       } else bad(`other agents' tabs: ${JSON.stringify(got)}`);
 
       const sv = require('../src/steward-view');
       const st = require('../src/stewards');
       const odir = path.join(root, 'plans-other');
       fs.mkdirSync(odir, { recursive: true });
-      let provider, other = { agent: 'Codex', title: 'Fix the parser' };
+      let provider, other = { agent: 'Codex', title: 'Fix the parser', manageable: false };
       const vs = { window: { registerWebviewViewProvider: (id, pr) => { provider = pr; return { dispose() {} }; }, showInformationMessage() {} } };
       const v = sv.create(vs, { activeChat: () => S(1), otherFront: () => other, freshAgents: async () => ({ records: [] }), readPlan: () => null,
         titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true,
@@ -10334,7 +10338,7 @@ console.log('\nthe Steward panel');
       v._onMessage({ type: 'toggle', id: S(2), on: true });
       const ticked = !!(st.read(odir)[S(1)] && st.read(odir)[S(1)].manages.includes(S(2)));
       v.dispose();
-      if (/"Fix the parser" is a Codex conversation\. The Steward panel works only with Claude Code conversations\./.test(page)
+      if (/"Fix the parser" is a Codex conversation\. A Codex conversation can neither be a steward nor be managed\./.test(page)
           && !/type="checkbox"/.test(page) && !/Managed by/.test(page) && untouched && /Managed by/.test(back) && ticked) {
         ok('with a Codex tab in front the Steward panel names it as a Codex conversation, shows no ticks and changes nothing; '
           + 'with a Claude Code conversation in front again it shows that one and ticking works');
@@ -11383,6 +11387,425 @@ console.log('\nthe Steward panel');
         && require('../src/workplan').SIDE_SUFFIXES.includes('.steward-seen')) {
       ok('the hook is registered, the steward skill ships beside it, and the steward\'s side file is swept with its conversation');
     } else bad('the steward hook, skill or side file is not wired as expected');
+
+    /* Other agents' conversations: a key `<source id>:<session id>` with the session id's case kept (src/steward-keys.js),
+       stewards.json version 2 with each one's plan path, the Steward panel's group for them from Agent Plus's
+       allConversations() and attention files, the relay through deliver(), the notices, and the two hooks. */
+    {
+      const keys = require('../src/steward-keys');
+      const sv = require('../src/steward-view');
+      const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      const O = (n) => `opencode-plus:ses_AbC${n}xYz00`;
+      const sid = (k) => keys.parse(k).sessionId;
+      const ocDir = path.join(root, 'oc-plans');
+      fs.mkdirSync(ocDir, { recursive: true });
+      const planOf = (k) => path.join(ocDir, sid(k) + '.json');
+      const vd = (name) => { const d = path.join(root, 'v2-' + name); fs.mkdirSync(d, { recursive: true }); return d; };
+      const tableFile = (d) => JSON.parse(fs.readFileSync(path.join(d, st.FILE), 'utf8'));
+      /* Runs `code` in a child, since this script is not asynchronous; `code` sets `out`, which comes back. */
+      const child = (code, env = process.env) => {
+        const r = cp.spawnSync(process.execPath, ['-e', `const out = {}; (async () => { ${code} })().then(() => process.stdout.write(JSON.stringify(out)), `
+          + '(e) => process.stdout.write(JSON.stringify({ error: e.stack })));'], { encoding: 'utf8', timeout: 60000, env });
+        try { return JSON.parse(r.stdout); } catch (_) { return { error: (r.stdout || '') + (r.stderr || '') }; }
+      };
+      const mod = (name) => JSON.stringify(path.join(__dirname, '..', 'src', name));
+
+      /* The table. */
+      const d1 = vd('keys');
+      st.setManaged(S(1), [S(2).toUpperCase(), O(1), 'opencode-plus:', 'Open:x', 'a b:c', O(1), 'codex-plus:abc', 'claude-code:' + S(3)],
+        { [O(1)]: 'Port the parser' }, { dir: d1, now: 7, paths: { [O(1)]: planOf(O(1)), 'codex-plus:abc': path.join(ocDir, 'abc.json'), [S(2)]: planOf(O(1)) } });
+      const f1 = tableFile(d1), e1 = f1.stewards[S(1)] || {};
+      if (f1.version === 2 && same(e1.manages, [S(2), O(1), 'codex-plus:abc', S(3)]) && e1.names[O(1)] === 'Port the parser'
+          && same(e1.paths, { [O(1)]: planOf(O(1)), 'codex-plus:abc': path.join(ocDir, 'abc.json') })
+          && e1.manages.filter((m) => !m.includes(':')).every((m) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(m))) {
+        ok('stewards.json version 2 keeps a Claude Code conversation as its session id in lower case, as an older build reads it, and another agent\'s as source:session in its own '
+          + 'case, also of a source this build does not list; a malformed key is dropped, and a plan path is kept only for another agent\'s conversation');
+      } else bad(`a version 2 table: ${JSON.stringify(f1)}`);
+      fs.writeFileSync(path.join(d1, st.FILE), JSON.stringify({ version: 2, stewards: { [S(1)]: { manages: [O(1), O(2), O(3)], names: {}, at: 1,
+        paths: { [O(1)]: planOf(O(1)), [O(2)]: 'plans/' + sid(O(2)) + '.json', [O(3)]: path.join(ocDir, 'other.json'), [O(4)]: planOf(O(4)) } } } }));
+      const p1 = st.read(d1)[S(1)];
+      if (p1 && same(p1.paths, { [O(1)]: planOf(O(1)) })) {
+        ok('a plan path is read only when it is absolute, named after the conversation\'s session id, and given for a conversation on the list');
+      } else bad(`plan paths read ${JSON.stringify(p1)}`);
+      const d2 = vd('rules');
+      st.setManaged(S(1), [O(1)], {}, { dir: d2, now: 1 });
+      const r1 = st.setManaged(S(3), [O(1), O(2)], {}, { dir: d2, now: 2 });
+      st.setManaged(S(5), [O(3)], {}, { dir: d2, now: 3, every: true, ticked: [] });
+      const r2 = st.setManaged(S(6), [O(3)], {}, { dir: d2, now: 4 });
+      const r3 = st.setManaged(O(4), [S(7)], {}, { dir: d2, now: 5 });
+      const r4 = st.setManaged(S(6), [O(3)], {}, { dir: d2, now: 6, every: true });
+      if (same(r1[S(1)].manages, [O(1)]) && same(r1[S(3)].manages, [O(2)]) && same(r2[S(6)].manages, [O(3)]) && same(r2[S(5)].manages, [])
+          && r2[S(5)].all === true && !r3[O(4)] && r4[S(6)].all === false && r4[S(5)].all === true) {
+        ok('another agent\'s conversation has one steward at most: one a steward ticked is not ticked for another, a tick takes one another steward has only through All, '
+          + 'and All stays with one steward; such a conversation cannot be a steward');
+      } else bad(`the rules with other agents' conversations: ${JSON.stringify([r1, r2, r3, r4])}`);
+      const d3 = vd('v1');
+      fs.writeFileSync(path.join(d3, st.FILE), JSON.stringify({ version: 1, stewards: { [S(1)]: { manages: [S(2), S(3)], names: { [S(2)]: 'Two' }, at: 3 } } }));
+      const read1 = st.read(d3), mig1 = st.migrate(d3), ver1 = tableFile(d3).version;
+      const ren1 = st.rename({ [S(3)]: 'Three' }, { dir: d3 });
+      const w1 = tableFile(d3);
+      if (same(read1[S(1)].manages, [S(2), S(3)]) && read1[S(1)].names[S(2)] === 'Two' && same(read1[S(1)].paths, {}) && mig1 === false && ver1 === 1
+          && ren1 === true && w1.version === 2 && w1.stewards[S(1)].names[S(3)] === 'Three' && !('paths' in w1.stewards[S(1)])) {
+        ok('a version 1 table reads as it is, is not rewritten for its version alone, and is written as version 2 at its next change');
+      } else bad(`a version 1 table: ${JSON.stringify([read1, mig1, ver1, ren1, w1])}`);
+      const d4 = vd('v3');
+      const v3 = JSON.stringify({ version: 3, more: true, stewards: { [S(1)]: { manages: [S(2), O(1)], names: {}, at: 1, paths: { [O(1)]: planOf(O(1)) }, kinds: { x: 1 } },
+        [S(3)]: { manages: [S(2)], names: {}, at: 2 } } });
+      fs.writeFileSync(path.join(d4, st.FILE), v3);
+      const read3 = st.read(d4), mig3 = st.migrate(d4), set3 = st.setManaged(S(5), [S(6)], {}, { dir: d4 }), ren3 = st.rename({ [O(1)]: 'Port' }, { dir: d4 });
+      if (same(read3[S(1)].manages, [O(1)]) && same(read3[S(1)].paths, { [O(1)]: planOf(O(1)) }) && same(read3[S(3)].manages, [S(2)])
+          && mig3 === false && !set3[S(5)] && ren3 === false && fs.readFileSync(path.join(d4, st.FILE), 'utf8') === v3 && st.newer(d4) === 3) {
+        ok('a table of a later version is read for what this build understands and never written: not settled, not ticked, not renamed');
+      } else bad(`a version 3 table: ${JSON.stringify([read3, mig3, set3, ren3, st.newer(d4)])}`);
+      const fixtures = {
+        keys: { version: 2, stewards: { [S(1)]: { manages: [S(2).toUpperCase(), O(1), 'opencode-plus:', 'Open:x', 'a b:c', 'codex-plus:abc', 'claude-code:' + S(4)],
+          names: { [O(1)]: 'Port' }, at: 1, paths: { [O(1)]: planOf(O(1)), 'codex-plus:abc': 'rel/abc.json', [S(2)]: planOf(O(1)) } } } },
+        rules: { version: 2, stewards: { [S(1)]: { manages: [O(1), O(2)], names: {}, at: 1, paths: { [O(2)]: planOf(O(2)) } },
+          [S(3)]: { manages: [O(2), O(3)], names: {}, at: 2, paths: { [O(2)]: planOf(O(2)), [O(3)]: planOf(O(3)) } },
+          [S(5)]: { manages: [O(3), O(4)], ticked: [O(4)], names: {}, at: 3, all: true }, [O(5)]: { manages: [S(6)], names: {}, at: 4 } } },
+        later: JSON.parse(v3),
+      };
+      const settledJs = {};
+      for (const [k, d] of Object.entries(fixtures)) settledJs[k] = st.settle(st.entriesOf(d));
+      const py2 = cp.spawnSync('python3', ['-c', 'import json, sys; sys.path.insert(0, sys.argv[1]); import steward_table as t; '
+        + 'print(json.dumps({k: t.settle(t.entries_of(v)) for k, v in json.load(sys.stdin).items()}))', hooks], { input: JSON.stringify(fixtures), encoding: 'utf8' });
+      const canon2 = (all) => JSON.stringify(Object.keys(all).sort().map((k) => [k, Object.keys(all[k]).sort().map((s) => {
+        const v = all[k][s];
+        return [s, v.manages, v.ticked, Object.keys(v.names).sort(), Object.keys(v.paths || {}).sort().map((c) => [c, v.paths[c]]), v.at, v.all];
+      })]));
+      let fromPy2 = null;
+      try { fromPy2 = JSON.parse(py2.stdout); } catch (_) { /* reported below */ }
+      if (fromPy2 && canon2(fromPy2) === canon2(settledJs) && same(settledJs.keys[S(1)].manages, [S(2), O(1), 'codex-plus:abc', S(4)])
+          && same(Object.keys(settledJs.rules).sort(), [S(1), S(3), S(5)].sort())) {
+        ok('the plugin\'s hooks read keys, plan paths and a later version\'s table exactly as the extension does');
+      } else bad(`the hooks read ${(py2.stdout || py2.stderr || '').slice(0, 600)} where the extension read ${canon2(settledJs).slice(0, 600)}`);
+
+      /* The Steward panel and the notices, with a stand-in Agent Plus and attention files in a folder of their own. */
+      const ocShared = path.join(root, 'oc-shared'), att = path.join(ocShared, 'attention'), pdir = path.join(root, 'oc-panel');
+      fs.mkdirSync(att, { recursive: true });
+      fs.mkdirSync(pdir, { recursive: true });
+      fs.writeFileSync(planOf(O(1)), JSON.stringify({ nodes: [{ title: 'Port the reader', state: 'doing' },
+        { title: 'Ask', state: 'waiting', waitingOn: 'user', question: 'Which grammar?' }] }));
+      const A = { S1: S(1), S2: S(2), O1: O(1), O2: O(2), O3: O(3), ocDir, att, pdir };
+      const panel = child(`
+        const fs = require('fs'), path = require('path');
+        const sv = require(${mod('steward-view.js')}), st = require(${mod('stewards.js')});
+        const A = ${JSON.stringify(A)};
+        const sid = (k) => k.slice(k.indexOf(':') + 1);
+        const attend = (items, at = Date.now()) => fs.writeFileSync(path.join(A.att, 'w1-0123abcd.json'), JSON.stringify({ format: 1, at, items }));
+        const item = (k, activity, more) => Object.assign({ sourceId: 'opencode-plus', sessionId: sid(k), activity, unseen: false }, more || {});
+        const conv = (k, title, ago = 120000) => ({ sourceId: 'opencode-plus', label: 'OpenCode Agent Plus', sessionId: sid(k), title, cwd: '/w/oc', lastActiveAt: Date.now() - ago });
+        let listed = [conv(A.O1, 'Port the parser', 60000), conv(A.O2, 'Tidy the tests'), { sourceId: 'codex-plus', label: 'Codex', sessionId: 'abc', title: 'Not ours', cwd: '/w', lastActiveAt: 1 }];
+        let features = ['allConversations', 'deliver', 'planPathOf'];
+        const subs = new Set();
+        const core = { get features() { return features; }, allConversations: () => listed,
+          onDidChangeAllConversations: (fn) => { subs.add(fn); return { dispose: () => { subs.delete(fn); } }; },
+          planPathOf: (s, id) => (s === 'opencode-plus' ? path.join(A.ocDir, id + '.json') : ''), deliver: async () => ({ outcome: 'submitted', reason: '' }) };
+        attend([item(A.O1, 'working'), item(A.O2, 'stopped', { unseen: true })]);
+        // The steward waits on "Port the parser"; the word opencode alone names no conversation.
+        const stewardPlan = { nodes: [{ title: 'Port the parser: wait for its reader', state: 'waiting', waitingOn: 'session' }, { title: 'Ask opencode about tabs', state: 'todo' }] };
+        const opened = [], logs = [], posts = [];
+        let provider, visible = true, here = true;
+        const vscode = { window: { registerWebviewViewProvider: (id, p) => { provider = p; return { dispose() {} }; }, showInformationMessage() {} } };
+        const v = sv.create(vscode, { activeChat: () => A.S1, freshAgents: async () => ({ records: [{ sessionId: A.S2, kind: 'interactive', cwd: '/w/b', name: 'Two', status: 'idle' }] }),
+          readPlan: (id) => (id === A.S1 ? stewardPlan : null), titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
+          reveal: async () => true, shownHere: (id) => here && id === A.S1, canWrite: () => true, canShare: () => true, enabled: () => true, log: (m) => logs.push(m),
+          home: '/', dir: A.pdir, records: () => [{ sessionId: A.S1, messagingSocketPath: 'uds:/x' }], post: async (a, t) => { posts.push(t); return true; },
+          shownList: () => [A.S1, A.S2], windowName: () => 'proj-a', windowFolders: () => ['/w'], alive: () => false, duplicates: () => new Map(),
+          isBackground: () => false, transcriptOf: () => '', readState: () => null, openOther: async (t) => { opened.push(t); } });
+        const view = { get visible() { return visible; }, webview: { options: {}, html: '', onDidReceiveMessage() {}, postMessage() {} }, onDidChangeVisibility() {}, onDidDispose() {} };
+        const pass = async () => { await new Promise((r) => setTimeout(r, 20)); await v._pass(); };
+        const rowsOf = () => { const m = v._model(v._last(), A.S1); return { groups: m.groups.map((g) => [g.key.startsWith('w:') ? 'w' : g.key, g.name, g.rows.map((c) => c.sessionId)]), hidden: m.hiddenIds,
+          rows: Object.fromEntries(m.rows.map((c) => [c.sessionId, [c.state, c.dot, c.unseen, c.doing, c.questions]])), html: sv.body(m) }; };
+        v.attachCore(core);
+        provider.resolveWebviewView(view);
+        await pass(); await pass();
+        out.first = rowsOf();
+        out.listening = [v._listening(), subs.size];
+        features = ['allConversations', 'deliver'];
+        await pass();
+        out.noPlanPathOf = Object.keys(rowsOf().rows);
+        features = ['allConversations', 'planPathOf'];
+        await pass();
+        out.noDeliver = Object.keys(rowsOf().rows);
+        features = ['allConversations', 'deliver', 'planPathOf'];
+        await pass();
+        await v._onMessage({ type: 'toggle', id: A.O1, on: true });
+        out.ticked = st.read(A.pdir)[A.S1];
+        await v._onMessage({ type: 'open', id: A.O1 });
+        out.opened = opened;
+        await v._onMessage({ type: 'toggle', id: A.O2, on: true });
+        /* Notices. A pass reads the states at the time it runs; _notify(now) is then run later than any of them. */
+        const T = Date.now() + 3600000, STABLE = require(${mod('activity.js')}).STABLE_MS;
+        attend([item(A.O1, 'working'), item(A.O2, 'working')]);
+        await pass();
+        attend([item(A.O1, 'stopped', { unseen: true }), item(A.O2, 'stopped', { unseen: true })]);
+        await pass();
+        await v._notify(T);
+        out.done = posts.slice();
+        attend([item(A.O1, 'waiting', { waitingFor: { kind: 'permission', tool: 'bash' } })]);
+        await pass();
+        await v._notify(T + 61000);
+        out.waiting = posts.slice(1);
+        attend([item(A.O1, 'working')]);
+        await pass();
+        attend([]);
+        await pass();
+        attend([item(A.O1, 'working')]);
+        await pass();
+        await v._notify(T + 122000);
+        listed = listed.filter((c) => c.sessionId !== sid(A.O1));
+        await pass();
+        await v._notify(T + 183000);
+        out.later = posts.slice(2);
+        out.stable = STABLE;
+        listed = [conv(A.O1, 'Port the parser', 60000)].concat(listed);
+        await pass();
+        /* All, including new ones: a conversation opened later is added with its plan path, and one closed leaves after GONE_MS. */
+        await v._onMessage({ type: 'every', on: true });
+        out.every = st.read(A.pdir)[A.S1].manages.slice().sort();
+        listed = listed.filter((c) => c.sessionId !== sid(A.O2)).concat([conv(A.O3, 'Write the docs')]);
+        await pass();
+        out.added = st.read(A.pdir)[A.S1];
+        v._syncEvery(Date.now() + 10 * 60000 + 1000);
+        out.gone = st.read(A.pdir)[A.S1];
+        await v._onMessage({ type: 'every', on: false });
+        listed = listed.filter((c) => c.sessionId !== sid(A.O1));
+        await pass();
+        out.hidden = rowsOf().hidden;
+        /* No use for Agent Plus's list: the subscription goes. */
+        visible = false; here = false;
+        await pass();
+        out.idle = [v._listening(), subs.size];
+        visible = true; here = true;
+        fs.writeFileSync(path.join(A.pdir, st.FILE), JSON.stringify({ version: 3, stewards: { [A.S1]: { manages: [A.S2], names: {}, at: 1 } } }));
+        await pass(); await pass();
+        out.newer = logs.filter((m) => /stewards\\.json is version 3/.test(m)).length;
+        v.dispose();`, Object.assign({}, process.env, { AGENT_WORK_PLAN_HOME: ocShared }));
+      const pf = panel.first || {};
+      const htmlAt = (s) => (pf.html || '').indexOf(s);
+      if (same(pf.groups, [['w', 'proj-a', [S(2)]], ['s:opencode-plus', 'OpenCode Agent Plus', [O(1), O(2)]]])
+          && same(pf.rows && pf.rows[O(1)], ['working', 'working', false, ['Port the reader'], 1]) && same(pf.rows && pf.rows[O(2)], ['unread', '', true, [], 0])
+          && htmlAt('proj-a') > 0 && htmlAt('proj-a') < htmlAt('OpenCode Agent Plus') && !(pf.html || '').includes('Not ours')
+          && same(panel.listening, [true, 1])) {
+        ok('the Steward panel lists the open OpenCode Agent Plus conversations Agent Plus gives, in one group after the window groups, with their dot, envelope, '
+          + 'what their plans have in progress and their questions; other sources are left out, and the panel listens to Agent Plus\'s list while it is shown');
+      } else bad(`the panel with OpenCode conversations: ${JSON.stringify(panel).slice(0, 1500)}`);
+      if (same(panel.noPlanPathOf, [S(2)]) && same(panel.noDeliver, [S(2)])) {
+        ok('with an Agent Plus that lacks deliver or planPathOf, the panel lists Claude Code conversations only');
+      } else bad(`the panel with a partial Agent Plus: ${JSON.stringify([panel.noPlanPathOf, panel.noDeliver])}`);
+      if (panel.ticked && same(panel.ticked.manages, [O(1)]) && same(panel.ticked.paths, { [O(1)]: planOf(O(1)) })
+          && same(panel.opened, [{ sourceId: 'opencode-plus', sessionId: sid(O(1)), title: 'Port the parser', cwd: '/w/oc' }])) {
+        ok('ticking one records its key and the plan path Agent Plus gives, and clicking its name opens it through agentPlus.openConversation');
+      } else bad(`ticking and opening: ${JSON.stringify([panel.ticked, panel.opened])}`);
+      const done = panel.done || [], waits = panel.waiting || [];
+      if (done.length === 1 && done[0].includes(`"Port the parser" (${O(1)}) finished its turn`) && !done[0].includes(O(2))
+          && waits.length === 1 && waits[0].includes(`"Port the parser" (${O(1)}) is waiting for the user.`)
+          && waits[0].includes('Waiting on the user to approve bash in its window (only the user can answer that, there; a message from you does not reach it while it waits)')
+          && same(panel.later, [])) {
+        ok('a steward hears that an OpenCode conversation its plan names stopped, once it has stayed stopped, and not of one its plan does not name; it hears of a wait '
+          + 'with the tool to approve and that only the user can answer it in that window; a stop shorter than the settling time, and a conversation Agent Plus stops listing, tell nothing');
+      } else bad(`notices of OpenCode conversations: ${JSON.stringify([done, waits, panel.later])}`);
+      const wo = (titles) => [...sv.waitedOn({ nodes: titles.map((t) => ({ title: t, state: 'todo' })) }, [O(1), S(2)], { [O(1)]: 'Port the parser', [S(2)]: 'Two' })];
+      if (same(wo(['Ask opencode about tabs', 'opencode-plus is slow']), []) && same(wo([`Wait for ${sid(O(1))}`]), [O(1)]) && same(wo([`Wait for ${O(1)}`]), [O(1)])
+          && same(wo([`Wait for ${S(2).slice(0, 8)}`]), [S(2)]) && same(wo(['Port the parser: done?']), [O(1)])) {
+        ok('a steward\'s plan names another agent\'s conversation only by its whole key, its whole session id or its title, never by the first eight characters');
+      } else bad(`waitedOn with other agents' keys: ${JSON.stringify([wo(['Ask opencode about tabs']), wo([`Wait for ${sid(O(1))}`])])}`);
+      const added = panel.added || {}, gone = panel.gone || {};
+      if (same(panel.every, [S(2), O(1), O(2)].sort()) && added.manages && added.manages.includes(O(3)) && added.paths && added.paths[O(3)] === planOf(O(3))
+          && gone.manages && !gone.manages.includes(O(2)) && gone.manages.includes(O(1)) && !(O(2) in (gone.paths || {})) && gone.paths[O(1)] === planOf(O(1))
+          && same(panel.hidden, [O(1)])) {
+        ok('All takes in the OpenCode conversations too, with the plan path of one opened later, and drops one closed ten minutes before; a ticked one that is closed '
+          + 'counts as open in no window');
+      } else bad(`All with OpenCode conversations: ${JSON.stringify([panel.every, added, gone, panel.hidden])}`);
+      if (same(panel.idle, [false, 0]) && panel.newer === 1) {
+        ok('the panel stops listening to Agent Plus when it is hidden and no steward is shown here, and says once in the log that it leaves a later version\'s table as it is');
+      } else bad(`listening and a later table: ${JSON.stringify([panel.idle, panel.newer, panel.error])}`);
+
+      /* The relay (src/relay.js): the window that shows the steward takes the request and hands it to Agent Plus. */
+      const rdir = path.join(root, 'oc-relay'), tdir = path.join(root, 'oc-transcripts');
+      fs.mkdirSync(path.join(rdir, 'relay'), { recursive: true });
+      fs.mkdirSync(tdir, { recursive: true });
+      const now = Date.now(), iso = (ms) => new Date(ms).toISOString();
+      const transcript = path.join(tdir, S(1) + '.jsonl');
+      const call = (id, ms, command) => ({ type: 'assistant', uuid: 'u-' + id, timestamp: iso(ms), isSidechain: false,
+        message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } });
+      const cmd = (to, text) => `python3 /p/hooks/steward-relay.py ${to} <<'EOF'\n${text}\nEOF`;
+      const texts = { one: 'Use the new grammar.', two: 'Wait for my go-ahead.', three: 'Rebase it.', hang: 'Hold on.', claude: 'Carry on.', codex: 'Hello.' };
+      fs.writeFileSync(transcript, [call('t1', now - 9000, cmd(O(1), texts.one)), call('t2', now - 8000, cmd(O(2), texts.two)),
+        call('t3', now - 7000, cmd(O(1), texts.three)), call('t4', now - 6000, cmd(O(2), texts.hang)), call('t5', now - 5000, cmd(S(2), texts.claude)),
+        call('t6', now - 4000, cmd('codex-plus:abc', texts.codex))].map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const R = (n) => `bbbbbbbb-0000-4000-8000-00000000000${n}`;
+      const B = { S1: S(1), S2: S(2), O1: O(1), O2: O(2), rdir, transcript, now, texts, R: [1, 2, 3, 4, 5, 6, 7, 8, 9].map(R) };
+      const relayed = child(`
+        const fs = require('fs'), path = require('path');
+        const relay = require(${mod('relay.js')}), score = require(${mod('steward-core.js')});
+        const B = ${JSON.stringify(B)};
+        const table = { [B.S1]: { manages: [B.S2, B.O1, B.O2, 'codex-plus:abc'], names: {}, at: 0, all: false } };
+        const dir = path.join(B.rdir, 'relay');
+        const put = (i, req) => fs.writeFileSync(path.join(dir, B.R[i] + '.json'), JSON.stringify(Object.assign({ id: B.R[i], steward: B.S1, at: B.now }, req)));
+        const result = (i) => { try { return JSON.parse(fs.readFileSync(path.join(dir, B.R[i] + '.result.json'), 'utf8')); } catch (_) { return null; } };
+        const got = [], later = [];
+        let release = null;
+        const answers = { [B.texts.two]: () => ({ outcome: 'notReceived', reason: 'bash is waiting for approval in its window' }),
+          [B.texts.three]: () => ({ outcome: 'uncertain', reason: '' }), [B.texts.hang]: () => new Promise((r) => { release = () => r({ outcome: 'submitted', reason: '' }); }) };
+        const deps = (shown) => ({ shownHere: (id) => shown.includes(id), stewards: () => table, pid: 77, now: () => B.now, sleep: async () => {},
+          transcriptOf: (id) => (id === B.S1 ? B.transcript : ''),
+          deliver: async (id, text) => { got.push(['claude', id, text]); return { outcome: 'submitted' }; },
+          deliverOther: async (key, text) => { got.push(['other', key, text]); return answers[text] ? answers[text]() : { outcome: 'submitted', reason: '' }; },
+          later: (r) => later.push([r.id, r.outcome]) });
+        put(0, { to: B.O1, text: B.texts.one });
+        out.elsewhere = (await relay.take(B.rdir, deps([B.S2]))).length + fs.readdirSync(dir).filter((n) => n.includes('.taken')).length;
+        out.left = fs.readdirSync(dir).sort();
+        put(1, { to: B.O2, text: B.texts.two });
+        put(2, { to: B.O1, text: B.texts.three });
+        put(3, { to: B.O1, text: 'never ran' });
+        put(4, { to: B.O1, action: 'rename', text: 'New title' });
+        put(5, { to: B.O1, action: 'close', text: '' });
+        put(6, { to: B.O1, action: 'resume', text: B.texts.one });
+        put(7, { to: 'codex-plus:abc', text: B.texts.codex });
+        put(8, { to: B.O2, text: B.texts.hang });
+        await relay.take(B.rdir, deps([B.S1]));
+        await new Promise((r) => setTimeout(r, 50));
+        out.beforeHang = [result(8), fs.readdirSync(dir).some((n) => n.startsWith(B.R[8] + '.taken-'))];
+        fs.writeFileSync(path.join(dir, 'cccccccc-0000-4000-8000-000000000001.json'), JSON.stringify({ id: 'c1', steward: B.S1, at: B.now, to: B.S2, text: B.texts.claude }));
+        const second = await Promise.race([relay.take(B.rdir, deps([B.S1, B.S2])), new Promise((r) => setTimeout(() => r('blocked'), 5000))]);
+        out.claudeWhileHeld = second === 'blocked' ? 'blocked' : second.map((r) => [r.to, r.outcome]);
+        release();
+        await relay.settled();
+        out.results = B.R.map((id, i) => result(i));
+        out.got = got;
+        out.later = later.sort();
+        out.sent = Object.keys(JSON.parse(fs.readFileSync(path.join(dir, relay.SENT_FILE), 'utf8')));
+        out.update = await score.deliverTo({ features: ['allConversations'], deliver: async () => ({ outcome: 'submitted' }) }, B.O1, 'x');
+        out.thrown = await score.deliverTo({ features: ['deliver'], deliver: () => { throw new Error('boom'); } }, B.O1, 'x');`);
+      const rr = relayed.results || [];
+      const reason = (i) => (rr[i] && rr[i].reason) || '';
+      if (relayed.elsewhere === 0 && (relayed.left || []).includes(R(1) + '.json') && rr[0] && rr[0].outcome === 'submitted'
+          && (relayed.got || []).some((g) => same(g, ['other', O(1), texts.one]))) {
+        ok('a message to an OpenCode conversation is taken by the window that shows its steward, not by one that shows only other conversations, '
+          + 'and Agent Plus is given the key in its own case and the text; the result is submitted');
+      } else bad(`relaying to an OpenCode conversation: ${JSON.stringify(relayed).slice(0, 1500)}`);
+      if (rr[1] && rr[1].outcome === 'notReceived' && reason(1) === 'bash is waiting for approval in its window' && rr[2] && rr[2].outcome === 'uncertain'
+          && (relayed.sent || []).some((k) => k.includes(' t1 ')) && !(relayed.sent || []).some((k) => k.includes(' t3 '))) {
+        ok('Agent Plus\'s refusal comes back with its reason, and a message whose outcome is uncertain is not marked as sent');
+      } else bad(`outcomes from Agent Plus: ${JSON.stringify([rr[1], rr[2], relayed.sent])}`);
+      if (same(relayed.beforeHang, [null, true]) && same(relayed.claudeWhileHeld, [[S(2), 'submitted']]) && rr[8] && rr[8].outcome === 'submitted'
+          && (relayed.later || []).some((l) => same(l, [R(9), 'submitted']))) {
+        ok('while Agent Plus has not answered, the same window takes and carries out the next request; the held one gets its result once Agent Plus answers');
+      } else bad(`a held delivery: ${JSON.stringify([relayed.beforeHang, relayed.claudeWhileHeld, rr[8], relayed.later])}`);
+      if (rr[3] && rr[3].outcome === 'refused' && /has not run steward-relay\.py/.test(reason(3))
+          && [4, 5, 6].every((i) => rr[i] && rr[i].outcome === 'refused' && reason(i) === 'OpenCode Agent Plus conversations take only a plain message; rename, close or open one in its own window')
+          && rr[7] && rr[7].outcome === 'refused' && /cannot send to codex-plus conversations/.test(reason(7))
+          && !(relayed.got || []).some((g) => g[2] === 'never ran' || g[1] === 'codex-plus:abc')) {
+        ok('a request the steward did not run is refused as for a Claude Code conversation; a rename, close or resume of an OpenCode conversation is refused, '
+          + 'and so is a message to a source the steward does not manage');
+      } else bad(`refused requests: ${JSON.stringify(rr.slice(3, 8))}`);
+      if (relayed.update && relayed.update.outcome === 'notReceived' && /update Agent Plus/.test(relayed.update.reason)
+          && relayed.thrown && relayed.thrown.outcome === 'notReceived' && relayed.thrown.reason === 'boom') {
+        ok('without Agent Plus\'s deliver the message is not received and the reason says to update Agent Plus; a deliver() that throws reads as not received');
+      } else bad(`deliverTo: ${JSON.stringify([relayed.update, relayed.thrown, relayed.error])}`);
+
+      /* steward-relay.py with another agent's key. */
+      const sdir = path.join(root, 'oc-relay-script');
+      fs.mkdirSync(path.join(sdir, 'relay'), { recursive: true });
+      const relayScript = path.join(hooks, 'steward-relay.py');
+      const answering = (outcome) => cp.spawnSync(process.execPath, ['-e', `
+        const fs = require('fs'), path = require('path'), cp = require('child_process');
+        const dir = path.join(${JSON.stringify(sdir)}, 'relay');
+        const kid = cp.spawn('python3', [${JSON.stringify(relayScript)}, ${JSON.stringify(O(1))}, ${JSON.stringify(sdir)}],
+          { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: ${JSON.stringify(S(1))} }) });
+        let out = '', to = '';
+        kid.stdout.on('data', (d) => { out += d; });
+        kid.stdin.end('Use the new grammar.' + String.fromCharCode(10));
+        const t = setInterval(() => {
+          for (const n of fs.readdirSync(dir)) {
+            const m = /^([0-9a-f-]{36})\\.json$/.exec(n);
+            if (!m) continue;
+            to = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')).to;
+            fs.unlinkSync(path.join(dir, n));
+            fs.writeFileSync(path.join(dir, m[1] + '.result.json'), JSON.stringify({ outcome: ${JSON.stringify(outcome)}, reason: '' }));
+          }
+        }, 100);
+        kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, to })); });`], { encoding: 'utf8', timeout: 60000 });
+      const parsed = (r) => { try { return JSON.parse(r.stdout); } catch (_) { return { error: r.stdout + r.stderr }; } };
+      const sub = parsed(answering('submitted')), dra = parsed(answering('drafted'));
+      const flagged = ['--rename', '--close', '--resume'].map((f) => cp.spawnSync('python3', [relayScript, f, O(1), sdir],
+        { input: 'x\n', encoding: 'utf8', env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: S(1) }) }));
+      const noTaker = cp.spawnSync('python3', ['-c', 'import importlib.util, sys; sys.path.insert(0, sys.argv[1]); '
+        + 's = importlib.util.spec_from_file_location("relay_script", sys.argv[2]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); '
+        + 'm.OTHER_WAIT_SECONDS = 1; sys.exit(m.main(["steward-relay.py", sys.argv[3], sys.argv[4]]))', hooks, relayScript, O(1), sdir],
+      { input: 'Anyone?\n', encoding: 'utf8', timeout: 20000, env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: S(1) }) });
+      if (sub.code === 0 && sub.to === O(1) && sub.out.trim() === 'Sent: it reached the conversation as the user\'s message.'
+          && dra.code === 1 && dra.out.trim() === 'Not sent: it was put into the conversation\'s message input, and not sent.'
+          && flagged.every((r) => r.status === 1 && r.stdout.includes('Not done: a conversation of OpenCode Agent Plus takes only plain messages from its steward'))
+          && noTaker.status === 1 && noTaker.stdout.trim() === 'Not done: no VS Code window that shows this steward conversation took the request.'
+          && fs.readdirSync(path.join(sdir, 'relay')).length === 0 && /^OTHER_WAIT_SECONDS = 55$/m.test(fs.readFileSync(relayScript, 'utf8'))) {
+        ok('steward-relay.py keeps an OpenCode key\'s case, says a message reached the conversation or was only drafted, refuses --rename, --close and --resume '
+          + 'for such a key without leaving a request, waits 55 seconds for it, and says no window showing the steward took one nobody took');
+      } else bad(`steward-relay.py with an OpenCode key: ${JSON.stringify([sub, dra, flagged.map((r) => [r.status, r.stdout]), [noTaker.status, noTaker.stdout, noTaker.stderr]])}`);
+
+      /* steward.py and steward-peek.py: state from the attention files, the plan from the recorded path, the reply from
+         the file beside it. */
+      const odata = path.join(root, 'oc-data');
+      fs.mkdirSync(odata, { recursive: true });
+      fs.writeFileSync(path.join(odata, st.FILE), JSON.stringify({ version: 2, stewards: { [S(1)]: { manages: [S(2), O(1), O(2), O(5), O(6)],
+        names: { [S(2)]: 'Two', [O(1)]: 'Port the parser', [O(2)]: 'Tidy the tests', [O(5)]: 'Five', [O(6)]: 'Six' }, at: 1,
+        paths: { [O(1)]: planOf(O(1)), [O(2)]: planOf(O(2)), [O(6)]: path.join(ocDir, 'other.json') } } } }));
+      fs.writeFileSync(planOf(O(2)), JSON.stringify({ nodes: [] }));
+      const said = [{ text: 'Use the new grammar.', at: now - 120000 }, { text: 'And keep\nthe old tests.', at: now - 60000 }];
+      fs.writeFileSync(path.join(ocDir, sid(O(1)) + '.reply.json'), JSON.stringify({ format: 1, at: now, lastUserAt: now - 60000, said, reply: 'Ported the reader.\n\nThe tests pass.' }));
+      fs.writeFileSync(path.join(ocDir, sid(O(2)) + '.reply.json'), JSON.stringify({ format: 2, at: now, said, reply: 'A reply of a later format.' }));
+      const attendNow = (at) => fs.writeFileSync(path.join(att, 'w1-0123abcd.json'), JSON.stringify({ format: 1, at, items: [
+        { sourceId: 'opencode-plus', sessionId: sid(O(1)), activity: 'waiting', unseen: false, waitingFor: { kind: 'permission', tool: 'bash' } },
+        { sourceId: 'opencode-plus', sessionId: sid(O(2)), activity: 'stopped', unseen: true }] }));
+      attendNow(Date.now());
+      const oenv = Object.assign({}, env, { AGENT_WORK_PLAN_HOME: ocShared });
+      const ohook = () => { const r = cp.spawnSync('python3', [path.join(hooks, 'steward.py'), odata],
+        { input: JSON.stringify({ session_id: S(1), hook_event_name: 'UserPromptSubmit' }), encoding: 'utf8', env: oenv }); return ctx(r) || r.stderr; };
+      const o1 = ohook();
+      attendNow(Date.now() - 70000);
+      const o2 = ohook();
+      if (o1.startsWith('You are the steward of 5 conversations the user picked for you in the Steward panel (1 Claude Code, 4 OpenCode Agent Plus); follow the steward skill.')
+          && o1.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): waiting for the user to approve bash in its window; doing: Port the reader; 1 question for the user`)
+          && o1.includes(`- "Tidy the tests" (${O(2)}, OpenCode Agent Plus): idle, reply not read by the user`)
+          && o1.includes(`- "Five" (${O(5)}, OpenCode Agent Plus): idle, or not open in any window; where its plan is was not recorded`)
+          && o1.includes(`- "Six" (${O(6)}, OpenCode Agent Plus): idle, or not open in any window; where its plan is was not recorded`)
+          && o1.includes(`- "Two" (${S(2)}): `)
+          && o1.includes('The conversations of other agents above take only plain messages: no --rename, --close or --resume. While one waits for the user to approve a tool '
+            + 'or to answer a question in its window, no message reaches it; only the user can answer it there, so ask the user to.')
+          && o2.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): idle, or not open in any window; doing: Port the reader; 1 question for the user`)
+          && o2.includes('"Port the parser": waiting for the user to approve bash in its window -> idle, or not open in any window')) {
+        ok('steward.py gives each OpenCode conversation its state from Agent Plus\'s attention files, with the tool a wait is for, its plan from the recorded path and its agent\'s name, '
+          + 'says when no plan path is recorded, and ends the list with what such conversations take; a stale attention file reads as idle or not open');
+      } else bad(`steward.py with OpenCode conversations: ${JSON.stringify([o1, o2])}`);
+      const opeek = (...a) => { const r = cp.spawnSync('python3', [path.join(hooks, 'steward-peek.py'), ...a], { encoding: 'utf8', env: oenv }); return [r.status, (r.stdout || '').replace(/\r\n/g, '\n') + r.stderr]; };
+      attendNow(Date.now());
+      const utc = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+      const k1 = opeek(O(1), odata), s1 = opeek('--said', O(1), odata), k2 = opeek(O(2), odata), s2 = opeek('--said', O(2), odata);
+      const k6 = opeek(O(6), odata), lower = opeek(O(1).toLowerCase(), odata);
+      if (same(k1, [0, 'source: OpenCode Agent Plus\nstate: waiting for the user to approve bash in its window\nplan:\n  1. [doing] Port the reader\n  2. [waiting] Ask\n'
+            + '     question for the user: Which grammar?\nlatest reply:\nPorted the reader.\n\nThe tests pass.\n'])
+          && same(s1, [0, `${utc(now - 120000)} UTC:\n  Use the new grammar.\n${utc(now - 60000)} UTC:\n  And keep\n  the old tests.\n`])
+          && k2[0] === 0 && k2[1].includes('latest reply:\n(written by a later version of OpenCode Agent Plus, which this script does not read)\n') && !k2[1].includes('A reply of a later format')
+          && same(s2, [0, 'No message from the user was found in that conversation.\n'])
+          && k6[0] === 0 && k6[1].includes('(where its plan is was not recorded') && k6[1].includes('latest reply:\n(none found)')
+          && lower[1].includes('(where its plan is was not recorded')) {
+        ok('steward-peek.py reads an OpenCode conversation\'s plan from the recorded path and its latest reply and --said from the file beside the plan, '
+          + 'with the times in UTC; it does not read a later format, nor a path not named after the conversation, and a key is found only in its own case');
+      } else bad(`steward-peek.py with OpenCode keys: ${JSON.stringify([k1, s1, k2, s2, k6, lower])}`);
+
+      /* What the panel says with another agent's tab in front, or nothing to list. */
+      const fromTab = sv.body({ other: { agent: 'OpenCode Agent Plus', title: 'Port the parser', manageable: true } });
+      const codexTab = sv.body({ other: { agent: 'Codex', title: '', manageable: false } });
+      const empty = sv.body({ front: { id: S(1), title: 'Steward' }, groups: [], managed: 0 });
+      if (fromTab.includes('"Port the parser" is an OpenCode Agent Plus conversation, which cannot be a steward. To have it managed, bring a Claude Code conversation to the front and tick it there.')
+          && !/type="checkbox"/.test(fromTab) && codexTab.includes('The tab in front is a Codex conversation. A Codex conversation can neither be a steward nor be managed.')
+          && empty.includes('No other conversation is open in a VS Code window.')) {
+        ok('with an OpenCode Agent Plus tab in front the panel says such a conversation cannot be a steward and is ticked from a Claude Code one; a Codex one can be neither; '
+          + 'with nothing to list it says no other conversation is open');
+      } else bad(`the panel's words: ${JSON.stringify([fromTab, codexTab, empty.slice(-200)])}`);
+    }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 

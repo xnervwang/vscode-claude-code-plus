@@ -17,6 +17,10 @@
  * Claude Code is a folder with a stand-in `claude` that answers `agents --json` with one conversation and fails anything
  * else, so installing the work plan plugin fails and leaves its notice above the plan. The patched host is played by
  * the globals it would set: __cceAnswer hands an answer over, and __cceAnswerHook carries the panel's report back.
+ *
+ * Last, a steward's message to an OpenCode Agent Plus conversation, played by a source registered with Agent Plus
+ * here: the relay request goes through the window that shows the steward, Agent Plus's deliver() and its answers
+ * folder, to that source's deliverAnswer.
  */
 const fs = require('fs');
 const os = require('os');
@@ -213,6 +217,34 @@ async function run() {
     const second = await answer('2', 'Not yet.');
     eq([second.kind, typeof second.reason === 'string' && second.reason.length > 0, /Not yet\.$/.test(control.state.clipboard)],
       ['notReceived', true, true], 'an answer the panel could not type comes back not received and goes to the clipboard');
+
+    /* A steward's message to an OpenCode Agent Plus conversation. */
+    const OC = 'ses_WithCore01Ab', KEY = `opencode-plus:${OC}`, STEWARD = 'efefefef-1111-4222-8333-444444444444';
+    const TEXT = 'Use the new grammar for the parser.';
+    const reached = [];
+    const oc = exported.agentPlus.registerSource({ protocol: 1, id: 'opencode-plus', label: 'OpenCode Agent Plus', onDidChangeConversations: () => ({ dispose() {} }),
+      listConversations: async () => [{ sessionId: OC, title: 'Port the parser', cwd: ws, state: 'idle', activity: 'stopped', running: true }],
+      planPath: (id) => path.join(home, 'oc-plans', `${id}.json`), canDeliver: (id) => id === OC,
+      deliverAnswer: async (id, text) => { reached.push([id, text]); return { outcome: 'submitted' }; } });
+    eq(!!(oc && oc.accepted), true, 'a source standing for OpenCode Agent Plus registers with Agent Plus');
+    if (oc && oc.registration) selfContext.subscriptions.push(oc.registration);
+    fs.writeFileSync(path.join(plans, 'stewards.json'), JSON.stringify({ version: 2, stewards: { [STEWARD]: { manages: [KEY], names: { [KEY]: 'Port the parser' },
+      paths: { [KEY]: path.join(home, 'oc-plans', `${OC}.json`) }, at: Date.now() } } }));
+    globalThis.__cceSessionsShown = () => [STEWARD];
+    const projects = path.join(home, '.claude', 'projects', '-ws');
+    fs.mkdirSync(projects, { recursive: true });
+    fs.writeFileSync(path.join(projects, `${STEWARD}.jsonl`), JSON.stringify({ type: 'assistant', uuid: 'a1', timestamp: new Date().toISOString(), isSidechain: false,
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_oc', name: 'Bash',
+        input: { command: `python3 /p/hooks/steward-relay.py ${KEY} <<'EOF'\n${TEXT}\nEOF` } }] } }) + '\n');
+    const rid = '0c0c0c0c-1111-4222-8333-444444444444', relayDir = path.join(plans, 'relay');
+    fs.mkdirSync(relayDir, { recursive: true });
+    fs.writeFileSync(path.join(relayDir, `${rid}.json`), JSON.stringify({ id: rid, action: 'send', to: KEY, text: TEXT, at: Date.now(), steward: STEWARD }));
+    const resultFile = path.join(relayDir, `${rid}.result.json`);
+    await until(() => fs.existsSync(resultFile), 45000);
+    let result = null;
+    try { result = JSON.parse(fs.readFileSync(resultFile, 'utf8')); } catch (_) { result = null; }
+    eq([reached, result && result.outcome], [[[OC, TEXT]], 'submitted'],
+      'a steward\'s message to an OpenCode Agent Plus conversation goes through Agent Plus\'s deliver() to that source once, and the relay reports it submitted');
   } finally {
     for (const c of [selfContext, coreContext]) for (const d of c.subscriptions.splice(0)) { try { d.dispose(); } catch (_) { /* gone */ } }
     try { self.deactivate(); } catch (_) { /* closing */ }
