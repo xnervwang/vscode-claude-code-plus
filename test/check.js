@@ -10839,13 +10839,13 @@ console.log('\nthe Steward panel');
       const lines = (held.out || '').trim().split(/\r?\n/);
       if (held.code === 1 && !held.asked.length && lines[0] === 'Not sent: another steward sent this conversation a message in the last 30 minutes:'
           && lines[1].startsWith(`  - "Night steward" (${S(7)}), 5 minutes ago: Rewrite the totals query. x`) && lines[1].endsWith('...') && lines[1].length < 420
-          && lines.length === 3 && /run the same command with --anyway\.$/.test(lines[2]) && !held.out.includes('Old steward') && !held.out.includes('mine')
+          && lines.length === 3 && /run the same command again with --anyway\.$/.test(lines[2]) && !held.out.includes('Old steward') && !held.out.includes('mine')
           && forced.code === 0 && forced.asked.length === 1 && forced.asked[0].to === S(2) && forced.asked[0].text === 'Keep the totals query.'
           && mine.code === 0 && mine.asked.length === 1) {
         ok('steward-relay.py holds a message back while another steward sent the conversation one in the last 30 minutes, printing who, when and the start of it, '
           + 'and how to send anyway; --anyway sends it, and neither an older message nor the steward\'s own holds one back');
       } else bad(`the recent-message check gave ${JSON.stringify({ held, forced, mine })}`);
-      if (stranger.code === 1 && !stranger.asked.length && stranger.out.startsWith(`Not done: ${S(9)} is not a steward of this conversation; its stewards are "Docs steward" (${S(1)}), "Night steward" (${S(7)}).`)
+      if (stranger.code === 1 && !stranger.asked.length && stranger.out.startsWith(`Not done: ${S(9)} does not manage this conversation. Its stewards are "Docs steward" (${S(1)}), "Night steward" (${S(7)}).`)
           && noValue.code === 2 && /^usage: /.test(noValue.out) && named.asked.length === 0 && /not open in a VS Code window/.test(named.out)) {
         ok('--handoff --to is refused for a session id that is not one of the conversation\'s stewards, naming those it has, and for one no window shows; a switch without on or off gets the usage');
       } else bad(`--handoff --to and the switches gave ${JSON.stringify({ stranger, named, noValue })}`);
@@ -11746,7 +11746,7 @@ console.log('\nthe Steward panel');
       const seenFile = path.join(data, S(1) + '.steward-seen');
       const skillFile = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'skills', 'steward', 'SKILL.md');
       const version = require('crypto').createHash('sha1').update(fs.readFileSync(skillFile)).digest('hex').slice(0, 8);
-      const SAY = `The steward skill has changed since this conversation last read it (it is now version ${version}): load it again with the Skill tool`;
+      const SAY = `The steward skill has changed since your previous turn (it is now version ${version}): load it again with the Skill tool`;
       let saved = {};
       try { saved = JSON.parse(fs.readFileSync(seenFile, 'utf8')); } catch (_) { saved = {}; }
       fs.writeFileSync(seenFile, JSON.stringify(Object.assign({}, saved, { skill: '00000000' })));
@@ -11762,7 +11762,7 @@ console.log('\nthe Steward panel');
       } else bad(`the skill version lines: ${JSON.stringify([saved.skill, version, v1, v2, v3, v4])}`);
     }
     if (c3.startsWith(`A steward, ${S(1)}, watches this one`) && c3.includes('Do not send it status messages')
-        && c3.includes('starts with the line `Sent by the steward "<title>" (<session id>) for the user:`, which names the steward that sent it') && managed.status === 0) {
+        && c3.includes('starts with the line `Sent by the steward "<title>" (<session id>) for the user:`. Do not send it status messages') && managed.status === 0) {
       ok('a managed conversation hears which steward watches it, by its session id, how that steward\'s messages start, and is asked to leave questions in its plan, not message the steward');
     } else bad(`a managed conversation was told ${JSON.stringify(c3)}`);
     const relayScript = path.join(hooks, 'steward-relay.py');
@@ -12249,7 +12249,7 @@ console.log('\nthe Steward panel');
           && o1.includes(`- "Six" (${O(6)}, OpenCode Agent Plus): idle, or not open in any window; where its plan is was not recorded`)
           && o1.includes(`- "Two" (${S(2)}): `)
           && o1.includes('The conversations of other agents above take only plain messages: no `--rename`, `--close` or `--resume`. While one waits at a prompt '
-            + 'for tool approval or an answer to a question, no message reaches it. Only the user can answer that prompt in that window, so ask them to do so.')
+            + 'for tool approval or an answer to a question, no message reaches it. Ask the user to answer that prompt in that window; nobody else can.')
           && o1.startsWith('You are the steward of 5 conversations the user picked for you in the Steward panel (1 Claude Code, 4 OpenCode Agent Plus); '
             + 'follow the steward skill. ' + RELAYED + ' Where they stand now:')
           && o2.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): idle, or not open in any window; doing: Port the reader; 1 question for the user`)

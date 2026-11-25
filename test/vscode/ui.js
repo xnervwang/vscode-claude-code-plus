@@ -4126,7 +4126,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             && await until(() => { try { return fs.readFileSync(fileOf(SA), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`); } catch (_) { return false; } }, 30000, 1000);
         const notQ1 = !fs.readFileSync(fileOf(Q1), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`);
         const stranger = await actAs(X, ['--handoff', '--to', Q2.id], moved);
-        check(!!gotA && notQ1 && /^Not done: .* is not a steward of this conversation; its stewards are /.test(stranger),
+        check(!!gotA && notQ1 && /^Not done: .* does not manage this conversation\. Its stewards are /.test(stranger),
           'a managed conversation hands off with --to to the steward it names, though another steward\'s message started its turn, and is refused a --to naming no steward of it',
           { handed, stranger });
 
