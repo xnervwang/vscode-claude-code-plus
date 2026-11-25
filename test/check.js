@@ -13010,9 +13010,8 @@ console.log('\nanswering from the Conversations tab');
       } else bad(`answer put back into a new input: ${JSON.stringify(got && { again: got.again, put })}`);
 
       /* The panel's page in a frame while the focus is in a field of the page around it, as when the user types in a panel
-         beside this one: an answer goes in and is sent, and the focus stays in that field. One handed over with
-         `confirm` waits for the host's go and is not typed at all when the go comes after GO_WAIT_MS. Text already in
-         the input comes back with the refusal. */
+         beside this one: an answer goes in and is sent, and the focus stays in that field. Text already in the input
+         comes back with the refusal. */
       const mark2 = ['CCE', 'GO:'].join('-');
       const pageScript = JSON.stringify(require('../src/webview').SCRIPT).replace(/<\//g, '<\\/');
       const html2 = '<!doctype html><html><body><pre id="out"></pre><input id="other"><iframe id="f"></iframe><script>'
