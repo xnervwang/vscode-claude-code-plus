@@ -243,8 +243,8 @@ async function run() {
     await until(() => fs.existsSync(resultFile), 45000);
     let result = null;
     try { result = JSON.parse(fs.readFileSync(resultFile, 'utf8')); } catch (_) { result = null; }
-    eq([reached, result && result.outcome], [[[OC, TEXT]], 'submitted'],
-      'a steward\'s message to an OpenCode Agent Plus conversation goes through Agent Plus\'s deliver() to that source once, and the relay reports it submitted');
+    eq([reached, result && result.outcome], [[[OC, require(path.join(root, 'src', 'stewards.js')).withFrom(STEWARD, '', TEXT)]], 'submitted'],
+      'a steward\'s message to an OpenCode Agent Plus conversation goes through Agent Plus\'s deliver() to that source once, after the line naming the steward, and the relay reports it submitted');
 
     const ap = exported.agentPlus;
     if (!(Array.isArray(ap.features) && ap.features.includes('stewards') && typeof ap.stewardOf === 'function')) {
@@ -269,6 +269,29 @@ async function run() {
       const r = await ap.deliver({ sourceId: 'claude-code', sessionId: STEWARD, text: handoff });
       eq([r && r.outcome, toSteward], ['submitted', [handoff]],
         'a handoff from an OpenCode Agent Plus conversation arrives in the steward\'s panel once and unchanged, through Agent Plus\'s deliver()');
+    }
+    if (!(Array.isArray(ap.features) && ap.features.includes('stewardList') && typeof ap.stewardsOf === 'function')) {
+      note('this Agent Plus has no \'stewardList\': the list of a conversation\'s stewards was not checked');
+    } else {
+      /* Two stewards of one OpenCode Agent Plus conversation; the user typed to the second one last. */
+      const SECOND = 'fefefefe-1111-4222-8333-444444444444';
+      const typedRow = (ms, text) => JSON.stringify({ type: 'user', uuid: 'u' + ms, timestamp: new Date(ms).toISOString(), isSidechain: false,
+        origin: { kind: 'human' }, message: { role: 'user', content: text } }) + '\n';
+      fs.appendFileSync(path.join(projects, `${STEWARD}.jsonl`), typedRow(Date.now() - 60000, 'Watch the parser port.'));
+      fs.writeFileSync(path.join(projects, `${SECOND}.jsonl`), typedRow(Date.now() - 1000, 'Watch it too.'));
+      let changes = 0;
+      const sub = ap.onDidChangeStewards(() => changes++);
+      selfContext.subscriptions.push(sub);
+      fs.writeFileSync(path.join(plans, 'stewards.json'), JSON.stringify({ version: 3, stewards: {
+        [STEWARD]: { manages: [KEY], names: { [KEY]: 'Port the parser' }, at: Date.now() - 5000, title: 'Docs steward' },
+        [SECOND]: { manages: [KEY], names: { [KEY]: 'Port the parser' }, at: Date.now(), title: 'Night steward' } } }));
+      const listed = () => ap.stewardsOf('opencode-plus', OC).map((x) => [x.sourceId, x.sessionId, x.title]);
+      const both = await until(() => listed().length === 2 && changes > 0, 10000);
+      const first = ap.stewardOf('opencode-plus', OC);
+      eq([!!both, listed(), first && [first.sourceId, first.sessionId], changes > 0],
+        [true, [['claude-code', SECOND, 'Night steward'], ['claude-code', STEWARD, 'Docs steward']], ['claude-code', SECOND], true],
+        'with Agent Plus\'s stewardList, stewardsOf names both stewards of an OpenCode Agent Plus conversation with their titles, the one the user typed to last first, '
+          + 'stewardOf gives that first one, and the change reached onDidChangeStewards');
     }
   } finally {
     for (const c of [selfContext, coreContext]) for (const d of c.subscriptions.splice(0)) { try { d.dispose(); } catch (_) { /* gone */ } }

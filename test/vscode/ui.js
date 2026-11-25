@@ -84,10 +84,10 @@
  *                  window, linked and clicked, does the same; once that window has reloaded with the conversation's tab
  *                  restored behind another and not loaded, deleting it from the first window is refused and names the
  *                  second
- *   one steward    two stewards in two windows: a steward's box is greyed in the other's panel, one that becomes a
- *                  steward leaves the other's list, a conversation one steward ticked is greyed for the other, and All
- *                  is on for one steward only and takes only what the other has not ticked; each greyed control's hover
- *                  label says why
+ *   several stewards
+ *                  two stewards in two windows ticking one conversation: its box stays free in the other's panel, a
+ *                  steward's own box is still greyed, the row ends in an eye with 1 in each panel, its hover names the
+ *                  other steward, and a click on the name brings that steward up in its window
  *   closed, sidebar, archived
  *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
  *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
@@ -3863,7 +3863,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
        (1), a conversation that becomes a steward leaves the other steward's list (2), a conversation one steward ticked
        is greyed in the other's panel (3), and All is on for one steward only, which takes only what the other has not
        ticked (4). Each greyed control says why in a hover label. */
-    await step('one steward for each conversation', async () => {
+    await step('several stewards for one conversation', async () => {
       const SA = threads[0], X = threads[1];
       const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
       const file = path.join(dataDir, 'stewards.json');
@@ -3879,41 +3879,20 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const w = b && b.closest('[data-why]');
         return b ? { checked: b.checked, disabled: b.disabled, why: w ? w.dataset.why : '' } : null;
       }, id).catch(() => null);
-      const everyIn = (f) => f.evaluate(() => {
-        const b = document.querySelector('input[data-every]'), l = b && b.closest('label');
-        return b ? { checked: b.checked, disabled: b.disabled, why: (l && l.dataset.why) || '' } : null;
-      }).catch(() => null);
       const header = (f) => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; }).catch(() => '');
-      /* The text a row shows about its steward, and which conversation its link opens. */
-      const byIn = (f, id) => f.evaluate((id) => {
-        const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'), by = li && li.querySelector('.by');
-        const link = by && by.querySelector('a[data-open]');
-        return by ? { text: by.textContent.replace(/\s+/g, ' ').trim(), to: link ? link.dataset.open : '' } : null;
+      /* The eye at the end of a row: its count, whether it comes last in the row, its colour against the row's text,
+         whether its list shows, and the stewards that list names. */
+      const eyesIn = (f, id) => f.evaluate((id) => {
+        const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'), e = li && li.querySelector('.eyes');
+        if (!e) return li ? { none: true, by: !!li.querySelector('.by') } : null;
+        const pop = e.querySelector('.pop'), r = pop.getBoundingClientRect(), svg = e.querySelector('svg');
+        return { n: e.querySelector('.n').textContent, last: li.lastElementChild === e, shown: r.width > 0 && r.height > 0,
+          svg: !!svg && svg.getBoundingClientRect().width > 0, colour: getComputedStyle(e).color, text: getComputedStyle(a).color,
+          names: [...pop.querySelectorAll('a[data-open]')].map((x) => ({ name: x.textContent, to: x.dataset.open })), by: !!li.querySelector('.by') };
       }, id).catch(() => null);
-      const everyByIn = (f) => f.evaluate(() => {
-        const e = document.querySelector('.everyby'), link = e && e.querySelector('a[data-open]');
-        return e ? { text: e.textContent.replace(/\s+/g, ' ').trim(), to: link ? link.dataset.open : '' } : null;
-      }).catch(() => null);
-      /* Renames a conversation of window A through Claude Code's own Rename Session Tab. */
-      const renameInA = async (t, title) => {
-        await exec('claude-vscode.editor.open', t.id);
-        await sleep(500);
-        const asked = exec('claude-vscode.renameSessionTab').catch((e) => String(e));
-        const input = page.locator('.quick-input-widget input').first();
-        if (!await until(() => input.isVisible().catch(() => false), 10000, 300)) throw new Error('Rename Session Tab did not open its box');
-        await input.fill(title);
-        await page.keyboard.press('Enter');
-        await asked;
-      };
-      let renamed = false;
-      /* The hover label the panel draws for a greyed control. */
-      const hovered = async (p, f, sel) => {
-        const loc = f.locator(sel).first();
-        await loc.hover().catch(() => {});
-        return until(() => f.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return l && l.getBoundingClientRect().width > 0 && l.textContent; }).catch(() => ''), 3000, 200);
-      };
+      const eyeOf = (id) => `li.row:has(a.name[data-open="${id}"]) .eyes`;
 
-      /* Window B on a folder of its own: Q1 will be the second steward, Q2 a conversation it ticks. */
+      /* Window B on a folder of its own: Q1 will be the second steward, Q2 a conversation of B's. */
       const folderT = fs.realpathSync.native((() => { const d = path.join(path.dirname(profile.folder), 'ws-t'); fs.mkdirSync(d, { recursive: true }); return d; })());
       const Q1 = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e700', title: 'Watch over the reports work', days: 0,
         turns: [['Watch over the reports work.', 'I will keep an eye on it.']] };
@@ -3945,78 +3924,125 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('workbench.view.extension.claudeCodePlusSteward');
         panelA = await stewardIn(page);
         panelB = await stewardIn(pageB);
-        const listed = panelA && panelB && await until(async () => (await boxIn(panelA, X.id)) && (await boxIn(panelA, Q1.id)) && (await boxIn(panelB, SA.id))
-          && (await boxIn(panelB, X.id)) && (await boxIn(panelB, Q2.id)) && (await header(panelB)).includes(Q1.title.slice(0, 20))
+        const listed = panelA && panelB && await until(async () => (await boxIn(panelA, X.id)) && (await boxIn(panelB, X.id))
+          && (await boxIn(panelB, SA.id)) && (await header(panelB)).includes(Q1.title.slice(0, 20))
           && (await header(panelA)).includes(SA.title.slice(0, 20)), 60000, 1000);
         check(!!listed, 'each window\'s Steward panel lists the conversations of both', { a: panelA && await panelA.evaluate(() => document.body.innerText.slice(0, 400)), b: panelB && await panelB.evaluate(() => document.body.innerText.slice(0, 400)) });
         if (!listed) return;
 
-        /* SA ticks X and Q1 in A's panel. */
-        for (const id of [X.id, Q1.id]) await panelA.locator(`input[data-id="${id}"]`).first().click();
-        const ticked = await until(() => has(SA.id, X.id) && has(SA.id, Q1.id), 10000, 300);
-        check(!!ticked, 'in window A, the conversation in front ticks one of its own and one of B\'s, and is a steward', table()[SA.id] || null);
+        /* SA ticks X in A's panel; in B's panel X's box stays free, and Q1 ticks it too. */
+        await panelA.locator(`input[data-id="${X.id}"]`).first().click();
+        const first = await until(() => has(SA.id, X.id), 10000, 300);
+        const free = first && await until(async () => { const b = await boxIn(panelB, X.id); return b && !b.disabled && !b.checked && b; }, 20000, 500);
+        check(!!first && !!free, 'once one steward ticks a conversation, its box in the other window\'s panel is neither greyed nor ticked', { table: table(), box: free || await boxIn(panelB, X.id) });
+        await panelB.locator(`input[data-id="${X.id}"]`).first().click();
+        const both = await until(() => has(SA.id, X.id) && has(Q1.id, X.id), 10000, 300);
+        const sa = await boxIn(panelB, SA.id);
+        check(!!both && !!sa && sa.disabled && sa.why === 'This conversation is a steward, and a steward is not managed by another',
+          'the second steward ticks it as well, so both lists have it; a steward\'s own box is still greyed in the other\'s panel', { table: table(), sa });
 
-        /* 1 and 3, in B's panel: SA's box and X's box are greyed, and say why. */
-        const sa = await until(async () => { const b = await boxIn(panelB, SA.id); return b && b.disabled && b; }, 20000, 500);
-        const x = await until(async () => { const b = await boxIn(panelB, X.id); return b && b.disabled && b; }, 20000, 500);
-        check(!!sa && sa.why === 'This conversation is a steward, and a steward is not managed by another',
-          'in B\'s panel the steward\'s box is greyed, and says on hover that a steward is not managed by another', sa || await boxIn(panelB, SA.id));
-        const xLabel = x ? await hovered(pageB, panelB, `.box:has(input[data-id="${X.id}"])`) : '';
-        check(!!x && x.why === `Managed by ${SA.title}` && xLabel === `Managed by ${SA.title}`,
-          'and so is the box of the conversation that steward ticked, whose hover label names that steward', { box: x || await boxIn(panelB, X.id), label: xLabel });
-        await shotB('one-steward-greyed-in-b');
+        /* Each panel ends X's row with an eye and 1, the other steward. */
+        const eyeA = await until(async () => { const e = await eyesIn(panelA, X.id); return e && e.n === '1' && e; }, 30000, 500);
+        const eyeB = await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.n === '1' && e; }, 30000, 500);
+        check(!!eyeA && !!eyeB && eyeA.last && eyeB.last && eyeA.svg && !eyeA.shown && !eyeA.by && !eyeB.by && eyeA.colour !== eyeA.text,
+          'in each panel the managed conversation\'s row ends in a light eye with 1, the other steward, and names no steward in the row itself', { a: eyeA || await eyesIn(panelA, X.id), b: eyeB || await eyesIn(panelB, X.id) });
+        const plain = await until(async () => { const e = await eyesIn(panelA, Q1.id); return e && e; }, 30000, 500);
+        check(!!plain && plain.none === true && plain.by === true, 'a steward\'s row, which no steward manages, says it is a steward and shows no eye', plain);
+        await shot('stewards-eye-in-a');
 
-        /* X's row names its steward too, as a link that brings that steward's conversation up in window A. */
-        const xBy = await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${SA.title}` && b; }, 20000, 500);
-        const saBy = await byIn(panelB, SA.id);
-        check(!!xBy && xBy.to === SA.id && !!saBy && saBy.text === 'a steward',
-          'in B\'s panel, the row of the conversation that steward ticked shows its steward\'s name as a link, and the steward\'s own row says it is a steward',
-          { x: xBy || await byIn(panelB, X.id), sa: saBy });
+        /* Hovered, the eye lists the other steward by name. */
+        await panelB.locator(eyeOf(X.id)).first().hover();
+        const named = await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown && e; }, 5000, 200);
+        check(!!named && named.names.length === 1 && named.names[0].to === SA.id && named.names[0].name.includes(SA.title.slice(0, 20)),
+          'hovered, the eye in B\'s panel lists the other steward by name', named || await eyesIn(panelB, X.id));
+        await shotB('stewards-eye-hover-in-b');
+        await panelA.locator(eyeOf(X.id)).first().hover();
+        const namedA = await until(async () => { const e = await eyesIn(panelA, X.id); return e && e.shown && e; }, 5000, 200);
+        check(!!namedA && namedA.names.length === 1 && namedA.names[0].to === Q1.id,
+          'and in A\'s panel it names the steward in B', namedA || await eyesIn(panelA, X.id));
+
+        /* Clicked, a name brings that steward's conversation to the front in its window. */
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
-        if (xBy) await panelB.locator(`li.row:has(a.name[data-open="${X.id}"]) .by a[data-open="${SA.id}"]`).first().click();
-        const upInA = xBy && await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label.replace(TRAILING_MARKS, ''), SA.title)), 20000, 300);
+        await panelB.locator(eyeOf(X.id)).first().hover();
+        await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown; }, 5000, 200);
+        await panelB.locator(`${eyeOf(X.id)} .pop a[data-open="${SA.id}"]`).first().click();
+        const upInA = await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label.replace(TRAILING_MARKS, ''), SA.title)), 20000, 300);
         const copyInB = (await inB(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)}).map((t) => t.label);`))
           .some((l) => titled(l.replace(TRAILING_MARKS, ''), SA.title));
-        check(!!upInA && !copyInB, 'clicked, the steward\'s name brings that steward\'s conversation to the front in window A, which shows it, and opens no copy in B',
+        check(!!upInA && !copyInB, 'clicked, the name brings that steward\'s conversation to the front in window A, and opens no copy in B',
           { tabsA: await claudeTabs(), copyInB });
-        /* Renaming the steward changes the name the rows show. */
-        const NEW = 'Look after the inventory sync work';
-        await renameInA(SA, NEW);
-        renamed = true;
-        const followed = await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${NEW}` && b; }, 60000, 1000);
-        check(!!followed, 'and after that steward is renamed, the row shows its new name', await byIn(panelB, X.id));
-        await shotB('one-steward-names-in-b');
-        await exec('claude-vscode.editor.open', SA.id);
-        await renameInA(SA, SA.title);
-        renamed = false;
-        await until(async () => { const b = await byIn(panelB, X.id); return b && b.text === `managed by ${SA.title}`; }, 60000, 1000);
 
-        /* 2: Q1 ticks Q2 in B's panel, becomes a steward and leaves SA's list; in A's panel its box is greyed. */
-        await panelB.locator(`input[data-id="${Q2.id}"]`).first().click();
-        const left = await until(() => has(Q1.id, Q2.id) && !has(SA.id, Q1.id), 10000, 300);
-        const q1InA = await until(async () => { const b = await boxIn(panelA, Q1.id); return b && b.disabled && !b.checked && b; }, 20000, 500);
-        check(!!left && !!q1InA && q1InA.why === 'This conversation is a steward, and a steward is not managed by another',
-          'once the conversation in front of B ticks one, it is a steward: it leaves the first steward\'s list, and its box in A\'s panel is greyed', { table: table(), box: q1InA || await boxIn(panelA, Q1.id) });
+        /* What each steward runs, with its tool call in its own transcript first, and a message the user typed there. */
+        const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
+        const fileOf = (t) => path.join(profile.home, '.claude', 'projects', fakeHome.folderName(t === Q1 || t === Q2 ? folderT : profile.folder), `${t.id}.jsonl`);
+        let calls = 0;
+        const actAs = (t, args, input) => {
+          const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
+          const answered = fakeHome.appendToolCall(fileOf(t), { sessionId: t.id, cwd: t === Q1 ? folderT : profile.folder,
+            uuid: `${t.id.slice(0, 24)}${String(860000 + calls++).padStart(12, '0')}`, toolId: `toolu_many_${calls}`, command: line, description: 'Act for the user' });
+          return new Promise((resolve) => {
+            const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
+              { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: t.id }) });
+            let out = '';
+            kid.stdout.on('data', (d) => { out += d; });
+            kid.stderr.on('data', (d) => { out += d; });
+            kid.on('error', (e) => resolve('could not run the script: ' + e.message));
+            kid.on('exit', () => resolve(out.trim()));
+            kid.stdin.end(input || '');
+          }).then((said) => { answered(said); return said; });
+        };
+        const userSays = (t, text, from) => fs.appendFileSync(fileOf(t), JSON.stringify({ sessionId: t.id, cwd: profile.folder, isSidechain: false, type: 'user',
+          uuid: `${t.id.slice(0, 24)}${String(870000 + calls++).padStart(12, '0')}`, timestamp: new Date().toISOString(), permissionMode: 'default',
+          promptSource: from ? 'system' : 'user', origin: { kind: from || 'human' }, message: { role: 'user', content: text } }) + '\n');
+        const inX = (text) => { try { return fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(text).slice(1, -1)); } catch (_) { return false; } };
 
-        /* 4: All for SA, which leaves Q2 to Q1; in B's panel the All switch is greyed and names SA. */
-        await panelA.locator('input[data-every]').click();
-        const allOn = await until(() => table()[SA.id] && table()[SA.id].all === true && table()[SA.id], 10000, 300);
-        const q2InA = await until(async () => { const b = await boxIn(panelA, Q2.id); return b && b.disabled && !b.checked && b; }, 20000, 500);
-        check(!!allOn && !allOn.manages.includes(Q2.id) && !!q2InA && q2InA.why === `Managed by ${Q1.title}`,
-          'with All turned on, the first steward takes only conversations the other has not ticked: the other\'s is greyed in its panel and names that steward', { all: allOn, box: q2InA || await boxIn(panelA, Q2.id) });
-        await shot('one-steward-all-in-a');
-        const sw = await until(async () => { const e = await everyIn(panelB); return e && e.disabled && e.why === `${SA.title} has All on` && e; }, 60000, 500);
-        const swLabel = sw ? await hovered(pageB, panelB, 'label.every') : '';
-        const swBy = await until(async () => { const e = await everyByIn(panelB); return e && e.text === `on for ${SA.title}` && e; }, 60000, 500);
-        check(!!sw && !sw.checked && sw.why === `${SA.title} has All on` && swLabel === `${SA.title} has All on` && !!swBy && swBy.to === SA.id,
-          'and in B\'s panel the All switch is greyed, names beside it the steward that has All on with a link to it, and its hover label says so',
-          { every: sw || await everyIn(panelB), label: swLabel, by: swBy || await everyByIn(panelB) });
-        await shotB('one-steward-all-greyed-in-b');
+        /* Two stewards' messages to one conversation: the second is held back while the first is recent, and sent with --anyway. */
+        const first2 = 'Please keep the totals query as it is.', second2 = 'Please rewrite the totals query.';
+        const sentA = await actAs(SA, [X.id], first2);
+        const arrivedA = /^Sent: /.test(sentA) && await until(() => inX(first2), 30000, 500);
+        const held = await actAs(Q1, [X.id], second2);
+        const forced = /^Not sent: another steward sent this conversation a message in the last 30 minutes/.test(held) ? await actAs(Q1, ['--anyway', X.id], second2) : '';
+        const arrivedB = /^Sent: /.test(forced) && await until(() => inX(second2), 30000, 500);
+        const signed = arrivedB && fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(`Sent by the steward "${Q1.title}" (${Q1.id}) for the user:\n${second2}`).slice(1, -1));
+        check(!!arrivedA && held.includes(`"${SA.title}" (${SA.id})`) && held.includes(first2) && /--anyway/.test(held) && !!arrivedB && !!signed,
+          'a steward\'s message to a conversation another steward sent one to a moment ago is held back, with that message and the steward that sent it, '
+          + 'and --anyway sends it, after the line naming the steward that sent it', { sentA, held, forced });
+
+        /* A handoff with --to goes to the steward it names, not to the one whose message started the turn. */
+        const moved = 'The user asked here for the release notes, which belong in another conversation.';
+        const handed = await actAs(X, ['--handoff', '--to', SA.id], moved);
+        const gotA = handed.startsWith('Handed off to the steward ') && handed.includes(`(${SA.id})`)
+          && await until(() => { try { return fs.readFileSync(fileOf(SA), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`); } catch (_) { return false; } }, 30000, 1000);
+        const notQ1 = !fs.readFileSync(fileOf(Q1), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`);
+        const stranger = await actAs(X, ['--handoff', '--to', Q2.id], moved);
+        check(!!gotA && notQ1 && /^Not done: .* is not a steward of this conversation; its stewards are /.test(stranger),
+          'a managed conversation hands off with --to to the steward it names, though another steward\'s message started its turn, and is refused a --to naming no steward of it',
+          { handed, stranger });
+
+        /* A steward changes its own list when the user asks in it; asked by a notice, it refuses. */
+        userSays(SA, `Stop managing ${X.title}.`);
+        const dropped = await actAs(SA, ['--drop', X.id]);
+        const offBox = /^Done: /.test(dropped) && !has(SA.id, X.id) && await until(async () => { const b = await boxIn(panelA, X.id); return b && !b.checked && b; }, 20000, 500);
+        userSays(SA, `Take ${X.title} back.`);
+        const taken = await actAs(SA, ['--take'], X.title);
+        const onBox = /^Done: /.test(taken) && has(SA.id, X.id) && await until(async () => { const b = await boxIn(panelA, X.id); return b && b.checked && b; }, 20000, 500);
+        userSays(SA, 'Turn on New conversations.');
+        const newOn = await actAs(SA, ['--new', 'on']);
+        const laterBox = /^Done: /.test(newOn) && !!table()[SA.id].newSince
+          && await until(() => panelA.evaluate(() => { const b = document.querySelector('input[data-later]'); return !!b && b.checked; }).catch(() => false), 20000, 500);
+        userSays(SA, 'Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:', 'cross-session');
+        const refused = await actAs(SA, ['--new', 'off']);
+        check(!!offBox && !!onBox && !!laterBox && /^Not done: only the user, typing in this steward conversation, can change its list/.test(refused) && !!table()[SA.id].newSince,
+          'asked by the user in the steward conversation, the steward unticks a conversation, ticks it again by its title and turns New conversations on, each shown in its panel; '
+          + 'a call after a notice changes nothing and says why', { dropped, taken, newOn, refused });
+        userSays(SA, 'Turn New conversations off.');
+        await actAs(SA, ['--new', 'off']);
+        await shot('stewards-list-changed');
       } finally {
-        if (renamed) await renameInA(SA, SA.title).catch(() => {});
         if (panelA) {
           if (await panelA.locator('input[data-every]').isChecked().catch(() => false)) await panelA.locator('input[data-every]').click().catch(() => {});
+          if (await panelA.locator('input[data-later]').isChecked().catch(() => false)) await panelA.locator('input[data-later]').click().catch(() => {});
           await panelA.locator('button[data-act="none"]').click().catch(() => {});
         }
         if (panelB) await panelB.locator('button[data-act="none"]').click().catch(() => {});

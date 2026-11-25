@@ -467,22 +467,30 @@ async function stewardPanel(d) {
   return frame;
 }
 const stewardsFile = (d) => path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
-/* Opens the Steward panel on the demo conversation while the first of the other two conversations is a steward that has
-   All on and ticked the second. */
-async function greyedPanel(d) {
+/* Opens the Steward panel on the demo conversation, which ticked the second of the other two conversations, while the
+   first is a steward that ticked it too. */
+async function severalPanel(d) {
   const [t1, t2] = d.threads.slice(1);
   for (const t of [t1, t2]) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
   fs.mkdirSync(path.dirname(stewardsFile(d)), { recursive: true });
-  fs.writeFileSync(stewardsFile(d), JSON.stringify({ version: 1, stewards: { [t1.id]: { manages: [t2.id], ticked: [t2.id],
-    names: { [t2.id]: t2.title }, at: Date.now(), all: true } } }, null, 1) + '\n');
+  fs.writeFileSync(stewardsFile(d), JSON.stringify({ version: 3, stewards: {
+    [t1.id]: { manages: [t2.id], names: { [t2.id]: t2.title }, at: Date.now() - 1000, title: t1.title },
+    [d.sid]: { manages: [t2.id], names: { [t2.id]: t2.title }, at: Date.now() } } }, null, 1) + '\n');
   await d.exec('claude-vscode.editor.open', d.sid);
   await d.sleep(1000);
   const frame = await stewardPanel(d);
-  if (!await d.until(() => frame.evaluate((id) => { const b = document.querySelector(`input[data-id="${id}"]`); return !!b && b.disabled; }, t1.id), 40000, 1000)) {
-    throw new Error(`the box of the steward "${t1.title}" is not greyed`);
+  if (!await d.until(() => frame.evaluate(([a, b]) => { const x = document.querySelector(`input[data-id="${a}"]`); const e = document.querySelector(`.eyes[data-eyes="${b}"]`);
+    return !!x && x.disabled && !!e; }, [t1.id, t2.id]).catch(() => false), 40000, 1000)) {
+    throw new Error(`the box of the steward "${t1.title}" is not greyed, or the row of "${t2.title}" has no eye`);
   }
-  d.greyed = frame;
+  d.several = frame;
   return frame;
+}
+/* A message typed by the user into conversation `id`, as its transcript records one. */
+function typed(d, id, text) {
+  fs.appendFileSync(transcriptFile(d, id), JSON.stringify({ sessionId: id, cwd: d.profile.folder, isSidechain: false, type: 'user',
+    uuid: `${id.slice(0, 24)}${String(795000 + relayCalls++).padStart(12, '0')}`, timestamp: new Date().toISOString(), permissionMode: 'default',
+    promptSource: 'user', origin: { kind: 'human' }, message: { role: 'user', content: text } }) + '\n');
 }
 /* Brings the demo conversation to the front and ticks `ids` in its Steward panel. */
 async function stewardOf(d, ids) {
@@ -1584,28 +1592,56 @@ const STEPS = [
       return d.body();
     },
   },
-  /* One steward for each conversation: in the panel of the conversation in front, another steward's box, the box of the
-     conversation that steward ticked, and the All switch it holds are greyed, and each says why in a hover label. The
-     other steward is set by writing the table, as its own panel would. In both themes. */
+  /* Several stewards: in the panel of the conversation in front, another steward's box is greyed and says why on hover,
+     and the row of a conversation another steward also ticked ends in an eye with their number, which lists them on
+     hover. The other steward is set by writing the table, as its own panel would. In both themes. */
   ...['dark', 'light'].flatMap((tone) => [
     {
-      name: `steward-greyed-box${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The Steward panel at the bottom, in a ${tone} theme, for the demo conversation in front. Another conversation, "Why does the nightly `
-        + 'export skip archived rows?", is a steward with All on: its row\'s box is greyed. The row of "Add a dry-run flag to the cleanup script", which '
-        + 'that steward ticked, has a greyed box too, and the mouse rests on it: a small hover label beside it reads "Managed by Why does the nightly '
-        + 'export skip archived rows?". The "All, including new ones" switch at the top right is greyed. The label is readable against its background '
-        + 'and does not hide the row\'s title.',
+      name: `steward-eye${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
+      expect: `The Steward panel at the bottom, in a ${tone} theme, for the demo conversation in front. The row of "Why does the nightly export skip `
+        + 'archived rows?" has a greyed box and says "a steward" after its title. The row of "Add a dry-run flag to the cleanup script" is ticked, '
+        + 'and at its far right end, after the time, stands a small eye with the number 1 beside it, drawn in a lighter grey than the row\'s text and about '
+        + 'as tall as the text. No row names a steward after its title. The "All, including new ones" and "New conversations" switches at the top '
+        + 'right are both unticked and not greyed. The mouse is away; nothing overlaps.',
       unchanged: tone === 'light' ? null : 'The editor and the tab bar are as before.',
       act: async (d) => {
         if (tone === 'light') { await theme(d, 'Default Light Modern'); await d.sleep(2500); }
-        const frame = await greyedPanel(d);
+        const frame = await severalPanel(d);
+        await rest(d, frame, 'bottom');
+        await d.away();
+        await d.sleep(500);
+        return d.part('workbench.parts.panel');
+      },
+    },
+    {
+      name: `steward-eye-hover${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
+      expect: `The mouse rests on the eye at the end of the row of "Add a dry-run flag to the cleanup script", still in the ${tone} theme, and a small `
+        + 'box opens just below it, its right edge under the eye: its first line reads "Also managed by 1 other steward", and below it "Why does the '
+        + 'nightly export skip archived rows?" in link colour. The box is readable against its background, wholly inside the panel, and has a thin border.',
+      unchanged: 'The rows of the Steward panel are as in the step before.',
+      act: async (d) => {
+        const frame = d.several || await severalPanel(d);
         const t2 = d.threads[2];
-        const box = frame.locator(`.box:has(input[data-id="${t2.id}"])`).first();
-        if (!await d.until(() => frame.evaluate((id) => { const b = document.querySelector(`input[data-id="${id}"]`); return !!b && b.disabled; }, t2.id), 40000, 1000)) {
-          throw new Error(`the box of "${t2.title}" is not greyed`);
-        }
         await rest(d, frame);
-        await box.hover();
+        await frame.locator(`.eyes[data-eyes="${t2.id}"]`).first().hover();
+        if (!await d.until(() => frame.evaluate((id) => { const p = document.querySelector(`.eyes[data-eyes="${id}"] .pop`); return !!p && p.getBoundingClientRect().width > 0; }, t2.id), 3000, 100)) {
+          throw new Error('the eye\'s list did not open');
+        }
+        await d.sleep(300);
+        return d.part('workbench.parts.panel');
+      },
+    },
+    {
+      name: `steward-greyed-box${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
+      expect: `The mouse rests on the greyed box of "Why does the nightly export skip archived rows?", still in the ${tone} theme: a small hover label `
+        + 'beside it reads "This conversation is a steward, and a steward is not managed by another". The label is readable against its background '
+        + 'and does not hide the row\'s title; the eye\'s list from the step before is closed.',
+      unchanged: 'The rows of the Steward panel are as in the step before.',
+      act: async (d) => {
+        const frame = d.several || await severalPanel(d);
+        const t1 = d.threads[1];
+        await rest(d, frame);
+        await frame.locator(`.box:has(input[data-id="${t1.id}"])`).first().hover();
         if (!await d.until(() => frame.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return !!l && l.getBoundingClientRect().width > 0; }), 3000, 100)) {
           throw new Error('no hover label appeared for the greyed box');
         }
@@ -1614,59 +1650,18 @@ const STEPS = [
       },
     },
     {
-      name: `steward-greyed-all${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The mouse rests on the greyed "All, including new ones" switch at the top right of the Steward panel, still in the ${tone} theme, and a `
-        + 'hover label near it reads "Why does the nightly export skip archived rows? has All on".',
-      unchanged: 'The rows of the Steward panel are as in the step before.',
-      act: async (d) => {
-        const frame = d.greyed || await greyedPanel(d);
-        await rest(d, frame);
-        await frame.locator('label.every').first().hover();
-        if (!await d.until(() => frame.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return !!l && /has All on$/.test(l.textContent); }), 3000, 100)) {
-          throw new Error('no hover label appeared for the greyed All switch');
-        }
-        await d.sleep(300);
-        return d.part('workbench.parts.panel');
-      },
-    },
-    {
-      name: `steward-managed-by${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The same Steward panel in the ${tone} theme, with the mouse away. Each greyed row shows its reason after its title: the row of `
-        + '"Add a dry-run flag to the cleanup script" reads "managed by Why does the nightly export skip archived rows?", the name in link colour, and '
-        + 'the row of "Why does the nightly export skip archived rows?" reads "a steward". Beside the greyed "All, including new ones" switch, "on for '
-        + 'Why does the nightly export skip archived rows?" with the name in link colour, cut short with an ellipsis if it does not fit. All of it readable, nothing overlapping.',
-      unchanged: 'The rows and their boxes are as in the step before.',
-      act: async (d) => {
-        const frame = d.greyed || await greyedPanel(d);
-        if (!await d.until(() => frame.evaluate(() => document.querySelectorAll('.by').length >= 2 && !!document.querySelector('.everyby')), 20000, 500)) {
-          throw new Error('the rows do not name their stewards');
-        }
-        await rest(d, frame, 'bottom');
-        await d.away();
-        await d.sleep(500);
-        return d.part('workbench.parts.panel');
-      },
-    },
-    {
-      name: `steward-managed-by-narrow${tone === 'light' ? '-light' : ''}`, features: ['steward-one-each', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The panel area moved to the right side of the window, in the ${tone} theme, so the Steward panel is narrow. The rows' titles and the `
-        + 'steward names after them are cut short with an ellipsis where they do not fit, and nothing wraps onto a second line or overlaps. The mouse '
-        + 'rests on the cut-short steward name in the row of "Add a dry-run flag to the cleanup script", and a hover label shows the whole of it: "Managed by Why '
-        + 'does the nightly export skip archived rows?".',
+      name: `steward-eye-narrow${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
+      expect: `The panel area moved to the right side of the window, in the ${tone} theme, so the Steward panel is narrow. The rows' titles are cut `
+        + 'short with an ellipsis where they do not fit, and the eye with its 1 still stands whole at the right end of the row of "Add a dry-run flag '
+        + 'to the cleanup script". Nothing wraps onto a second line or overlaps.',
       unchanged: null,
       act: async (d) => {
-        const frame = d.greyed || await greyedPanel(d);
+        const frame = d.several || await severalPanel(d);
         await d.exec('workbench.action.positionPanelRight');
         await d.sleep(2000);
-        const t2 = d.threads[2];
-        const by = frame.locator(`li.row:has(a.name[data-open="${t2.id}"]) .by`).first();
-        if (!await d.until(() => by.evaluate((e) => e.scrollWidth > e.clientWidth), 10000, 500)) throw new Error('the steward name on the row is not cut short');
         await rest(d, frame);
-        await by.hover();
-        if (!await d.until(() => frame.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return !!l && /^Managed by /.test(l.textContent); }), 3000, 100)) {
-          throw new Error('no hover label appeared for the cut steward name');
-        }
-        await d.sleep(300);
+        await d.away();
+        await d.sleep(500);
         return d.part('workbench.parts.panel');
       },
       undo: async (d) => {
@@ -1676,11 +1671,92 @@ const STEPS = [
         try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ }
         for (const t of d.threads.slice(1)) await closeTab(d, t);
         await d.exec('workbench.action.closePanel').catch(() => {});
-        d.greyed = null;
+        d.several = null;
         await d.sleep(800);
       },
     },
   ]),
+  {
+    name: 'steward-new-switch', features: ['steward-new-switch', 'steward-panel'],
+    expect: 'The Steward panel for the demo conversation. "New conversations" at the top right, beside "All, including new ones", is ticked; '
+      + '"All, including new ones" is not. The boxes of the rows below are not greyed, and the header line reads "Managed by" and the demo '
+      + 'conversation\'s title with one crown after it.',
+    unchanged: null,
+    act: async (d) => {
+      for (const t of d.threads.slice(1)) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
+      await d.exec('claude-vscode.editor.open', d.sid);
+      await d.sleep(1000);
+      const frame = await stewardPanel(d);
+      await frame.locator('input[data-later]').first().click();
+      if (!await d.until(() => frame.evaluate(() => { const b = document.querySelector('input[data-later]'); return !!b && b.checked; }), 10000, 300)) {
+        throw new Error('New conversations did not turn on');
+      }
+      await d.away();
+      await d.sleep(500);
+      return d.part('workbench.parts.panel');
+    },
+    undo: async (d) => { try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ } await d.sleep(1500); },
+  },
+  {
+    name: 'steward-list-changed', features: ['steward-list-change'],
+    expect: 'The Steward panel for the demo conversation, which you asked in its own conversation to take "Add a dry-run flag to the cleanup '
+      + 'script" and to stop managing "Why does the nightly export skip archived rows?": its script did both, so the first row is ticked and the '
+      + 'second is not, and the header counts 1.',
+    unchanged: null,
+    act: async (d) => {
+      const [t1, t2] = d.threads.slice(1);
+      await stewardOf(d, [t1.id]);
+      typed(d, d.sid, `Take "${t2.title}" too.`);
+      const said = await relay(d, d.sid, ['--take'], t2.title);
+      if (!/^Done: /.test(said)) throw new Error(`the steward did not take it: ${said}`);
+      typed(d, d.sid, `Stop managing "${t1.title}".`);
+      const dropped = await relay(d, d.sid, ['--drop', t1.id]);
+      if (!/^Done: /.test(dropped)) throw new Error(`the steward did not drop it: ${dropped}`);
+      const frame = await stewardPanel(d);
+      if (!await d.until(() => frame.evaluate(([a, b]) => { const x = document.querySelector(`input[data-id="${a}"]`), y = document.querySelector(`input[data-id="${b}"]`);
+        return !!x && x.checked && !!y && !y.checked; }, [t2.id, t1.id]), 20000, 500)) {
+        throw new Error('the boxes did not show the change');
+      }
+      await d.away();
+      await d.sleep(500);
+      return d.part('workbench.parts.panel');
+    },
+    undo: async (d) => { try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ } await d.sleep(1500); },
+  },
+  {
+    name: 'steward-recent-held', features: ['steward-recent-send'],
+    expect: 'The conversation "Add a dry-run flag to the cleanup script" is in front. Two stewards manage it, and the second one\'s message was held '
+      + 'back once, as the first had just sent one, then sent with --anyway. The last message from you in it starts with the line "Sent by the '
+      + 'steward" followed by the demo conversation\'s title in quotes and its session id in parentheses, then "for the user:", and on the next line '
+      + 'reads "Turn the dry-run flag on by default.". The message before it, from the other steward, starts with that steward\'s line the same way.',
+    unchanged: null,
+    act: async (d) => {
+      const [t1, t2] = d.threads.slice(1);
+      for (const t of [t1, t2]) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
+      fs.mkdirSync(path.dirname(stewardsFile(d)), { recursive: true });
+      fs.writeFileSync(stewardsFile(d), JSON.stringify({ version: 3, stewards: {
+        [t1.id]: { manages: [t2.id], names: {}, at: Date.now() - 1000, title: t1.title }, [d.sid]: { manages: [t2.id], names: {}, at: Date.now() } } }, null, 1) + '\n');
+      await d.sleep(6000);
+      const one = await relay(d, t1.id, [t2.id], 'Keep the dry-run flag off by default.');
+      if (!/^Sent: /.test(one)) throw new Error(`the first steward could not send: ${one}`);
+      const words = 'Turn the dry-run flag on by default.';
+      const held = await relay(d, d.sid, [t2.id], words);
+      if (!/^Not sent: another steward/.test(held)) throw new Error(`the second message was not held back: ${held}`);
+      const sent = await relay(d, d.sid, ['--anyway', t2.id], words);
+      if (!/^Sent: /.test(sent)) throw new Error(`--anyway did not send it: ${sent}`);
+      const frame = await thread(d, t2);
+      await d.until(() => lastReplyHas(frame, PLAIN), 20000, 500);
+      await toBottom(frame);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => {
+      try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ }
+      for (const t of d.threads.slice(1)) await closeTab(d, t);
+      await d.exec('workbench.action.closePanel').catch(() => {});
+      await d.sleep(800);
+    },
+  },
   {
     name: 'conversation-links', features: ['conversation-links'],
     expect: 'The last reply in the demo conversation names the conversation "Add a dry-run flag to the cleanup script" twice: once '
