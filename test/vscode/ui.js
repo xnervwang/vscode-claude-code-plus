@@ -319,7 +319,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   };
   /* Claude Code's own notices of a wait, which its panel shows in the conversation's window while the panel is not on
      screen, with a View button (src/waiting-for.js). */
-  const CC_WAIT = (n) => /^(Claude is requesting permission to |Claude is asking you a question|Claude has finished a plan|Auto mode is waiting for you)/.test(n.text);
+  /* A notice's text without the conversation's name in front: Claude Code names it as `In "<title>": ` while the panel is
+     off screen, and from 2.1.332 while it is on screen too. */
+  const ccText = (t) => String(t || '').replace(/^In (?:".*?"|another conversation): /, '');
+  const CC_WAIT = (n) => /^(Claude is requesting permission to |Claude is asking you a question|Claude has finished a plan|Auto mode is waiting for you)/.test(ccText(n.text));
   /* Claude Code's own notices of waits in the window of `p`: its toasts, or else its notification list. */
   const ccWaitNotices = async (p = page, folder) => {
     const shown = (await notificationItems(p, '.notifications-toasts')).filter(CC_WAIT);
@@ -3144,7 +3147,20 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const wasOn = (await button()).fold !== 'open';
       if (!wasOn) await focus.click();
       const row = conv.locator('[data-testid="focus-fold-row"][aria-expanded="false"]').filter({ visible: true }).first();
-      if (!await until(async () => (await row.count()) > 0, 15000, 300)) throw new Error('the conversation shows no folded tool call in Focus view');
+      /* Claude Code draws only the messages near the screen, and in a narrow column the latest replies, which hold no tool
+         call, can fill it; the messages are scrolled up until a folded row is drawn. */
+      let found = await until(async () => (await row.count()) > 0, 5000, 300);
+      for (let i = 0; !found && i < 30; i++) {
+        const moved = await conv.evaluate(() => {
+          const sc = document.querySelector('[class*="messagesContainer_"]');
+          if (!sc || sc.scrollTop <= 0) return false;
+          sc.scrollTop = Math.max(0, sc.scrollTop - sc.clientHeight * 0.8);
+          return true;
+        });
+        found = await until(async () => (await row.count()) > 0, 1500, 300);
+        if (!moved) break;
+      }
+      if (!found) throw new Error('the conversation shows no folded tool call in Focus view');
       await row.scrollIntoViewIfNeeded();
       const key = await row.evaluate((e) => { e.setAttribute('data-cce-test-fold', ''); return e.textContent.trim(); });
       const marked = conv.locator('[data-cce-test-fold]').first();
@@ -4301,7 +4317,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             'a permission prompt in a tab hidden behind another editor, in the window with the focus, gives no notice from Agent Plus or Claude Code; its dot is red, and Agent Plus counts it',
             { asked: one.asked, red: one.red, count: counted || await needCount(), agentPlus: none, claudeCode: cc });
         } else {
-          const cc = await until(async () => (await ccWaitNotices()).find((n) => n.text.startsWith(BASH_NOTICE)), 20000, 300);
+          const cc = await until(async () => (await ccWaitNotices()).find((n) => ccText(n.text).startsWith(BASH_NOTICE)), 20000, 300);
           check(!!one.red && !!cc, 'with an Agent Plus that does not name what a conversation waits for, Claude Code\'s own notice of a permission prompt in a tab behind another editor stays',
             { red: one.red, claudeCode: await ccWaitNotices() });
         }
@@ -4318,7 +4334,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         try {
           const back = await until(async () => (await waitsLeft(cv)) === false, 20000, 300);
           const two = await askBehind();
-          const cc = two.red ? await until(async () => (await ccWaitNotices()).find((n) => n.text.startsWith(BASH_NOTICE)), 20000, 300) : null;
+          const cc = two.red ? await until(async () => (await ccWaitNotices()).find((n) => ccText(n.text).startsWith(BASH_NOTICE)), 20000, 300) : null;
           const none = await needNotices();
           check(back && !!cc && !none.some(about(tab0)), 'with agentPlus.notifications.waiting off, Claude Code\'s own notice of the permission prompt comes back, and Agent Plus shows none',
             { page: await waitsLeft(cv), claudeCode: cc || await ccWaitNotices(), agentPlus: none });
