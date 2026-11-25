@@ -1666,7 +1666,7 @@ function start(context, log, renamed, handing = false) {
         reopened++;
       } catch (e) { log.appendLine(`reopening "${t.title}" (${t.sessionId}): ${e && e.message}`); }
     }
-    log.appendLine(`Reopened ${reopened} Claude Code tab(s) VS Code did not restore${why}: ${list.map((t) => `"${t.title}"`).join(', ')}`);
+    log.appendLine(`Reopened ${reopened} Claude Code tab(s) VS Code did not restore${why}: ${list.map((t) => `"${t.title}" (${t.sessionId})`).join(', ')}`);
     if (reopened) vscode.window.setStatusBarMessage(`Reopened ${reopened} Claude Code tab${reopened === 1 ? '' : 's'} VS Code did not restore`, 10000);
     if (at >= 0 && FOCUS_GROUP[column - 1]) {
       try {
@@ -1691,7 +1691,7 @@ function start(context, log, renamed, handing = false) {
     if (lost.length) reopenTabs(lost, '').catch(() => {});
     if (!waiting.length) return;
     log.appendLine(`Waiting to reopen ${waiting.length} Claude Code tab(s) VS Code did not restore, whose conversation is still running in `
-      + `another window: ${waiting.map((t) => `"${t.title}"`).join(', ')}`);
+      + `another window: ${waiting.map((t) => `"${t.title}" (${t.sessionId})`).join(', ')}`);
     const until = Date.now() + DROPPED_WAIT_MS;
     droppedTimer = setTimeout(function recheck() {
       droppedTimer = undefined;

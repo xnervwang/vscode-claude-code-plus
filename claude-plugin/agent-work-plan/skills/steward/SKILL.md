@@ -56,7 +56,8 @@ To pass something on:
    Name the other steward and what it sent, and send nothing until the user answers. Otherwise run the same command
    again with `--anyway` after `steward-relay.py`. Say in your reply what you sent and to whom, in one line, so the
    user can see it; this informs and asks nothing. If the script says it was not sent, say why in the same line; do
-   not send it another way. The one exception is a conversation that no window shows: open it with `--resume` and the
+   not send it another way. If it says it is unclear whether it was sent, look for it with `steward-peek.py --said`
+   and the session id, and send it again only if it is not there. The one exception is a conversation that no window shows: open it with `--resume` and the
    message (below), if the user named it.
 4. Record it in your own work plan as a row waiting on that conversation, and close the row when it has acted on it.
 
