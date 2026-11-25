@@ -4020,21 +4020,23 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'a managed conversation hands off with --to to the steward it names, though another steward\'s message started its turn, and is refused a --to naming no steward of it',
           { handed, stranger });
 
-        /* A steward changes its own list when the user asks in it; asked by a notice, it refuses. */
+        /* A steward changes its own list when the user asks in it; asked by a notice, it refuses. New conversations goes
+           on first: with it off, unticking the steward's only conversation would leave it no longer a steward, and only
+           a steward changes its list this way. */
+        userSays(SA, 'Turn on New conversations.');
+        const newOn = await actAs(SA, ['--new', 'on']);
+        const laterBox = /^Done: /.test(newOn) && !!table()[SA.id].newSince
+          && await until(() => panelA.evaluate(() => { const b = document.querySelector('input[data-later]'); return !!b && b.checked; }).catch(() => false), 20000, 500);
         userSays(SA, `Stop managing ${X.title}.`);
         const dropped = await actAs(SA, ['--drop', X.id]);
         const offBox = /^Done: /.test(dropped) && !has(SA.id, X.id) && await until(async () => { const b = await boxIn(panelA, X.id); return b && !b.checked && b; }, 20000, 500);
         userSays(SA, `Take ${X.title} back.`);
         const taken = await actAs(SA, ['--take'], X.title);
         const onBox = /^Done: /.test(taken) && has(SA.id, X.id) && await until(async () => { const b = await boxIn(panelA, X.id); return b && b.checked && b; }, 20000, 500);
-        userSays(SA, 'Turn on New conversations.');
-        const newOn = await actAs(SA, ['--new', 'on']);
-        const laterBox = /^Done: /.test(newOn) && !!table()[SA.id].newSince
-          && await until(() => panelA.evaluate(() => { const b = document.querySelector('input[data-later]'); return !!b && b.checked; }).catch(() => false), 20000, 500);
         userSays(SA, 'Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:', 'cross-session');
         const refused = await actAs(SA, ['--new', 'off']);
         check(!!offBox && !!onBox && !!laterBox && /^Not done: only the user, typing in this steward conversation, can change its list/.test(refused) && !!table()[SA.id].newSince,
-          'asked by the user in the steward conversation, the steward unticks a conversation, ticks it again by its title and turns New conversations on, each shown in its panel; '
+          'asked by the user in the steward conversation, the steward turns New conversations on, unticks a conversation and ticks it again by its title, each shown in its panel; '
           + 'a call after a notice changes nothing and says why', { dropped, taken, newOn, refused });
         userSays(SA, 'Turn New conversations off.');
         await actAs(SA, ['--new', 'off']);

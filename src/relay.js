@@ -36,8 +36,8 @@
  * else (TYPED_DIR) does not count.
  *
  * Any process can write a request file. A window carries one out only if the conversation is one the steward manages
- * (for `open` and `resume`, only if the one asking is a steward; for the list actions, only if no steward manages the
- * one asking; for `handoff`, only if a steward manages the one asking), and the asker's own transcript has the tool call that ran steward-relay.py for it in the
+ * (for `open`, `resume` and the list actions, only if the one asking is a steward; for `handoff`, only if a steward
+ * manages the one asking), and the asker's own transcript has the tool call that ran steward-relay.py for it in the
  * last RAN_MS (ranBy), with the action's flag, and at most once per call.
  *
  * Another agent's conversation takes only a plain send; its `to` is a key `<source id>:<session id>`
@@ -530,8 +530,10 @@ async function carryOut(req, action, to, dir, deps, now) {
   } else if (action === 'open' || action === 'resume') {
     if (!t) return { outcome: 'refused', reason: 'the one asking is not a steward' };
   } else if (listing) {
-    if (!t && stewardTable.stewardsOf(table, asker).length) {
-      return { outcome: 'refused', reason: 'a steward manages this conversation, so it cannot have a list of its own this way; the user ticks conversations for it in the Steward panel' };
+    if (!t) {
+      return { outcome: 'refused', reason: stewardTable.stewardsOf(table, asker).length
+        ? 'a steward manages this conversation, so it cannot have a list of its own this way; the user ticks conversations for it in the Steward panel'
+        : 'the one asking is not a steward; the user makes a conversation a steward by ticking conversations for it in the Steward panel' };
     }
     if (SWITCHES.includes(action) && to !== 'on' && to !== 'off') return { outcome: 'refused', reason: `${FLAGS[action]} takes on or off` };
     if (!SWITCHES.includes(action) && !String(to || '').trim()) return { outcome: 'refused', reason: 'no conversation was named' };

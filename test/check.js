@@ -10331,6 +10331,7 @@ console.log('\nthe Steward panel');
         put(R('10'), { action: 'take', to: S(3), steward: S(5) });
         put(R('11'), { action: 'all', to: 'maybe' });
         put(R('12'), { action: 'take', to: '--docs' });
+        put(R('13'), { action: 'take', to: S(3), steward: S(7) });
         const did = [];
         const T = (id) => path.join(${JSON.stringify(ltdir)}, id + '.jsonl');
         const deps = { shownHere: () => true, stewards: () => table, pid: 83, now: () => now, sleep: async () => {},
@@ -10350,12 +10351,14 @@ console.log('\nthe Steward panel');
         [R('07')]: ONLY + 'the turn was started by text Claude Code wrote, not by a message the user typed',
         [R('09')]: ONLY + 'there is no message before it in the turn',
         [R('10')]: 'refused: a steward manages this conversation, so it cannot have a list of its own this way; the user ticks conversations for it in the Steward panel',
-        [R('11')]: 'refused: --all takes on or off', [R('12')]: ONLY + 'it is a hook\'s output' };
+        [R('11')]: 'refused: --all takes on or off', [R('12')]: ONLY + 'it is a hook\'s output',
+        [R('13')]: 'refused: the one asking is not a steward; the user makes a conversation a steward by ticking conversations for it in the Steward panel' };
       if (JSON.stringify(lr) === JSON.stringify(Object.fromEntries(Object.keys(lr).map((k) => [k, want[k]]))) && Object.keys(want).every((k) => lr[k] === want[k])
           && JSON.stringify((listed.did || []).slice().sort()) === JSON.stringify([[S(1), 'drop', S(4)], [S(1), 'take', S(3)]])) {
         ok('a steward\'s request to tick, untick, or turn All or New conversations on or off is carried out after a message the user typed there, also past a skill\'s text '
           + 'and a note Claude Code adds to that message; it is refused after a message from another session, a notice, a handoff, a text Claude Code Plus typed for someone '
           + 'else, a hook\'s output or a turn Claude Code started, for a subagent\'s call, a call with no message before it, a conversation a steward manages, '
+          + 'a conversation that is not a steward, '
           + 'and a switch value other than on or off, each saying why');
       } else bad(`list actions gave ${JSON.stringify(listed)}`);
 

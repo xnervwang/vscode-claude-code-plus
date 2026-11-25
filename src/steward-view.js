@@ -847,8 +847,8 @@ function create(vscode, deps) {
     const refuse = (reason) => ({ outcome: 'refused', reason });
     if (!writes()) return refuse('this window runs an earlier build of Claude Code Plus than the one now installed, so it does not save the list; reload the window');
     const table = stewards.read(deps.dir);
-    if (!table[steward] && stewards.stewardsOf(table, steward).length) return refuse('a steward manages this conversation');
-    const t = table[steward] || { manages: [], ticked: [], names: {}, paths: {}, all: false, newSince: 0, newSkip: [], newBefore: [] };
+    if (!table[steward]) return refuse(stewards.stewardsOf(table, steward).length ? 'a steward manages this conversation' : 'this conversation is not a steward');
+    const t = table[steward];
     const done = (reason) => { deps.changed(); render(true); return { outcome: 'submitted', reason }; };
     if (action === 'all' || action === 'new') {
       const on = target === 'on', name = action === 'all' ? 'All, including new ones' : 'New conversations';
