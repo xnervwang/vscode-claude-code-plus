@@ -236,9 +236,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const claudeButtons = () => page.evaluate(() => [...document.querySelectorAll('.editor-group-container.active .editor-actions .action-item .action-label')]
     .map((a) => a.getAttribute('aria-label') || a.title || '').filter((t) => /Claude/.test(t)));
   const claudeButton = () => page.locator('.editor-group-container.active .editor-actions .action-item .action-label[aria-label*="Claude"]').first();
-  /* Whether an animation frame comes in frame `f` within 1.5 s, with what the page says of its visibility, its focus
-     and the element that has it. A page that gets no frames still runs its timers, but handles input whose effect waits
-     for the next frame only once it draws again. */
+  /* Whether an animation frame comes in frame `f` within 1.5 s. A page that gets no frames still runs its timers, but
+     handles input whose effect waits for the next frame only once it draws again. */
   const paints = (f) => f.evaluate(() => new Promise((r) => {
     const now = (raf) => r({ raf, visibility: document.visibilityState, focus: document.hasFocus(),
       active: String((document.activeElement && (document.activeElement.className || document.activeElement.tagName)) || '').slice(0, 50) });
@@ -3158,7 +3157,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await shot('focus-fold-opened');
       await focus.click();
       const back = await until(async () => await marked.getAttribute('aria-expanded') === 'false' && (await button()).fold === 'folded' && await button(), 5000, 200);
-      check(!!back && back.label === LABELS.focusOn, 'and a press folds it again, with Focus view still on',
+      check(!!back && back.label === LABELS.focusOn, 'and pressing the button folds it again, with Focus view still on',
         { row: key, expanded: await marked.getAttribute('aria-expanded'), button: await button() });
       await marked.evaluate((e) => e.removeAttribute('data-cce-test-fold')).catch(() => {});
       if (!wasOn) await focus.click();

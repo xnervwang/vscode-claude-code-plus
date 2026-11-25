@@ -147,7 +147,7 @@ const EDGE_CSS = `${USER_SELECTOR}{`
    the title takes the space left, so the crown and the envelope keep their size beside a title cut short, and moving
    the time after them keeps the times of all rows lined up at the right. The envelope is drawn here, in the form src/envelope.js gives for the page's theme class, so a theme change redraws it.
    Claude Code never lets the time shrink, and the dates this extension adds to it (src/page/15-format.js) make it
-   several times wider, so in a sidebar's narrow Past conversations box the title gets no room. The title therefore
+   several times wider, so in a sidebar's narrow Past conversations box the title gets no room. The title
    keeps at least 3em and the time shrinks instead; its end, which holds the dates, is cut off first. */
 const cssChars = (s) => [...String(s)].map((c) => '\\' + c.codePointAt(0).toString(16).toUpperCase() + ' ').join('').trim();
 const LIGHT_BODY = ['body.vscode-light', 'body.vscode-high-contrast-light'];

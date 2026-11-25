@@ -237,9 +237,8 @@ console.log('\nwhat the page costs, in a browser');
         ok('a press turns Focus view on through the panel\'s own object, and the label follows');
       } else bad('a press of the Focus view button: ' + (pressed.error || JSON.stringify(
         { clicked: pressed.clicked, calls: pressed.focusCalls, after: pressed.focusAfter, label: pressed.focusLabelAfter })));
-      /* Folds opened by hand in Focus view: the button looks unfolded, and a press folds them by clicking their rows,
-         with no call to the panel's setFocusView, so Focus view stays on. A fold waiting on a permission request is
-         left open. */
+      /* Folds opened by hand in Focus view: the button looks unfolded, and a press folds them by clicking their rows.
+         A fold waiting on a permission request is left open. */
       const byHand = harness.run(browser, { turns: 10, focus: true, handFolds: true });
       const hf = byHand.handFolds || {};
       if (!byHand.error && hf.before && hf.before.fold === 'opened' && hf.before.opacity === '1' && /^Focus view is on, with tool calls you opened/.test(hf.before.label)
