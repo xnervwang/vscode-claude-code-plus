@@ -1,5 +1,5 @@
 {
-  "core": "1b821e33d055436b28cad93fffe43bace0e9041f",
+  "core": "3e9aefadf3434a0cab721ac8148dcb1eaf22e150",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -79,12 +79,12 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_common.py",
       "from": "shared/plugin/hooks/plan_common.py",
-      "sha256": "a27d50570cbbf116389707dfc596b5d6ffd2f4ad0bae24a4a427b8f06e879e33"
+      "sha256": "c70b6686e6f1e103fdcb54d34817c9ec5ae73561b71d6e615abce32f4780594b"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan-row.py",
       "from": "shared/plugin/hooks/plan-row.py",
-      "sha256": "fc0f3fc02c4764fcf1254040ac5c0cf238ba5159e1ae51eb2d22aaa861764806"
+      "sha256": "f82eab60cae7f20fef7c4e13116fce7b54291d49ccbbf141c40e9065769d5ab8"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/changes.py",
@@ -94,7 +94,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/inject-work-plan.py",
       "from": "shared/plugin/hooks/inject-work-plan.py",
-      "sha256": "12c797aee950e412295ee6d0990a4c00b4fa712c892667343f539307f3051fc6"
+      "sha256": "1a28fab68bc323cfb1992b38d101fa58584e17a59e414b3979186611b4487f42"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/resume-work-plan.py",
@@ -114,7 +114,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/nudge-work-plan.py",
       "from": "shared/plugin/hooks/nudge-work-plan.py",
-      "sha256": "8ba8895c44e6d66c3e03aa3939a5014aaf1243c530b0c43823fc60b70ddc65d5"
+      "sha256": "ebd642af57c3d805f20380fdf4176f05ef9630ff901d8f13ccd46bdb0f550d8b"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/remind-work-plan.py",
@@ -124,7 +124,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_agent.py",
       "from": "shared/plugin/claude/plan_agent.py",
-      "sha256": "82a3eae27e21c34438f2128be7cd9fba925f856b1a056dd501948da2c918f736"
+      "sha256": "4b838ed3e6614ec70fef06d77fb84318b7400bca5f8811bc9a72ef467c33a875"
     },
     {
       "path": "claude-plugin/agent-work-plan/skills/maintain/SKILL.md",
