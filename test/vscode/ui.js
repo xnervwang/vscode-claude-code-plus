@@ -123,6 +123,11 @@
  *                  however many rows the plan has, compact in a narrow panel, redrawn when the plan changes, gone
  *                  without a plan and with claudeCodePlus.show.planBar off, and its two clicks opening Agent Plus's
  *                  Work plan view and Answer view at this conversation
+ *   writing about a work plan row
+ *                  Agent Plus's pen on a Work plan row: the conversation's tab comes to the front with the row's text in
+ *                  its input, after the user's own text with one space or none after a space, the focus and the caret
+ *                  after it, and nothing sent; a conversation no tab shows opens here first; one started in another
+ *                  folder is not opened, and Agent Plus puts the text on the clipboard and says why
  *   removal        last: Remove from Claude Code restores both files, and turning the extension on puts the patch back
  *   self-check     no page of a Claude Code panel drew the warning that its messages are no longer found, all through the run
  *
@@ -5868,6 +5873,176 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('workbench.action.editorLayoutSingle').catch(() => {});
         if (had === null) { try { fs.unlinkSync(plan); } catch (_) { /* never written */ } } else fs.writeFileSync(plan, had);
         await exec('claude-vscode.editor.open', tab0.id).catch(() => {});
+      }
+    });
+
+    /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js), clicked in the Work plan view of an Agent
+       Plus that has it. The row's conversation comes to the front with "About row N (title): " in its input after what
+       is there, unsent, with the focus in the input and the caret after it, so the user's next keys go on from there. A
+       conversation no tab here shows is opened in a tab first; one this window cannot open, started in a folder the
+       window does not have first, is left alone, and Agent Plus puts the text on the clipboard and says why. */
+    await step('writing about a work plan row', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const apDir = fs.readdirSync(profile.exts).find((n) => n.startsWith('xnervwang.agent-plus-'));
+      const apCommands = (() => { try { return JSON.parse(fs.readFileSync(path.join(profile.exts, apDir, 'package.json'), 'utf8')).contributes.commands || []; } catch (_) { return []; } })();
+      if (!apCommands.some((c) => c.command === 'agentPlus.writeAboutRow')) {
+        note(`the Agent Plus installed (${apDir || 'none'}) has no pen on Work plan rows, so this step has nothing to click`);
+        return;
+      }
+      const PEN = 'Agent Plus: Write About This Row in Its Conversation';
+      const SEL = '[role="textbox"][aria-label="Message input"]';
+      const planFile = (t) => path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${t.id}.json`);
+      const writePlan = (t, titles) => {
+        fs.mkdirSync(path.dirname(planFile(t)), { recursive: true });
+        fs.writeFileSync(planFile(t), JSON.stringify({ nodes: titles.map((title, i) => ({ title, state: i ? 'todo' : 'doing' })) }, null, 2));
+      };
+      /* The input of the page in `f`: its text, whether it has the focus, where the caret is, and the composerDraft of
+         the session the page shows, found from the send button's React props as the page finds it (src/page/25-session.js). */
+      const input = (f) => f.evaluate((sel) => {
+        const b = document.querySelector(sel);
+        if (!b) return null;
+        const s = getSelection();
+        let caret = 'none';
+        if (s.rangeCount && s.isCollapsed && b.contains(s.focusNode)) {
+          const r = document.createRange();
+          r.selectNodeContents(b);
+          r.setStart(s.focusNode, s.focusOffset);
+          caret = r.toString().replace(/\u200b/g, '') ? 'inside' : 'end';
+        }
+        let draft = null;
+        const send = document.querySelector('button[type="submit"][data-permission-mode]');
+        const k = send && Object.keys(send).find((x) => x.startsWith('__reactFiber$'));
+        for (let n = k ? send[k] : null, i = 0; n && i < 60; n = n.return, i++) {
+          const p = n.memoizedProps;
+          if (p && p.session && p.session.agentMapAgents) { draft = typeof p.session.composerDraft === 'string' ? p.session.composerDraft : null; break; }
+        }
+        return { text: b.textContent.replace(/\u200b/g, ''), focus: document.hasFocus() && document.activeElement === b, caret, draft };
+      }, SEL).catch(() => null);
+      const workPlan = page.locator('.pane:has(> .pane-header[aria-label^="Work plan"])').first();
+      const planRows = () => workPlan.locator('.monaco-list-row .label-name').allInnerTexts().catch(() => []);
+      const showPlan = async (t, first) => {
+        await exec('agentPlus.showWorkPlanOf', { sourceId: 'claude-code', sessionId: t.id });
+        return until(async () => (await planRows()).includes(first), 20000, 300);
+      };
+      const pen = async (row) => {
+        const r = workPlan.locator('.monaco-list-row').filter({ has: page.locator('.label-name', { hasText: row }) }).first();
+        await r.hover();
+        await r.locator(`.action-label[aria-label="${PEN}"]`).click({ timeout: 10000 });
+      };
+      const clearInput = async (f) => {
+        await f.locator(SEL).first().click();
+        await page.keyboard.press('Control+a');
+        await page.keyboard.press('Delete');
+      };
+      /* Types `text` into the input of `f`, emptied first. A key typed right after Ctrl+A and Delete can be lost, so the
+         input is read back and, if it does not hold `text`, emptied and typed once more. */
+      const typeInto = async (f, text) => {
+        for (let i = 0; i < 2; i++) {
+          await clearInput(f);
+          await until(async () => { const s = await input(f); return !!s && s.text === ''; }, 3000, 100);
+          await sleep(300);
+          await page.keyboard.type(text);
+          if (await until(async () => { const s = await input(f); return !!s && s.text === text; }, 3000, 100)) return true;
+        }
+        return false;
+      };
+      const mentions = (t, text) => { try { return fs.readFileSync(transcriptOf(t), 'utf8').split(text).length - 1; } catch (_) { return 0; } };
+      const inFront = async (t) => !!(await claudeTabs()).find((x) => x.active && titled(x.label.replace(TRAILING_MARKS, ''), t.title));
+      /* Agent Plus's notification when the text did not reach the message input, and it put it on the clipboard. */
+      const copied = async () => (await notificationItems(page, '.notifications-toasts'))
+        .filter((n) => /could not put it in the conversation's message box|could not tell whether it reached the conversation's message box/.test(n.text));
+      const closeTab = (t) => call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)} && x.label.startsWith(arg));
+        if (t) await vscode.window.tabGroups.close(t); return true;`, t.title.slice(0, 12));
+      const t1 = threads[1];
+      const away = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fc', title: 'Profile the slow report query', days: 0,
+        turns: [['Profile the slow report query.', 'The report query scans the whole orders table.']] };
+      const had = fs.existsSync(planFile(tab0)) ? fs.readFileSync(planFile(tab0), 'utf8') : null;
+      let side = null;
+      try {
+        await exec('claude-vscode.editor.open', tab0.id);
+        conv = await conversation(tab0, 30000) || conv;
+        await clearInput(conv);
+        writePlan(tab0, ['Port the parser', 'Write the tests', 'Document the flags']);
+        check(!!await showPlan(tab0, '1. Port the parser'), 'the Work plan view shows the conversation\'s plan, with a pen on its rows', await planRows());
+        const sentBefore = mentions(tab0, 'About row ');
+
+        /* An empty input, the tab behind another editor. */
+        await openNotes();
+        await exec('notifications.clearAll');
+        await pen('1. Port the parser');
+        const one = 'About row 1 (Port the parser): ';
+        const got1 = await until(async () => { const s = await input(conv); return s && s.text === one && s; }, 15000, 200);
+        check(!!got1 && await inFront(tab0), 'the pen on row 1 brings the conversation\'s tab to the front with exactly "About row 1 (Port the parser): " in its empty input',
+          { got: got1 || await input(conv), tabs: await claudeTabs(), told: await copied() });
+        check(!!got1 && got1.focus && got1.caret === 'end' && got1.draft === one, 'with the focus in the input, the caret after the text and composerDraft holding it', got1);
+        await shot('prefill-empty');
+        await page.keyboard.type('and the lexer');
+        const typed = await until(async () => { const s = await input(conv); return s && s.text === one + 'and the lexer' && s; }, 5000, 200);
+        check(!!typed, 'the next keys the user types go on after it', await input(conv));
+
+        /* Text of the user's that ends in a letter. */
+        await openNotes();
+        await pen('2. Write the tests');
+        const two = one + 'and the lexer About row 2 (Write the tests): ';
+        const got2 = await until(async () => { const s = await input(conv); return s && s.text === two && s; }, 15000, 200);
+        check(!!got2 && got2.focus && got2.caret === 'end' && got2.draft === two && await inFront(tab0),
+          'with text of the user\'s in the input, row 2\'s text goes after it with one space between, the focus and the caret after it', { got: got2 || await input(conv), told: await copied() });
+
+        /* Text of the user's that ends in a space. */
+        check(await typeInto(conv, 'see also '), 'the user types "see also " into the emptied input', await input(conv));
+        await openNotes();
+        await pen('3. Document the flags');
+        const three = 'see also About row 3 (Document the flags): ';
+        const got3 = await until(async () => { const s = await input(conv); return s && s.text === three && s; }, 15000, 200);
+        check(!!got3 && got3.focus && got3.caret === 'end' && await inFront(tab0), 'after text that ends in a space, row 3\'s text follows with no second space',
+          { got: got3 || await input(conv), told: await copied() });
+        check(!(await copied()).length, 'and each time Agent Plus had nothing to put on the clipboard', await copied());
+        await sleep(3000);
+        const still = await input(conv);
+        check(!!still && still.text === three && mentions(tab0, 'About row ') === sentBefore,
+          'nothing was sent: three seconds later the input still holds the text and the transcript has none of it', { still, sent: mentions(tab0, 'About row ') - sentBefore });
+
+        /* A conversation no tab here shows. */
+        await closeTab(t1);
+        writePlan(t1, ['Check the export filter']);
+        check(!!await showPlan(t1, '1. Check the export filter'), 'the Work plan view shows the plan of a conversation no tab here shows', await planRows());
+        await exec('notifications.clearAll');
+        const asked = Date.now();
+        await pen('1. Check the export filter');
+        const four = 'About row 1 (Check the export filter): ';
+        side = await conversation(t1, 30000);
+        const got4 = side && await until(async () => { const s = await input(side); return s && s.text === four && s; }, 15000, 200);
+        check(!!got4 && await inFront(t1), 'the pen opens it in a tab here, in front, with the text in its input',
+          { got: got4 || (side && await input(side)), opened: !!side, ms: Date.now() - asked, tabs: await claudeTabs(), told: await copied() });
+        check(!!got4 && got4.focus && got4.caret === 'end' && got4.draft === four, 'with the focus in its input and the caret after the text', got4);
+        await shot('prefill-opened');
+        await sleep(2000);
+        check(mentions(t1, 'About row ') === 0 && !(await copied()).length, 'and sends nothing', { sent: mentions(t1, 'About row '), told: await copied() });
+
+        /* A conversation started in a folder this window does not have first. */
+        const elsewhere = path.join(path.dirname(profile.folder), 'elsewhere');
+        fs.mkdirSync(elsewhere, { recursive: true });
+        fakeHome.writeThreads(profile.home, elsewhere, [away]);
+        writePlan(away, ['Add the missing index']);
+        check(!!await showPlan(away, '1. Add the missing index'), 'the Work plan view shows the plan of a conversation started in another folder', await planRows());
+        await exec('notifications.clearAll');
+        const tabsBefore = (await claudeTabs()).length;
+        await pen('1. Add the missing index');
+        const told = await until(async () => (await copied())[0] || null, 15000, 300);
+        const clip = await call('return vscode.env.clipboard.readText();');
+        check(!!told && /it was started in a folder other than this window's first one/.test(told.text) && clip === 'About row 1 (Add the missing index): '
+          && (await claudeTabs()).length === tabsBefore,
+        'that one is not opened here: Agent Plus puts the text on the clipboard and its notification gives the reason', { told, clip, tabs: await claudeTabs() });
+        await shot('prefill-not-received');
+      } finally {
+        await exec('notifications.clearAll').catch(() => {});
+        if (side) await clearInput(side).catch(() => {});
+        await closeTab(t1).catch(() => {});
+        for (const t of [t1, away]) { try { fs.unlinkSync(planFile(t)); } catch (_) { /* never written */ } }
+        if (had === null) { try { fs.unlinkSync(planFile(tab0)); } catch (_) { /* never written */ } } else fs.writeFileSync(planFile(tab0), had);
+        await exec('claude-vscode.editor.open', tab0.id).catch(() => {});
+        conv = await conversation(tab0, 30000) || conv;
+        if (conv) await clearInput(conv).catch(() => {});
       }
     });
 
