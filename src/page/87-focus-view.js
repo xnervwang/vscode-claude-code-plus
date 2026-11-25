@@ -72,11 +72,11 @@
   };
 
   /*
-   * The folds of Focus view opened by hand. Claude Code keeps them in a set of its own, which it empties whenever Focus
-   * view is turned over, so turning it off and on again is the only way it offers to fold them all at once. Each fold's
-   * row carries aria-expanded, and clicking the row runs Claude Code's own toggle. A row with a permission request
-   * still waiting in it stays open when clicked, and its fold component then has permissionPending set to true in its
-   * props. A row whose props cannot be read is not counted, as a click might not fold it.
+   * Claude Code keeps the folds opened by hand in Focus view in a set of its own, which it empties whenever Focus view
+   * is turned over, so turning it off and on again is the only way to fold them all at once. Each fold's row carries
+   * aria-expanded, and clicking the row runs Claude Code's own toggle. A row with a permission request still waiting in
+   * it stays open when clicked, and its fold component then has permissionPending set to true in its props. A row whose
+   * props cannot be read is not counted, as a click might not fold it.
    */
   var OPEN_FOLD = '[data-testid="focus-fold-row"][aria-expanded="true"]';
   var foldedByClick = function(row){

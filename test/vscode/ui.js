@@ -196,9 +196,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   /* CLAUDE_CODE_PLUS_UI_STEPS, step names separated by commas, runs only those, after the two that patch Claude Code and
      reload the window: for trying one step without the whole run. */
   const only = (process.env.CLAUDE_CODE_PLUS_UI_STEPS || '').split(',').map((x) => x.trim()).filter(Boolean);
-  /* The lines of an error kept in a failed check. Playwright's error lists every attempt in its call log, and the reason
-     an action kept failing (an element in the way, or one that kept moving) is in the last lines, so those are kept with
-     the first one. Any other error keeps the top of its stack. */
+  /* Playwright's error lists every attempt in its call log, and the reason an action kept failing (an element in the
+     way, or one that kept moving) is in the last lines, so those are kept with the first one. Any other error keeps the
+     top of its stack. */
   const failure = (e) => {
     const lines = String((e && e.stack) || e).replace(/\u001b\[[0-9;]*m/g, '').split('\n').map((l) => l.trim()).filter(Boolean);
     const log = lines.indexOf('Call log:');

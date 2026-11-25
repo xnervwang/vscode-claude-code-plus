@@ -285,8 +285,7 @@ const SETUP = String.raw`
     });
   }
   /* Focus view's fold rows as Claude Code draws them: aria-expanded on the row, and the fold's component with its props
-     above the row's own. The last row waits on a permission request, and its toggle does nothing. The first two start
-     open, as if opened by hand. */
+     above the row's own. The first two start open, as if opened by hand. */
   var handRows = [];
   if (CFG.handFolds) {
     [true, true, false, 'pending'].forEach(function(open, n){
