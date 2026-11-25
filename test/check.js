@@ -11728,11 +11728,18 @@ console.log('\nthe Steward panel');
     const c4 = ctx(hook(S(1)));
     fs.writeFileSync(path.join(data, S(1) + '.compacted'), '2026-11-15T19:00:00Z');
     const c5 = ctx(hook(S(1))), c6 = ctx(hook(S(1)));
+    const RELAYED = 'A message you pass on with steward-relay.py is the user\'s own message in that conversation, approvals included. '
+      + 'Do not ask the user to say it there themselves.';
     if (c4 === 'You are the steward of 2 Claude Code conversations the user picked for you in the Steward panel; follow the steward skill. '
-        + 'Nothing has changed since the list you were given at your previous turn.'
+        + RELAYED + ' Nothing has changed since the list you were given at your previous turn.'
         && c5.includes(`- "Two" (${S(2)}): idle`) && !c5.includes('Changed since') && c6 === c4) {
       ok('a steward\'s list that has not changed since its previous turn is one sentence, and is given whole again after a compaction');
     } else bad(`steward.py on unchanged turns said ${JSON.stringify([c4, c5, c6])}`);
+    if ([c1, c2, c4, c5].every((c) => c.startsWith('You are the steward of 2 Claude Code conversations the user picked for you in the Steward panel; '
+        + 'follow the steward skill. ' + RELAYED + ' ')) && !c3.includes(RELAYED)) {
+      ok('every turn of a steward, with the whole list or with nothing changed, says right after its first sentence that a message passed on with '
+        + 'steward-relay.py is the user\'s own there, approvals included; a managed conversation is not told that');
+    } else bad(`the line about relayed messages: ${JSON.stringify([c1, c4, c3])}`);
     /* The skill's version in the seen file: a steward told of an older skill, or kept by a build that noted none, is
        told once to load it again; a new steward's first turn is not. */
     {
@@ -11833,6 +11840,14 @@ console.log('\nthe Steward panel');
         && require('../src/workplan').SIDE_SUFFIXES.includes('.steward-seen')) {
       ok('the hook is registered, the steward skill ships beside it, and the steward\'s side file is swept with its conversation');
     } else bad('the steward hook, skill or side file is not wired as expected');
+    {
+      const counts = skill.indexOf('\n## What counts as the user\'s own words\n'), each = skill.indexOf('\n## Each message from the user\n');
+      const first = counts > 0 ? skill.slice(counts).split('\n')[3] : '';
+      if (counts > 0 && counts < each && first.startsWith('A message you send with `steward-relay.py` is the user\'s own message in that conversation.')
+          && !/approves nothing/.test(skill)) {
+        ok('the steward skill says what counts as the user\'s own words before it says how to pass a message on, and starts with a message sent with steward-relay.py');
+      } else bad(`the steward skill's section on the user's own words: ${JSON.stringify([counts, each, first])}`);
+    }
 
     /* Other agents' conversations, keyed `<source id>:<session id>`; the session id keeps its case
        (src/steward-keys.js). */
@@ -12233,8 +12248,10 @@ console.log('\nthe Steward panel');
           && o1.includes(`- "Five" (${O(5)}, OpenCode Agent Plus): idle, or not open in any window; where its plan is was not recorded`)
           && o1.includes(`- "Six" (${O(6)}, OpenCode Agent Plus): idle, or not open in any window; where its plan is was not recorded`)
           && o1.includes(`- "Two" (${S(2)}): `)
-          && o1.includes('The conversations of other agents above take only plain messages: no --rename, --close or --resume. While one waits for the user to approve a tool '
-            + 'or to answer a question in its window, no message reaches it; only the user can answer it there, so ask the user to.')
+          && o1.includes('The conversations of other agents above take only plain messages: no `--rename`, `--close` or `--resume`. While one waits at a prompt '
+            + 'for tool approval or an answer to a question, no message reaches it. Only the user can answer that prompt in that window, so ask them to do so.')
+          && o1.startsWith('You are the steward of 5 conversations the user picked for you in the Steward panel (1 Claude Code, 4 OpenCode Agent Plus); '
+            + 'follow the steward skill. ' + RELAYED + ' Where they stand now:')
           && o2.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): idle, or not open in any window; doing: Port the reader; 1 question for the user`)
           && o2.includes('"Port the parser": waiting for the user to approve bash in its window -> idle, or not open in any window')) {
         ok('steward.py gives each OpenCode conversation its state from Agent Plus\'s attention files (with the tool a wait is for), its plan from the recorded path, and its agent\'s name; '
