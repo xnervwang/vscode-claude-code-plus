@@ -1431,7 +1431,7 @@ function start(context, log, renamed, handing = false) {
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceFocusHook) delete globalThis.__cceFocusHook; } });
   /* For the window test only, which sets this variable: what the Claude source counts as in front (focusState). */
   if (process.env.CLAUDE_CODE_PLUS_UI_CONTROL) {
-    globalThis.__cceFocusState = () => claude.focusState();
+    globalThis.__cceFocusState = () => Object.assign(claude.focusState(), { unread: [...unreadKeys] });
     context.subscriptions.push({ dispose: () => { delete globalThis.__cceFocusState; } });
   }
   /* A panel reports its time zone as it opens, which is usually after this has activated. */

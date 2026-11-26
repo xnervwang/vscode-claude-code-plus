@@ -4222,6 +4222,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const listForms = async () => { const r = await rowParts(tab0); return r ? [r.unread] : []; };
       const listIn = () => until(async () => { const f = await listForms(); return f.length === 1 && f[0] === true && f; }, 15000, 500);
       let steward = null, trace = null, sampler = null, stopSampling = async () => null;
+      const failedAtStart = failedHere;
       /* The envelope on the conversation's row in the Steward panel, '' for a row without one. */
       const panelForm = () => steward.evaluate((id) => {
         const a = document.querySelector(`a.name[data-open="${id}"]`), row = a && a.closest('li'), e = row && row.querySelector('.env');
@@ -4243,6 +4244,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const focusNow = async () => {
           const st = await call('return typeof globalThis.__cceFocusState === "function" ? globalThis.__cceFocusState() : null;').catch(() => null);
           return st && { front: short(st.front), tab: st.tab, chat: short(st.chat), panels: (st.panels || []).map(([id, a, v]) => [short(id), a, v]),
+            unread: (st.unread || []).map(short),
             log: (st.log || []).map(([at, why, id]) => [at - t0, why, short(id)]) };
         };
         const t0 = Date.now(), states = [];
@@ -4268,8 +4270,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         } finally { model.release(); }
         const lit = await tabEnds(ENVELOPE_TEXT);
         trace.mark(lit ? 'the envelope on the tab' : 'no envelope on the tab');
-        const traced = await trace.stop(), focusTrace = await stopSampling();
-        if (!lit) fs.writeFileSync(path.join(out, 'light-envelope-trace.json'), JSON.stringify({ ids: { tab: tab0.id.slice(-4), other: other.id.slice(-4) }, trace: traced, focus: focusTrace }, null, 1) + '\n');
         check(!!lit, 'a reply that lands with the tab in the background ends its title in the envelope\'s text form', await claudeTabs());
         await showSl();
         const rows = await listIn();
@@ -4278,6 +4278,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         steward = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         /* Running conversations come from `claude agents --json`, which is read at most every 30 s. */
         const panel = steward ? await until(async () => (await panelForm()) === ENVELOPE_TEXT.trim(), 45000, 1000) : false;
+        trace.mark(panel ? 'the envelope in the Steward panel' : 'no envelope in the Steward panel');
         check(!!panel, 'and so does its row in the Steward panel', steward ? await panelForm() : 'no Steward panel');
         await page.mouse.move(5, 880);
         await shot('light-envelope');
@@ -4288,6 +4289,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const darkPanel = steward ? await until(async () => (await panelForm()) === ENVELOPE.trim(), 20000, 500) : false;
         check(!!darkTab && !!darkRows && !!darkPanel, 'the tab and the Steward panel draw the colour form again, without a reload, and Agent Plus\'s list keeps its envelope',
           { tabs: await claudeTabs(), list: await listForms(), panel: steward ? await panelForm() : null });
+        trace.mark('the dark theme checked');
+        const traced = await trace.stop(), focusTrace = await stopSampling();
+        if (failedHere > failedAtStart) fs.writeFileSync(path.join(out, 'light-envelope-trace.json'), JSON.stringify({ ids: { tab: tab0.id.slice(-4), other: other.id.slice(-4) }, trace: traced, focus: focusTrace }, null, 1) + '\n');
         await shot('dark-envelope-again');
       } finally {
         model.release();
