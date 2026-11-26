@@ -1301,7 +1301,8 @@ const STEPS = [
       + 'conversations open in this window (the two short ones, in tabs of their own) under a heading for the window, each '
       + 'with an unticked box, and an "All, including new ones" choice. The conversation in front is not in the list. Text '
       + 'is readable; boxes line up with their rows.',
-    unchanged: 'The side bar shows Claude Code\'s own session list as before.',
+    unchanged: 'The side bar shows Claude Code\'s own session list as before, but for the two conversations whose tabs this step '
+      + 'opened: their rows now carry the dot of an open conversation and may have moved up.',
     act: async (d) => {
       /* The panel lists the conversations that have a process, and a tab starts one only once its page has loaded: a tab
          opened and at once put behind another may never load. */
