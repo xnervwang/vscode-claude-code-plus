@@ -53,6 +53,15 @@ const WINDOWS = process.platform === 'win32';
    default. */
 const setting = (d, key, value) => d.call('await vscode.workspace.getConfiguration().update(arg[0], arg[1] === null ? undefined : arg[1], vscode.ConfigurationTarget.Global); return true;', [key, value]);
 const theme = (d, name) => setting(d, 'workbench.colorTheme', name);
+/* Claude Code Plus: Show Status, its notification opened out: VS Code shows a long one on a single line until it is
+   expanded, and the token mode is at its end. */
+const showStatus = async (d) => {
+  await d.exec('claudeCodePlus.status');
+  await d.sleep(1500);
+  await d.exec('notifications.focusFirstToast').catch(() => {});
+  await d.exec('notification.expand').catch(() => {});
+  await d.sleep(500);
+};
 /* Agent Plus's token mode, and a pause for the extensions to follow it. */
 const modeTo = async (d, mode) => { await setting(d, 'agentPlus.tokenMode', mode); await d.sleep(3000); };
 
@@ -1869,8 +1878,9 @@ const STEPS = [
   {
     name: 'agent-plus-account', features: ['agent-plus-account'],
     expect: 'Agent Plus\'s session list in the side bar, its ACCOUNT & USAGE section at the top opened. In it a Claude Code part, '
-      + 'headed by the Claude Code logo and its name, names the conversation in front: "This conversation", a dot and "Find '
-      + 'where the retry delay for the inventory sync is set". Under it four rows, each a label and a value: Estimated cost with '
+      + 'headed by the Claude Code logo and its name, ends with the figures of the conversation in front: a small heading in '
+      + 'capitals, THIS CONVERSATION, and under it the conversation\'s title, "Find where the retry delay for the inventory sync '
+      + 'is set". Under that four rows, each a label and a value: Estimated cost with '
       + 'a dollar amount, Total duration (API) and Total duration (wall) each with a time such as "2.3s" or "1m 5s", and Total '
       + 'code changes such as "0 lines added, 0 lines removed". The labels and values line up and are readable, and nothing is '
       + 'cut off at the side bar\'s edge.',
@@ -1942,14 +1952,18 @@ const STEPS = [
   {
     name: 'need-you-count', features: ['need-you-notices'],
     expect: 'A close-up of the status bar around Agent Plus\'s Conversations entry: on a yellow background it reads "1 '
-      + 'conversation needs you", the conversation of another window that waits for you to approve Bash; the conversation '
-      + 'here with an unread reply is not counted.',
+      + 'conversation needs you", the conversation of another window that waits for you to approve Bash, or "2 conversations '
+      + 'need you" when it already counted the demo conversation, whose plan has questions to decide. The conversation here '
+      + 'with an unread reply is not counted.',
     unchanged: 'The window is as before.',
     act: async (d) => {
+      /* The demo conversation's plan has questions to decide, so the entry may count it already. */
+      const before = await needCountBox(d);
+      const want = String((before ? Number(before.text) || 0 : 0) + 1);
       otherWindow(d, [{ sessionId: LOOK_ID(15), title: 'Tag the release build', waitingFor: { kind: 'permission', tool: 'Bash' } }]);
-      const b = await d.until(async () => { const c = await needCountBox(d); return c && c.text === '1' && c; }, 20000, 300);
-      if (!b) throw new Error(`Agent Plus did not count the waiting conversation of another window in 20 s: ${JSON.stringify(await needCountBox(d))}`);
-      if (b.says !== '1 conversation needs you') throw new Error(`the entry reads "${b.says}"`);
+      const b = await d.until(async () => { const c = await needCountBox(d); return c && c.text === want && c; }, 20000, 300);
+      if (!b) throw new Error(`Agent Plus did not count the waiting conversation of another window in 20 s: ${JSON.stringify({ before, now: await needCountBox(d) })}`);
+      if (b.says !== `${want} ${want === '1' ? 'conversation needs' : 'conversations need'} you`) throw new Error(`the entry reads "${b.says}"`);
       const width = await d.page.evaluate(() => innerWidth);
       const x = Math.max(0, b.x - 200);
       return { x, y: b.y - 4, width: Math.min(width, b.x + b.width + 200) - x, height: b.height + 8 };
@@ -2390,7 +2404,8 @@ const STEPS = [
   {
     name: 'off-background-sessions', features: ['background-sessions'],
     expect: 'A close-up of the footer with the setting that lists claude --bg sessions turned off: the agents button no longer '
-      + 'counts the session, so "1 bg done" is gone; with nothing else to count the button itself is gone. The footer\'s other '
+      + 'counts the session, so "1 bg done" is gone and the button reads "0 agents" with a grey dot: the helper an earlier step '
+      + 'ran has finished and the map still lists it, so the button stays. The footer\'s other '
       + 'buttons are in place and nothing overlaps.',
     unchanged: 'The conversation is as before.',
     act: async (d) => {
@@ -2416,7 +2431,7 @@ const STEPS = [
     expect: 'After Claude Code Plus: Show Status, a notification at the bottom right says Claude Code\'s panel and host are both '
       + 'patched and names the token mode. It is readable and not cut off.',
     unchanged: 'The editor and side bar are as before.',
-    act: async (d) => { await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
+    act: async (d) => { await showStatus(d); await d.sleep(1500); return d.body(); },
   },
   {
     name: 'agent-plus-status', features: ['agent-plus-status'],
@@ -2486,7 +2501,7 @@ const STEPS = [
       + 'conversation brief off, notices when a detached command stops off". It is readable and not cut off. In the whole-window '
       + 'picture, Agent Plus\'s token mode entry at the right of the status bar says Essential.',
     unchanged: 'The editor and side bar are as before.',
-    act: async (d) => { await modeTo(d, 'essential'); await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
+    act: async (d) => { await modeTo(d, 'essential'); await showStatus(d); await d.sleep(1500); return d.body(); },
     undo: async (d) => { await d.exec('notifications.clearAll'); await d.sleep(500); },
   },
   {
@@ -2538,7 +2553,7 @@ const STEPS = [
       + 'Claude Code: work plan off, time-zone note off, conversation brief off, notices when a detached command stops off". '
       + 'Readable, not cut off. Agent Plus\'s status bar entry (whole-window picture) says Interface.',
     unchanged: 'The editor and side bar are as before.',
-    act: async (d) => { await d.exec('claudeCodePlus.status'); await d.sleep(1500); return d.body(); },
+    act: async (d) => { await showStatus(d); await d.sleep(1500); return d.body(); },
     undo: async (d) => { await d.exec('notifications.clearAll'); await d.sleep(500); },
   },
   {
@@ -2552,7 +2567,7 @@ const STEPS = [
       await modeTo(d, 'custom');
       await setting(d, 'claudeCodePlus.conversationBrief', false);
       await d.sleep(2000);
-      await d.exec('claudeCodePlus.status');
+      await showStatus(d);
       await d.sleep(1500);
       return d.body();
     },
@@ -2588,7 +2603,7 @@ const STEPS = [
       await demoAt(d, BUDGET);
       if (!await infoOpen(d.conv)) await d.conv.locator('[data-cce-info]').first().click();
       await d.until(() => d.conv.evaluate(() => /All features/.test((document.getElementById('cce-info') || {}).innerText || '')), 8000, 200);
-      await d.exec('claudeCodePlus.status');
+      await showStatus(d);
       await d.sleep(1500);
       await d.away();
       return d.body();
