@@ -647,13 +647,15 @@ function removeSchedules(d) {
     fs.writeFileSync(scheduleFile(d), JSON.stringify(held, null, 2));
   } catch (_) { /* no file */ }
 }
-/* Stops what the agent map steps started: on Linux every process started in those conversations' names, and on every
-   platform the claude --bg sessions and the worker, by their session records. */
+/* Stops what the agent map steps started: on Linux every process started in those conversations' names in the demo's
+   folder, and on every platform the claude --bg sessions and the worker, by their session records. The fake conversations
+   have the same session ids in every run, so a process of another run at the same time is told apart by its folder. */
 function stopMapWork(d, ids) {
   const marks = ids.map((id) => `CLAUDE_CODE_SESSION_ID=${id}`);
+  const ours = (p) => { try { const at = fs.readlinkSync(`/proc/${p}/cwd`); return at === d.profile.folder || at.startsWith(d.profile.folder + path.sep); } catch (_) { return false; } };
   if (process.platform === 'linux') {
     for (const p of fs.readdirSync('/proc').filter((x) => /^\d+$/.test(x))) {
-      try { if (fs.readFileSync(`/proc/${p}/environ`, 'utf8').split('\0').some((v) => marks.includes(v))) process.kill(Number(p), 'SIGTERM'); } catch (_) { /* gone */ }
+      try { if (fs.readFileSync(`/proc/${p}/environ`, 'utf8').split('\0').some((v) => marks.includes(v)) && ours(p)) process.kill(Number(p), 'SIGTERM'); } catch (_) { /* gone */ }
     }
   }
   const dir = path.join(d.profile.home, '.claude', 'sessions');
@@ -3234,7 +3236,9 @@ async function main() {
   for (const s of named) if (!steps.includes(s)) demo.log('skipped', s.name, `runs on ${s.only.join(', ')} only`);
   fs.mkdirSync(opt.out, { recursive: true });
   const started = Date.now();
-  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: 'ui-look',
+  /* The salt holds the root folder, so that two runs at once under different temporary folders give the demo conversation
+     different session ids: lib/demo.js stops the demo's sleep by its session id, which would stop the other run's too. */
+  const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: `ui-look:${ROOT}`,
     /* Manual, as in run.js, so that a tool call stops for permission: auto mode needs a check the fake model cannot do. */
     settings: { 'claudeCode.initialPermissionMode': 'default' } });
   Object.assign(d, { sleep: demo.sleep, until: demo.until, log: demo.log });
