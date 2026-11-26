@@ -5883,11 +5883,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js), clicked in the Work plan view of an Agent
-       Plus that has it. The row's conversation comes to the front with "About row N (title): " in its input after what
-       is there. A conversation that no tab here shows is opened in a tab first; one started in a folder other than this
-       window's first folder, which this window cannot open, is left alone, and Agent Plus puts the text on the
-       clipboard and says why. */
+    /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js), clicked in an Agent Plus that has it. The
+       row's conversation comes to the front with "About row N (title): " in its input after what is there. A
+       conversation that no tab here shows is opened in a tab first; one started in a folder other than this window's
+       first folder, which this window cannot open, is left alone, and Agent Plus puts the text on the clipboard and
+       says why. */
     await step('writing about a work plan row', async () => {
       if (!conv) throw new Error('the conversation did not open');
       const apDir = fs.readdirSync(profile.exts).find((n) => n.startsWith('xnervwang.agent-plus-'));

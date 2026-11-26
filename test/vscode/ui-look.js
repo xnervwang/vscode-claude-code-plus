@@ -1858,7 +1858,8 @@ const STEPS = [
     act: async (d) => { await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.widen(); await d.away(); return d.sidebar(); },
   },
   /* The pen on a work plan row, which puts "About row N (title): " into the conversation's message box (prefill in
-     src/claude-source.js). The undo empties the box again: an answer sent later is refused while the box holds text. */
+     src/claude-source.js). Undo empties the box again, because an answer sent later is refused while the box holds
+     text. */
   {
     name: 'work-plan-pen', features: ['write-about-row'],
     expect: 'In the side bar, Agent Plus\'s work plan view with the mouse on the row "3. Monthly budgets per category, with an '
