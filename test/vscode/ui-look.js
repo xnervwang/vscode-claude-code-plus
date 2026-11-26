@@ -1188,11 +1188,11 @@ const STEPS = [
       + (LINUX ? 'A small, hollow green ring appears at the top right of the demo conversation\'s logo. No turn '
         + 'is running, but the command the conversation left detached is still running. '
         : 'The demo conversation\'s logo has no dot: nothing runs. ')
-      + 'No other logo has a dot, and no row has an envelope or a crown. None of "' + BACKGROUND_TITLE + '", "' + PRINT_TITLE
-      + '" or "' + DAEMON_TITLE + '", sessions run in the background, is listed. A RECENTLY CLOSED band, folded '
-      + 'or open, holds "Add a dry-run flag to the cleanup script", whose tab an earlier step closed, and that '
-      + 'conversation\'s own row has a light blue stripe at its start. An ACCOUNT & USAGE band may sit at the '
-      + 'top; a later step looks at it.',
+      + 'No other logo has a dot, and no row has an envelope or a crown: Agent Plus counts a reply from before it began its record '
+      + 'of this folder as read, and none has come since. None of "' + BACKGROUND_TITLE + '", "' + PRINT_TITLE
+      + '" or "' + DAEMON_TITLE + '", sessions run in the background, is listed. A RECENTLY CLOSED band, folded or open, holds "Add '
+      + 'a dry-run flag to the cleanup script", whose tab an earlier step closed, and that conversation\'s own row has a light blue '
+      + 'stripe at its start. An ACCOUNT & USAGE band may sit at the top; a later step looks at it.',
     unchanged: 'The rows are those of the picture before, moved up where the note was.',
     act: async (d) => {
       const list = await agentList(d);
