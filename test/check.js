@@ -12869,7 +12869,8 @@ console.log('\nClaude Code\'s own source');
       out.focused = [c.source.isFocused('Y'), c.source.isFocused('C'), c.source.isFocused('A2'), c.source.isFocused('Q'), c.source.isFocused('')];
       const codexTab = { input: { viewType: 'chatgpt.conversationEditor' }, group: { viewColumn: 1 } };
       const claudeTab = tab('mainThreadWebview-claudeVSCodePanel', 1);
-      c.tabsChanged(claudeTab); out.afterClaudeTab = c.source.isFocused('Y');
+      c.tabsChanged(claudeTab); out.afterClaudeTab = c.source.isFocused('Y'); out.afterClaudeTabShows = c.source.isFocused('C');
+      c.pageFocus('Y'); c.tabsChanged(tab('mainThreadWebview-claudeVSCodePanel', 3)); out.unknownPanel = c.source.isFocused('Y');
       c.tabsChanged(codexTab); out.afterCodexTab = c.source.isFocused('Y');
       c.pageFocus('Y'); c.tabsChanged(codexTab); out.sameTabAgain = c.source.isFocused('Y');
       chat = 'Z'; out.overCodex = [c.followChat(), c.source.isFocused('Z'), c.source.isFocused('Y')];
@@ -12994,15 +12995,15 @@ console.log('\nClaude Code\'s own source');
     if (JSON.stringify(o.claims) === JSON.stringify(['A', 'C', null, null, '', '', false]) && o.listeners === 1 && o.afterDispose === '') {
       ok('sessionForTab() claims only Claude Code tabs');
     } else bad(`claims ${JSON.stringify([o.claims, o.listeners, o.afterDispose])}`);
-    if (JSON.stringify(o.heard) === JSON.stringify(['C', 'A', 'A2', 'X', '', 'Y', 'Y', 'Y']) && JSON.stringify(o.follow) === '[true,false,true]') {
+    if (JSON.stringify(o.heard) === JSON.stringify(['C', 'A', 'A2', 'X', '', 'Y', 'Y', 'Y', 'Y']) && JSON.stringify(o.follow) === '[true,false,true]') {
       ok('every Claude Code focus signal fires onDidFocus, including a front panel getting its session id');
     } else bad(`focus heard ${JSON.stringify([o.heard, o.follow])}`);
     if (o.focusedA2 === true && JSON.stringify(o.focused) === '[true,true,false,false,false]') {
       ok('isFocused() is true only for the latest signal or an active panel');
     } else bad(`isFocused ${JSON.stringify([o.focusedA2, o.focused])}`);
-    if (o.afterClaudeTab === true && o.afterCodexTab === false && o.sameTabAgain === true) {
-      ok('a focus signal is dropped once another agent\'s tab becomes active');
-    } else bad(`focus after a tab change ${JSON.stringify([o.afterClaudeTab, o.afterCodexTab, o.sameTabAgain])}`);
+    if (o.afterClaudeTab === false && o.afterClaudeTabShows === true && o.unknownPanel === false && o.afterCodexTab === false && o.sameTabAgain === true) {
+      ok('a focus signal is dropped once another agent\'s tab becomes active, or another Claude Code tab, whose own conversation is then the one in front, also before its panel is known');
+    } else bad(`focus after a tab change ${JSON.stringify([o.afterClaudeTab, o.afterClaudeTabShows, o.unknownPanel, o.afterCodexTab, o.sameTabAgain])}`);
     if (JSON.stringify(o.overCodex) === '[true,false,true]' && JSON.stringify(o.overClaude) === '[true,true,"W"]') {
       ok('Claude Code\'s active session is not claimed while another agent\'s tab is in front, and is once a Claude Code tab is');
     } else bad(`following the active session ${JSON.stringify([o.overCodex, o.overClaude])}`);

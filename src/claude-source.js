@@ -611,11 +611,14 @@ function createClaudeSource(deps) {
     pageFocus(sessionId) {
       if (typeof sessionId === 'string' && sessionId) say(sessionId);
     },
-    /* Called with the active tab whenever tabs change. */
+    /* Called with the active tab whenever tabs change. Another agent's tab in front drops the focus signal; so does
+       another Claude Code tab, whose own panel is then the one in front, or none until that panel is known. A sidebar
+       panel taking the focus leaves the active tab as it was, so its signal stands. */
     tabsChanged(tab) {
       if (tab === frontTab) return;
       frontTab = tab;
-      if (tab && !isPanelTab(tab)) front = '';
+      if (!tab) return;
+      front = isPanelTab(tab) ? source.sessionForTab(tab) || '' : '';
     },
     /* Fires onDidFocus again for the conversation in front; called once registration with Agent Plus completes, which
        can be after the first signal. */
