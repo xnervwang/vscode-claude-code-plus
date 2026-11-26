@@ -3935,7 +3935,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
          conversations its processes run. */
       const sessionsNow = () => liveRecords().map((r) => r.sessionId);
       const transcriptsOf = (folder) => { try { return fs.readdirSync(path.join(profile.home, '.claude', 'projects', folderName(folder))).sort(); } catch (_) { return []; } };
-      /* The steward: the conversation in front, ticking one other in the Steward panel. */
+      /* The steward: the conversation in front, ticking one other in the Steward panel. The panel lists only
+         conversations open in a window, so another is opened in a tab first. */
+      await openTab(threads[1].id);
+      await until(async () => (await claudeTabs()).find((x) => titled(x.label.replace(ENVELOPE, ''), threads[1].title)), 20000, 300);
       await exec('claude-vscode.editor.open', front.id);
       await exec('workbench.view.extension.claudeCodePlusSteward');
       const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
