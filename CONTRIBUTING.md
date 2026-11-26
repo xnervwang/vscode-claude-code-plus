@@ -93,13 +93,31 @@ These checks cannot catch changes to class names or test ids used by the in-page
 
 ## In a real VS Code window
 
-`.github/workflows/vscode.yml` runs `test/vscode/run.js` on Linux, macOS, and Windows. It runs on pushes to `main` or a `ci/` branch, on pull requests, daily at 09:43 UTC, and by hand. On pushes, pull requests, and runs by hand with the default input, it installs the newest Claude Code build recorded in `supported-versions.json`. Claude Code moves to a newer build when that file records one. See the section below on `supported-versions.json`, which `node build/update-versions.js -w` writes. On those same runs, the workflow builds the Agent Plus `.vsix` from the commit in `test/vscode/agent-plus-commit`. The file contains only the full commit hash. To update Agent Plus, change that file in a commit of its own.
+`.github/workflows/vscode.yml` runs `test/vscode/run.js` on Linux, macOS, and Windows. It runs on pushes to `main` or a `ci/` branch, on pull requests, daily at 09:43 UTC, and by hand.
 
-The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". If the daily run fails while runs on `main` pass, a newer Claude Code or Agent Plus needs a change here. GitHub sends a notification when the scheduled run fails. The failure does not block pushes. To run by hand with the same versions as the daily run, set `upstream=newest`. On every run, the runner downloads the newest stable VS Code and installs the selected Claude Code build, Agent Plus from a supplied `.vsix` or the marketplace, and this extension's `.vsix` into a separate profile. It then runs `ui.js` in the window, `suite/` inside VS Code, and `test/check.js` against the installed copies. Any failed stage makes the runner exit non-zero.
+On pushes, pull requests, and runs by hand with the default input, it installs the newest Claude Code build recorded in `supported-versions.json`. See the section below on `supported-versions.json`, which `node build/update-versions.js -w` writes. On those same runs, the workflow builds the Agent Plus `.vsix` from the commit in `test/vscode/agent-plus-commit`. The file contains only the full commit hash. To update Agent Plus, change that file in a commit of its own.
 
-On each platform, five jobs run at the same time. Four jobs each run one part of `ui.js`. Each part runs consecutive window steps and takes about the same time as the others. The fifth job runs `suite/` inside VS Code and `test/check.js`. Every job also writes the patched files, reloads, opens the first conversation in a tab, and checks at the end that no page showed the extension's warning. The runner splits the steps using `test/vscode/step-seconds.json`, which records the longest time each step took on any of the three platforms. Each step logs `took <N> s` when it ends. A missing step counts as 20 seconds. `test/check.js` fails if the file omits a step or names one that no longer exists.
+The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". If the daily run fails while runs on `main` pass, a newer Claude Code or Agent Plus needs a change here. GitHub sends a notification when the scheduled run fails. The failure does not block pushes.
 
-For a local run, set `CLAUDE_CODE_PLUS_UI_STEPS` to step names separated by commas, `CLAUDE_CODE_PLUS_UI_STEPS_RE` to a regular expression, or `CLAUDE_CODE_PLUS_UI_SHARD` to `i/n` for the i-th of n parts or to `suite`. With any of these set, `run.js` skips `suite/` and `test/check.js` unless `CLAUDE_CODE_PLUS_UI_SHARD=suite`. On a screen with two pixels per point, such as a Mac's own display, set `CLAUDE_CODE_PLUS_UI_SCALE=1` so that the crops are the size of the approved copies. Run by hand, the workflow takes two inputs. `os` lists the runners separated by commas and defaults to `ubuntu-latest,macos-latest,windows-latest`. `steps` is a regular expression. With `steps` set, each listed platform runs one job with only the matching window steps and the four steps every job runs. It skips `suite/` and `test/check.js`. To run one step on macOS from a branch:
+In each job, the runner:
+
+- downloads the newest stable VS Code;
+- installs the selected Claude Code build, Agent Plus from a supplied `.vsix` or the marketplace, and this extension's `.vsix` into a separate profile;
+- runs the tests assigned to that job against the installed copies.
+
+Any failed stage makes the runner exit non-zero.
+
+On each platform, five jobs run at the same time. The runner divides the `ui.js` window steps among four jobs, keeping each job's steps consecutive and the estimated times about equal. The fifth job runs `suite/` inside VS Code and `test/check.js`. Every job also writes the patched files, reloads, opens the first conversation in a tab, and checks at the end that no page showed the extension's warning.
+
+The runner splits the steps using `test/vscode/step-seconds.json`, which records the longest time each step took on any of the three platforms. Each step logs `took <N> s` when it ends. A missing step counts as 20 seconds. `test/check.js` fails if the file omits a step or names one that no longer exists.
+
+Manual runs take three inputs:
+
+- `os` lists the runners separated by commas and defaults to `ubuntu-latest,macos-latest,windows-latest`.
+- `steps` is a regular expression. With `steps` set, each listed platform runs one job with only the matching window steps and the four steps every job runs. It skips `suite/` and `test/check.js`.
+- `upstream` defaults to `pinned`. Set it to `newest` to use the same versions as the daily run: the newest Claude Code from the marketplace and Agent Plus built from the head of its default branch.
+
+To run one step on macOS from a branch:
 
 ```sh
 gh workflow run vscode.yml --ref <branch> -f os=macos-latest -f steps='^the steward panel$'
@@ -120,7 +138,11 @@ Every home folder (`HOME`; `USERPROFILE` and the AppData folders on Windows; the
 
 On Linux, the test stage runs in a network namespace with loopback only. It uses `unshare -rn`, then `test/vscode/as-user.py` to run as the caller rather than root. The workflow sets `CLAUDE_CODE_PLUS_UI_OFFLINE=require`, so it fails if it cannot make the namespace. On macOS and Windows, `HTTP_PROXY`, `HTTPS_PROXY`, and VS Code's `http.proxy` point at `127.0.0.1:9`, where no proxy is running.
 
-The `--out` folder holds a screenshot of every step in `shots/`, crops in `actual/<platform>/`, a diff image for each failed crop in `diff/<platform>/`, and VS Code logs in `logs/`. When a step fails, `pages/<step>/` holds two files for each page of the window: a `.txt` file with its address and text, and an `.html` file with its markup. Each job uploads its `--out` folder as `vscode-<OS>-<part>` whether it passes or fails. `<part>` is `1-of-4` to `4-of-4`, `suite`, or `steps`. `test/vscode/update-baseline.js` takes one artifact at a time. A part's artifact has crops only for the steps it ran. Only elements this extension draws are cropped, never Claude Code's or VS Code's own. If one of ours sits between two Claude Code elements, it gets its own crop.
+### Results and approved crops
+
+The `--out` folder holds a screenshot of every step in `shots/`, crops in `actual/<platform>/`, a diff image for each failed crop in `diff/<platform>/`, and VS Code logs in `logs/`. When a step fails, `pages/<step>/` holds two files for each page of the window: a `.txt` file with its address and text, and an `.html` file with its markup. Only elements this extension draws are cropped, never Claude Code's or VS Code's own. If one of ours sits between two Claude Code elements, it gets its own crop.
+
+Each job uploads its `--out` folder as `vscode-<OS>-<part>` whether it passes or fails. `<part>` is `1-of-4` to `4-of-4`, `suite`, or `steps`. A part's artifact has crops only for the steps it ran. `test/vscode/update-baseline.js` takes one artifact at a time.
 
 Each crop is compared pixel by pixel with the approved copy for its platform. A pixel differs when any channel differs by more than 32 of 255. A crop fails when more than 0.2% of its pixels differ, or its width or height differs by more than one pixel. Times in crops are masked.
 
@@ -133,6 +155,8 @@ node test/vscode/update-baseline.js <results folder or unpacked artifact> [<plat
 ```
 
 The command copies `actual/<platform>/*.png` over `test/vscode/baseline/<platform>/`. Commit the updated baselines on their own, saying what changed on screen and why.
+
+### Running it locally
 
 For a local run, install the test dependencies outside the repository and point `NODE_PATH` at that folder's `node_modules`:
 
@@ -148,6 +172,16 @@ DISPLAY=:94 NODE_PATH=<folder>/node_modules node test/vscode/run.js <the .vsix> 
 ```
 
 The runner refuses to start outside CI unless given `--local`. `--vscode` uses an executable already on disk instead of downloading VS Code. `CLAUDE_CODE_PLUS_UI_KEEP=1` keeps the temporary root so you can open the same profile by hand. On a development machine, a run takes about 2.5 minutes, including the marketplace install of Claude Code.
+
+To run only part of the tests, set one of these:
+
+- `CLAUDE_CODE_PLUS_UI_STEPS` to step names separated by commas;
+- `CLAUDE_CODE_PLUS_UI_STEPS_RE` to a regular expression;
+- `CLAUDE_CODE_PLUS_UI_SHARD` to `i/n` for the i-th of n parts, or to `suite`.
+
+With any of these set, `run.js` skips `suite/` and `test/check.js` unless `CLAUDE_CODE_PLUS_UI_SHARD=suite`.
+
+On a screen with two pixels per point, such as a Mac's own display, set `CLAUDE_CODE_PLUS_UI_SCALE=1` so that the crops are drawn at one pixel per point, as the approved copies were. A window larger than a CI runner's still lays out some parts wider, so a few crops can differ in width.
 
 ### README screenshots
 
