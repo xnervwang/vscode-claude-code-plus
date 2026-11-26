@@ -160,6 +160,7 @@ function projectOf(dir, folder) {
  *   notice()                      the note to show above the list, { text, actions }, or null
  */
 function create(deps) {
+  const seenLog = [];
   const cache = new Map();
   const listeners = new Set(), accountListeners = new Set(), closeListeners = new Set(), noticeListeners = new Set();
   let timer = null, started = false;
@@ -334,9 +335,13 @@ function create(deps) {
     onDidChangeAccountInfo: event(accountListeners),
     /* For the source: the figures, or the conversation in front, changed. */
     accountChanged() { for (const l of [...accountListeners]) { try { l(); } catch (_) { /* the listener's own */ } } },
+    /* The last calls of noteSeen, [time, id, seen], for a test to read through the source's focusState(). */
+    seenLog: () => seenLog.slice(),
     noteSeen(sessionIds, seen) {
       for (const id of Array.isArray(sessionIds) ? sessionIds : []) {
         if (typeof id !== 'string' || !SESSION.test(id)) continue;
+        seenLog.push([Date.now(), id, seen === true]);
+        if (seenLog.length > 30) seenLog.shift();
         try { if (deps.setUnread) deps.setUnread(id, seen !== true); } catch (_) { /* the host is not patched */ }
       }
     },

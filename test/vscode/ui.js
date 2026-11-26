@@ -4245,7 +4245,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const st = await call('return typeof globalThis.__cceFocusState === "function" ? globalThis.__cceFocusState() : null;').catch(() => null);
           return st && { front: short(st.front), tab: st.tab, chat: short(st.chat), panels: (st.panels || []).map(([id, a, v]) => [short(id), a, v]),
             unread: (st.unread || []).map(short),
-            log: (st.log || []).map(([at, why, id]) => [at - t0, why, short(id)]) };
+            log: (st.log || []).map(([at, why, id]) => [at - t0, why, short(id)]), seen: (st.seen || []).map(([at, id, seen]) => [at - t0, short(id), seen]) };
         };
         const t0 = Date.now(), states = [];
         let lastState = '', sampling = false;

@@ -632,7 +632,8 @@ function createClaudeSource(deps) {
        each panel's conversation and whether it is active and visible, and the last changes of the signal. */
     focusState() {
       return { front, tab: frontTab ? frontTab.label : null, chat: lastChat,
-        panels: [...panels].map(([panel, entry]) => [entry.sessionId, panel.active, panel.visible]), log: frontLog.slice() };
+        panels: [...panels].map(([panel, entry]) => [entry.sessionId, panel.active, panel.visible]), log: frontLog.slice(),
+        seen: list && typeof list.seenLog === 'function' ? list.seenLog() : [] };
     },
     /* Fires onDidFocus again for the conversation in front; called once registration with Agent Plus completes, which
        can be after the first signal. */
