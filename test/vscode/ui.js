@@ -100,6 +100,13 @@
  *                  in Agent Plus's session list, Recently closed once the tab is closed; Open in Sidebar, New in sidebar
  *                  and New in tab; an archived conversation: no Delete... while it is open in a tab, then its
  *                  confirmation
+ *   rename, delete, another window, Ctrl+Shift+T
+ *                  in Agent Plus's session list, each with conversations of its own: Rename of one no process has open,
+ *                  written to its transcript with nothing opened, and of one open in a tab, through its panel; Delete...
+ *                  carried through, removing the transcript, the folder of its helpers and its work plan; a conversation
+ *                  a second window shows, dimmed with the stripe of one open elsewhere and that window named in its
+ *                  hover, and a click bringing that window forward with its tab; and Ctrl+Shift+T left to the list,
+ *                  bringing back in one tab the conversation whose tab was closed last
  *   light theme    the envelope's text form on the tab and the Steward panel, the envelope on its row in Agent Plus's
  *                  session list, and the colour form back in a dark theme
  *   the old bell   a steward whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
@@ -192,6 +199,20 @@ const FOLDER_THREADS = [
   { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fb', title: 'Draft the migration notes for the other project', days: 0,
     turns: [['Draft the migration notes for the other project.', 'Drafted them in docs/migration.md.']] },
 ];
+/* Conversations of the steps that rename, delete, reopen and open in a second window from Agent Plus's session list, each
+   step's own, so that no other step finds one of them renamed, gone or open. */
+const LIST_THREADS = {
+  renameClosed: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c1', title: 'Sort the release checklist by owner', days: 0,
+    turns: [['Sort the release checklist by owner.', 'Sorted docs/release-checklist.md by owner, then by due date.']] },
+  renameOpen: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c2', title: 'Measure the cold start of the worker', days: 0,
+    turns: [['Measure the cold start of the worker.', 'It takes 1.8 s, most of it spent loading the model file.']] },
+  deleted: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c3', title: 'Drop the unused feature flags', days: 3,
+    turns: [['Drop the unused feature flags.', 'Removed the four flags that no code reads any more.']] },
+  otherWindow: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c4', title: 'Check the backup job of the staging database', days: 0,
+    turns: [['Check the backup job of the staging database.', 'It ran at 02:00 and wrote a dump of 3.2 GB.']] },
+  reopened: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c5', title: 'List the cron jobs of the build machine', days: 0,
+    turns: [['List the cron jobs of the build machine.', 'There are three: the nightly build, the cache prune and the log rotation.']] },
+};
 
 async function run({ exe, vsix, profile, env, playwright, model, threads, background = [], out, check, note }) {
   /* Counts failed checks: a step during which one fails saves what its pages held (savePages). */
@@ -695,6 +716,17 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const slRow = async (t) => slFind(await slRows().catch(() => null), t) || null;
   const slRowAt = (t) => sl.locator('.sl-section:not([data-key="closed"]) .sl-row').filter({ has: sl.locator('.sl-title', { hasText: t.title }) }).first();
   const slHoverText = () => sl.evaluate(() => { const h = document.querySelector('.sl-hover'); return h && !h.classList.contains('sl-hidden') ? h.textContent : ''; });
+  /* A conversation's rows by its session id, which a row's key holds whatever its title: each with its section, title,
+     stripe and whether it is dimmed. */
+  const slRowsOf = async (id) => {
+    await slRows().catch(() => null);
+    return sl.evaluate((id) => [...document.querySelectorAll('.sl-row')].filter((r) => (r.dataset.key || '').includes(`"${id}"`))
+      .map((r) => ({ section: (r.closest('.sl-section') || { dataset: {} }).dataset.key, title: r.querySelector('.sl-title').textContent,
+        stripe: r.dataset.stripe, dim: r.classList.contains('sl-elsewhere') })), id).catch(() => []);
+  };
+  /* Closes the Claude Code tab whose label the title `title` starts with; false when there is none. */
+  const closeTabTitled = (title) => call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
+    && x.label && arg.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, title);
   const slMenu = () => until(() => sl.evaluate(() => {
     const b = document.querySelector('.sl-ctx:not(.sl-ctx-sub)');
     return b ? [...b.querySelectorAll('.sl-ctx-item')].map((x) => x.textContent.replace('\u203a', '').replace('\u2713', '').trim()) : null;
@@ -2739,6 +2771,223 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await page.mouse.move(5, 880);
       const back = await until(async () => { const r = await slRow(t1); return r && r.section === 'ungrouped' && r; }, 15000, 500);
       check(!!back, 'Unarchive puts it back among the other conversations, for the steps after this one', back || await slRows());
+    });
+
+    /* Rename in Agent Plus's session list. A conversation no process has open gets the title in its transcript, as Claude
+       Code's own rename writes it, and is not opened for it; one a tab here shows is renamed through its panel, so that the
+       tab and Claude Code take the title as well. */
+    await step('renaming from Agent Plus\'s session list', async () => {
+      const { renameClosed: shut, renameOpen: shown } = LIST_THREADS;
+      fakeHome.writeThreads(profile.home, profile.folder, [shut, shown]);
+      await showSl();
+      const listed = await until(async () => { const r = await slRows().catch(() => null); return r && slFind(r, shut) && slFind(r, shown) && r; }, 30000, 500);
+      if (!listed) throw new Error(`the conversations written for this step are not listed: ${JSON.stringify(await slRows().catch(() => null))}`);
+      const customTitles = (t) => {
+        let text = '';
+        try { text = fs.readFileSync(transcriptOf(t), 'utf8'); } catch (_) { return []; }
+        return text.split('\n').map((l) => { try { return JSON.parse(l); } catch (_) { return null; } })
+          .filter((r) => r && r.type === 'custom-title').map((r) => r.customTitle);
+      };
+      /* The list edits a title in place and selects it: Rename in the row's menu, the new title typed over it, and Enter. */
+      const renameRow = async (t, title) => {
+        await slPick(t, 'Rename');
+        if (!await until(() => sl.evaluate(() => !!document.querySelector('.sl-title.sl-editing')), 5000, 100)) throw new Error('the row\'s title did not become editable');
+        await page.keyboard.type(title);
+        await page.keyboard.press('Enter');
+      };
+      const SHUT_TITLE = 'Release checklist sorted by owner';
+      await renameRow(shut, SHUT_TITLE);
+      const written = await until(() => customTitles(shut).includes(SHUT_TITLE), 15000, 300);
+      const relisted = written && await until(async () => { const r = await slRowsOf(shut.id); return r.length && r.every((x) => x.title === SHUT_TITLE) && r; }, 15000, 500);
+      check(!!relisted && !(await claudeTabs()).some((x) => titled(x.label, shut.title) || titled(x.label, SHUT_TITLE)) && !liveRecords().some((d) => d.sessionId === shut.id),
+        'Rename in Agent Plus\'s list gives a conversation no process has open the new title in its transcript, as Claude Code\'s own rename writes it, and its row shows it, with nothing opened',
+        { titles: customTitles(shut), rows: await slRowsOf(shut.id), tabs: await claudeTabs() });
+
+      await openTab(shown.id);
+      if (!await until(async () => (await claudeTabs()).find((x) => titled(x.label, shown.title)), 30000, 500)) throw new Error('the conversation to rename did not open in a tab');
+      if (!await conversation(shown, 60000)) throw new Error('the conversation to rename did not load in its tab');
+      await showSl();
+      const SHOWN_TITLE = 'Cold start of the worker measured';
+      await renameRow(shown, SHOWN_TITLE);
+      const relabeled = await until(async () => (await claudeTabs()).find((x) => titled(x.label, SHOWN_TITLE)), 20000, 500);
+      const recorded = await until(() => customTitles(shown).includes(SHOWN_TITLE), 20000, 300);
+      const rowNow = await until(async () => { const r = await slRowsOf(shown.id); return r.length && r.every((x) => x.title === SHOWN_TITLE) && r; }, 15000, 500);
+      check(!!relabeled && !!recorded && !!rowNow,
+        'renamed while a tab here shows it, it is renamed through its panel: the tab takes the new title, Claude Code records it in the transcript, and its row shows it',
+        { tabs: await claudeTabs(), titles: customTitles(shown), rows: await slRowsOf(shown.id) });
+      await shot('agent-plus-list-renamed');
+      await closeTabTitled(SHOWN_TITLE);
+    });
+
+    /* Delete in Agent Plus's session list, carried through: the conversation archived, Delete... in its menu, and Delete in
+       the confirmation. Its transcript goes, with the folder of its helpers' transcripts and its work plan, and so does its
+       row. */
+    await step('deleting from Agent Plus\'s session list', async () => {
+      const t = LIST_THREADS.deleted;
+      fakeHome.writeThreads(profile.home, profile.folder, [t]);
+      const folder = path.join(path.dirname(transcriptOf(t)), t.id);
+      fs.mkdirSync(path.join(folder, 'subagents'), { recursive: true });
+      fs.writeFileSync(path.join(folder, 'subagents', 'agent-a1.jsonl'), JSON.stringify({ type: 'user', sessionId: t.id, isSidechain: true,
+        timestamp: new Date().toISOString(), message: { role: 'user', content: 'Find the flags no code reads.' } }) + '\n');
+      const plan = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', `${t.id}.json`);
+      fs.mkdirSync(path.dirname(plan), { recursive: true });
+      fs.writeFileSync(plan, JSON.stringify({ format: 1, nodes: [{ title: 'Drop the four flags', state: 'done' }] }));
+      const left = () => [transcriptOf(t), folder, plan].filter((p) => fs.existsSync(p));
+      await showSl();
+      if (!await until(() => slRow(t), 30000, 500)) throw new Error('the conversation written for this step is not listed');
+      await slPick(t, 'Archive');
+      const archived = await until(async () => (await slRowsOf(t.id)).some((x) => x.section === 'archived'), 15000, 500);
+      if (!archived) throw new Error(`Archive did not move it to Archived: ${JSON.stringify(await slRowsOf(t.id))}`);
+      const head = sl.locator('.sl-section[data-key="archived"] .sl-head').first();
+      if (!await head.evaluate((e) => e.parentElement.classList.contains('sl-open')).catch(() => true)) await head.click();
+      const at = sl.locator('.sl-section[data-key="archived"] .sl-row').filter({ has: sl.locator('.sl-title', { hasText: t.title }) }).first();
+      const menu = await until(async () => {
+        await page.keyboard.press('Escape');
+        await at.click({ button: 'right' });
+        const m = await slMenu();
+        if (m && m.includes('Delete...')) return m;
+        await page.keyboard.press('Escape');
+        return null;
+      }, 20000, 1000);
+      if (!menu) throw new Error('the archived conversation\'s menu had no Delete...');
+      await slItem('Delete...').click();
+      const d = await until(dialog, 15000, 300);
+      check(!!d && d.text.includes(t.title) && /1 transcript/.test(d.text) && /1 sub-agent conversation/.test(d.text) && /the work plan/.test(d.text) && d.buttons.includes('Delete'),
+        'Delete... asks first, naming the conversation and its transcript, its helper\'s transcript and its work plan', d);
+      if (!d) return;
+      await answerDialog('Delete');
+      const gone = await until(() => !left().length, 20000, 300);
+      const rowGone = await until(async () => !(await slRowsOf(t.id)).length, 20000, 500);
+      check(!!gone && !!rowGone, 'Delete in the confirmation removes its transcript, the folder of its helpers and its work plan, and its row leaves the list',
+        { left: left(), rows: await slRowsOf(t.id) });
+      await shot('agent-plus-list-deleted');
+    });
+
+    /* A conversation another VS Code window shows, in this window's Agent Plus session list. A copy of its transcript is
+       kept under this window's folder, as Claude Code leaves one when a conversation is continued from another folder, so
+       that this window lists it: dimmed, with the stripe of one open elsewhere and that window named in its hover. A click
+       on it brings that window to the front with the conversation's tab, and opens no copy here. */
+    await step('a conversation another window shows, in Agent Plus\'s session list', async () => {
+      const t = LIST_THREADS.otherWindow;
+      const folderE = path.join(path.dirname(profile.folder), 'ws-list');
+      fs.mkdirSync(folderE, { recursive: true });
+      const notesE = path.join(folderE, 'notes-list.txt');
+      fs.writeFileSync(notesE, 'A file for the second window.\n');
+      fakeHome.writeThreads(profile.home, folderE, [t]);
+      const there = path.join(profile.home, '.claude', 'projects', folderName(folderE), `${t.id}.jsonl`), copy = transcriptOf(t);
+      fs.writeFileSync(copy, fs.readFileSync(there, 'utf8').split('\n').map((l) => {
+        try { const d = JSON.parse(l); if (d && typeof d.cwd === 'string') d.cwd = profile.folder; return JSON.stringify(d); } catch (_) { return l; }
+      }).join('\n'));
+      /* On Windows VS Code gives a folder with its drive letter in lower case. */
+      const sameFolder = (a, b) => (process.platform === 'win32' ? path.resolve(String(a)).toLowerCase() === path.resolve(String(b)).toLowerCase() : a === b);
+      const entryOfE = () => {
+        const dir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'windows');
+        let names = [];
+        try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return null; }
+        return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } })
+          .find((e) => e && Array.isArray(e.folders) && e.folders.some((f) => sameFolder(f, folderE))) || null;
+      };
+      const tabIn = async (folder) => (await call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs.map((x) => ({ label: x.label, column: g.viewColumn,
+        active: x.isActive && g.isActive, view: (x.input && x.input.viewType) || '' })));`, undefined, 60000, folder)).find((x) => x.view === PANEL_VIEW && titled(x.label, t.title)) || null;
+      const processes = () => liveRecords().filter((d) => d.sessionId === t.id).map((d) => d.pid);
+      const before = Date.now();
+      await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderE);
+      const pageE = await w.pageOf(path.basename(folderE), 90000);
+      const hostE = pageE ? await w.hostUp(before, folderE).catch(() => null) : null;
+      try {
+        if (!pageE || !hostE) throw new Error('the second window did not open with the test helper in it');
+        w.pin(profile.folder);
+        const inE = (body, arg) => call(body, arg, 60000, folderE);
+        await until(() => inE('const mine = vscode.extensions.getExtension("xnervwang.claude-code-plus"); return !!(mine && mine.isActive);'), 60000, 1000);
+        await inE('await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar"); return true;');
+        await inE('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', t.id);
+        const entry = await until(async () => { const e = entryOfE(); return (await tabIn(folderE)) && e && e.sessions.includes(t.id) && e; }, 30000, 500);
+        check(!!entry, 'the conversation is open in a tab of the second window, whose entry among the windows lists it', { tab: await tabIn(folderE), entry: entryOfE() });
+        if (!entry) return;
+        /* Under xvfb-run every window VS Code has focused once says it is focused for good, so on Linux the X server says
+           which window has the input focus (lib/xfocus.py). Elsewhere it is the window VS Code counts as focused. */
+        const both = [[page, profile.folder], [pageE, folderE]];
+        const frontTitle = async () => {
+          if (process.platform === 'linux') {
+            const r = require('child_process').spawnSync('python3', [path.join(__dirname, 'lib', 'xfocus.py')], { encoding: 'utf8', env: process.env });
+            return (r.stdout || '').trim();
+          }
+          for (const [p, folder] of both) if ((await call('return vscode.window.state.focused;', undefined, 60000, folder).catch(() => null)) === true) return p.title();
+          return '';
+        };
+        const inFront = async (p, folder) => { const t2 = await frontTitle(), name = path.basename(folder); return !!t2 && (t2 === await p.title() || t2.includes(` - ${name} - `) || t2.startsWith(`${name} - `)); };
+        /* The conversation's tab covered in its window, and this window brought to the front as this extension brings any
+           window there: VS Code's command line opening the folder that window has open. */
+        const t0 = await tabIn(folderE);
+        await inE('await vscode.window.showTextDocument(vscode.Uri.file(arg[0]), { preview: false, viewColumn: arg[1] }); return true;', [notesE, t0 ? t0.column : 1]);
+        win.frontWindow(exe, profile.user, profile.folder, process.env);
+        check(!!await until(async () => (await inFront(page, profile.folder)) && !((await tabIn(folderE)) || {}).active, 15000, 300),
+          'this window is in front, and the conversation\'s tab in the other window is behind another', { front: await frontTitle(), tab: await tabIn(folderE) });
+        await showSl();
+        const away = await until(async () => { const r = await slRowsOf(t.id); return r.length && r.every((x) => x.stripe === 'elsewhere' && x.dim) && r; }, 30000, 500);
+        check(!!away, 'in this window\'s Agent Plus session list its row is dimmed, with the stripe of one open elsewhere', await slRowsOf(t.id));
+        if (!away) return;
+        /* The list hovered afresh: another row first, as a hover box stays as it was while the pointer stays on its row. */
+        const other = threads.find((x) => x.id !== t.id);
+        const hoverNow = async () => {
+          await page.mouse.move(5, 880);
+          if (other) { await slRowAt(other).hover().catch(() => {}); await sleep(700); }
+          await slRowAt(t).hover();
+          return until(async () => { const h = await slHoverText(); return /Open in /.test(h) && h; }, 5000, 200);
+        };
+        /* Claude Code's record of the other window's process can reach the list before that window's entry lists the
+           conversation; the list then names the place "another VS Code window" until it next reads the entries, which it
+           does at least every 30 seconds. */
+        const firstHover = await hoverNow();
+        const named = (h) => !!h && h.includes(`Open in the VS Code window "${entry.name}"`);
+        if (!named(firstHover)) note(`the hover named the other window only after the list read the windows' entries again; at first it read ${JSON.stringify(firstHover)}`);
+        const said = named(firstHover) ? firstHover : await until(async () => { const h = await hoverNow(); return named(h) && h; }, 45000, 2000);
+        check(!!said, 'its hover says which VS Code window has it open', { hover: said || await slHoverText(), name: entry.name });
+        await shot('agent-plus-list-other-window');
+        await page.mouse.move(5, 880);
+        await exec('notifications.clearAll');
+        await slRowAt(t).click();
+        const jumped = await until(async () => { const x = await tabIn(folderE); return x && x.active && await inFront(pageE, folderE); }, 20000, 300);
+        const seen = { tabThere: await tabIn(folderE), front: await frontTitle(), tabHere: await tabIn(profile.folder), processes: processes(),
+          windows: w.browser.contexts().flatMap((c) => c.pages()).filter((x) => /workbench\.html/.test(x.url())).length };
+        check(!!jumped && !seen.tabHere && seen.processes.length <= 1 && seen.windows === 2,
+          'a click on its row brings the other window to the front with the conversation\'s tab active, and this window opens no copy of it', seen);
+        await pageE.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-agent-plus-list-other-window-front.png`) }).catch(() => {});
+      } finally {
+        if (hostE) await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderE).catch(() => {});
+        else if (pageE) await pageE.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
+        if (pageE) await until(async () => !(await w.pageOf(path.basename(folderE), 1000)), 20000, 500);
+        w.pin(undefined);
+        fs.rmSync(copy, { force: true });
+        win.frontWindow(exe, profile.user, profile.folder, process.env);
+      }
+    });
+
+    /* Ctrl+Shift+T after a conversation's tab is closed. Claude Code binds the key to reopen its own last closed tab; while
+       Agent Plus's session list archives and deletes on its own in this window, this extension leaves the key to the list,
+       whose reopen brings back the conversation closed last at the place it was shown. */
+    await step('reopening a closed conversation with Ctrl+Shift+T', async () => {
+      const t = LIST_THREADS.reopened;
+      fakeHome.writeThreads(profile.home, profile.folder, [t]);
+      const tabsOf = async () => (await claudeTabs()).filter((x) => titled(x.label, t.title));
+      await openTab(t.id);
+      if (!await until(async () => (await tabsOf()).length === 1, 30000, 500)) throw new Error('the conversation did not open in a tab');
+      if (!await conversation(t, 60000)) throw new Error('the conversation did not load in its tab');
+      const leftToList = await until(() => call('return typeof globalThis.__cceListReopens === "function" ? globalThis.__cceListReopens() : null;'), 15000, 500);
+      check(leftToList === true, 'while Agent Plus\'s session list archives and deletes on its own in this window, this extension leaves Claude Code\'s Ctrl+Shift+T to it', leftToList);
+      await closeTabTitled(t.title);
+      await showSl();
+      const closedRow = await until(async () => (await slRowsOf(t.id)).some((x) => x.section === 'closed'), 20000, 500);
+      check(!!closedRow && !(await tabsOf()).length, 'with its tab closed it is in Recently closed', { rows: await slRowsOf(t.id), tabs: await tabsOf() });
+      /* The key goes to the workbench, with an editor in front as after closing a tab. */
+      await openNotes();
+      await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+T' : 'Control+Shift+T');
+      const back = await until(async () => { const x = await tabsOf(); return x.length === 1 && x[0].active && x; }, 30000, 500);
+      const out = back && await until(async () => { const r = await slRowsOf(t.id); return r.length && !r.some((x) => x.section === 'closed') && r; }, 15000, 500);
+      check(!!back && !!out && (await tabsOf()).length === 1, 'Ctrl+Shift+T then brings it back in one tab, in front, and it leaves Recently closed',
+        { tabs: await tabsOf(), rows: await slRowsOf(t.id) });
+      await shot('agent-plus-list-reopened');
+      await closeTabTitled(t.title);
     });
 
     await step('the steward panel', async () => { try {
