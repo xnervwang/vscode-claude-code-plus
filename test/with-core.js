@@ -316,6 +316,63 @@ async function run() {
         'with Agent Plus\'s stewardList, stewardsOf names both stewards of an OpenCode Agent Plus conversation with their titles, ordered by when the user last typed to each, most recent first; '
           + 'stewardOf gives the first of them, and the change reached onDidChangeStewards');
     }
+    if (!(Array.isArray(ap.features) && ap.features.includes('sessionList') && typeof ap.sessionDeletionDue === 'function')) {
+      note('this Agent Plus has no \'sessionList\': its session list was not run with Claude Code\'s conversations');
+    } else {
+      /* Agent Plus's session list: this window's folder's transcripts listed through the source, Claude Code's own archive
+         and groups imported once, when the list deletes each, and Claude Code's own Ctrl+Shift+T left to the list while the
+         list archives and deletes on its own in this window. */
+      const DAY = 86400000;
+      const LA = 'a1a1a1a1-1111-4222-8333-444444444441', LB = 'a1a1a1a1-1111-4222-8333-444444444442', LC = 'a1a1a1a1-1111-4222-8333-444444444443';
+      const LD = 'a1a1a1a1-1111-4222-8333-444444444444';
+      const listDir = path.join(home, '.claude', 'projects', ws.replace(/[^a-zA-Z0-9]/g, '-'));
+      fs.mkdirSync(listDir, { recursive: true });
+      const transcript = (id, daysAgo, text) => {
+        const t = Date.now() - daysAgo * DAY;
+        const recs = [{ type: 'user', parentUuid: null, uuid: id.slice(0, 8) + 'u', timestamp: new Date(t).toISOString(), cwd: ws, sessionId: id, isSidechain: false,
+          entrypoint: 'claude-vscode', message: { role: 'user', content: text } },
+        { type: 'assistant', parentUuid: id.slice(0, 8) + 'u', uuid: id.slice(0, 8) + 'a', timestamp: new Date(t + 60000).toISOString(), cwd: ws, sessionId: id, isSidechain: false,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] } }];
+        fs.writeFileSync(path.join(listDir, `${id}.jsonl`), recs.map((r) => JSON.stringify(r) + '\n').join(''));
+      };
+      transcript(LA, 5, 'Archived in Claude Code\'s own list');
+      transcript(LB, 4, 'In a group of Claude Code\'s own list');
+      transcript(LC, 3, 'Neither');
+      /* What the patched host hands over from Claude Code's own list (src/host.js). */
+      let official = { archived: [LA, 'f0f0f0f0-1111-4222-8333-444444444444'], groups: [{ name: 'Parser', sessionIds: [LB] }] };
+      globalThis.__cceOfficialLists = () => official;
+      const due = () => ap.sessionDeletionDue('claude-code') || {};
+      const has = (...ids) => ids.every((id) => Object.prototype.hasOwnProperty.call(due(), id));
+      /* A change of states makes the source tell the list (claude.changed()), which then reads it again. */
+      globalThis.__cceStatesHook([], '', [], []);
+      const read = await until(() => has(LA, LB, LC) && typeof due()[LA] === 'number', 15000);
+      const d1 = due();
+      eq([!!read, typeof d1[LA] === 'number' && d1[LA] > Date.now() + 89 * DAY && d1[LA] <= Date.now() + 90 * DAY, d1[LB], d1[LC]], [true, true, null, null],
+        'Agent Plus\'s session list lists this window\'s Claude Code conversations, takes in Claude Code\'s own archive once, counting 90 days from then to delete it, and deletes none of the others');
+      const csl = require(path.join(root, 'src', 'claude-session-list.js'));
+      const keeps = csl.keepsFor(d1, { soonMs: 14 * DAY });
+      const file = (id) => path.join(listDir, `${id}.jsonl`);
+      eq([LA, LB, LC].map((id) => keeps(id, file(id))), [true, true, true],
+        'and with what that list says, each of them is kept from Claude Code\'s own cleanup');
+      /* A later change of Claude Code's own list is not taken in: the import is once. */
+      official = { archived: [LA, LB], groups: [] };
+      transcript(LD, 2, 'Started after the import');
+      globalThis.__cceStatesHook([], '', [], []);
+      const again = await until(() => has(LD), 15000);
+      eq([!!again, due()[LB], due()[LD]], [true, null, null], 'a conversation Claude Code\'s own list archives after the import stays unarchived in the session list');
+      /* Restricted Mode: the list changes nothing on its own, so Claude Code's Ctrl+Shift+T is its own again. */
+      const reopens = () => (typeof globalThis.__cceListReopens === 'function' ? globalThis.__cceListReopens() : null);
+      const trusted = reopens();
+      control.state.trusted = false;
+      control.changeConfig(['agentPlus.sessions']);
+      const untrusted = await until(() => reopens() === false, 3000) ? false : reopens();
+      control.grantTrust();
+      control.changeConfig(['agentPlus.sessions']);
+      const back = await until(() => reopens() === true, 3000) ? true : reopens();
+      eq([ap.sessionListManages(), trusted, untrusted, back], [true, true, false, true],
+        'while the session list archives and deletes on its own, Claude Code\'s own Ctrl+Shift+T is left to it; in Restricted Mode, where the list changes nothing, it is Claude Code\'s again, and left to the list once the folder is trusted');
+      delete globalThis.__cceOfficialLists;
+    }
   } finally {
     for (const c of [selfContext, coreContext]) for (const d of c.subscriptions.splice(0)) { try { d.dispose(); } catch (_) { /* gone */ } }
     try { self.deactivate(); } catch (_) { /* closing */ }

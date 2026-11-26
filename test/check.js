@@ -14992,6 +14992,101 @@ const repo = path.join(__dirname, '..');
       'when this window cannot tell which conversations are open, nothing is deleted');
   }
 
+  /* The rows as Agent Plus's session list reads them: its own reading of a Session and its rules for the dot, the stripe,
+     the read mark, what it archives and deletes on its own, the order, search and the actions, taken from the Agent Plus
+     found beside this extension. A field of a row has to mean to those rules what it means here. */
+  console.log('\nClaude Code\'s rows as Agent Plus\'s session list reads them');
+  {
+    const csl = require('../src/claude-session-list');
+    const projects = tmp('rows');
+    const folder = path.join(scratch, 'work', 'rows');
+    const name = folder.replace(/[^a-zA-Z0-9]/g, '-');
+    const L = (n) => `5e552000-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`;
+    const DAY = 86400000, START = Date.UTC(2026, 9, 1, 9);
+    const at = (d, m = 0) => new Date(START + d * DAY + m * 60000).toISOString();
+    const rec = (type, d, m, extra) => Object.assign({ type, parentUuid: null, timestamp: at(d, m), cwd: folder, gitBranch: 'fix/row-dots', isSidechain: false,
+      message: type === 'user' ? { role: 'user', content: `Question of day ${d}` } : { role: 'assistant', content: [{ type: 'text', text: 'Answered.' }] } }, extra || {});
+    fs.mkdirSync(path.join(projects, name), { recursive: true });
+    const files = {};
+    /* Conversation n asks on day n - 1 and is answered a minute later. */
+    const write = (n, d, extra) => {
+      files[n] = path.join(projects, name, L(n) + '.jsonl');
+      fs.writeFileSync(files[n], [rec('user', d, 0, extra), rec('assistant', d, 1)].map((r) => JSON.stringify(r) + '\n').join(''));
+    };
+    for (let n = 1; n <= 7; n++) write(n, n - 1);
+    write(8, 7, { sessionKind: 'bg' });
+    files[9] = path.join(projects, name, L(9) + '.jsonl');
+    fs.writeFileSync(files[9], JSON.stringify({ type: 'cost-state', cost: 0 }) + '\n');
+    const STATES = { [L(2)]: { activity: 'waiting', waitingFor: { kind: 'permission', tool: 'Bash' } }, [L(3)]: { activity: 'waiting', waitingFor: { kind: 'question' } },
+      [L(4)]: { activity: 'working' }, [L(5)]: { activity: 'background' }, [L(7)]: { activity: 'stopped' } };
+    const TERMINAL = { kind: 'terminal', label: 'terminal pts/3 in ~/rows', detail: ['Process 70, running for 2h 5m'], running: false };
+    const list = csl.create({ projects: () => projects, state: (id) => STATES[id] || null, unseen: (id) => id === L(6),
+      elsewhere: () => new Map([[L(7), { elsewhere: [TERMINAL], processes: 2 }]]) });
+    const listed = async () => (await list.listSessions({ folders: [folder] })).sessions;
+    const first = await listed();
+    const of = (rows, n) => rows.find((s) => s.sessionId === L(n)) || {};
+    eq([5, 3, 7].map((n) => { const s = of(first, n); return [s.activity, s.running, s.waitingFor || null]; }),
+      [['background', true, null], ['waiting', true, { kind: 'question' }], ['stopped', true, null]],
+      'a row whose turn is over while its background work runs says background; one waiting on a question form says why; one a process holds idle runs and is stopped');
+    /* Keeping a transcript from Claude Code's cleanup moves its modification time later (src/sessionpins.js), and a rename
+       outside a panel appends a record: neither is a message. */
+    const lastActive = (rows) => rows.map((s) => [s.sessionId.slice(-2), s.lastActiveAt]);
+    csl.appendTitle(files[1], L(1), 'Renamed while closed');
+    const later = new Date(Date.now() + 3600e3);
+    for (const f of Object.values(files)) fs.utimesSync(f, later, later);
+    const second = await listed();
+    eq([lastActive(second), of(second, 1).title, of(second, 1).lastActiveAt], [lastActive(first), 'Renamed while closed', Date.parse(at(0, 1))],
+      'a later modification time and a rename leave each row\'s last activity at its last message, the time the list sorts by and counts from');
+    eq([csl.projectOf(name, folder), csl.projectOf(`${name}--claude-worktrees-wt2`, folder), csl.projectOf(`${name}-old`, folder),
+      csl.projectOf(`${name}-old--claude-worktrees-wt2`, folder), csl.worktreeOf(path.join(folder, '.claude', 'worktrees', 'wt2'), folder),
+      csl.worktreeOf(path.join(scratch, 'work', 'other', '.claude', 'worktrees', 'wt2'), folder), csl.worktreeOf(path.join(folder, 'sub'), folder)],
+    [true, true, false, false, 'wt2', '', ''],
+    'the project is this folder and its Claude Code worktrees, not a folder whose name only starts the same, and a worktree is named only when it is one of this folder\'s');
+
+    const apRoot = [(() => {
+      try {
+        const d = fs.readdirSync(process.env.VSCODE_EXTENSIONS || '').filter((x) => /^xnervwang\.agent-plus-\d/.test(x)).sort().pop();
+        return d ? path.join(process.env.VSCODE_EXTENSIONS, d) : '';
+      } catch (_) { return ''; }
+    })(), process.env.AGENT_WORK_PLAN_DIR, path.join(__dirname, '..', '..', 'vscode-agent-plus')]
+      .find((d) => d && fs.existsSync(path.join(d, 'src', 'session-rules.js')) && fs.existsSync(path.join(d, 'src', 'session-list.js')));
+    if (!apRoot) note('no Agent Plus with a session list was found beside this extension, so Claude Code\'s rows were not read through its rules');
+    else {
+      const apList = require(path.join(apRoot, 'src', 'session-list.js')), rules = require(path.join(apRoot, 'src', 'session-rules.js'));
+      const rows = second.map((s) => apList.sessionOf(s)).filter(Boolean);
+      /* `seenAt` is the core's record of the newest reply the user saw; every reply here is older than NOW. */
+      const NOW = START + 40 * DAY;
+      const row = (n, extra) => Object.assign({ key: L(n), seenAt: NOW }, rows.find((r) => r.sessionId === L(n)), extra || {});
+      const users = rows.filter((r) => r.kind === 'user').map((r) => row(Number(r.sessionId.slice(-2))));
+      eq([rows.length, [2, 3, 4, 5, 1, 7].map((n) => rules.dotOf(row(n))), rules.counts(users), rows.filter((r) => r.kind !== 'user').map((r) => [r.sessionId, r.kind])],
+        [9, ['blue', 'blue', 'green', 'greenRing', '', ''], { all: 7, open: 0, running: 2, needs: 2 }, [[L(8), 'background'], [L(9), 'empty']]],
+        'Agent Plus draws a permission or question wait as the blue dot, a turn as the green dot and background work as the green ring, counts the waits as needing you, and hides the background run and the empty conversation as such');
+      eq([rules.stripeOf(row(7)), row(7).processes, row(7).elsewhere.map((e) => [e.kind, e.label]), rules.unread(row(6)), rules.unread(row(1))],
+        ['elsewhere', 2, [['terminal', 'terminal pts/3 in ~/rows']], true, false],
+        'a conversation a terminal has open gets the stripe of one open elsewhere with that terminal named and its two processes, and Claude Code\'s own unread mark makes a row unread after the user saw its reply');
+      eq([1, 6, 7, 4, 2].map((n) => rules.archiveDue(row(n), { days: 14, now: NOW })),
+        [true, false, false, false, false],
+        'archiving on its own takes an old stopped conversation, and leaves one Claude Code holds unread, one open in a terminal, one running and one waiting');
+      eq([1, 7, 4, 2].map((n) => rules.deleteBlocker(row(n, { archived: true }))),
+        ['', 'it is open in terminal pts/3 in ~/rows', 'it is running', 'it is running'],
+        'of archived conversations, one a terminal has open, one running and one waiting are not deleted, and a stopped one nothing has open is');
+      const dueL1 = rules.deleteDueAt(row(1, { archived: true, archivedAt: START }), { days: 90 });
+      const dueL3 = rules.deleteDueAt(row(3, { archived: true, archivedAt: START + 10 * DAY }), { days: 90 });
+      const keeps = csl.keepsFor({ [L(1)]: dueL1, [L(3)]: dueL3, [L(2)]: null }, { now: dueL1 - 10 * DAY, soonMs: 14 * DAY, kindOf: () => '' });
+      eq([dueL1 - Date.parse(at(0, 1)), dueL3 - START, [1, 3, 2].map((n) => keeps(L(n), files[n]))], [90 * DAY, 100 * DAY, [false, true, true]],
+        'the list deletes 90 days from the later of archiving and the row\'s last message, and this extension keeps from Claude Code\'s cleanup each conversation the list does not delete within the margin');
+      eq([users.slice().sort(rules.compare).map((r) => r.sessionId.slice(-1)),
+        users.map((r) => (r.sessionId === L(1) ? Object.assign({}, r, { pinned: true }) : r)).sort(rules.compare).map((r) => r.sessionId.slice(-1))],
+      [['7', '6', '5', '4', '3', '2', '1'], ['1', '7', '6', '5', '4', '3', '2']],
+      'the rows sort by their last message, newest first, after the pinned ones');
+      eq([rules.matches(row(3), '000003'), rules.matches(row(3), 'row-dots'), rules.matches(row(3), 'nothing like it'), users.filter((r) => rules.matches(r, '000003')).length,
+        apList.capsOf({ sessionActions: list.sessionActions })],
+      [true, true, false, 1, { open: ['tab', 'sidebar'], create: ['tab', 'sidebar'], rename: true, delete: true, own: [] }],
+      'a search finds a row by part of its session id or by its branch, and the list offers opening and starting in a tab or the sidebar, renaming and deleting');
+    }
+    list.dispose();
+  }
+
   console.log('\nconversation links, what the extension sends the panels');
   {
     try {
