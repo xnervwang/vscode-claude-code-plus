@@ -554,9 +554,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     return until(async () => !(await dialog()), 5000, 200);
   };
 
-  /* A frame of the window's webviews in which `test` (a function of document) is true. */
-  const frameWhere = async (test, ms, arg) => until(async () => {
+  /* A frame of the window's webviews in which `test` (a function of document) is true, leaving out those in `skip` (a Set
+     of frames). */
+  const frameWhere = async (test, ms, arg, skip) => until(async () => {
     for (const f of page.frames()) {
+      if (skip && skip.has(f)) continue;
       try { if (await f.evaluate(test, arg)) return f; } catch (_) { /* not ready, or gone */ }
     }
     return null;
@@ -2611,7 +2613,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!frame, 'the Steward panel opens at the bottom of the window for the conversation in front', text);
       /* Running conversations come from `claude agents --json`, which is polled at most every 30 s. */
       const listed = () => frame.evaluate(() => [...document.querySelectorAll('input[data-id]')].map((b) => [b.dataset.id, b.checked]));
-      const boxes = frame ? (await until(async () => { const b = await listed(); return b.length ? b : null; }, 40000, 1000)) || [] : [];
+      let boxes = frame ? (await until(async () => { const b = await listed(); return b.length ? b : null; }, 40000, 1000)) || [] : [];
       const groups = frame ? await frame.evaluate(() => document.querySelectorAll('input[data-group]').length) : 0;
       const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
       const readAll = (dir) => { try { return fs.readdirSync(dir).filter((n) => n.endsWith('.json')).map((n) => JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))); } catch (_) { return []; } };
@@ -2640,12 +2642,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
            the tab checks below need it in a tab. */
         let tabbed = await claudeTabs();
         const inTab = (id) => { const t = threads.find((x) => x.id === id); return !!t && tabbed.some((x) => titled(x.label.replace(ENVELOPE, ''), t.title)); };
-        /* With none of them in a tab, one is opened in a tab behind the steward's, asked for in a tab as a steward's
-           --resume asks: opened without that, Claude Code can put it in a sidebar an earlier step left with a new
-           conversation. Claude Code still shows a conversation in the sidebar while the sidebar's page holds it, as it
+        /* The panel lists a conversation once its process shows up, which can be after the first one, so it is given a
+           while to list one that has a tab. With none, one is opened in a tab behind the steward's, asked for in a tab as
+           a steward's --resume asks: opened without that, Claude Code can put it in a sidebar an earlier step left with a
+           new conversation. Claude Code still shows a conversation in the sidebar while the sidebar's page holds it, as it
            can hold the one an earlier step opened there, so one that does not come up in a tab is passed over for the
            next. */
-        if (!boxes.some(([id]) => inTab(id))) {
+        const withTab = async () => { tabbed = await claudeTabs(); const b = await listed(); if (b.length) boxes = b; return boxes.some(([id]) => inTab(id)); };
+        if (!await until(withTab, 40000, 1000)) {
           for (const [id] of boxes) {
             const t = threads.find((x) => x.id === id);
             if (!t) continue;
@@ -4209,7 +4213,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       /* Agent Plus's session list draws its own envelope icon, the same in every theme; it is only checked to be there. */
       const listForms = async () => { const r = await rowParts(tab0); return r ? [r.unread] : []; };
       const listIn = () => until(async () => { const f = await listForms(); return f.length === 1 && f[0] === true && f; }, 15000, 500);
-      let steward = null;
+      let steward = null, trace = null;
       /* The envelope on the conversation's row in the Steward panel, '' for a row without one. */
       const panelForm = () => steward.evaluate((id) => {
         const a = document.querySelector(`a.name[data-open="${id}"]`), row = a && a.closest('li'), e = row && row.querySelector('.env');
@@ -4223,7 +4227,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('claude-vscode.editor.open', tab0.id);
         const frame = await conversation(tab0, 60000);
         if (!frame) throw new Error('the conversation did not open');
-        /* A reply that lands while another conversation is in front, so the Steward panel shows that other one. */
+        /* A reply that lands while another conversation is in front, so the Steward panel shows that other one. What the
+           windows' shared files said of both as it happened is kept in the results folder when the envelope does not come. */
+        trace = attentionTrace([tab0.id, other.id], page);
         model.hold();
         const before = model.seen.length, typed = 'And the light theme?';
         try {
@@ -4235,8 +4241,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           if (!sent) throw new Error(`the fake model was not sent "${typed}": ${JSON.stringify(model.seen.slice(before).map((x) => (x.typed || '').slice(-60)))}`);
           await exec('claude-vscode.editor.open', other.id);
           await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, other.title)), 20000, 300);
+          trace.mark('the other conversation in front');
         } finally { model.release(); }
         const lit = await tabEnds(ENVELOPE_TEXT);
+        trace.mark(lit ? 'the envelope on the tab' : 'no envelope on the tab');
+        const traced = await trace.stop();
+        if (!lit) fs.writeFileSync(path.join(out, 'light-envelope-trace.json'), JSON.stringify({ ids: { tab: tab0.id.slice(-4), other: other.id.slice(-4) }, trace: traced }, null, 1) + '\n');
         check(!!lit, 'a reply that lands with the tab in the background ends its title in the envelope\'s text form', await claudeTabs());
         await showSl();
         const rows = await listIn();
@@ -4258,6 +4268,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await shot('dark-envelope-again');
       } finally {
         model.release();
+        if (trace) await trace.stop().catch(() => {});
         await theme('Default Dark Modern').catch(() => {});
         await exec('workbench.action.closePanel').catch(() => {});
       }
@@ -4958,8 +4969,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         let detached = null;
         if (m.detached !== undefined && process.platform === 'linux') detached = await detachShort(frame, tab0.id);
 
+        /* Only a page that comes with the new tab: a Claude Code view in the hidden sidebar can be empty too. */
+        const framesBefore = new Set(page.frames());
         await exec('claude-vscode.editor.open');
-        const fresh = await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]') && !document.querySelector('[class*="userMessage_"]'), 60000);
+        const fresh = await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]') && !document.querySelector('[class*="userMessage_"]'), 60000, undefined, framesBefore);
         if (fresh) {
           await sleep(2000);
           setZone(m.zone);
@@ -5596,6 +5609,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'with every row done, a check and All rows done, and an empty track', allDone || await bar());
         await shot('plan-bar-done');
 
+        /* Both side bars closed, so that on a 1024 px screen the editor area is wide enough for two widths apart. */
+        await exec('workbench.action.closeSidebar');
+        await exec('workbench.action.closeAuxiliaryBar');
         const full = await editorWidth();
         const grown = (n) => write([row('Export', 'doing', { children: [row('A current row whose title is long enough to be cut short when the panel is narrow', 'doing')] })]
           .concat(Array.from({ length: n - 2 }, (_, i) => row('Row ' + (i + 1), 'todo'))));
