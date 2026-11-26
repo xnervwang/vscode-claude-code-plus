@@ -4460,7 +4460,8 @@ console.log('\nswitched off, the work plan costs nothing and keeps nothing');
       fs.rmSync(d.dir, { recursive: true, force: true });
     }
 
-    /* A turn whose reply asks the user something gets one reminder, unless the turn wrote a question to a row. */
+    /* A turn whose reply asks the user something gets one reminder, unless the turn wrote a question to a row or a row
+       already waits on the user. */
     {
       const d = stage(true);
       const planPath = path.join(d.dir, session + '.json');
@@ -4487,13 +4488,20 @@ console.log('\nswitched off, the work plan costs nothing and keeps nothing');
       writePlan([{ title: 'ship', state: 'discussing', waitingOn: 'user', question: 'Ship it now?', asked: stamp(Date.now()) }]);
       cases.recorded = asks(stop(question));
       writePlan([{ title: 'ship', state: 'discussing', waitingOn: 'user', question: 'Ship it now?', asked: stamp(Date.now() - 86400e3) }]);
-      cases.earlier = asks(stop(question));
+      cases.stillWaiting = asks(stop(question));
+      writePlan([{ title: 'tests', state: 'doing', children: [{ title: 'ship', state: 'waiting', waitingOn: 'user', question: 'Ship it now?', asked: stamp(Date.now() - 86400e3) }] }]);
+      cases.waitingBelow = asks(stop(question));
+      writePlan([{ title: 'ship', state: 'done', waitingOn: 'user', question: 'Ship it now?', asked: stamp(Date.now() - 86400e3) }]);
+      cases.earlierClosed = asks(stop(question));
+      writePlan([{ title: 'ship', state: 'waiting', waitingOn: 'build', question: 'Ship it now?', asked: stamp(Date.now() - 86400e3) }]);
+      cases.earlierOnBuild = asks(stop(question));
       const want = { statement: false, code: false, mention: false, handOver: true, codePage: true, looped: false, noReply: false,
-        recorded: false, earlier: true };
+        recorded: false, stillWaiting: false, waitingBelow: false, earlierClosed: true, earlierOnBuild: true };
       const wrong = Object.keys(want).filter((k) => cases[k] !== want[k]);
-      if (first.includes('may be asking the user') && first.includes('plan-row.py') && !wrong.length) {
-        ok('a reply that ends by asking the user, in a turn that recorded no question, is reminded to record it');
-      } else bad(`unrecorded question: first ${JSON.stringify(first.slice(0, 120))}, wrong for ${wrong.join(', ')}`);
+      const language = 'write it in the language you have been using with them, even though this note is in English.';
+      if (first.includes('may be asking the user') && first.includes('plan-row.py') && first.trim().endsWith(language) && !wrong.length) {
+        ok('a reply that ends by asking the user, in a turn that recorded no question and while no row waits on the user, is reminded to record it; a question asked earlier on a row that is closed or waits on someone else still counts as not recorded, and the reminder ends by asking for the user\'s language');
+      } else bad(`unrecorded question: first ${JSON.stringify(first.slice(0, 120))} ... ${JSON.stringify(first.slice(-120))}, wrong for ${wrong.join(', ')}`);
       fs.rmSync(d.dir, { recursive: true, force: true });
     }
 
