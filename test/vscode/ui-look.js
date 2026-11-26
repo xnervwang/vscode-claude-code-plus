@@ -2655,9 +2655,10 @@ const STEPS = [
       return d.body();
     },
     undo: async (d) => {
-      if (await infoOpen(d.conv)) { await d.conv.locator('[data-cce-info]').first().click(); await d.sleep(400); }
+      /* Show Status's notification, opened out, lies over the footer's info button. */
       await d.exec('notifications.clearAll');
       await d.sleep(500);
+      if (await infoOpen(d.conv)) { await d.conv.locator('[data-cce-info]').first().click(); await d.sleep(400); }
     },
   },
 
