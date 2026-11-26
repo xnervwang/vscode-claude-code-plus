@@ -222,7 +222,7 @@ function create(deps) {
     const title = titleMarks.withoutMarks(sum.custom || sum.ai || sum.firstPrompt || '').slice(0, MAX_TITLE);
     const s = { sessionId: id, title, cwd: sum.cwd || folder, createdAt: sum.createdAt || 0, lastActiveAt: sum.lastActiveAt || sum.createdAt || 0,
       lastReplyAt: sum.lastReplyAt || 0, kind, activity: 'stopped', running: false };
-    /* The same time as the tab's dot reads, so that the two agree on whether a plan question is answered. */
+    /* Read the way the tab's dot reads it, so the row and the tab agree on whether a plan question is answered. */
     const typed = deps.lastUserAt ? Number(safe(deps.lastUserAt, 0, file)) || 0 : sum.lastUserAt || 0;
     if (typed) s.lastUserAt = typed;
     if (sum.branch) s.branch = sum.branch;

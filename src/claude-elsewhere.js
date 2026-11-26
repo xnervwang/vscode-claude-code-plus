@@ -4,8 +4,8 @@
 
 'use strict';
 /*
- * Where else a Claude Code conversation is open or runs, outside VS Code windows the session list already knows of: the
- * `elsewhere` and `processes` of its row (Agent Plus's protocol, Session list).
+ * The other places a Claude Code conversation is open or runs, besides the VS Code windows the session list already
+ * knows of: the `elsewhere` and `processes` of its row (Agent Plus's protocol, Session list).
  *
  * Every Claude Code process keeps a record of itself in <config>/sessions/<pid>.json while it runs: its session id,
  * folder, entrypoint (cli for a terminal, claude-vscode for a VS Code panel, claude-desktop for the desktop app), kind
@@ -36,7 +36,7 @@ const INFO_MS = 10 * 60000;
 const TABLE_MS = 60000;
 const RUN_MS = 3000;
 
-/* The kind of place a record comes from, as Claude Code's extension sorts them: a run nobody watches, a terminal, a
+/* The kind of place a record comes from, as Claude Code's extension sorts them: a background run, a terminal, a
    VS Code panel, the desktop app, or another Claude process. */
 function classify(r) {
   if (r.kind && r.kind !== 'interactive') return 'exec';
@@ -47,7 +47,7 @@ function classify(r) {
     default: return 'other';
   }
 }
-/* The protocol's name for each. 'vscode' is a VS Code window whose own file the core does not see. */
+/* 'vscode' is a VS Code window whose own file the core does not see. */
 const PROTOCOL_KIND = { terminal: 'terminal', desktop: 'desktop', exec: 'exec', vscode: 'vscode', other: 'other' };
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);

@@ -102,7 +102,7 @@ const REOPEN_SETTING = PREFIX + 'reopenDroppedTabs';
 const LOAD_TABS_SETTING = PREFIX + 'loadRestoredTabs';
 const HIDE_BG_SETTING = PREFIX + 'hideBackgroundSessions';
 const HIDE_OFFICIAL_LIST_SETTING = PREFIX + officialList.SETTING;
-/* Run by the buttons of the question above Agent Plus's session list; not in the Command Palette. */
+/* The command the Hide It and Keep It buttons above Agent Plus's session list run; it is not in the Command Palette. */
 const OFFICIAL_LIST_ANSWER = 'answerOfficialListQuestion';
 const WORK_PLAN_SETTING = PREFIX + 'workPlan';
 const BRIEF_SETTING = PREFIX + 'conversationBrief';

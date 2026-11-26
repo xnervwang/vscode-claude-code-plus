@@ -699,7 +699,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
   /* ── the session list, Claude Code's own webview ── */
   let list = null;
-  /* A conversation's row, by the end of its id. */
+  /* A conversation's row in Claude Code's own list, found by the end of its element id. */
   const row = (t) => list.locator(`[class*="sessionItem_"][id$="${t.id}"]`).first();
   const openList = async () => {
     await exec('workbench.view.extension.claude-sessions-sidebar');
@@ -917,7 +917,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       } finally { await setOwnList(null); }
       const back = await until(async () => (await icons()) === before, 15000, 300);
       check(!!back, 'and turned off again, it is back', await icons());
-      /* Hiding the view disposed its page, so the steps after this one get the page the list opens again. */
+      /* Hiding the view disposed its page, so later steps use the new page the list opens. */
       list = null;
       await openList().catch(() => null);
       check(!!list, 'and its list opens again, with a new page', null);

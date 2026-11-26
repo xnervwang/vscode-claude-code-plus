@@ -107,14 +107,14 @@ In each job, the runner:
 
 Any failed stage makes the runner exit non-zero.
 
-On each platform, five jobs run at the same time. The runner divides the `ui.js` window steps among four jobs, keeping each job's steps consecutive and the estimated times about equal. The fifth job runs `suite/` inside VS Code and `test/check.js`. Every job also writes the patched files, reloads, opens the first test conversation in a tab, and checks at the end that no page showed the extension's self-check warning.
+On each platform, five jobs run at the same time. The runner divides the `ui.js` window steps among four jobs, keeping each job's steps consecutive and the estimated times about equal. The fifth job runs `suite/` inside VS Code and `test/check.js`. Every job also writes the patched files, reloads, opens the first of the test's fake conversations (described below) in a tab, and checks at the end that no page showed the extension's self-check warning.
 
 The runner splits the steps using `test/vscode/step-seconds.json`, which records the longest time each step took on any of the three platforms. Each step logs `took <N> s` when it ends. A missing step counts as 20 seconds. `test/check.js` fails if the file omits a step or names one that no longer exists.
 
 Manual runs take three inputs:
 
 - `os` lists the runners separated by commas and defaults to `ubuntu-latest,macos-latest,windows-latest`.
-- `steps` is a regular expression matched against the window step names. With `steps` set, each listed platform runs one job with only the matching window steps and the four steps every job runs. It skips `suite/` and `test/check.js`.
+- `steps` is a regular expression matched against the window step names, as listed in `test/vscode/step-seconds.json`. When it is set, each listed platform runs a single job: the matching window steps plus the four steps every job runs. It skips `suite/` and `test/check.js`.
 - `upstream` defaults to `pinned`. Set it to `newest` to use the same versions as the daily run.
 
 To run one step on macOS from a branch:
@@ -142,7 +142,7 @@ On Linux, the test stage runs in a network namespace with loopback only. It uses
 
 The `--out` folder holds a screenshot of every step in `shots/`, crops in `actual/<platform>/`, a diff image for each failed crop in `diff/<platform>/`, and VS Code logs in `logs/`. When a step fails, `pages/<step>/` holds two files for each page of the window: a `.txt` file with its address and text, and an `.html` file with its markup. Only elements this extension draws are cropped, never Claude Code's or VS Code's own. If one of ours sits between two Claude Code elements, it gets its own crop.
 
-Each job uploads its `--out` folder as `vscode-<OS>-<part>` whether it passes or fails. `<part>` is `1-of-4` to `4-of-4` for the four window-step jobs, `suite` for the fifth, or `steps` for a manual run with `steps` set. A part's artifact has crops only for the steps it ran. `test/vscode/update-baseline.js`, below, takes one artifact at a time.
+Each job uploads its `--out` folder as `vscode-<OS>-<part>` whether it passes or fails. `<part>` is `1-of-4` to `4-of-4` for the four window-step jobs, `suite` for the fifth, or `steps` for a manual run with `steps` set. Each job's artifact has crops only for the steps that job ran. `test/vscode/update-baseline.js`, below, takes one artifact at a time.
 
 Each crop is compared pixel by pixel with the approved copy for its platform. A pixel differs when any channel differs by more than 32 of 255. A crop fails when more than 0.2% of its pixels differ, or its width or height differs by more than one pixel. Times in crops are masked.
 

@@ -8292,7 +8292,7 @@ console.log('\nthe margin kept from Claude Code\'s cleanup');
   const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const setting = require('../package.json').contributes.configuration.properties['claudeCodePlus.sessionPinsMarginDays'];
   if (setting && setting.default === 14 && setting.minimum === 1 && /margin: pinMargin\(\), keeps/.test(extSrc) && /sessionPins\.marginDays\(days, pinMargin\(\)\)/.test(extSrc)) {
-    ok('the setting, 14 by default, reaches the pass, for pinned conversations and for those the session list keeps');
+    ok('the margin setting, 14 days by default, is passed to the cleanup pass, for pinned conversations and for those the session list keeps');
   } else bad('the margin setting is not wired as expected');
 }
 
