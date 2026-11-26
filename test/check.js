@@ -12544,6 +12544,32 @@ console.log('\nconversations');
     } else bad(`the shared list of running conversations: ${shared.stdout} ${shared.stderr}`);
   }
   {
+    /* Another window writes the shared file while a run here is still going: the run's list is the older one. */
+    const shareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-agents-'));
+    const shareFile = path.join(shareDir, 'agents.json');
+    const overlap = cp.spawnSync(process.execPath, ['-e', `const w = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'waiting.js'))});
+      const fs = require('fs'), file = ${JSON.stringify(shareFile)};
+      const slow = (bin, args, opts, cb) => setTimeout(() => {
+        fs.writeFileSync(file, JSON.stringify({ at: Date.now(), records: [{ sessionId: 'newer' }] }));
+        setTimeout(() => cb(null, '[{"sessionId":"older","status":"idle"}]', ''), 20);
+      }, 20);
+      (async () => {
+        const before = Date.now();
+        const got = await w.listAgents('claude', slow, { file, ms: 20000 });
+        const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+        const hit = await w.listAgents('claude', slow, { file, ms: 20000 });
+        fs.writeFileSync(file, JSON.stringify({ at: Date.now() - 30000, records: [] }));
+        const ran = await w.listAgents('claude', (b, a, o, cb) => cb(null, '[{"sessionId":"ran"}]', ''), { file, ms: 20000 });
+        const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+        console.log(JSON.stringify([got.records[0].sessionId, got.at >= before && got.at < kept.at, kept.records[0].sessionId,
+          hit.records[0].sessionId, hit.at === kept.at, written.records[0].sessionId, written.at === ran.at]));
+      })();`], { encoding: 'utf8' });
+    fs.rmSync(shareDir, { recursive: true, force: true });
+    if (overlap.stdout.trim() === JSON.stringify(['older', true, 'newer', 'newer', true, 'ran', true])) {
+      ok('a run of claude agents that started before another window wrote the shared list does not write its own over it; a list carries when it was read, the start of the run or the other window\'s time');
+    } else bad(`a run of claude agents that overlaps another window's: ${overlap.stdout} ${overlap.stderr}`);
+  }
+  {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-wait-home-'));
     const id = S(9);
     const dir = path.join(home, '.claude', 'plugins', 'data', require('../src/plugin-install').DATA_DIR);
@@ -14077,6 +14103,46 @@ const eqWait = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.str
     'a waiting conversation carries waitingFor, from this window\'s panel with the tool or else from claude agents, one a panel here shows is listed before claude agents has it, '
       + 'and shows() answers for a panel of this window');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  {
+    /* listConversations and freshAgents each read claude agents; the read that started first returns last, older. */
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-agents-order-'));
+    const stub = path.join(dir, 'vscode-stub.js');
+    fs.writeFileSync(stub, `module.exports = { TabInputWebview: class { constructor(v) { this.viewType = v; } } };`);
+    const script = `
+      const Module = require('module'), realResolve = Module._resolveFilename;
+      Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+      const C = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+      const make = (listAgents) => C.createClaudeSource({ planDir: () => '/plans', enabled: () => false, listAgents, folders: () => ['/w'],
+        readPlan: () => null, titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
+        activeChat: () => '', logo: () => null, canDeliver: () => false, hand: () => false, reveal: async () => false,
+        activity: () => 'stopped', waitingFor: () => null });
+      const rec = (status) => [{ sessionId: 'aaaaaaaa-1111-4222-8333-444444444444', cwd: '/w/a', status }];
+      (async () => {
+        const answers = [];
+        const c = make(() => new Promise((resolve) => answers.push(resolve)));
+        const t0 = Date.now() - 2000;
+        const listed = c.source.listConversations();
+        const pids = c.freshAgents();
+        answers[1]({ records: rec('idle'), error: '', at: t0 + 1000 });
+        const got = await pids;
+        answers[0]({ records: rec('waiting'), error: '', at: t0 });
+        await listed;
+        const held = c.agentsNow();
+        let reads = 0;
+        const old = make(async () => { reads++; return { records: rec('idle'), error: '', at: Date.now() - 31000 }; });
+        await old.freshAgents();
+        await old.freshAgents();
+        process.stdout.write(JSON.stringify({ calls: answers.length, pids: got.records[0].status, held: held.records[0].status,
+          at: held.at === t0 + 1000, reads }));
+      })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
+    const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
+    fs.rmSync(dir, { recursive: true, force: true });
+    let o = {};
+    try { o = JSON.parse(r.stdout); } catch (_) { o = { threw: r.stdout + r.stderr }; }
+    eqWait(o, { calls: 2, pids: 'idle', held: 'idle', at: true, reads: 2 },
+      'of two reads of claude agents in flight at once, an older list that returns last does not replace the newer one, '
+        + 'and a list counts as fresh for 30 s from when it was read, not from when it came back');
+  }
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   if (/const next = waitingFor\.leftToAgentPlus\(\{ core: agentCore, on: enabled\(\) && !removed\(\), announcesWaits: coreLink\.announcesWaits \}\);/.test(ext)
       && /globalThis\[host\.WAITS_LEFT_ON\] = next;/.test(ext) && /__cceToAllPanels\(\{ type: 'cce_waits_announced', on: next \}\)/.test(ext)

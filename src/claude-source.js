@@ -130,7 +130,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  * `deps`:
  *   planDir()                       the companion plugin's data directory
  *   enabled()                       claudeCodePlus.workPlan: off, no conversation has a plan
- *   listAgents()                    `claude agents --json`, as { records, error }
+ *   listAgents()                    `claude agents --json`, as { records, error, at }, `at` when the list was read
+ *                                   (when the call started if not given)
  *   readPlan(sessionId)             for titles taken from the plan, and for stopped conversations
  *   titles(s), since(s)             from waiting.reader()
  *   replyAt(s)                      optional, from waiting.reader(): when its last reply was written, in milliseconds
@@ -188,11 +189,21 @@ function createClaudeSource(deps) {
   const briefOn = () => { try { return deps.brief ? deps.brief() !== false : false; } catch (_) { return false; } };
   const say = (sessionId) => { front = sessionId; focused.fire({ sessionId }); };
 
-  const ask = () => deps.listAgents().then((r) => { agentsLast = r; agentsAt = Date.now(); return r; });
+  /* listConversations and freshAgents can each have a read of `claude agents` in flight, and the one that started
+     earlier can return later with an older list. A list replaces the one held only if it was read no earlier, and
+     agentsAt is when the list held was read, so its age counts from then. A failed read from listConversations
+     replaces the list, so that it reports the error; one from freshAgents keeps it. */
+  const take = (started, r, keep) => {
+    const at = r && Number.isFinite(r.at) ? r.at : started;
+    if (r.records && agentsLast.records && at < agentsAt) return agentsLast;
+    if (r.records || !keep) { agentsLast = r; agentsAt = at; }
+    return r;
+  };
+  const read = (keep) => { const started = Date.now(); return deps.listAgents().then((r) => take(started, r, keep)); };
+  const ask = () => read(false);
   const freshAgents = () => {
     if (agentsLast.records && Date.now() - agentsAt < AGENTS_FRESH_MS) return Promise.resolve(agentsLast);
-    if (!pidsAsk) pidsAsk = deps.listAgents().then((r) => { if (r.records) { agentsLast = r; agentsAt = Date.now(); } return r; })
-      .finally(() => { pidsAsk = null; });
+    if (!pidsAsk) pidsAsk = read(true).finally(() => { pidsAsk = null; });
     return pidsAsk;
   };
   const activityOf = (id) => { try { return typeof deps.activity === 'function' ? deps.activity(id) || 'stopped' : 'stopped'; } catch (_) { return 'stopped'; } };
@@ -601,7 +612,7 @@ function createClaudeSource(deps) {
       return null;
     },
     freshAgents,
-    /* The last `claude agents` list fetched, without fetching: { records (null if none yet), at }. */
+    /* The newest `claude agents` list fetched, without fetching: { records (null if none yet), at: when it was read }. */
     agentsNow: () => ({ records: agentsLast.records, at: agentsAt }),
     dispose() {
       focused.dispose();

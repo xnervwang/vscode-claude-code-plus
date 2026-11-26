@@ -37,33 +37,41 @@ function parseAgents(stdout) {
 }
 
 /*
- * Run `claude agents --json` with the given binary. Resolves to { records, error }; records is null on failure.
+ * Run `claude agents --json` with the given binary. Resolves to { records, error, at }; records is null on failure,
+ * and `at` is when the run started, which is as old as the list can be.
  *
  * A run starts Claude Code's whole binary, about 0.4 s of CPU and 160 MB, and every window asks about twice a minute
  * for the same machine-wide list. With `share` ({ file, ms, write }), a list another window wrote to `file` less than
- * `ms` ago is returned without running anything, and a list fetched here is written there unless `write` is false.
+ * `ms` ago is returned without running anything, with that window's `at`, and a list fetched here is written there
+ * unless `write` is false. Runs in several windows overlap, and one that started earlier can end later with an older
+ * list, so a list is not written over one in the file that a later run started.
  */
 function listAgents(bin, run = cp.execFile, share = null) {
+  const started = Date.now();
   if (share && share.file) {
     try {
       const d = JSON.parse(fs.readFileSync(share.file, 'utf8')), now = Date.now();
-      if (d.at <= now && now - d.at < share.ms && Array.isArray(d.records)) return Promise.resolve({ records: d.records, error: '' });
+      if (d.at <= now && now - d.at < share.ms && Array.isArray(d.records)) return Promise.resolve({ records: d.records, error: '', at: d.at });
     } catch (_) { /* none yet, or caught mid-write */ }
   }
   return new Promise((resolve) => {
-    if (!bin) { resolve({ records: null, error: 'Claude Code\'s command line was not found' }); return; }
+    if (!bin) { resolve({ records: null, error: 'Claude Code\'s command line was not found', at: started }); return; }
     run(bin, ['agents', '--json'], { timeout: AGENTS_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
       (err, stdout, stderr) => {
         const records = parseAgents(stdout);
         if (records) {
           if (share && share.file && share.write !== false) {
-            try { writeAtomic(share.file, JSON.stringify({ at: Date.now(), records }) + '\n'); } catch (_) { /* each window asks itself */ }
+            let held = 0;
+            try { held = Number(JSON.parse(fs.readFileSync(share.file, 'utf8')).at) || 0; } catch (_) { /* none yet, or caught mid-write */ }
+            if (!(held > started && held <= Date.now())) {
+              try { writeAtomic(share.file, JSON.stringify({ at: started, records }) + '\n'); } catch (_) { /* each window asks itself */ }
+            }
           }
-          resolve({ records, error: '' });
+          resolve({ records, error: '', at: started });
           return;
         }
         const said = String(stderr || '').trim().split('\n').pop() || (err && err.message) || 'it printed no list';
-        resolve({ records: null, error: '`claude agents --json`: ' + said });
+        resolve({ records: null, error: '`claude agents --json`: ' + said, at: started });
       });
   });
 }
