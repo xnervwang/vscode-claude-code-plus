@@ -2180,7 +2180,9 @@ const STEPS = [
       + 'Plus marks a dialog that waits for you with a filled blue dot on the conversation\'s logo in the session '
       + 'list in the side bar. The tool row of that call has its time on a line of its own above "Bash" and its '
       + 'description, which stays on one line.',
-    unchanged: 'The earlier messages are as before; the tab\'s title has no envelope now that the tab is in front.',
+    unchanged: 'The earlier messages are as before, but higher: the conversation has scrolled to show the question. Claude Code '
+      + 'keeps a message of yours pinned at the top while the rows that answer it scroll up behind it, so some of those rows '
+      + 'may be hidden under it. The tab\'s title has no envelope now that the tab is in front.',
     act: async (d) => {
       const frame = await live(d);
       const list = await agentList(d);
