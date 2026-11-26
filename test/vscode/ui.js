@@ -4088,7 +4088,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!plain && plain.none === true && plain.by === true, 'a steward\'s own row says "a steward" and has no eye', plain);
         await shot('stewards-eye-in-a');
 
-        await panelB.locator(eyeOf(X.id)).first().hover();
+        /* Window B is behind A: on macOS and Windows a window behind another gets no animation frames, so Playwright's wait
+           for the element to stand still never ends there. The hover goes ahead without it; the check after it is what
+           says the list of stewards came up. */
+        await panelB.locator(eyeOf(X.id)).first().hover({ force: true });
         const named = await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown && e; }, 5000, 200);
         check(!!named && named.names.length === 1 && named.names[0].to === SA.id && named.names[0].name.includes(SA.title.slice(0, 20)),
           'hovered, the eye in B\'s panel lists the other steward by name', named || await eyesIn(panelB, X.id));
@@ -4101,9 +4104,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         /* Clicking a name brings that steward's conversation to the front in its window. */
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
-        await panelB.locator(eyeOf(X.id)).first().hover();
+        await panelB.locator(eyeOf(X.id)).first().hover({ force: true });
         await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown; }, 5000, 200);
-        await panelB.locator(`${eyeOf(X.id)} .pop a[data-open="${SA.id}"]`).first().click();
+        await panelB.locator(`${eyeOf(X.id)} .pop a[data-open="${SA.id}"]`).first().click({ force: true });
         const upInA = await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label.replace(TRAILING_MARKS, ''), SA.title)), 20000, 300);
         const copyInB = (await inB(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)}).map((t) => t.label);`))
           .some((l) => titled(l.replace(TRAILING_MARKS, ''), SA.title));
