@@ -14767,6 +14767,15 @@ const repo = path.join(__dirname, '..');
     list.noteSeen([S(1), 'x', S(2)], true);
     list.noteSeen([S(3)], false);
     eq(calls, [['unread', S(1), false], ['unread', S(2), false], ['unread', S(3), true]], 'what the list records as seen or unread is written to Claude Code\'s own unread marks');
+    {
+      const written = [];
+      const held = csl.create(Object.assign({}, deps, { unseen: (id) => id === S(1) || id === S(3), setUnread: (id, on) => written.push([id, on]) }));
+      held.noteSeen([S(1), S(2)], true);
+      held.noteSeen([S(3), S(4)], false);
+      eq([written, held.seenLog().map(([, id, seen]) => [id, seen])], [[[S(1), false], [S(4), true]], [[S(1), true], [S(2), true], [S(3), false], [S(4), false]]],
+        'only a mark that changes is written to Claude Code: a conversation already read, or already unread, is left alone, and every call is still logged');
+      held.dispose();
+    }
     const closed = [];
     const sub = list.onDidCloseSession((e) => closed.push(e));
     list.closed(S(1), 'sidebar'); list.closed('x'); list.closed(S(2));

@@ -353,7 +353,12 @@ function create(deps) {
         if (typeof id !== 'string' || !SESSION.test(id)) continue;
         seenLog.push([Date.now(), id, seen === true]);
         if (seenLog.length > 30) seenLog.shift();
-        try { if (deps.setUnread) deps.setUnread(id, seen !== true); } catch (_) { /* the host is not patched */ }
+        /* Only a mark that changes goes to the host. Each call there first reads all its marks back from VS Code's
+           global state, which can briefly still hold the value from before its last write; a call that changes
+           nothing would then drop a reply it marked unread a moment earlier. */
+        const on = seen !== true;
+        if (typeof deps.unseen === 'function' && safe(deps.unseen, !on, id) === on) continue;
+        try { if (deps.setUnread) deps.setUnread(id, on); } catch (_) { /* the host is not patched */ }
       }
     },
     sessionsNotice() {
