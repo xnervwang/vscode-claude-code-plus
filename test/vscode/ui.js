@@ -2640,17 +2640,21 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
            the tab checks below need it in a tab. */
         let tabbed = await claudeTabs();
         const inTab = (id) => { const t = threads.find((x) => x.id === id); return !!t && tabbed.some((x) => titled(x.label.replace(ENVELOPE, ''), t.title)); };
-        /* With none of them in a tab, the first is opened in one behind the steward's, asked for in a tab as a steward's
+        /* With none of them in a tab, one is opened in a tab behind the steward's, asked for in a tab as a steward's
            --resume asks: opened without that, Claude Code can put it in a sidebar an earlier step left with a new
-           conversation. */
+           conversation. Claude Code still shows a conversation in the sidebar while the sidebar's page holds it, as it
+           can hold the one an earlier step opened there, so one that does not come up in a tab is passed over for the
+           next. */
         if (!boxes.some(([id]) => inTab(id))) {
-          const first = threads.find((x) => x.id === boxes[0][0]);
-          if (first) {
-            await openTab(first.id);
-            await until(async () => { tabbed = await claudeTabs(); return inTab(first.id); }, 30000, 500);
-            await exec('claude-vscode.editor.open', front.id);
-            await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(TRAILING_MARKS, ''), front.title)), 20000, 300);
+          for (const [id] of boxes) {
+            const t = threads.find((x) => x.id === id);
+            if (!t) continue;
+            await openTab(t.id);
+            if (await until(async () => { tabbed = await claudeTabs(); return inTab(t.id); }, 15000, 500)) break;
+            note(`"${t.title}" stayed out of a tab when asked for one, so the steward manages another conversation`);
           }
+          await exec('claude-vscode.editor.open', front.id);
+          await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(TRAILING_MARKS, ''), front.title)), 20000, 300);
         }
         const chosen = (boxes.find(([id]) => inTab(id)) || boxes[0])[0];
         check(inTab(chosen), 'the conversation the steward will manage has an editor tab here', { chosen, tabs: tabbed.map((x) => x.label) });
