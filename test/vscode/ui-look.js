@@ -1303,13 +1303,19 @@ const STEPS = [
       + 'is readable; boxes line up with their rows.',
     unchanged: 'The side bar shows Claude Code\'s own session list as before.',
     act: async (d) => {
-      for (const t of d.threads.slice(1)) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
+      /* The panel lists the conversations that have a process, and a tab starts one only once its page has loaded: a tab
+         opened and at once put behind another may never load. */
+      const others = d.threads.slice(1);
+      for (const t of others) await thread(d, t);
       await d.exec('claude-vscode.editor.open', d.sid);
       await d.sleep(1500);
       await d.exec('workbench.view.extension.claudeCodePlusSteward');
       const frame = await d.frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
       if (!frame) throw new Error('the Steward panel did not open in 30 s');
-      await d.until(() => frame.evaluate(() => document.querySelectorAll('input[data-id]').length > 0), 40000, 1000);
+      const listed = () => frame.evaluate((ids) => ids.filter((id) => !!document.querySelector(`input[data-id="${id}"]`)), others.map((t) => t.id)).catch(() => []);
+      if (!await d.until(async () => (await listed()).length === others.length, 60000, 1000)) {
+        throw new Error(`the Steward panel lists ${JSON.stringify(await listed())} of ${JSON.stringify(others.map((t) => t.id))} in 60 s`);
+      }
       d.steward = frame;
       await d.away();
       return d.part('workbench.parts.panel');
