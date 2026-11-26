@@ -282,6 +282,16 @@ function senderOf(text) {
   return m ? { steward: m[2].toLowerCase(), title: m[1] || '' } : null;
 }
 const withFrom = (steward, title, text) => fromLine(steward, title) + '\n' + text;
+/* `text` after the line a steward's message starts with, or `text` itself when it does not start with one; '' when it
+   is that line alone or is cut short inside it. Claude Code titles a conversation with its first message until it has
+   a better title, which for one a steward started is that line. */
+const FROM_LEAD = /^\s*Sent by the steward (?:"[\s\S]*?" )?\([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\) for the user:/i;
+function withoutFrom(text) {
+  const s = String(text || '');
+  if (!s.replace(/^\s+/, '').startsWith(FROM_HEAD)) return s;
+  const m = FROM_LEAD.exec(s);
+  return m ? s.slice(m[0].length).replace(/^\s+/, '') : '';
+}
 
 /* Records of typed text are kept under this hash, which ignores whitespace as the transcript check (src/sent-check.js)
    does when it compares a message. */
@@ -370,4 +380,4 @@ function post(address, text, { from = 'claude-code-plus', timeoutMs = POST_TIMEO
 }
 
 module.exports = { read, setManaged, rename, migrate, newer, settle, entriesOf, isSteward, manages, stewardsOf, byUser, changes, noticeText, post,
-  fromLine, senderOf, withFrom, textHash, FILE, VERSION, MAX_MANAGED };
+  fromLine, senderOf, withFrom, withoutFrom, textHash, FILE, VERSION, MAX_MANAGED };

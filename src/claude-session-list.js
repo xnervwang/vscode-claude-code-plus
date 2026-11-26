@@ -22,6 +22,7 @@ const path = require('path');
 const { projectFolders, projectsDir, filedUnder, SESSION } = require('./claude-files');
 const bgSessions = require('./bgsessions');
 const titleMarks = require('./title-marks');
+const { withoutFrom } = require('./stewards');
 
 const HEAD_BYTES = 65536;
 const TAIL_BYTES = 256 * 1024;
@@ -46,7 +47,7 @@ const textOf = (rec) => {
 const isTyped = (rec) => isMessage(rec) && rec.type === 'user' && rec.toolUseResult === undefined && !!textOf(rec).trim();
 /* The text of a user record's message, for a conversation with no title yet. */
 function promptOf(rec) {
-  const line = String(textOf(rec) || '').replace(/<[^>]+>[^<]*<\/[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const line = withoutFrom(String(textOf(rec) || '')).replace(/<[^>]+>[^<]*<\/[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   return line.length > MAX_PROMPT ? line.slice(0, MAX_PROMPT - 1) + '\u2026' : line;
 }
 const parse = (l) => { try { return JSON.parse(l); } catch (_) { return null; } };

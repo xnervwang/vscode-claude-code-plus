@@ -135,11 +135,13 @@
   };
 
   /* Switched off, an image shows as its alt text and path, so that what the reply pointed to is not lost behind Claude
-     Code's "[Image]". */
+     Code's "[Image]". They sit in the box a note about an image uses, so that they do not read as part of the text. */
   var imgText = function(h, src, alt){
     var path = IMG_DATA.test(src) ? '' : src;
-    return h('span', { title: path, children: [alt || (path ? '' : 'image'),
-      path ? h('code', { children: [(alt ? ' ' : '') + path] }) : null] });
+    return h('span', { style: IMG_BOX, title: path, children: [
+      h('span', { style: { display: 'block' }, children: [alt || 'Image'] }),
+      path ? h('span', { style: { display: 'block', color: IMG_DIM, wordBreak: 'break-all', fontFamily: 'var(--vscode-editor-font-family, monospace)' },
+        children: [path] }) : null] });
   };
 
   // Asked by the link filter whether to keep an image address it would otherwise empty. Web addresses it keeps itself.

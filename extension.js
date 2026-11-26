@@ -1107,7 +1107,7 @@ function start(context, log, renamed, handing = false) {
     changed: () => redrawStewards(),
     focusWindow: () => focusThisWindow(),
     deliver: (sessionId, text) => claude.source.deliverAnswer(sessionId, text, {}),
-    pageAt: () => pageAt, duplicates: () => dupGroups, stopDuplicate, otherFront: () => otherFront,
+    pageAt: () => pageAt, duplicates: () => dupGroups, rereadDuplicates: () => readDuplicates(), stopDuplicate, otherFront: () => otherFront,
     rename: renameConversation, close: closeConversation, open: openConversation,
     windowName: () => vscode.workspace.name || '', windowFolders: () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath),
   });
@@ -1620,6 +1620,13 @@ function start(context, log, renamed, handing = false) {
       claude.track(panel, sessionId);
       const title = tabdot.withoutMark(panel.title);
       if (panel.title !== title) panel.title = title;
+      /* A conversation a steward started is titled with the steward's line until it has a title of its own: the tab shows
+         the user's words after that line instead, from the title or, when it is cut short there, the first message. */
+      if (typeof sessionId === 'string' && sessionId && stewards.withoutFrom(panel.title) !== panel.title) {
+        const words = stewards.withoutFrom(panel.title)
+          || ((readTitles.file(sessionId) && claudeSessionList.summarize(readTitles.file(sessionId))) || {}).firstPrompt || '';
+        if (words && panel.title !== words) panel.title = words;
+      }
       if (typeof sessionId === 'string' && sessionId) {
         const on = enabled() && !removed();
         const t = on ? stewardTable()[sessionId.toLowerCase()] : null, unseen = on && unread === true;

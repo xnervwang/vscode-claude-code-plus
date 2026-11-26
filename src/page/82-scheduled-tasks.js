@@ -132,7 +132,8 @@
     // A column that scrolls would otherwise squeeze its items, down to nothing for an item that clips its overflow.
     MAP_BOX + '>*,' + MAP_NODE + '>*,' + MAP_BOX + '>[data-cce-map]>*{flex-shrink:0}',
     MAP_BOX + '>[data-cce-map]>[data-cce-map-me]{display:block;order:1}',
-    MAP_NODE + '>[class*="rowMain_"]{order:2;position:relative;max-width:100%}',
+    // Claude Code draws its own row 20px wider than the rest; in one column with the other cards it takes their width.
+    MAP_NODE + '>[class*="rowMain_"]{order:2;position:relative;width:300px;max-width:100%}',
     MAP_NODE + '>[class*="rowMain_"]::after,' + MAP_KIDS + '::before,' + MAP_KIDS + '>[class*="child_"]::before,'
       + MAP_KIDS + '>[class*="child_"]::after{display:none}',
     MAP_BOX + '>[class*="subtitle_"]{order:3}',

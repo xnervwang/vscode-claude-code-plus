@@ -9088,6 +9088,17 @@ console.log('\nthe Steward panel');
         && lines[4] === `Sent by the steward (${S(1)}) for the user:` && named[4] && named[4].title === '') {
       ok('the line a steward\'s message starts with carries its title without a bell, with or without the emoji variation selector, a crown or an envelope, and names no title when only marks are stored');
     } else bad(`the lines a steward's message starts with: ${JSON.stringify(lines)}`);
+    /* What a conversation a steward started is titled with before it has a title of its own. */
+    const asked = 'Start a new piece of work: list the scripts in the repository.';
+    const stripped = [st.withFrom(S(1), 'CSV export and budgets', asked), `${st.fromLine(S(1), '')} ${asked}`, 'Sent by the steward "CSV export and bud',
+      st.fromLine(S(1), 'CSV export and budgets'), asked, `Asked: ${st.fromLine(S(1), 'x')}`].map((x) => st.withoutFrom(x));
+    const tFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-from-')), `${S(7)}.jsonl`);
+    fs.writeFileSync(tFile, [{ type: 'user', message: { role: 'user', content: st.withFrom(S(1), 'CSV export and budgets', asked) }, sessionId: S(7), timestamp: new Date().toISOString(), cwd: os.tmpdir() }]
+      .map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const firstPrompt = require('../src/claude-session-list').summarize(tFile).firstPrompt;
+    if (JSON.stringify(stripped) === JSON.stringify([asked, asked, '', '', asked, `Asked: ${st.fromLine(S(1), 'x')}`]) && firstPrompt === asked) {
+      ok('a conversation a steward started shows the user\'s words after the steward\'s line until it has a title, nothing for a line cut short or alone, and text that only contains such a line as it is');
+    } else bad(`the steward's line taken off a title: ${JSON.stringify([stripped, firstPrompt])}`);
     const sockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-sk-'));
     // A Unix socket elsewhere, a named pipe on Windows; post() is told it is not on Windows so that it connects.
     const sock = process.platform === 'win32' ? '\\\\.\\pipe\\' + path.basename(sockDir) : path.join(sockDir, 's.sock');
@@ -9238,7 +9249,7 @@ console.log('\nthe Steward panel');
     else {
       const names = (h) => [...h.matchAll(/class="name" data-open="([^"]+)"/g)].map((m) => m[1]);
       if (JSON.stringify(names(out.first).sort()) === JSON.stringify([S(2), S(3), S(6)].sort()) && !/type="checkbox"[^>]*\bchecked\b/.test(out.first)
-          && out.first.includes('Managed by <b>steward-ab</b>: 0')) {
+          && out.first.replace(/<[^>]*>/g, '').includes('Managed by steward-ab: 0')) {
         ok('the panel lists the other conversations open in a window, none ticked, leaving out the one in front, bg sessions, claude -p workers and any open in no window');
       } else bad(`the first panel listed ${JSON.stringify(names(out.first))}: ${out.first.slice(0, 300)}`);
       const mine = out.ticked[S(1)];
@@ -14011,8 +14022,13 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
       rows: [row({ sessionId: 's', title: 'Other steward', steward: true }), row({ sessionId: 'p', title: 'Plain' })] }], hidden: 0, every: false });
     const shownNames = [...html.matchAll(/<a [^>]*class="name"[^>]*>([^<]*)<\/a>/g)].map((m) => m[1]);
     const free = svBody({ front: { id: 'f', title: 'Not yet' }, managed: 0, rows: [], groups: [], hidden: 0, every: false });
-    if (JSON.stringify(shownNames) === JSON.stringify(['Other steward \u{1F451}', 'Plain']) && html.includes('Managed by <b>Many conversations \u{1F451}</b>: 1')
-        && free.includes('Managed by <b>Not yet</b>: 0')) {
+    /* The header's text, and the title in it: on one line, the title cut short first and its crown kept. */
+    const headText = (h) => ((/<span class="who">([\s\S]*?)<\/span><\/span>/.exec(h) || [])[1] || '').replace(/<[^>]*>/g, '');
+    const headTitle = (h) => ((/<b>([\s\S]*?)<\/b>/.exec(h) || [])[1] || '').replace(/<[^>]*>/g, '');
+    if (JSON.stringify(shownNames) === JSON.stringify(['Other steward \u{1F451}', 'Plain'])
+        && headText(html) === 'Managed by Many conversations \u{1F451}: 1' && headTitle(html) === 'Many conversations \u{1F451}'
+        && /<span class="t">Many conversations<\/span><span class="crown"> \u{1F451}<\/span>/u.test(html)
+        && headText(free) === 'Managed by Not yet: 0' && !free.includes('class="crown"')) {
       ok('the Steward panel draws one crown after a steward\'s title, in its rows and in its header, and none with a conversation that manages nothing');
     } else bad(`steward panel names ${JSON.stringify(shownNames)} / ${html.slice(0, 200)} / ${free.slice(0, 120)}`);
     const extText = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');

@@ -308,12 +308,13 @@ function body(model) {
   }
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
-    : `<div class="head"><span>Managed by <b>${esc(titleMarks.withMarks(model.front.title, { steward: !!(model.managed || model.every || model.later) }))}</b>: ${model.managed}</span>
+    : `<div class="head"><span class="who"><span>Managed by </span><b><span class="t">${esc(titleMarks.withoutMarks(model.front.title))}</span>${
+        model.managed || model.every || model.later ? `<span class="crown"> ${titleMarks.CROWN}</span>` : ''}</b><span>: ${model.managed}</span></span>
          <label class="every" title="Ticks every conversation listed and every one opened later. Stewards are never ticked.">
            <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''}> All, including new ones</label>
          <label class="every" title="Ticks every conversation that starts from now on, except stewards. Conversations open now keep their ticks.">
            <input type="checkbox" data-later="1" ${model.later ? 'checked' : ''}> New conversations</label>
-         <button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></div>${stale}${away}
+         <span class="acts"><button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></span></div>${stale}${away}
        ${model.groups.length ? model.groups.map(group).join('') : '<p class="empty">No other conversation is open in a VS Code window.</p>'}`;
 }
 
@@ -327,7 +328,13 @@ function shell(list, nonce) {
 <style nonce="${nonce}">
   body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); padding: 4px 8px; }
   .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 6px; }
-  .head > span:first-child { flex: 1 1 14em; min-width: 0; opacity: 0.85; }
+  /* One line however narrow the panel: the steward's title gives way, its crown and the count stay. */
+  .who { display: flex; align-items: baseline; flex: 1 1 14em; min-width: 0; white-space: nowrap; opacity: 0.85; }
+  .who > span:first-child, .who .crown { white-space: pre; }
+  .who b { display: inline-flex; min-width: 0; }
+  .who .t { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .who .crown { flex: 0 0 auto; }
+  .acts { display: inline-flex; gap: 8px; flex: 0 0 auto; }
   .head button { flex: 0 0 auto; white-space: nowrap; }
   button { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 2px 8px; cursor: pointer; }
   button:hover { background: var(--vscode-button-secondaryHoverBackground); }
@@ -337,7 +344,8 @@ function shell(list, nonce) {
   input:disabled { pointer-events: none; }
   .box { display: inline-flex; }
   .by { flex: 0 1 auto; min-width: 0; max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.8; }
-  .eyes { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; color: var(--vscode-descriptionForeground); cursor: default; }
+  /* As faint as the time beside it (.when) in every theme; the list it opens keeps its own colours. */
+  .eyes { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; color: color-mix(in srgb, var(--vscode-foreground) 60%, transparent); cursor: default; }
   .eyes .pop { display: none; position: absolute; right: 0; top: 100%; z-index: 10; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 4px;
     white-space: nowrap; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
     border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #454545)); color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground, #ccc)); }
@@ -429,8 +437,8 @@ function shell(list, nonce) {
  * input here (src/relay.js), rename(id, title), close(id, confirmed), open(folder, text) and resume(id, text) for a
  * steward's other requests (src/relay.js), with agentsFresh() -> Promise<{ records, error }> from a fresh
  * `claude agents --json` before a resume, readState(id) for a `claude --bg` session's state (src/background.js),
- * duplicates() for the conversations run by several processes and stopDuplicate(id) to stop the old one
- * (src/duplicates.js), pageAt() for the time of a page's last heartbeat, otherFront() -> { agent, title, manageable }
+ * duplicates() for the conversations run by several processes, rereadDuplicates() to read them again and
+ * stopDuplicate(id) to stop the old one (src/duplicates.js), pageAt() for the time of a page's last heartbeat, otherFront() -> { agent, title, manageable }
  * while another agent's conversation tab is in front (src/other-agents.js), or null, and optionally openOther(target)
  * and otherStates(). The agentPlus interface comes through attachCore() once this extension is registered with Agent
  * Plus.
@@ -980,6 +988,18 @@ function create(vscode, deps) {
       const p = deps.stopDuplicate ? deps.stopDuplicate(m.id) : null;
       vscode.window.showInformationMessage(p ? `Stopped process ${p.pid} of that conversation.`
         : 'That conversation is no longer run by more than one process, or its old process could not be stopped.');
+      /* The row says two processes until the list is read again, which is otherwise up to the next poll: it is read every
+         half second until the stopped one has left it, for five seconds at most. */
+      if (p && deps.rereadDuplicates) {
+        let tries = 0;
+        const again = () => {
+          try { deps.rereadDuplicates(); } catch (_) { /* the next poll reads it */ }
+          render();
+          const group = deps.duplicates ? deps.duplicates().get(m.id) : null;
+          if (group && group.some((x) => x && x.pid === p.pid) && ++tries < 10) setTimeout(again, 500);
+        };
+        setTimeout(again, 300);
+      }
       return;
     }
     if (m && m.type === 'open' && typeof m.id === 'string') {
