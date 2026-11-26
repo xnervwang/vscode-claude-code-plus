@@ -1041,6 +1041,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       } finally { await setOwnList(null); }
       const back = await until(async () => (await icons()) === before, 15000, 300);
       check(!!back, 'and turned off again, it is back', await icons());
+      /* Hiding the view disposed its page, so the steps after this one get the page the list opens again. */
+      list = null;
+      await openList().catch(() => null);
+      check(!!list, 'and its list opens again, with a new page', null);
     });
 
     const tab0 = threads[0];
