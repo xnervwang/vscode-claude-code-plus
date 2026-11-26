@@ -221,7 +221,7 @@
           "type": "number",
           "default": 14,
           "minimum": 1,
-          "markdownDescription": "Days a conversation kept from Claude Code's transcript cleanup stays safe while no VS Code window with this extension connects to the machine that holds its transcript. These are the conversations Agent Plus's session list will not delete yet, and those pinned with an earlier version. After each refresh their files are this many days, or at most one day more, short of `cleanupPeriodDays` (Claude Code's setting, 30 days by default). A value above half of `cleanupPeriodDays` counts as half."
+          "markdownDescription": "How many days Claude Code's transcript cleanup leaves some conversations alone. The margin holds while no VS Code window with this extension connects to the machine that stores their transcripts. These are the conversations Agent Plus's session list will not delete yet, and those pinned with an earlier version. After each refresh their files are this many days, or at most one day more, short of `cleanupPeriodDays` (Claude Code's setting, 30 days by default). A value above half of `cleanupPeriodDays` counts as half."
         },
         "claudeCodePlus.show.footerInfo": {
           "type": "boolean",
@@ -286,7 +286,7 @@
         "claudeCodePlus.hideOfficialSessionList": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Hide Claude Code's own session list and its icon in the Activity Bar, since Agent Plus lists the same conversations. The Session history at the top of a conversation stays. Turned off, the list is shown again. Takes effect without a reload."
+          "markdownDescription": "Hide Claude Code's own session list and its icon in the Activity Bar, since Agent Plus lists the same conversations. Session history at the top of a conversation stays visible, and turning this setting off shows Claude Code's list again. Takes effect without a reload."
         },
         "claudeCodePlus.workPlan": {
           "scope": "application",

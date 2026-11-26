@@ -62,11 +62,11 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 
 | Feature | What it does |
 | --- | --- |
-| [Agent Plus's session list](docs/features.md#in-the-session-list) | This folder's Claude Code conversations appear in Agent Plus's session list beside the other agents' ones; open, rename, archive, group, pin and delete them there. |
-| [Where else a conversation is open](docs/features.md#in-the-session-list) | A conversation a terminal, a `claude --bg` job or Claude Desktop has open is dimmed, and its hover says where. |
-| [The figures of the conversation in front](docs/features.md#in-the-session-list) | Account & usage shows the estimated cost, API time, time since it started and lines changed of the Claude Code conversation in front. |
+| [Agent Plus's session list](docs/features.md#in-the-session-list) | Agent Plus's session list shows this folder's Claude Code conversations alongside conversations from other agents; you can open, rename, archive, group, pin and delete Claude Code conversations there. |
+| [Where else a conversation is open](docs/features.md#in-the-session-list) | If a conversation is open in a terminal, a `claude --bg` job or Claude Desktop, its row is dimmed; hover over the row to see where it is open. |
+| [Conversation metrics](docs/features.md#in-the-session-list) | Account & usage, at the top of Agent Plus's session list, shows estimated cost, API time, time since the conversation started and lines changed for the Claude Code conversation in this window's active editor tab or sidebar. |
 | [Kept from Claude Code's cleanup](docs/features.md#in-the-session-list) | Claude Code's transcript cleanup does not delete a conversation before Agent Plus's list would. |
-| [Claude Code's own list hidden](docs/features.md#in-the-session-list) | Turn on `claudeCodePlus.hideOfficialSessionList` to take Claude Code's own session list out of the Activity Bar. |
+| [Hiding Claude Code's own list](docs/features.md#in-the-session-list) | Turn on `claudeCodePlus.hideOfficialSessionList` to take Claude Code's own session list out of the Activity Bar. |
 | [Background sessions left out](docs/features.md#in-the-session-list) | Claude Code's own list skips sessions started with `claude --bg` or `claude -p` (see [Background work](#background-work)), and empty transcripts. |
 | [Not in Agent Plus's list](docs/features.md#in-the-session-list) | Claude Code's Web tab and the claude.ai subscription bars, which need a claude.ai sign-in, are only in Claude Code's own list. |
 
@@ -77,7 +77,7 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 | --- | --- |
 | [Status dots](docs/features.md#on-editor-tabs) | A dot at the top right of a Claude Code tab's logo is solid green while a turn runs, a green ring when only [background work](#background-work) is running, and red when the conversation waits for you. Session list rows and the [Steward panel](#steward) show the same dots. |
 | [Notices of waits](docs/features.md#on-editor-tabs) | Agent Plus notifies you in your current VS Code window when a conversation outside it is waiting for tool permission, an answer to a question, a review of the plan it made in plan mode or your choice of Continue or Stop in auto mode. Click Open to go to that conversation's window. |
-| [Unread envelope](docs/features.md#on-editor-tabs) | An envelope (✉️) appears at the end of a conversation's tab title and after its title in the Steward panel, and Agent Plus's session list marks it too, while it has a reply you have not seen. The envelope disappears when the conversation is shown. |
+| [Unread envelope](docs/features.md#on-editor-tabs) | When a conversation has a reply you have not seen, an envelope (✉️) appears at the end of its tab title and after its title in both the Steward panel and Agent Plus's session list. The envelope disappears when the conversation is shown. |
 | [Tabs back after a restart](docs/features.md#on-editor-tabs) | When the window starts, Claude Code Plus reopens Claude Code tabs that were open when it closed but that VS Code did not restore, as can happen after a lost remote connection. Tabs you closed while connected stay closed. |
 | [Load background tabs](docs/features.md#on-editor-tabs) | Turn on `claudeCodePlus.loadRestoredTabs` to load Claude Code conversations in background tabs when the window starts. By default, they load when you first click them. |
 
