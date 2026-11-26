@@ -4294,7 +4294,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const tip = counted ? await hoverText(await needEntry()) : '';
         const waits = tip.indexOf(WAITS_HEAD);
         check(!!counted && waits >= 0 && tip.slice(waits).includes(named.title) && !tip.includes(BELL),
-          'the hover of the status bar count lists it by the same name, among the conversations waiting for you', { count: counted, hover: tip, why: hoverWhy });
+          'the hover of the status bar count lists it by the same name', { count: counted, hover: tip, why: hoverWhy });
         await start('agentPlus.showAttention');
         const picks = await until(() => page.evaluate(() => {
           const q = document.querySelector('.quick-input-widget');
@@ -5956,7 +5956,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       };
       const mentions = (t, text) => { try { return fs.readFileSync(transcriptOf(t), 'utf8').split(text).length - 1; } catch (_) { return 0; } };
       const inFront = async (t) => !!(await claudeTabs()).find((x) => x.active && titled(x.label.replace(TRAILING_MARKS, ''), t.title));
-      /* Agent Plus's notification when the text did not reach the message input, and it put it on the clipboard. */
+      /* Agent Plus's notification that the text did not reach the message input and is on the clipboard instead. */
       const copied = async () => (await notificationItems(page, '.notifications-toasts'))
         .filter((n) => /could not put it in the conversation's message box|could not tell whether it reached the conversation's message box/.test(n.text));
       const closeTab = (t) => call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)} && x.label.startsWith(arg));
@@ -5971,7 +5971,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         conv = await conversation(tab0, 30000) || conv;
         await clearInput(conv);
         writePlan(tab0, ['Port the parser', 'Write the tests', 'Document the flags']);
-        check(!!await showPlan(tab0, '1. Port the parser'), 'the Work plan view shows the conversation\'s plan, with a pen on its rows', await planRows());
+        check(!!await showPlan(tab0, '1. Port the parser'), 'the conversation\'s plan is in the Work plan view, with a pen on its rows', await planRows());
         const sentBefore = mentions(tab0, 'About row ');
 
         /* An empty input, the tab behind another editor. */

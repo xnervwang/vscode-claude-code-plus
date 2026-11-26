@@ -13768,8 +13768,7 @@ console.log('\nClaude Code\'s own source');
     } else bad(`a draft in the input: ${JSON.stringify([q.ownDraft, q.userDraft])}`);
 
     /* prefill(), Agent Plus's pen on a Work plan row, against a stand-in panel that answers each prefill as the case
-       says, once when it is handed the text and once when it is told to go. The waits are cut short through
-       prefillTimes. */
+       says. The waits are cut short through prefillTimes. */
     const prefillScript = `
       const Module = require('module'), realResolve = Module._resolveFilename;
       Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };

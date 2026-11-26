@@ -322,9 +322,9 @@ const seenWorking = (d, id) => attentionHas(d, id, (x) => x.activity === 'workin
 const seenUnread = (d, id) => attentionHas(d, id, (x) => x.activity === 'stopped' && !!x.unseen);
 /* How long Agent Plus can take to see a conversation's new activity: two of its 30 s refreshes (ui.js says why). */
 const SEEN_MS = 60000;
-/* The status bar box of Agent Plus's Conversations entry, or null when the entry counts no conversation waiting for you
-   to approve something or answer. VS Code puts the entry's hover after its text in its aria-label; the conversations
-   waiting for you are its last group, under the line below, with "and N more" after the tenth. */
+/* The status bar box of Agent Plus's Conversations entry. VS Code puts the entry's hover after its text in its
+   aria-label; the conversations waiting for you are its last group, under the line below, with "and N more" after the
+   tenth. */
 const needCountBox = (d) => d.page.evaluate((head) => {
   const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
   const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(head);
