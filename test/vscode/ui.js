@@ -217,7 +217,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     return [lines[0], ...calls.slice(0, 2), ...(calls.length > 8 ? ['...'] : []), ...calls.slice(Math.max(2, calls.length - 6))].join(' | ');
   };
   /* What each page of the window held when a step failed: its address, its text and its markup, so that a failure on a
-     machine of the CI can be read without running it again. */
+     CI machine can be read without running it again. */
   const pagesDir = path.join(out, 'pages');
   const savePages = async (name) => {
     const at = path.join(pagesDir, name.replace(/\W+/g, '-'));
@@ -678,7 +678,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     await showSl();
     return readSl();
   };
-  /* A conversation's row outside Recently closed, which shows a conversation again. */
+  /* A conversation's row, skipping Recently closed, where the conversation can appear a second time. */
   const slFind = (rows, t) => (rows || []).find((r) => r.title === t.title && r.section !== 'closed');
   const slRow = async (t) => slFind(await slRows().catch(() => null), t) || null;
   const slRowAt = (t) => sl.locator('.sl-section:not([data-key="closed"]) .sl-row').filter({ has: sl.locator('.sl-title', { hasText: t.title }) }).first();
@@ -872,7 +872,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }, 30000, 500);
       check(!!listed, `it lists the ${threads.length} fake conversations by their titles`, listed || undefined);
       const ours = await list.evaluate(() => document.querySelectorAll('[data-cce-pin], [data-cce-section], [data-cce-new-session], [data-cce-envelope]').length);
-      check(ours === 0, 'and this extension draws nothing in it: Agent Plus\'s session list is where it adds to the list', ours);
+      check(ours === 0, 'and this extension draws nothing in it; its additions are in Agent Plus\'s session list', ours);
       await page.mouse.move(5, 880);
       await sleep(300);
       await shot('session-list');
@@ -1149,7 +1149,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         fs.writeFileSync(record, JSON.stringify({ pid: child.pid, sessionId: other.id, cwd: profile.folder, startedAt: Date.now() - 125000,
           procStart, entrypoint: 'cli', kind: 'interactive', status: 'idle' }));
         const away = await until(async () => { const r = await rows().catch(() => null); const x = find(r, other.title); return x && x.stripe === 'elsewhere' && x; }, 20000, 500);
-        check(!!away && away.dim, 'a conversation a terminal has open, as Claude Code\'s record of that process says, gets the outlined stripe and is dimmed', away || find(await rows(), other.title));
+        check(!!away && away.dim, 'a conversation that Claude Code\'s records show open in a terminal gets the outlined stripe and is dimmed', away || find(await rows(), other.title));
         if (away) {
           /* The list keeps a hover box it is showing as it was while the pointer stays on its row, and the question going
              away moved the rows under the pointer; so another row is hovered first. */

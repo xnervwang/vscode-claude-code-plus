@@ -7889,7 +7889,7 @@ console.log('\nconversations kept from Claude Code\'s cleanup');
     } else bad(`gone with nothing found: ${JSON.stringify(k.empty.gone)}; with a folder unreadable: ${JSON.stringify(k.partial.gone)}`);
     if (JSON.stringify(k.listedAges) === JSON.stringify([75, 100, 75, 100, 10, 75]) && JSON.stringify(k.asked) === '["1","2","3","4"]'
         && k.listed.kept === 2 && k.listed.touched === 3 && JSON.stringify(k.listed.updates) === '{}' && !k.listed.gone.length && k.noDue === null) {
-      ok('with Agent Plus\'s session list, a conversation it keeps is moved like a pinned one, with its tool outputs, unless the list deletes it within the margin or it is a background run; only files old enough to move are asked about, and no real time is recorded for them');
+      ok('with Agent Plus\'s session list, a conversation it keeps is moved like a pinned one, with its tool outputs, but not one the list deletes within the margin, nor a background run; the list is asked only about files old enough to move, and no real time is recorded for them');
     } else bad(`keeping the session list's conversations: ages ${JSON.stringify(k.listedAges)}, asked ${JSON.stringify(k.asked)}, ${JSON.stringify(k.listed)}`);
   }
   const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
@@ -8089,7 +8089,8 @@ console.log('\ntabs VS Code did not restore');
     else bad(`refreshing tab icons reached ${JSON.stringify(asked)}`);
   }
   if (!r.error) {
-    /* Claude Code's own archive and groups for the session list's import, and the reopen key worked out again. */
+    /* The host edit that hands over Claude Code's archived conversations and groups for the session list's import, and
+       has the reopen key worked out again. */
     const env = { again: 0 };
     env.globalThis = env;
     vm.createContext(env);
@@ -13068,7 +13069,7 @@ console.log('\nClaude Code\'s own source');
         'the source hands each session list call to the list\'s members as it came');
       eq([l.before, l.states, l.changed], [[null, { activity: 'working' }],
         [{ activity: 'waiting', waitingFor: { kind: 'permission', tool: 'Bash' } }, { activity: 'working' }, null, null], 1],
-        'a row\'s state is what runs by the latest list of running conversations, or a panel here that shows it, and nothing for one that does not run; a change of states tells the list too');
+        'a row\'s state is what runs by the latest list of running conversations, or a panel here that shows it, and nothing for one that does not run; the list is told when the states change');
     }
     {
       const A = { sourceId: 'claude-code', sessionId: 'cdcdcdcd-1111-4222-8333-444444444444' }, B = { sourceId: 'claude-code', sessionId: 'cdcdcdcd-1111-4222-8333-444444444445' };
@@ -13524,7 +13525,7 @@ const eqWait = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.str
       + 'and shows() answers for a panel of this window');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
   {
-    /* listConversations and freshAgents each read claude agents; the read that started first returns last, older. */
+    /* listConversations and freshAgents each read claude agents; the read that started first returns last, with an older list. */
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-agents-order-'));
     const stub = path.join(dir, 'vscode-stub.js');
     fs.writeFileSync(stub, `module.exports = { TabInputWebview: class { constructor(v) { this.viewType = v; } } };`);
@@ -14720,7 +14721,7 @@ const repo = path.join(__dirname, '..');
     const failing = csl.create(Object.assign({}, deps, { remove: async () => { throw new Error('disk'); }, describe: async () => { throw new Error('disk'); } }));
     eq([(await failing.runSessionAction('delete', [S(1)])).results, await failing.describeDeletion([S(1)]), await list.describeDeletion([S(1)])],
       [[{ sessionId: S(1), outcome: 'failed', reason: 'disk' }], [], [{ sessionId: S(1), what: '1 transcript (2 KB)' }]],
-      'a delete that throws fails for each conversation, and a description that throws gives none');
+      'when the delete throws, it fails for every conversation; when the description throws, none is given');
     eq(await list.importSessions({ folders: [folder] }),
       { archived: [{ sessionId: S(1) }], groups: [{ name: 'Lexer', sessionIds: [S(1)] }], pinned: [S(2)], colors: { [S(1)]: 'red' } },
       'the import keeps only this project\'s conversations, and drops a group left with none or with no name');
@@ -14797,7 +14798,7 @@ const repo = path.join(__dirname, '..');
     const none = [noted.sessionsNotice(), csl.create(Object.assign({}, deps, { notice: () => { throw new Error('x'); } })).sessionsNotice(), list.sessionsNotice()];
     noted.noticeChanged();
     eq([long.text.length, long.actions.length, none, notes], [300, 3, [null, null, null], 1],
-      'the note above the list is cut to the protocol\'s limits, is nothing when there is none or reading it fails, and a change of it is told');
+      'the note above the list is cut to the protocol\'s limits and left out when there is none or reading it fails; a change to it is reported');
     list.dispose();
 
     /* A conversation no process has open, renamed the way Claude Code's own rename does it. */

@@ -180,8 +180,8 @@ async function sessionList(d) {
 /* Conversation `id`'s row in Claude Code's own list: the row's element id ends in the session id. */
 const listRow = (list, id) => list.locator(`[class*="sessionItem_"][id$="${id}"]`).first();
 
-/* Agent Plus's session list in the side bar, which lists Claude Code's conversations through this extension
-   (src/claude-session-list.js), found again each time like Claude Code's own. */
+/* Opens Agent Plus's session list in the side bar, where this extension lists Claude Code's conversations
+   (src/claude-session-list.js), and finds its page again each time, as for Claude Code's own list. */
 async function agentList(d) {
   await d.exec('workbench.view.extension.agentPlusSessions');
   const list = await d.frameWhere(() => !!document.querySelector('.sl-root .sl-new'), 30000);
@@ -1146,7 +1146,7 @@ const STEPS = [
     unchanged: 'The rows are those of the picture before, moved up where the note was.',
     act: async (d) => {
       const list = await agentList(d);
-      /* Run on its own, this step answers the question the step before shows. */
+      /* The step before answers the question; when this step runs without it, it answers the question itself. */
       if (await listQuestion(list)) {
         await list.locator('.sl-notice .sl-note-btn').filter({ hasText: 'Keep It' }).first().click();
         await d.until(async () => !(await listQuestion(list)), 10000, 300);
