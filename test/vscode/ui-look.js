@@ -1543,7 +1543,9 @@ const STEPS = [
         + 'and at its far right end, after the time, stands a small eye with the number 1 beside it, drawn in a lighter grey than the row\'s text and about '
         + 'as tall as the text. No row names a steward after its title. The "All, including new ones" and "New conversations" switches at the top '
         + 'right are both unticked and not greyed. The mouse is away; nothing overlaps.',
-      unchanged: tone === 'light' ? null : 'The editor and the tab bar are as before.',
+      unchanged: tone === 'light' ? null : 'The side bar is as before, and the tab bar has the same tabs; the demo conversation is '
+        + 'in front now, and "Why does the nightly export skip archived rows?", made a steward by this step, has a crown after its '
+        + 'title.',
       act: async (d) => {
         if (tone === 'light') { await theme(d, 'Default Light Modern'); await d.sleep(2500); }
         const frame = await severalPanel(d);
@@ -2596,7 +2598,8 @@ const STEPS = [
     expect: 'The token mode is now Interface features. The information box opened from the footer\'s info button has a Token '
       + 'mode row that says Interface features, and in the whole-window picture Agent Plus\'s token mode entry at the right of '
       + 'the status bar says Interface: the two name the same mode. The rows are aligned, readable and inside the panel.',
-    unchanged: 'The conversation behind the box is as before.',
+    unchanged: 'The side bar and the tab bar\'s tabs are as before; the demo conversation, whose box this is, is the one in front '
+      + 'now.',
     act: async (d) => {
       await modeTo(d, 'interface');
       await demoAt(d, BUDGET);
@@ -2698,9 +2701,12 @@ const STEPS = [
     name: 'conversation-again', features: ['timestamps', 'reply-figures', 'self-check'],
     expect: 'The demo conversation at the same place as in the first step\'s picture (conversation.jpg), minutes later, with '
       + 'tool rows shown. Everything that step\'s expect lists is there: a time on every row, start->end on each tool row on a '
-      + 'line of its own above the tool\'s name, and the figures on the first row of each reply. Anything that differs from '
-      + 'the first picture apart from the times on tool rows is a finding.',
-    unchanged: 'The tab bar has the same tabs as before.',
+      + 'line of its own above the tool\'s name, and the figures on the first row of each reply. Steps in between renamed the '
+      + 'conversation and gave it replies from the fake model, so these may differ from the first picture: the title in the tab '
+      + 'and in the header ("CSV export and budgets"), the message box\'s placeholder, the chips of the footer and of the plan bar '
+      + '(which a notification may cover in the first picture), and the usage meter, which follows the latest reply. Any other '
+      + 'difference in the rows, apart from the times on tool rows, is a finding.',
+    unchanged: 'The tab bar has the same tabs as before; the side bar now shows Agent Plus\'s work plan.',
     act: async (d) => { await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1200); await demoAt(d, CSV); return d.editor(); },
   },
 
