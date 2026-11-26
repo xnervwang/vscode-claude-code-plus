@@ -2209,8 +2209,11 @@ const STEPS = [
   },
   {
     name: 'live-helper', features: ['sub-agent-tags', 'view-filter', 'agent-map'],
-    expect: 'The conversation started a helper (a sub-agent) in the background, which has answered. The helper\'s rows carry a tag '
-      + 'with its task (such as "#Look through the notes"), and a filter control has appeared in the footer.',
+    expect: 'The conversation started a helper (a sub-agent) in the background, which has finished: an Agent row "Look through the '
+      + 'notes" with the helper\'s prompt in a box and "Finished" under it, then the replies that followed. Claude Code keeps a '
+      + 'background helper\'s own messages in a transcript of their own and draws none of them in the conversation, so no row '
+      + 'here carries the tag with the helper\'s task. A filter control reading "All . 1", which counts the helper, has appeared in '
+      + 'the footer.',
     unchanged: 'Earlier messages are as before; Focus view is off.',
     act: async (d) => {
       const frame = await live(d);
@@ -2231,8 +2234,8 @@ const STEPS = [
   },
   {
     name: 'view-filter-menu', features: ['view-filter'],
-    expect: 'The footer\'s filter control has been clicked and its menu is open: All, Main thread, and one entry for the helper '
-      + 'named by its task. The menu is readable and wholly inside the panel.',
+    expect: 'The footer\'s filter control has been clicked and its menu is open: All, Main (the main thread), and one entry for '
+      + 'the helper named by its task. The menu is readable and wholly inside the panel.',
     unchanged: 'The conversation is as before.',
     act: async (d) => {
       const frame = await live(d);
@@ -2246,8 +2249,9 @@ const STEPS = [
   },
   {
     name: 'view-filter-helper', features: ['view-filter', 'sub-agent-tags'],
-    expect: 'The helper was picked in the filter: the conversation now shows only the helper\'s rows, each tagged with its task, '
-      + 'and a note or the control says that one sub-agent is shown. The main thread\'s messages are hidden.',
+    expect: 'The helper was picked in the filter: the control names it by the start of its task, and as none of the helper\'s '
+      + 'messages are drawn in this conversation (see the step that started it), a note near the top says "No messages loaded for '
+      + 'this agent." and why. The main thread\'s messages are hidden.',
     unchanged: 'The tab bar, side bar and message box are as before.',
     act: async (d) => {
       const frame = await live(d);
@@ -2274,14 +2278,15 @@ const STEPS = [
   },
   {
     name: 'off-sub-agent-tags', features: ['sub-agent-tags'], ...off('claudeCodePlus.show.subAgentTags'),
-    expect: 'All rows show again. The helper\'s rows no longer carry the tag with its task; nothing else changed.',
+    expect: 'With the tags switched off, all rows show again, as before the filter was used. No row carries the tag with the '
+      + 'helper\'s task, as none did before (see the step that started the helper); nothing else changed.',
     unchanged: 'The same rows as before the filter, in the same place.',
     area: async (d) => { const frame = await live(d); await toBottom(frame); await d.sleep(600); return d.editor(); },
   },
   {
     name: 'off-view-filter', features: ['view-filter'], ...off('claudeCodePlus.show.footerViewFilter'),
-    expect: 'The tags are back on the helper\'s rows. The filter control is gone from the footer; the other footer buttons stay, '
-      + 'without overlapping.',
+    expect: 'The tags are switched back on, and the filter control is gone from the footer; the other footer buttons stay, '
+      + 'without overlapping. No row carries a tag, as before: none of the helper\'s messages are drawn here.',
     unchanged: 'The conversation above the message box is as before.',
     area: async (d) => { const frame = await live(d); await toBottom(frame); await d.sleep(600); return d.editor(); },
   },
