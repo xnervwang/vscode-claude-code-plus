@@ -4492,7 +4492,7 @@ console.log('\nswitched off, the work plan costs nothing and keeps nothing');
       const wrong = Object.keys(want).filter((k) => cases[k] !== want[k]);
       const language = 'write it in the language you have been using with them, even though this note is in English.';
       if (first.includes('may be asking the user') && first.includes('plan-row.py') && first.trim().endsWith(language) && !wrong.length) {
-        ok('a reply that ends by asking the user, in a turn that recorded no question and while no row waits on the user, is reminded to record it; a question asked earlier on a row that is closed or waits on someone else still counts as not recorded, and the reminder ends by asking for the user\'s language');
+        ok('when a reply ends by asking the user, in a turn that recorded no question and while no row waits on the user, the agent is reminded to record the question; a question asked earlier on a row that is closed or waits on someone else still counts as not recorded, and the reminder ends by asking for the user\'s language');
       } else bad(`unrecorded question: first ${JSON.stringify(first.slice(0, 120))} ... ${JSON.stringify(first.slice(-120))}, wrong for ${wrong.join(', ')}`);
       fs.rmSync(d.dir, { recursive: true, force: true });
     }
@@ -6232,7 +6232,7 @@ console.log('\nClaude Code\'s own session list hidden on request');
     const want = [[false, 0], [true, JSON.stringify(['setContext', ol.KEY, false])], [false, 1], [true, JSON.stringify(['setContext', ol.KEY, true])],
       [false, 2], [true, false, 1]];
     if (JSON.stringify(steps) === JSON.stringify(want)) {
-      ok('the setting off from the start leaves the key alone; on, the key is set false once; off again, set back to true; leaving shows the list again only if it was hidden here, and a failed command is logged');
+      ok('with the setting off from the start the key is left alone; turning the setting on sets the key false once, and turning it off sets it back to true; when the extension stops, the list is shown again only if it was hidden here, and a failed command is logged');
     } else bad(`the official session list switch: ${JSON.stringify(steps)}`);
     const memo = () => { const m = new Map(); return { get: (k) => m.get(k), update: async (k, v) => { m.set(k, v); }, m }; };
     const notes = async (pick) => {
@@ -6251,7 +6251,7 @@ console.log('\nClaude Code\'s own session list hidden on request');
     const text = (ol.notice({ state: memo(), command: cmd }) || {}).text;
     if (JSON.stringify(got) === JSON.stringify([[buttons, 'hidden', 'asked before', 1, true, null], [buttons, 'kept', 'asked before', 0, true, null]])
         && already === null && text === ol.QUESTION && text.length <= 300) {
-      ok('whether to hide the list is asked in a note above the session list until it is answered: Hide It turns the setting on, Keep It leaves the list shown, and neither is asked again; with the list hidden already there is no note');
+      ok('a note above Agent Plus\'s session list asks whether to hide Claude Code\'s own list until one of its buttons is pressed: Hide It turns the setting on, Keep It leaves the list shown, and the note does not come back; with the list already hidden there is no note');
     } else bad(`asking whether to hide the official session list: ${JSON.stringify([got, already, text])}`);
   })().catch((e) => bad(`the official session list switch threw ${e && e.stack}`));
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
@@ -6274,7 +6274,7 @@ console.log('\nClaude Code\'s own session list hidden on request');
       && /decideWaits\(\);\s*decideReopen\(\);/.test(ext) && /affectsConfiguration\('agentPlus\.sessions'\)[^\n]*decideReopen\(\)/.test(ext),
   };
   if (Object.values(wired).every(Boolean)) {
-    ok('the session list\'s members reach Agent Plus through the Claude Code source; the figures, the closed tabs and the reopen key are wired, and whether to hide Claude Code\'s own list is asked above the list, gone once answered or once the setting is on');
+    ok('the session list\'s members reach Agent Plus through the Claude Code source; the figures, the closed tabs and the reopen key are wired, and a note above the list asks whether to hide Claude Code\'s own list until it is answered or the setting is on');
   } else bad(`the session list wiring: ${JSON.stringify(wired)}`);
 }
 
@@ -6328,7 +6328,7 @@ console.log('\nwhere else a Claude Code conversation is open');
     };
     const got = Object.fromEntries(Object.keys(want).map((n) => [n, where(Number(n))]));
     if (JSON.stringify(got) === JSON.stringify(want)) {
-      ok('a terminal is named by its tmux or screen session, as a VS Code terminal, by its device, or by the Windows terminal it runs under; a claude --bg run by its job; the desktop app and other entry points as such; a VS Code panel only when it is neither this window\'s nor listed by a window\'s file');
+      ok('a terminal is named by its tmux or screen session, as a VS Code terminal, by its device, or by the Windows terminal it runs under; a claude --bg run is named by its job, and the desktop app and other entry points by what they are; a VS Code panel is listed only when it is neither this window\'s nor listed by a window\'s file');
     } else bad(`where else conversations are open: ${JSON.stringify(got)}`);
     const d1 = one(1) && one(1).detail, d3 = one(3) && one(3).detail;
     if (JSON.stringify(d1) === JSON.stringify(['tmux pane %3', 'Device: /dev/pts/4', 'Process 101, running for 2h 5m', `Folder: ${TILDE}`])
@@ -6337,7 +6337,7 @@ console.log('\nwhere else a Claude Code conversation is open');
     } else bad(`the hover lines: ${JSON.stringify([d1, d3, one(5) && one(5).detail])}`);
     const counts = [S(7), S(8), S(11), S(12), S(20)].map((id) => scan.has(id) ? [scan.get(id).processes, scan.get(id).elsewhere.length] : null);
     if (JSON.stringify(counts) === JSON.stringify([[1, 0], [1, 0], null, null, [10, el.MAX_PLACES]]) && !scan.has('not-a-session')) {
-      ok('this window\'s own panel still counts as a process; a record whose process is gone, whose process id belongs to a later process, or that is not a session is left out; and at most 8 places are given while every process is counted');
+      ok('this window\'s own panel still counts as a process; a record is left out when its process is gone, when its process id now belongs to a later process, or when it is not a session\'s; at most 8 places are given, while every process is counted');
     } else bad(`process counts and records left out: ${JSON.stringify(counts)}`);
     fs.writeFileSync(path.join(dir, '400.json'), JSON.stringify({ pid: 400, sessionId: S(40), entrypoint: 'cli', kind: 'interactive', cwd: '/' + 'x'.repeat(120), procStart: '4000' }));
     const long = el.create({ dir, sys, ownPid: 4000, now: () => t0 }).scan().get(S(40)).elsewhere[0];
@@ -6389,7 +6389,7 @@ console.log('\nthe figures of a conversation running here, for the Account & usa
   const some = rowsOf({ total_cost_usd: 'x', total_api_duration_ms: -5, total_duration_ms: 2000, total_lines_removed: 3 });
   if (JSON.stringify(some) === JSON.stringify(['Total duration (wall): 2s', 'Total code changes: 0 lines added, 3 lines removed'])
       && st.figures({ total_cost_usd: 'x' }) === null && st.figures(null) === null && st.rows(null).length === 0) {
-    ok('a figure that is not a number of zero or more is left out, and a report with none of them gives no rows');
+    ok('a figure that is negative or not a number is left out, and a report with none of them gives no rows');
   } else bad(`some figures: ${JSON.stringify(some)}`);
   const changes = [];
   const kept = st.create({ changed: (id) => changes.push(id) });
@@ -6400,7 +6400,7 @@ console.log('\nthe figures of a conversation running here, for the Account & usa
   kept.note('a', null);
   kept.note('', four);
   if (JSON.stringify(changes) === JSON.stringify(['a', 'a', 'a']) && kept.of('a') === null && kept.rows('a').length === 0) {
-    ok('the figures kept are told as changed only when they change, and a report of none drops them');
+    ok('a conversation\'s figures are reported as changed only when they differ from the ones kept, and a report with none drops them');
   } else bad(`the changes told: ${JSON.stringify(changes)}`);
   for (let i = 0; i <= 200; i++) kept.note('s' + i, four);
   kept.note('s1', Object.assign({}, four, { total_cost_usd: 3 }));
@@ -7602,7 +7602,7 @@ console.log('\na panel whose bundle never arrives says so');
       vm.runInContext('eT({info:(q)=>out=q},{type:"cce_session_pin",sessionId:"s1",pinned:true});'
         + 'eT({info:(q)=>out=q},{type:"cce_client_tz",timeZone:"Asia/Tokyo"});', env);
       if (/^Received message from webview: /.test(env.out) && JSON.stringify(heard) === '["America/Los_Angeles","Asia/Tokyo"]') {
-        ok('a message type this extension no longer handles is only logged, and the zone is still kept');
+        ok('a pin message, which this extension does not handle, is only logged, and the zone is still kept');
       } else bad(`after a pin message: zones ${JSON.stringify(heard)}, logged ${env.out}`);
     }
   }
@@ -7769,7 +7769,7 @@ console.log('\nconversations kept from Claude Code\'s cleanup');
   const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
   const C = '33333333-3333-4333-8333-333333333333', D = '44444444-4444-4444-8444-444444444444';
 
-  /* The file of pins from earlier versions, and the retention to keep ahead of. */
+  /* The pins file an earlier version wrote, and the cleanupPeriodDays the pinned files are kept ahead of. */
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-pins-'));
   try {
     const f = (name, v) => { const p = path.join(tmp, name); fs.writeFileSync(p, JSON.stringify(v)); return p; };
@@ -8208,7 +8208,7 @@ console.log('\ndeleting an archived conversation');
     const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
     if (/const results = claudeSessionList\.deleteChecked\(ids, \{\s*shown, running: deleteSession\.runningSessions\(\), elsewhere: deleteSession\.shownElsewhere\(planDir\(\)\),/.test(ext)
         && /findAll: \(want\) => deleteSession\.findAll\(want, \{ planDir: planDir\(\), extra: effortFiles \}\)/.test(ext)) {
-      ok('a delete from Agent Plus\'s session list checks once more what this window shows, what other windows show and what runs, then removes what is found of each');
+      ok('a delete from Agent Plus\'s session list checks once more whether this window, another window or a running process has each conversation, then removes the files found for it');
     } else bad('extension.js does not check open conversations before a delete from the session list');
   }
 
@@ -12559,7 +12559,7 @@ console.log('\nthe workflow in a real VS Code window');
     const THREE = 'ubuntu-latest,macos-latest,windows-latest';
     expect(new RegExp(`OS: \\$\\{\\{ inputs\\.os \\|\\| '${THREE}' \\}\\}`).test(ui) && new RegExp(`default: ${THREE}\\s*$`, 'm').test(ui),
       'on Linux, macOS and Windows, which a run by hand can narrow');
-    /* The script of the plan job, run here the way the job runs it. */
+    /* The plan job's script, run here as the workflow runs it. */
     const planScript = (/node -e '\n([\s\S]*?)'\n/.exec(ui) || [])[1] || '';
     const plan = (systems, steps) => {
       const outFile = path.join(os.tmpdir(), `cce-plan-${process.pid}-${Math.random().toString(36).slice(2)}`);
@@ -13063,7 +13063,7 @@ console.log('\nClaude Code\'s own source');
       const eq = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
       eq([l.features, l.bare, l.actions], [['shows', 'sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose', 'sessionsNotice'], true,
         { open: ['tab'], create: [], rename: false, delete: false, own: [] }],
-        'given the session list\'s members, Claude Code\'s source lists their features and has them; without them it has neither');
+        'given the session list\'s members, Claude Code\'s source has those members and lists their features; without them it has neither');
       eq(l.calls, [['list', null], ['open', [R1], { where: 'tab' }], ['describe', [R1]], ['import', ['/w']], ['detail', [R1]], ['account', R1], ['seen', [R1], true]],
         'the source hands each session list call to the list\'s members as it came');
       eq([l.before, l.states, l.changed], [[null, { activity: 'working' }],
@@ -14714,7 +14714,7 @@ const repo = path.join(__dirname, '..');
     eq([await run('rename', [S(1), S(2)], { title: `New name ${marks.ENVELOPE}` }), await run('rename', [S(1)], { title: `  ${marks.CROWN} ` }), await run('delete', [S(1)]), await run('archive', [S(1)])],
       [[[S(1), 'done', ''], [S(2), 'refused', 'it runs in another process']], [[S(1), 'refused', 'a title needs at least one character']], [[S(1), 'done', '']],
         [[S(1), 'refused', 'Claude Code Plus has no action archive']]],
-      'a rename goes out without marks and comes back refused when the agent refuses it; an empty title is refused; delete answers what it did; an unknown action is refused');
+      'a rename goes out without marks, and the agent\'s refusal comes back as one; an empty title is refused; delete answers what it did; an unknown action is refused');
     eq(calls.filter((c) => c[0] !== 'unread'), [['open', S(1), 'sidebar'], ['open', S(3), 'sidebar'], ['create', 'tab'], ['rename', S(1), 'New name'], ['rename', S(2), 'New name']],
       'only the actions with conversation ids reach the agent, at the place asked for');
     const failing = csl.create(Object.assign({}, deps, { remove: async () => { throw new Error('disk'); }, describe: async () => { throw new Error('disk'); } }));
@@ -14781,7 +14781,7 @@ const repo = path.join(__dirname, '..');
     const sub = list.onDidCloseSession((e) => closed.push(e));
     list.closed(S(1), 'sidebar'); list.closed('x'); list.closed(S(2));
     sub.dispose(); list.closed(S(3));
-    eq(closed, [{ sessionId: S(1), where: 'sidebar' }, { sessionId: S(2), where: 'tab' }], 'a closed conversation is told with where it was shown, until the listener goes');
+    eq(closed, [{ sessionId: S(1), where: 'sidebar' }, { sessionId: S(2), where: 'tab' }], 'each closed conversation is reported with where it was shown, until the listener is disposed');
     let fired = 0;
     list.onDidChangeSessions(() => fired++);
     list.changed(); list.changed(); list.wantSessionDetail([S(1)]);
@@ -14800,7 +14800,7 @@ const repo = path.join(__dirname, '..');
       'the note above the list is cut to the protocol\'s limits, is nothing when there is none or reading it fails, and a change of it is told');
     list.dispose();
 
-    /* A rename of a conversation no process has open, written as Claude Code's own rename writes it. */
+    /* A conversation no process has open, renamed the way Claude Code's own rename does it. */
     const cut = put(name, S(40), [user(40, 'cut')]);
     fs.appendFileSync(cut, '{"type":"assistant","timest');
     const whole = put(name, S(41), [user(41, 'whole')]);
@@ -15086,7 +15086,7 @@ const repo = path.join(__dirname, '..');
       })();
       if (JSON.stringify(missed) === JSON.stringify([['S1', 'S1'], [4000]]) && JSON.stringify(shown) === JSON.stringify([['S1'], [4000]])
           && JSON.stringify(later) === JSON.stringify(['S1', 'new'])) {
-        ok('a sidebar that shows another conversation 4 s after the open is asked once more, one that shows it is not, and one opened again since, such as for a new conversation, is not either');
+        ok('a sidebar that shows another conversation 4 s after the open is asked once more; one that shows the conversation is not asked again, and neither is one opened again since, such as for a new conversation');
       } else bad(`the sidebar retry: ${JSON.stringify({ missed, shown, later })}`);
     }
   }
