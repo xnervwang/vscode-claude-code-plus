@@ -146,7 +146,7 @@ async function keep({ ids, times = {}, days, margin = MARGIN_DAYS, projectsDir: 
     }
   };
   /* A conversation Agent Plus's session list keeps, which is not pinned here: moved like a pinned one once `keeps` says
-     so, which it is asked only for a file this old. No real time is recorded for it; the list reads the last activity
+     so; `keeps` is asked only about a file this old. No real time is recorded for it; the list reads the last activity
      from the transcript itself. */
   const keepListed = async (id, file) => {
     let st;

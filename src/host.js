@@ -178,7 +178,7 @@ const EDITS = [
    * Claude Code hands the sidebar its conversation once the sidebar's page is ready. When the page is created by this
    * request, it can miss the conversation and start a new one (seen on macOS with Claude Code 2.1.327). So if the
    * sidebar shows another conversation a few seconds later, the conversation is sent to it once more, unless another
-   * open to the sidebar came after it, such as a new conversation there, which that sidebar is right to show.
+   * open to the sidebar came after it, such as a new conversation there.
    */
   {
     name: 'a sidebar open that the new sidebar missed is asked again',
@@ -239,7 +239,7 @@ const EDITS = [
   /*
    * The open conversations' states, sent to every panel, also reach this extension: each conversation's state as the
    * host knows it and the replies not read yet, for the Conversations view. They come the moment something changes,
-   * where `claude agents` is asked every half minute. The states pass through this extension first, which may mark an
+   * while `claude agents` runs every half minute. The states pass through this extension first, which may mark an
    * idle conversation running (__cceWithBackground in extension.js). The message carries the dot this extension draws
    * for each conversation (cceActivity, src/activity.js), for the agent map's own row.
    *
@@ -340,7 +340,7 @@ const EDITS = [
   },
   /*
    * The figures of a conversation running in this window, as the host keeps them each time its CLI reports them: at the
-   * start and after every turn. They reach this extension for the session list's Account & usage section.
+   * start and after every turn. Agent Plus's session list shows them under Account & usage.
    */
   {
     name: 'session totals reach this extension',

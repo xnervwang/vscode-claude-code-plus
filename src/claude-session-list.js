@@ -4,7 +4,7 @@
 
 'use strict';
 /*
- * Claude Code's conversations for Agent Plus's session list (its protocol, Session list): the members the Claude Code
+ * The rows Agent Plus's session list shows for Claude Code (its protocol, Session list): the members the Claude Code
  * source adds when the core has the list.
  *
  * The rows come from the transcripts Claude Code files for this window's first folder, the only folder whose
@@ -13,9 +13,8 @@
  * when its size or modification time changes. The time of its last message is what the list sorts by: the file's
  * modification time is moved forward to keep conversations from Claude Code's own cleanup (src/sessionpins.js).
  *
- * Everything that reaches outside goes through `deps`, so the module can be checked against made-up transcripts:
- * the state of a conversation that runs, the places it is open elsewhere, opening, renaming and deleting, Claude Code's
- * own lists to import, and the figures of the conversation in front.
+ * Everything that reaches outside goes through `deps` (listed at create()), so the module can be checked against
+ * made-up transcripts.
  */
 const fs = require('fs');
 const path = require('path');
@@ -26,7 +25,7 @@ const { withoutFrom } = require('./stewards');
 
 const HEAD_BYTES = 65536;
 const TAIL_BYTES = 256 * 1024;
-/* A tail holding no whole message, as when the last records are long tool results, is read again this long. */
+/* A tail holding no whole message, as when the last records are long tool results, is read again at this size. */
 const LONG_TAIL_BYTES = 4 << 20;
 const MAX_PROMPT = 200;
 const MAX_TITLE = 500;
@@ -36,7 +35,6 @@ const SETTLE_MS = 400;
 /* How long the first page waits for a fresh list of the conversations that run; a page settles within 10 seconds. */
 const READY_MS = 3000;
 
-/* The time of a record, in epoch milliseconds, or 0. */
 const timeOf = (rec) => { const t = rec && Date.parse(rec.timestamp); return t > 0 ? t : 0; };
 const isMessage = (rec) => !!rec && (rec.type === 'user' || rec.type === 'assistant') && rec.isSidechain !== true && !rec.isMeta;
 const textOf = (rec) => {
@@ -115,7 +113,7 @@ function summarize(file) {
   }
 }
 
-/* The list's kind for Claude Code's kind of a session, or null for one the list leaves out. */
+/* The kind the list gives a session, from the kind Claude Code records for it; null for one the list leaves out. */
 function kindFor(claudeKind) {
   if (claudeKind === 'daemon' || claudeKind === 'daemon-worker') return null;
   if (claudeKind === 'bg' || claudeKind === 'sdk') return 'background';
@@ -155,9 +153,9 @@ function projectOf(dir, folder) {
  *   describe(sessionIds)          Promise<[{ sessionId, what }]>
  *   officialLists()               { archived, groups } from Claude Code, or null while it cannot be read
  *   pinned(), colors()            this extension's pins and title colours
- *   setUnread(sessionId, on)      Claude Code's own mark of a reply not read yet
+ *   setUnread(sessionId, on)      Claude Code's own unread mark
  *   unseen(sessionId)             optional: whether Claude Code holds that mark now
- *   totals(sessionId)             rows of the figures of a conversation running here (src/session-totals.js)
+ *   totals(sessionId)             the Account & usage rows of a conversation running here (src/session-totals.js)
  *   front()                       the session id in front in this window, or ''
  *   titleOf(sessionId)            its title, for the Account & usage section
  *   notice()                      the note to show above the list, { text, actions }, or null
@@ -172,7 +170,7 @@ function create(deps) {
     timer = setTimeout(() => { timer = null; for (const l of [...listeners]) { try { l(); } catch (_) { /* the listener's own */ } } }, SETTLE_MS);
     if (timer.unref) timer.unref();
   };
-  /* vscode.Event's shape: a listener, the `this` it is called with, and an array to put its disposable in. */
+  /* vscode.Event's shape. */
   const event = (set) => (listener, thisArgs, disposables) => {
     const fn = (v) => listener.call(thisArgs, v);
     set.add(fn);
@@ -245,7 +243,6 @@ function create(deps) {
     if (safe(deps.unseen, false, id) === true) s.unseen = true;
     return s;
   };
-  /* Ids of this project's conversations, for the import. */
   const projectIds = (folder) => new Set(transcripts(folder).keys());
 
   return {
@@ -253,7 +250,7 @@ function create(deps) {
       const folder = Array.isArray(folders) && typeof folders[0] === 'string' ? folders[0] : '';
       if (!folder) return { sessions: [], cursor: null };
       if (!started) { started = true; safe(deps.started); }
-      /* The first page waits a little for a fresh list of what runs, which the states on the rows come from. */
+      /* The first page waits a little for a fresh list of running conversations: the rows' states come from it. */
       if (!cursor && deps.ready) await new Promise((resolve) => { const t = setTimeout(resolve, READY_MS); Promise.resolve().then(deps.ready).then(() => { clearTimeout(t); resolve(); }, () => { clearTimeout(t); resolve(); }); });
       const ids = [...transcripts(folder).entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
       const start = Math.max(0, Number.parseInt(cursor, 10) || 0), size = Math.max(1, Math.min(Number(limit) || PAGE, PAGE));
@@ -380,7 +377,7 @@ function create(deps) {
 }
 
 /*
- * Gives a conversation that no process has open the title `title`, as Claude Code's own rename does: a custom-title
+ * Renames a conversation that no process has open to `title`, the way Claude Code's own rename does: a custom-title
  * record at the end of its transcript, which its list and its next run read. A transcript whose last record is being
  * written gets the record on a line of its own after it.
  */
@@ -439,8 +436,9 @@ function deleteChecked(sessionIds, { shown, running, elsewhere, findAll, remove,
 /*
  * For src/sessionpins.js: which conversations to keep from Claude Code's own cleanup for the session list, given when the
  * list will delete each (`due`, the core's sessionDeletionDue: epoch milliseconds, or null for one it will not delete).
- * One it does not know of is kept as well. One it will delete within `soonMs` is left to the cleanup, and so are those
- * the list does not keep: background runs, daemons' sessions and transcripts with no message yet. Null with no `due`.
+ * A conversation the list does not know of is kept as well; one it will delete within `soonMs` is left to the cleanup,
+ * and so are those the list does not keep: background runs, daemons' sessions and transcripts with no message yet.
+ * Null with no `due`.
  */
 function keepsFor(due, { now = Date.now(), soonMs = 0, kindOf = bgSessions.kindOf } = {}) {
   if (!due || typeof due !== 'object') return null;
@@ -451,7 +449,6 @@ function keepsFor(due, { now = Date.now(), soonMs = 0, kindOf = bgSessions.kindO
   };
 }
 
-/* The features the source lists for these members. */
 const FEATURES = ['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose', 'sessionsNotice'];
 
 module.exports = { create, summarize, kindFor, worktreeOf, projectOf, appendTitle, deleteChecked, keepsFor, FEATURES, PAGE };

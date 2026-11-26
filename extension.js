@@ -813,10 +813,10 @@ function start(context, log, renamed, handing = false) {
   /* Session ids of the conversations whose page types an answer only after the host says go (src/page/91-answer.js). */
   const confirming = new Set();
   /*
-   * Agent Plus's session list (its protocol, Session list): this window's first folder's conversations, read from their
-   * transcripts (src/claude-session-list.js), the places outside VS Code windows where each is open (src/claude-elsewhere.js),
-   * and the figures of the conversation in front, which the patched host hands over each time it keeps them
-   * (src/session-totals.js). Watching the transcripts starts once the list first asks for them.
+   * Agent Plus's session list (its protocol, Session list): the conversations of this window's first folder, read from
+   * their transcripts (src/claude-session-list.js), the places outside VS Code windows where each is open
+   * (src/claude-elsewhere.js), and the figures of the conversation in front, which the patched host passes on each time
+   * the CLI reports them (src/session-totals.js). Watching the transcripts starts once the list first asks for them.
    */
   let claimed = new Map();
   const places = claudeElsewhere.create({ ownPid: process.pid, claimed: (id) => claimed.has(id) });
@@ -884,7 +884,7 @@ function start(context, log, renamed, handing = false) {
     totals: (id) => sessionTotals.rows(id),
     login: claudeLogin.reader({ extra: () => vscode.workspace.getConfiguration('claudeCode').get('environmentVariables', []) }),
     front: () => activeChat(),
-    /* Whether to hide Claude Code's own list, asked above the list until it is answered (src/official-list.js). */
+    /* The note above the list that asks whether to hide Claude Code's own list (src/official-list.js). */
     notice: () => (removed() ? null : officialList.notice({ state: context.globalState, command: PREFIX + OFFICIAL_LIST_ANSWER,
       hidden: () => cfg().get(HIDE_OFFICIAL_LIST_SETTING, false) === true, t: (text) => vscode.l10n.t(text) })),
   });
@@ -1683,8 +1683,8 @@ function start(context, log, renamed, handing = false) {
    * few seconds later, so an old conversation pinned close to its age is not left waiting for the next one.
    */
   let keeping = false;
-  /* While Agent Plus has the session list, every conversation it will not delete before Claude Code's cleanup would is
-     kept the same way, so that Claude Code never deletes one the list still shows. */
+  /* While Agent Plus has the session list, it says when it will delete each conversation. One it keeps longer than
+     Claude Code's cleanup would is moved like a pinned one, so that Claude Code never deletes one the list still shows. */
   const listKeeps = (days) => {
     if (removed() || !agentCore || typeof agentCore.sessionDeletionDue !== 'function') return null;
     let due = null;
@@ -1856,10 +1856,10 @@ function start(context, log, renamed, handing = false) {
   context.subscriptions.push({ dispose: () => {
     if (globalThis.__cceSessionsChanged) delete globalThis.__cceSessionsChanged;
   } });
-  /* A tab the person closes, as the patched host reports it, for Recently closed in Agent Plus's session list. */
+  /* The patched host reports each tab the person closes; Agent Plus's session list shows it under Recently closed. */
   globalThis.__cceClosedHook = (id) => {
     try { sessionList.closed(id, 'tab'); } catch (_) { /* the core finds it closed itself */ }
-    /* Its process ends a moment later; a list of what runs read before then must not stand for 30 s. */
+    /* Its process ends a moment later; the next look reads `claude agents` again. */
     try { claude.invalidate(); } catch (_) { /* read again on the next tick */ }
   };
   context.subscriptions.push({ dispose: () => {

@@ -46,17 +46,16 @@ function create({ execute, hidden, log = () => {} }) {
   };
 }
 
-/* The note Agent Plus's session list shows above its rows until the question is answered (sessionsNotice in its
-   protocol), with a button for each answer that runs `command` with 'hide' or 'keep'; null once it has been answered, or
-   while the list is hidden anyway. */
+/* The note above Agent Plus's session list that asks the question (sessionsNotice in its protocol). Its two buttons run
+   `command` with 'hide' or 'keep'. Null once the question has been answered, or while the list is hidden anyway. */
 function notice({ state, command, hidden = () => false, t = (s) => s }) {
   if (state.get(ASKED) === true) return null;
   try { if (hidden() === true) return null; } catch (_) { /* asked */ }
   return { text: t(QUESTION), actions: [{ label: t(HIDE), command, arguments: ['hide'] }, { label: t(KEEP), command, arguments: ['keep'] }] };
 }
 
-/* The answer a button of that note gives: recorded first, so a second window's note goes too, then 'hide' turns the
-   setting on. Resolves to 'hidden', 'kept' or 'asked before'. */
+/* Records a press of one of the note's buttons before acting on it, so a second window's note goes too; 'hide' then
+   turns the setting on. Resolves to 'hidden', 'kept' or 'asked before'. */
 async function answer({ state, pick, hide }) {
   if (state.get(ASKED) === true) return 'asked before';
   await state.update(ASKED, true);

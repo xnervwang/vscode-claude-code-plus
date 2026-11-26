@@ -44,7 +44,7 @@ function parseAgents(stdout) {
  * for the same machine-wide list. With `share` ({ file, ms, write }), a list another window wrote to `file` less than
  * `ms` ago is returned without running anything, with that window's `at`, and a list fetched here is written there
  * unless `write` is false. Runs in several windows overlap, and one that started earlier can end later with an older
- * list, so a list is not written over one in the file that a later run started.
+ * list, so a run does not write its list over one from a run that started after it.
  */
 function listAgents(bin, run = cp.execFile, share = null) {
   const started = Date.now();

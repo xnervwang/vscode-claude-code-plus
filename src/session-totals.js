@@ -55,7 +55,7 @@ function rows(f) {
   return out;
 }
 
-/* Keeps the latest figures of each conversation; `changed` is called when those of a conversation change. */
+/* Keeps the latest figures of each conversation and calls `changed(sessionId)` when they differ from the ones kept. */
 function create({ changed = () => {} } = {}) {
   const kept = new Map();
   return {

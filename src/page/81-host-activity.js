@@ -7,8 +7,8 @@
 
   /*
    * The extension works out each conversation's dot (src/activity.js) and sends the set with the host's session states
-   * (an edit in src/webview.js). It is held in a signal of the panel's own kind, so a part that reads it is drawn again
-   * when it changes. It covers work the panel does not show, such as a detached command while the map's list of them is
+   * (an edit in src/webview.js). It is kept in one of the panel's own signals, so whatever reads it is
+   * redrawn when it changes. It covers work the panel does not show, such as a detached command while the map's list of them is
    * switched off (82-scheduled-tasks.js).
    */
   var hostActivity = null, hostActivityText = '';

@@ -42,7 +42,7 @@ const PROTOCOL = 1;
 const ID = 'claude-code';
 const EXTENSION_ID = 'xnervwang.claude-code-plus';
 const AGENTS_FRESH_MS = 30000;
-/* Whether process `pid` still runs; one this user may not signal runs too. */
+/* Whether process `pid` still runs; a process this user may not signal (EPERM) counts as running. */
 const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } };
 /* Shorter than Agent Plus's 20-second wait, after which it reports the answer as uncertain and drops a late
    "not received". */
@@ -198,9 +198,9 @@ function createClaudeSource(deps) {
   const say = (sessionId, why = 'say') => { front = sessionId; logFront(why, sessionId); focused.fire({ sessionId }); };
 
   /* listConversations and freshAgents can each have a read of `claude agents` in flight, and the one that started
-     earlier can return later with an older list. A list replaces the one held only if it was read no earlier, and
-     agentsAt is when the list held was read, so its age counts from then. A failed read from listConversations
-     replaces the list, so that it reports the error; one from freshAgents keeps it. */
+     earlier can return later with an older list. So a list read before the one held is dropped, and agentsAt records
+     when the held list was read, which is what its age counts from. A failed read from listConversations replaces the
+     list, so that it reports the error; one from freshAgents keeps it. */
   const take = (started, r, keep) => {
     const at = r && Number.isFinite(r.at) ? r.at : started;
     if (r.records && agentsLast.records && at < agentsAt) return agentsLast;
@@ -565,7 +565,7 @@ function createClaudeSource(deps) {
       onDidChangeSessionsNotice: list.onDidChangeSessionsNotice,
     });
   }
-  /* What runs now, by session id, from the latest `claude agents` list fetched, worked out again when that list changes. */
+  /* Session id to what runs, from the newest `claude agents` list; worked out again only when that list changes. */
   let runningAt = -1, runningNow = new Map();
 
   return {

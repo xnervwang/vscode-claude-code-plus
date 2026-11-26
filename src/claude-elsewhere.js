@@ -10,8 +10,8 @@
  * Every Claude Code process keeps a record of itself in <config>/sessions/<pid>.json while it runs: its session id,
  * folder, entrypoint (cli for a terminal, claude-vscode for a VS Code panel, claude-desktop for the desktop app), kind
  * (interactive, or bg for `claude --bg`), status, start time and, for `claude --bg`, its job id. Claude Code's own
- * extension reads the same records for the ring it draws on a conversation open in another process, and sorts them into
- * the same four kinds. A record whose process is gone, or whose process id now belongs to a process started at another
+ * extension reads the same records for the ring it draws on a conversation open in another process, and sorts them the
+ * same way. A record whose process is gone, or whose process id now belongs to a process started at another
  * time, is left out.
  *
  * Another VS Code window is the core's to find, from the files each window writes. A VS Code panel's process is reported
@@ -30,14 +30,14 @@ const MAX_PLACES = 8;
 const MAX_LABEL = 80;
 const MAX_DETAIL = 200;
 const MAX_ANCESTORS = 32;
-/* How long what was read about one process is kept: its terminal and environment do not change while it runs. */
+/* Kept for each process this long: its terminal and environment do not change while it runs. */
 const INFO_MS = 10 * 60000;
-/* How long the Windows process table is kept, as reading it starts PowerShell. */
+/* The Windows process table is kept this long, as reading it starts PowerShell. */
 const TABLE_MS = 60000;
 const RUN_MS = 3000;
 
-/* The kind of place a record says, as Claude Code's extension sorts them: a run nobody watches, a terminal, a VS Code
-   panel, the desktop app, or another Claude process. */
+/* The kind of place a record comes from, as Claude Code's extension sorts them: a run nobody watches, a terminal, a
+   VS Code panel, the desktop app, or another Claude process. */
 function classify(r) {
   if (r.kind && r.kind !== 'interactive') return 'exec';
   switch (r.entrypoint) {
@@ -157,7 +157,6 @@ function system(platform = process.platform) {
   return { platform, alive, tmuxSession: () => '', startToken: () => null, parentOf: () => 0, tty: () => '', env: () => ({}), names: () => null };
 }
 
-/* The live records in `dir`. */
 function records(dir, sys) {
   let names = [];
   try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
@@ -174,7 +173,6 @@ function records(dir, sys) {
   return out;
 }
 
-/* Whether `ancestor` is `pid` or a process it runs under. */
 function under(pid, ancestor, sys) {
   for (let p = pid, n = 0; p > 1 && n < MAX_ANCESTORS; n++) {
     if (p === ancestor) return true;
@@ -183,7 +181,7 @@ function under(pid, ancestor, sys) {
   return false;
 }
 
-/* A terminal program named by the Windows processes a terminal process runs under, nearest first. */
+/* On Windows, the terminal program a conversation runs in, told from the names of the processes it runs under. */
 function windowsTerminal(names) {
   const lower = (names || []).map((n) => String(n).toLowerCase());
   if (lower.includes('windowsterminal.exe')) return 'Windows Terminal';
@@ -217,7 +215,7 @@ function create({ dir = () => path.join(claudeDir(), 'sessions'), sys = system()
     if (infos.size > 512) infos.delete(infos.keys().next().value);
     return value;
   };
-  /* One place a record says, as the protocol draws it. */
+  /* A record as its entry in `elsewhere`, the way the protocol draws it. */
   const place = (r, t) => {
     const where = classify(r);
     const ran = Number.isFinite(r.startedAt) ? lasted(t - r.startedAt) : '';
