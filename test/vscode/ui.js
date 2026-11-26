@@ -4104,9 +4104,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         /* Clicking a name brings that steward's conversation to the front in its window. */
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
+        /* The click goes to the link itself: moving the mouse onto it in a window behind another can lose the hover that
+           shows the list, and that the list comes up is checked above. */
         await panelB.locator(eyeOf(X.id)).first().hover({ force: true });
         await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown; }, 5000, 200);
-        await panelB.locator(`${eyeOf(X.id)} .pop a[data-open="${SA.id}"]`).first().click({ force: true });
+        await panelB.locator(`${eyeOf(X.id)} .pop a[data-open="${SA.id}"]`).first().dispatchEvent('click');
         const upInA = await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label.replace(TRAILING_MARKS, ''), SA.title)), 20000, 300);
         const copyInB = (await inB(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)}).map((t) => t.label);`))
           .some((l) => titled(l.replace(TRAILING_MARKS, ''), SA.title));
