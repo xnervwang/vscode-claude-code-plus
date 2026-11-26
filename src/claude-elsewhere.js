@@ -199,7 +199,7 @@ function jobNameOf(jobId, root = claudeDir()) {
 }
 
 /* `elsewhere` entries and process counts by session id. `ownPid` is this window's extension host; `claimed(sessionId)`
-   says whether some VS Code window's file lists the conversation; `jobName(id)` names a `claude --bg` job. */
+   says whether some VS Code window's file lists the conversation. */
 function create({ dir = () => path.join(claudeDir(), 'sessions'), sys = system(), ownPid = process.pid, claimed = () => false,
   jobName = (id) => jobNameOf(id), now = Date.now } = {}) {
   const infos = new Map();

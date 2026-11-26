@@ -411,7 +411,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   let tracing = null;
   /* Until stop(), records every change to the files Agent Plus's windows share, one window's file at a time: the
      time the file says it was written, the entries of the conversations `ids` with all their fields (null where a
-     file has none), and the file's whole record of conversations it told the user about and of those it shows in front.
+     file has none), and the file's full lists of the conversations it told the user about and of those it shows in front.
      It also records each change in the notices on screen in the window of `page`, and, through mark(), the test's own
      steps and the focus testFocus gives. Times are milliseconds from the start; ids are their last four characters, as
      the made-up ids differ only there. Agent Plus can replay what one window read at each moment from it. */
