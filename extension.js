@@ -72,6 +72,7 @@ const unsupported = require('./src/unsupported');
 const sentCheck = require('./src/sent-check');
 const officialList = require('./src/official-list');
 const claudeSessionList = require('./src/claude-session-list');
+const claudeLogin = require('./src/claude-login');
 const claudeElsewhere = require('./src/claude-elsewhere');
 const sessionTotalsOf = require('./src/session-totals');
 const PACKAGE = require('./package.json');
@@ -877,6 +878,7 @@ function start(context, log, renamed, handing = false) {
     setUnread: (id, on) => { if (typeof globalThis.__cceSetUnread === 'function') globalThis.__cceSetUnread(id, on === true); },
     unseen: (id) => unreadKeys.has(id),
     totals: (id) => sessionTotals.rows(id),
+    login: claudeLogin.reader({ extra: () => vscode.workspace.getConfiguration('claudeCode').get('environmentVariables', []) }),
     front: () => activeChat(),
     /* Whether to hide Claude Code's own list, asked above the list until it is answered (src/official-list.js). */
     notice: () => (removed() ? null : officialList.notice({ state: context.globalState, command: PREFIX + OFFICIAL_LIST_ANSWER,

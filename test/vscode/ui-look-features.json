@@ -60,7 +60,7 @@
       "window": ["Agent Plus's session list"] },
     { "id": "official-list-question", "what": "Above Agent Plus's session list, with the Claude Code logo, the question whether to hide Claude Code's own session list, with Hide It and Keep It; it goes once answered.",
       "window": ["Agent Plus's session list"] },
-    { "id": "agent-plus-account", "what": "The Claude Code part of Account & usage at the top of Agent Plus's session list: the conversation in front with its estimated cost, time in API calls, time since it started and lines changed.",
+    { "id": "agent-plus-account", "what": "The Claude Code part of Account & usage at the top of Agent Plus's session list: how Claude Code signs in unless with a claude.ai account, and the conversation in front with its estimated cost, time in API calls, time since it started and lines changed, or a line saying it has no figures yet or that no conversation runs in the window.",
       "window": ["the figures of a conversation in Agent Plus's list"] },
     { "id": "steward-panel", "what": "The Steward panel at the bottom of the window: the conversations open in windows, with ticks.",
       "views": ["claudeCodePlus.steward"], "window": ["the steward panel"] },
