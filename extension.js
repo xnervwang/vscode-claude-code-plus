@@ -104,6 +104,8 @@ const LOAD_TABS_SETTING = PREFIX + 'loadRestoredTabs';
 const RECENT_SETTING = PREFIX + 'recentClosedSessions';
 const HIDE_BG_SETTING = PREFIX + 'hideBackgroundSessions';
 const HIDE_OFFICIAL_LIST_SETTING = PREFIX + officialList.SETTING;
+/* Run by the buttons of the question above Agent Plus's session list; not in the Command Palette. */
+const OFFICIAL_LIST_ANSWER = 'answerOfficialListQuestion';
 const WORK_PLAN_SETTING = PREFIX + 'workPlan';
 const BRIEF_SETTING = PREFIX + 'conversationBrief';
 const TIME_ZONE_SETTING = PREFIX + 'tellClaudeYourTimeZone';
@@ -827,7 +829,7 @@ function start(context, log, renamed, handing = false) {
   const effortFiles = (id) => installs(webview, true).map((d) => path.join(d, 'webview', webview.EFFORT_PREFIX + id + '.css'));
   const sessionList = claudeSessionList.create({
     projects: () => projectsDir(),
-    started: () => { watchList(); askAboutOfficialList(); },
+    started: () => { watchList(); },
     ready: () => claude.freshAgents(),
     state: (id) => claude.stateOf(id),
     elsewhere: () => {
@@ -882,7 +884,14 @@ function start(context, log, renamed, handing = false) {
     setUnread: (id, on) => { if (typeof globalThis.__cceSetUnread === 'function') globalThis.__cceSetUnread(id, on === true); },
     totals: (id) => sessionTotals.rows(id),
     front: () => activeChat(),
+    /* Whether to hide Claude Code's own list, asked above the list until it is answered (src/official-list.js). */
+    notice: () => (removed() ? null : officialList.notice({ state: context.globalState, command: PREFIX + OFFICIAL_LIST_ANSWER,
+      hidden: () => cfg().get(HIDE_OFFICIAL_LIST_SETTING, false) === true, t: (text) => vscode.l10n.t(text) })),
   });
+  context.subscriptions.push(registerCommand(OFFICIAL_LIST_ANSWER, (pick) => officialList.answer({
+    state: context.globalState, pick, hide: () => cfg().update(HIDE_OFFICIAL_LIST_SETTING, true, vscode.ConfigurationTarget.Global),
+  }).then((r) => { log.appendLine(`official session list question: ${r}`); sessionList.noticeChanged(); },
+    (e) => log.appendLine('official session list question: ' + ((e && e.message) || e)))));
   /* The folders the list's rows come from, and Claude Code's session registry, watched for the list's changes. A project
      folder that appears later, as one does with the first conversation in a folder, is picked up within a minute. */
   const listWatches = new Map();
@@ -905,16 +914,6 @@ function start(context, log, renamed, handing = false) {
       listWatchTimer = setInterval(watchList, 60000);
       if (listWatchTimer.unref) listWatchTimer.unref();
     }
-  };
-  /* Asked once, the first time the list shows this window's conversations (src/official-list.js). */
-  const askAboutOfficialList = () => {
-    if (removed() || cfg().get(HIDE_OFFICIAL_LIST_SETTING, false) === true) return;
-    officialList.askOnce({
-      state: context.globalState,
-      ask: (q, ...buttons) => vscode.window.showInformationMessage(q, ...buttons),
-      hide: () => cfg().update(HIDE_OFFICIAL_LIST_SETTING, true, vscode.ConfigurationTarget.Global),
-      t: (text) => vscode.l10n.t(text),
-    }).then((r) => log.appendLine(`official session list question: ${r}`), (e) => log.appendLine('official session list question: ' + ((e && e.message) || e)));
   };
   context.subscriptions.push({ dispose: () => {
     if (listWatchTimer) clearInterval(listWatchTimer);
@@ -2240,7 +2239,7 @@ function start(context, log, renamed, handing = false) {
     if (modeChanged) followTokenMode();
     if (e.affectsConfiguration(PREFIX + 'show.conversationLinks')) links.settingChanged();
     if (e.affectsConfiguration(PREFIX + 'show.planBar')) planBar.settingChanged();
-    if (e.affectsConfiguration(HIDE_OFFICIAL_LIST_SETTING) || e.affectsConfiguration(SETTING)) officialSessionList.apply();
+    if (e.affectsConfiguration(HIDE_OFFICIAL_LIST_SETTING) || e.affectsConfiguration(SETTING)) { officialSessionList.apply(); sessionList.noticeChanged(); }
     if (e.affectsConfiguration(HIDE_BG_SETTING)) {
       try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the list catches up on its next read */ }
     }

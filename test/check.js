@@ -6243,32 +6243,38 @@ console.log('\nClaude Code\'s own session list hidden on request');
       ok('the setting off from the start leaves the key alone; on, the key is set false once; off again, set back to true; leaving shows the list again only if it was hidden here, and a failed command is logged');
     } else bad(`the official session list switch: ${JSON.stringify(steps)}`);
     const memo = () => { const m = new Map(); return { get: (k) => m.get(k), update: async (k, v) => { m.set(k, v); }, m }; };
-    const answers = async (pick) => {
-      const state = memo(), asked = [];
-      let hidden = 0;
-      const ask = async (q, ...b) => { asked.push([q, ...b]); return pick === 'hide' ? b[0] : pick === 'keep' ? b[1] : undefined; };
-      const first = await ol.askOnce({ state, ask, hide: async () => { hidden++; } });
-      const second = await ol.askOnce({ state, ask, hide: async () => { hidden++; } });
-      return [first, second, asked.length, hidden, state.m.get(ol.ASKED), asked[0] && asked[0].slice(1)];
+    const notes = async (pick) => {
+      const state = memo();
+      let hidden = 0, setting = false;
+      const before = ol.notice({ state, command: 'claudeCodePlus.answerOfficialListQuestion', hidden: () => setting });
+      const first = await ol.answer({ state, pick, hide: async () => { hidden++; } });
+      const second = await ol.answer({ state, pick: 'hide', hide: async () => { hidden++; } });
+      return [before && before.actions.map((x) => [x.label, x.command, x.arguments]), first, second, hidden, state.m.get(ol.ASKED),
+        ol.notice({ state, command: 'c' })];
     };
-    const got = [await answers('hide'), await answers('keep'), await answers(undefined)];
-    const buttons = [ol.HIDE, ol.KEEP];
-    if (JSON.stringify(got) === JSON.stringify([['hidden', 'asked before', 1, 1, true, buttons], ['kept', 'asked before', 1, 0, true, buttons],
-      ['dismissed', 'asked before', 1, 0, true, buttons]])) {
-      ok('whether to hide the list is asked once: Hide It turns the setting on, Keep It or no answer leaves the list shown, and it is not asked again either way');
-    } else bad(`asking whether to hide the official session list: ${JSON.stringify(got)}`);
+    const cmd = 'claudeCodePlus.answerOfficialListQuestion';
+    const buttons = [[ol.HIDE, cmd, ['hide']], [ol.KEEP, cmd, ['keep']]];
+    const got = [await notes('hide'), await notes('keep')];
+    const already = ol.notice({ state: memo(), command: cmd, hidden: () => true });
+    const text = (ol.notice({ state: memo(), command: cmd }) || {}).text;
+    if (JSON.stringify(got) === JSON.stringify([[buttons, 'hidden', 'asked before', 1, true, null], [buttons, 'kept', 'asked before', 0, true, null]])
+        && already === null && text === ol.QUESTION && text.length <= 300) {
+      ok('whether to hide the list is asked in a note above the session list until it is answered: Hide It turns the setting on, Keep It leaves the list shown, and neither is asked again; with the list hidden already there is no note');
+    } else bad(`asking whether to hide the official session list: ${JSON.stringify([got, already, text])}`);
   })().catch((e) => bad(`the official session list switch threw ${e && e.stack}`));
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const setting = require('../package.json').contributes.configuration.properties['claudeCodePlus.' + ol.SETTING];
   if (setting && setting.type === 'boolean' && setting.default === false && /const officialSessionList = officialList\.create\(/.test(ext)
       && /cfg\(\)\.get\(HIDE_OFFICIAL_LIST_SETTING, false\) === true/.test(ext)
-      && /e\.affectsConfiguration\(HIDE_OFFICIAL_LIST_SETTING\) \|\| e\.affectsConfiguration\(SETTING\)\) officialSessionList\.apply\(\)/.test(ext)
+      && /e\.affectsConfiguration\(HIDE_OFFICIAL_LIST_SETTING\) \|\| e\.affectsConfiguration\(SETTING\)\) \{ officialSessionList\.apply\(\)/.test(ext)
       && /dispose: \(\) => \{ officialSessionList\.dispose\(\); \}/.test(ext)) {
     ok('claudeCodePlus.hideOfficialSessionList is off by default, read at start and on every change of it or of claudeCodePlus.enabled, and undone when the extension stops');
   } else bad('claudeCodePlus.hideOfficialSessionList is not wired to the switch');
   const wired = {
-    asked: /started: \(\) => \{ watchList\(\); askAboutOfficialList\(\); \}/.test(ext) && /officialList\.askOnce\(\{\s*state: context\.globalState,/.test(ext)
-      && /hide: \(\) => cfg\(\)\.update\(HIDE_OFFICIAL_LIST_SETTING, true, vscode\.ConfigurationTarget\.Global\)/.test(ext),
+    asked: /notice: \(\) => \(removed\(\) \? null : officialList\.notice\(\{ state: context\.globalState, command: PREFIX \+ OFFICIAL_LIST_ANSWER,/.test(ext)
+      && /registerCommand\(OFFICIAL_LIST_ANSWER, \(pick\) => officialList\.answer\(\{/.test(ext)
+      && /hide: \(\) => cfg\(\)\.update\(HIDE_OFFICIAL_LIST_SETTING, true, vscode\.ConfigurationTarget\.Global\)/.test(ext)
+      && /officialSessionList\.apply\(\); sessionList\.noticeChanged\(\); \}/.test(ext),
     source: /const claude = createClaudeSource\(\{\s*sessionList,/.test(ext),
     totals: /globalThis\.__cceSessionTotalsHook = \(id, totals\) => \{ try \{ sessionTotals\.note\(id, totals\);/.test(ext) && /delete globalThis\.__cceSessionTotalsHook/.test(ext),
     closed: /globalThis\.__cceClosedHook = \(id\) => \{\s*try \{ sessionList\.closed\(id, 'tab'\);/.test(ext),
@@ -6276,7 +6282,7 @@ console.log('\nClaude Code\'s own session list hidden on request');
       && /decideWaits\(\);\s*decideReopen\(\);/.test(ext) && /affectsConfiguration\('agentPlus\.sessions'\)[^\n]*decideReopen\(\)/.test(ext),
   };
   if (Object.values(wired).every(Boolean)) {
-    ok('the session list\'s members reach Agent Plus through the Claude Code source; the figures, the closed tabs and the reopen key are wired, and whether to hide Claude Code\'s own list is asked the first time the list reads this window\'s conversations');
+    ok('the session list\'s members reach Agent Plus through the Claude Code source; the figures, the closed tabs and the reopen key are wired, and whether to hide Claude Code\'s own list is asked above the list, gone once answered or once the setting is on');
   } else bad(`the session list wiring: ${JSON.stringify(wired)}`);
 }
 
@@ -13972,7 +13978,7 @@ console.log('\nClaude Code\'s own source');
       const R1 = 'efefefef-1111-4222-8333-444444444441', R2 = 'efefefef-1111-4222-8333-444444444442';
       const l = o.sessionList || {};
       const eq = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
-      eq([l.features, l.bare, l.actions], [['shows', 'sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose'], true,
+      eq([l.features, l.bare, l.actions], [['shows', 'sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose', 'sessionsNotice'], true,
         { open: ['tab'], create: [], rename: false, delete: false, own: [] }],
         'given the session list\'s members, Claude Code\'s source lists their features and has them; without them it has neither');
       eq(l.calls, [['list', null], ['open', [R1], { where: 'tab' }], ['describe', [R1]], ['import', ['/w']], ['detail', [R1]], ['account', R1], ['seen', [R1], true]],
@@ -15218,7 +15224,7 @@ console.log('\nthe token mode');
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
     const f = r.features || {}, d = r.redraws || {};
-    const LIST = ',"sessions","sessionImport","accountInfo","sessionSeen","sessionClose"]';
+    const LIST = ',"sessions","sessionImport","accountInfo","sessionSeen","sessionClose","sessionsNotice"]';
     if (f.interface === '["shows","prefill"' + LIST && f.essential === '["shows","stewards","stewardList","prefill"' + LIST
         && f.all === '["shows","brief","stewards","stewardList","prefill"' + LIST && d.interface > 0 && d.essential > 0 && d.all > 0) {
       ok('the brief is offered to Agent Plus only in a mode that runs it, and stewards only in one that runs the work plan, prefill and the session list in every mode, and every change of mode redraws its list');
@@ -15697,8 +15703,17 @@ const repo = path.join(__dirname, '..');
     list.changed(); list.changed(); list.wantSessionDetail([S(1)]);
     await new Promise((resolve) => setTimeout(resolve, 600));
     eq(fired, 1, 'changes that come together are told once');
-    eq([csl.FEATURES, list.sessionActions], [['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose'],
+    eq([csl.FEATURES, list.sessionActions], [['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose', 'sessionsNotice'],
       { open: ['tab', 'sidebar'], create: ['tab', 'sidebar'], rename: true, delete: true, own: [] }], 'the features and the actions Claude Code can carry out');
+    let note = { text: 'x'.repeat(400), actions: [1, 2, 3, 4] }, notes = 0;
+    const noted = csl.create(Object.assign({}, deps, { notice: () => note }));
+    noted.onDidChangeSessionsNotice(() => notes++);
+    const long = noted.sessionsNotice();
+    note = null;
+    const none = [noted.sessionsNotice(), csl.create(Object.assign({}, deps, { notice: () => { throw new Error('x'); } })).sessionsNotice(), list.sessionsNotice()];
+    noted.noticeChanged();
+    eq([long.text.length, long.actions.length, none, notes], [300, 3, [null, null, null], 1],
+      'the note above the list is cut to the protocol\'s limits, is nothing when there is none or reading it fails, and a change of it is told');
     list.dispose();
 
     /* A rename of a conversation no process has open, written as Claude Code's own rename writes it. */

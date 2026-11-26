@@ -153,10 +153,11 @@ function projectOf(dir, folder) {
  *   totals(sessionId)             rows of the figures of a conversation running here (src/session-totals.js)
  *   front()                       the session id in front in this window, or ''
  *   titleOf(sessionId)            its title, for the Account & usage section
+ *   notice()                      the note to show above the list, { text, actions }, or null
  */
 function create(deps) {
   const cache = new Map();
-  const listeners = new Set(), accountListeners = new Set(), closeListeners = new Set();
+  const listeners = new Set(), accountListeners = new Set(), closeListeners = new Set(), noticeListeners = new Set();
   let timer = null, started = false;
   const fire = () => {
     if (timer) return;
@@ -331,13 +332,21 @@ function create(deps) {
         try { if (deps.setUnread) deps.setUnread(id, seen !== true); } catch (_) { /* the host is not patched */ }
       }
     },
+    sessionsNotice() {
+      const n = safe(deps.notice, null);
+      if (!n || typeof n !== 'object' || typeof n.text !== 'string' || !n.text) return null;
+      return { text: n.text.slice(0, 300), actions: (Array.isArray(n.actions) ? n.actions : []).slice(0, 3) };
+    },
+    onDidChangeSessionsNotice: event(noticeListeners),
+    /* For the source: the note above the list changed. */
+    noticeChanged() { for (const l of [...noticeListeners]) { try { l(); } catch (_) { /* the listener's own */ } } },
     onDidCloseSession: event(closeListeners),
     /* For the source: a tab of this window that showed `sessionId` was closed. */
     closed(sessionId, where = 'tab') {
       if (typeof sessionId !== 'string' || !SESSION.test(sessionId)) return;
       for (const l of [...closeListeners]) { try { l({ sessionId, where }); } catch (_) { /* the listener's own */ } }
     },
-    dispose() { if (timer) clearTimeout(timer); listeners.clear(); accountListeners.clear(); closeListeners.clear(); },
+    dispose() { if (timer) clearTimeout(timer); listeners.clear(); accountListeners.clear(); closeListeners.clear(); noticeListeners.clear(); },
   };
 }
 
@@ -414,6 +423,6 @@ function keepsFor(due, { now = Date.now(), soonMs = 0, kindOf = bgSessions.kindO
 }
 
 /* The features the source lists for these members. */
-const FEATURES = ['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose'];
+const FEATURES = ['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose', 'sessionsNotice'];
 
 module.exports = { create, summarize, kindFor, worktreeOf, projectOf, appendTitle, deleteChecked, keepsFor, FEATURES, PAGE };

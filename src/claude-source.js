@@ -551,6 +551,8 @@ function createClaudeSource(deps) {
       onDidChangeAccountInfo: list.onDidChangeAccountInfo,
       noteSeen: (sessionIds, seen) => list.noteSeen(sessionIds, seen),
       onDidCloseSession: list.onDidCloseSession,
+      sessionsNotice: () => list.sessionsNotice(),
+      onDidChangeSessionsNotice: list.onDidChangeSessionsNotice,
     });
   }
   /* What runs now, by session id, from the latest `claude agents` list fetched, worked out again when that list changes. */

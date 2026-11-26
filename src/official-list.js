@@ -16,7 +16,7 @@
  */
 const KEY = 'claude-vscode.sessionsListEnabled';
 const SETTING = 'hideOfficialSessionList';
-/* globalState: set once the question below has been asked, whatever the answer. */
+/* globalState: set once the question below has been answered, whatever the answer. */
 const ASKED = 'officialSessionListAsked';
 const QUESTION = 'Agent Plus now lists your Claude Code conversations. Hide Claude Code\'s own session list? You can change this later with the setting Claude Code Plus: Hide Official Session List.';
 const HIDE = 'Hide It';
@@ -46,18 +46,22 @@ function create({ execute, hidden, log = () => {} }) {
   };
 }
 
-/* Asks once whether to hide the list. `ask(question, ...buttons)` shows the question and resolves to the button picked, or
-   undefined; `hide()` turns the setting on. The question is recorded as asked before it is shown, so a second window
-   opening the list at the same moment, or a dismissed question, does not ask again; no answer leaves the list shown.
-   Resolves to 'hidden', 'kept', 'dismissed' or 'asked before'. */
-async function askOnce({ state, ask, hide, t = (s) => s }) {
-  if (state.get(ASKED) === true) return 'asked before';
-  await state.update(ASKED, true);
-  const hideLabel = t(HIDE), keepLabel = t(KEEP);
-  let pick;
-  try { pick = await ask(t(QUESTION), hideLabel, keepLabel); } catch (_) { pick = undefined; }
-  if (pick === hideLabel) { await hide(); return 'hidden'; }
-  return pick === keepLabel ? 'kept' : 'dismissed';
+/* The note Agent Plus's session list shows above its rows until the question is answered (sessionsNotice in its
+   protocol), with a button for each answer that runs `command` with 'hide' or 'keep'; null once it has been answered, or
+   while the list is hidden anyway. */
+function notice({ state, command, hidden = () => false, t = (s) => s }) {
+  if (state.get(ASKED) === true) return null;
+  try { if (hidden() === true) return null; } catch (_) { /* asked */ }
+  return { text: t(QUESTION), actions: [{ label: t(HIDE), command, arguments: ['hide'] }, { label: t(KEEP), command, arguments: ['keep'] }] };
 }
 
-module.exports = { KEY, SETTING, ASKED, QUESTION, HIDE, KEEP, create, askOnce };
+/* The answer a button of that note gives: recorded first, so a second window's note goes too, then 'hide' turns the
+   setting on. Resolves to 'hidden', 'kept' or 'asked before'. */
+async function answer({ state, pick, hide }) {
+  if (state.get(ASKED) === true) return 'asked before';
+  await state.update(ASKED, true);
+  if (pick === 'hide') { await hide(); return 'hidden'; }
+  return 'kept';
+}
+
+module.exports = { KEY, SETTING, ASKED, QUESTION, HIDE, KEEP, create, notice, answer };
