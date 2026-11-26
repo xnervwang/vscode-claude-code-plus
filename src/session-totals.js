@@ -43,7 +43,6 @@ function figures(totals) {
   return Object.values(f).some((v) => v !== null) ? f : null;
 }
 
-/* The rows of the Account & usage section for `f`. */
 function rows(f) {
   if (!f) return [];
   const out = [];

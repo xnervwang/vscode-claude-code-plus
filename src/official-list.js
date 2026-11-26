@@ -12,7 +12,7 @@
  * back to true. Nothing in Claude Code opens that view by itself. The Session history at the top of a conversation is
  * part of the conversation's page, which the key does not touch.
  *
- * With the setting off from the start the key is left alone, so Claude Code's own value stands.
+ * With the setting off from the start, the key keeps the value Claude Code gave it.
  */
 const KEY = 'claude-vscode.sessionsListEnabled';
 const SETTING = 'hideOfficialSessionList';

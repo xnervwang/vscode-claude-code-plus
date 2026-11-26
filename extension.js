@@ -1717,7 +1717,6 @@ function start(context, log, renamed, handing = false) {
      more, to set against when Claude Code's log shows the panel asking for the list. */
   let listsLogged = 0;
   const showBackground = () => cfg().get(HIDE_BG_SETTING, true) === false;
-  /* Hides Claude Code's own session list while claudeCodePlus.hideOfficialSessionList is on (src/official-list.js). */
   const officialSessionList = officialList.create({
     execute: (...args) => vscode.commands.executeCommand(...args),
     hidden: () => !removed() && !uninstalling() && enabled() && cfg().get(HIDE_OFFICIAL_LIST_SETTING, false) === true,

@@ -14,7 +14,7 @@
  * same way. A record whose process is gone, or whose process id now belongs to a process started at another
  * time, is left out.
  *
- * Another VS Code window is the core's to find, from the files each window writes. A VS Code panel's process is reported
+ * The core finds other VS Code windows from the files each window writes. A VS Code panel's process is reported
  * here only when it is not this window's own and no window's file lists its conversation. The rest are described from
  * the process: on Linux its terminal device, and from its environment the terminal program and its tmux or screen
  * session; on macOS the same through ps; on Windows only the names of the processes it runs under.
@@ -214,7 +214,6 @@ function create({ dir = () => path.join(claudeDir(), 'sessions'), sys = system()
     if (infos.size > 512) infos.delete(infos.keys().next().value);
     return value;
   };
-  /* A record as its entry in `elsewhere`, the way the protocol draws it. */
   const place = (r, t) => {
     const where = classify(r);
     const ran = Number.isFinite(r.startedAt) ? lasted(t - r.startedAt) : '';

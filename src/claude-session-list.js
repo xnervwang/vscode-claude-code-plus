@@ -404,9 +404,8 @@ function appendTitle(file, sessionId, title) {
 
 /*
  * Deletes the conversations the list asks to, after checking once more that nothing has one open: a panel of this
- * window (`shown`, the ids shown here), another VS Code window (`elsewhere`, a Map of id to the names of the windows that
- * show it), or a Claude Code process (`running`, a Set). With `shown` null, when this window cannot tell, nothing is
- * deleted.
+ * window (`shown`), another VS Code window (`elsewhere`, a Map of id to the names of the windows that show it), or a
+ * Claude Code process (`running`, a Set). With `shown` null, when this window cannot tell, nothing is deleted.
  * `findAll` and `remove` are src/deletesession.js's; `forget(id)` drops this extension's own records of a deleted one.
  */
 function deleteChecked(sessionIds, { shown, running, elsewhere, findAll, remove, forget = () => {} }) {
