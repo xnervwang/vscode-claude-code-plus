@@ -460,13 +460,17 @@ function createClaudeSource(deps) {
     },
 
     /* The session of the visible panel in the tab's group; '' for a Claude Code tab with no conversation yet, or whose
-       panel has not been reported yet; null for any other tab. */
+       panel has not been reported yet; null for any other tab. As a tab comes to the front, the panel it covers can
+       still count as visible and active for a moment, so when panels of the group carry the tab's label as their
+       title, only those are the tab's own. */
     sessionForTab(tab) {
       if (!isPanelTab(tab)) return null;
       const column = tab.group && tab.group.viewColumn;
+      const inGroup = [...panels].filter(([panel]) => panel.visible && panel.viewColumn === column);
+      const named = typeof tab.label === 'string' && tab.label ? inGroup.filter(([panel]) => panel.title === tab.label) : [];
       let best = '';
-      for (const [panel, { sessionId }] of panels) {
-        if (!sessionId || !panel.visible || panel.viewColumn !== column) continue;
+      for (const [panel, { sessionId }] of named.length ? named : inGroup) {
+        if (!sessionId) continue;
         if (!best || panel.active) best = sessionId;
       }
       return best;
