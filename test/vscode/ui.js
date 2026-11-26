@@ -16,6 +16,12 @@
  *   the official session list hidden
  *                  claudeCodePlus.hideOfficialSessionList on: Claude Code's own session list leaves the Activity Bar
  *                  without a reload, and comes back when the setting is turned off
+ *   Agent Plus's session list
+ *                  Claude Code's conversations in Agent Plus's list: the rows from the transcripts, the solid stripe of the
+ *                  one open in a tab, background runs left out, the question whether to hide Claude Code's own list and
+ *                  Keep It, a terminal that has a conversation open (from Claude Code's record of its process) with the
+ *                  outlined stripe and a hover saying where, and a click opening a conversation in a tab; after the dots
+ *                  below, the Account & usage part with the figures of the conversation in front
  *   a tab          a conversation resumed in a tab: its title, the times on every message and reply, the bar on your
  *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
@@ -1225,6 +1231,92 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!back && await until(async () => await theirTimes() === 0, 10000, 500), 'turned back on, they are back, and Claude Code\'s are hidden again', await stampsIn(conv));
     });
 
+    /* Agent Plus's session list, which lists Claude Code's conversations through this extension
+       (src/claude-session-list.js): the rows read from the transcripts, the one open in a tab here, the background runs
+       left out, a terminal that has a conversation open read from Claude Code's own records, the question whether to hide
+       Claude Code's own list, the figures of the conversation in front, and a click opening a conversation in a tab. */
+    await step('Agent Plus\'s session list', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      await exec('workbench.view.extension.agentPlusSessions');
+      const sl = await frameWhere(() => !!document.querySelector('.sl-root .sl-new'), 30000);
+      if (!sl) throw new Error('Agent Plus\'s session list did not open');
+      const rows = () => sl.evaluate(() => [...document.querySelectorAll('.sl-row')].map((r) => ({
+        title: r.querySelector('.sl-title').textContent, section: (r.closest('.sl-section') || { dataset: {} }).dataset.key,
+        dot: r.dataset.dot, stripe: r.dataset.stripe, dim: r.classList.contains('sl-elsewhere') })));
+      const find = (rs, title) => (rs || []).find((r) => r.title === title && r.section !== 'closed');
+      const rowAt = (title) => sl.locator('.sl-section:not([data-key="closed"]) .sl-row').filter({ has: sl.locator('.sl-title', { hasText: title }) }).first();
+      const slHover = () => sl.evaluate(() => { const h = document.querySelector('.sl-hover'); return h && !h.classList.contains('sl-hidden') ? h.textContent : ''; });
+      const listed = await until(async () => { const r = await rows().catch(() => null); return r && threads.every((t) => find(r, t.title)) && r; }, 30000, 500);
+      check(!!listed, 'Agent Plus\'s session list lists the fake conversations by their titles, read from their transcripts', listed || await rows().catch(() => null));
+      if (!listed) return;
+      check((find(listed, tab0.title) || {}).stripe === 'here', 'the conversation open in this window\'s tab has the solid stripe', find(listed, tab0.title));
+      check(!background.some((b) => find(listed, b.title)), 'claude --bg, claude -p and daemon sessions are left out while background conversations are hidden', listed.map((r) => r.title));
+
+      /* The question above the list, answered with Keep It: the list of Claude Code stays. */
+      const note = await until(() => sl.evaluate(() => { const n = document.querySelector('.sl-notice'); return n && n.innerText; }), 10000, 300);
+      check(!!note && /Hide Claude Code's own session list\?/.test(note) && /Hide It/.test(note) && /Keep It/.test(note),
+        'above the list, whether to hide Claude Code\'s own session list is asked, with Hide It and Keep It', note);
+      await shot('agent-plus-list-question');
+      if (note) {
+        await sl.locator('.sl-note-btn').filter({ hasText: 'Keep It' }).click();
+        const gone = await until(() => sl.evaluate(() => !document.querySelector('.sl-notice')), 10000, 300);
+        const kept = await call('return vscode.workspace.getConfiguration(\'claudeCodePlus\').get(\'hideOfficialSessionList\');');
+        check(!!gone && kept === false, 'Keep It takes the question away and leaves the setting off', { gone, kept });
+      }
+
+      /* A conversation open in a terminal, as Claude Code's own record of the process says: this test's child stands in
+         for that process, with the environment a screen session gives it. */
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const other = threads[2];
+      const child = require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', env: Object.assign({}, process.env, { STY: '4242.mywork', TERM_PROGRAM: 'iTerm.app' }) });
+      const record = path.join(sessions, `${child.pid}.json`);
+      try {
+        let procStart;
+        if (process.platform === 'linux') {
+          for (let i = 0; i < 40 && procStart === undefined; i++) {
+            try { procStart = fs.readFileSync(`/proc/${child.pid}/stat`, 'utf8').replace(/^.*\) /s, '').split(' ')[19]; } catch (_) { await sleep(50); }
+          }
+        }
+        fs.mkdirSync(sessions, { recursive: true });
+        fs.writeFileSync(record, JSON.stringify({ pid: child.pid, sessionId: other.id, cwd: profile.folder, startedAt: Date.now() - 125000,
+          procStart, entrypoint: 'cli', kind: 'interactive', status: 'idle' }));
+        const away = await until(async () => { const r = await rows().catch(() => null); const x = find(r, other.title); return x && x.stripe === 'elsewhere' && x; }, 20000, 500);
+        check(!!away && away.dim, 'a conversation a terminal has open, as Claude Code\'s record of that process says, gets the outlined stripe and is dimmed', away || find(await rows(), other.title));
+        if (away) {
+          /* The list keeps a hover box it is showing as it was while the pointer stays on its row, and the question going
+             away moved the rows under the pointer; so another row is hovered first. */
+          await rowAt(tab0.title).hover();
+          await sleep(800);
+          await rowAt(other.title).hover();
+          const said = await until(async () => { const t = await slHover(); return /Open in /.test(t) && t; }, 5000, 200);
+          const where = process.platform === 'win32' ? /Open in a terminal/ : /Open in screen session "mywork"/;
+          check(!!said && where.test(said) && new RegExp(`Process ${child.pid}, running for 2m`).test(said),
+            'its hover says where: the terminal\'s session and the process with how long it has run',
+            { hover: said || await slHover(), row: await rowAt(other.title).evaluate((e) => e._row && { hover: e._row.hover, stripe: e._row.stripe }).catch(() => null) });
+          await shot('agent-plus-list-elsewhere');
+          await page.mouse.move(5, 5);
+        }
+      } finally {
+        child.kill();
+        try { fs.rmSync(record, { force: true }); } catch (_) { /* gone */ }
+      }
+      check(!!await until(async () => (find(await rows(), other.title) || {}).stripe !== 'elsewhere', 20000, 500),
+        'once that process is gone the row is no longer marked open elsewhere', find(await rows(), other.title));
+
+
+      /* A click on a stopped conversation's row opens it in a tab. */
+      const t1 = threads[1];
+      await rowAt(t1.title).click();
+      const opened = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, t1.title)), 30000, 500);
+      check(!!opened, 'a click on a conversation\'s row in Agent Plus\'s list opens it in a tab', opened || await claudeTabs());
+      if (opened) {
+        const here = await until(async () => (find(await rows(), t1.title) || {}).stripe === 'here', 15000, 500);
+        check(!!here, 'and its row then has the solid stripe', find(await rows(), t1.title));
+        await call('const t = vscode.window.tabGroups.activeTabGroup.activeTab; if (t) await vscode.window.tabGroups.close(t); return true;');
+      }
+      await openList();
+    });
+
     /* Agent Plus has a message typed into a conversation, as its Answer view and a steward's messages are, while the
        user types in another conversation's panel beside it. The panel says it is ready and types only on the host's
        go, and the user's focus and keys stay in the other panel. */
@@ -1411,6 +1503,21 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const cleared = await until(async () => { const d = await dotsOn(t.label); return d && d.waiting === 0 && d.running === 0 && d; }, 30000, 500);
       check(answered && !!cleared, 'answering No closes the question and the dot goes', { answered, dots: await dotsOn(t.label) });
       await shot('tab-permission-answered');
+    });
+
+    /* The figures of the conversation in front in Agent Plus's list: Claude Code's host asks a conversation's CLI for them
+       once the CLI runs, and after each turn, which the step before ran. */
+    await step('the figures of a conversation in Agent Plus\'s list', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      await exec('claude-vscode.editor.open', tab0.id);
+      await exec('workbench.view.extension.agentPlusSessions');
+      const sl = await frameWhere(() => !!document.querySelector('.sl-root .sl-new'), 30000);
+      if (!sl) throw new Error('Agent Plus\'s session list did not open');
+      const acct = await until(() => sl.evaluate(() => { const a = document.querySelector('.sl-section[data-key="account"]'); return a && !a.classList.contains('sl-hidden') && a.innerText; }), 20000, 500);
+      check(!!acct && /Claude Code/.test(acct) && /Estimated cost/.test(acct) && /Total duration \(wall\)/.test(acct) && /Total code changes/.test(acct),
+        'Account & usage has a Claude Code part with the figures of the conversation in front: its cost, its time and the lines it changed', acct);
+      await shot('agent-plus-list-account');
+      await openList();
     });
 
     /* A command the conversation put in the background keeps its dot green after the turn is over: found in /proc on

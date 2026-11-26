@@ -6294,7 +6294,7 @@ console.log('\nwhere else a Claude Code conversation is open');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-elsewhere-'));
   try {
     const S = (n) => `5e5e5e5e-0000-4000-8000-0000000007${String(n).padStart(2, '0')}`;
-    const t0 = 1_800_000_000_000, cwd = path.join(os.homedir(), 'src', 'parser');
+    const t0 = 1_800_000_000_000, cwd = path.join(os.homedir(), 'src', 'parser'), TILDE = path.join('~', 'src', 'parser');
     const write = (pid, r) => fs.writeFileSync(path.join(dir, `${pid}.json`), JSON.stringify(Object.assign({ pid, cwd, startedAt: t0 - 7_500_000, procStart: String(pid * 10), status: 'idle' }, r)));
     write(101, { sessionId: S(1), entrypoint: 'cli', kind: 'interactive', status: 'busy' });
     write(102, { sessionId: S(2), entrypoint: 'cli', kind: 'interactive' });
@@ -6324,10 +6324,10 @@ console.log('\nwhere else a Claude Code conversation is open');
     const one = (n) => (scan.get(S(n)) || { elsewhere: [] }).elsewhere[0] || null;
     const where = (n) => { const p = one(n); return p && [p.kind, p.label, p.running]; };
     const want = {
-      1: ['terminal', 'tmux session "work" in ~/src/parser', true],
-      2: ['terminal', 'a VS Code terminal in ~/src/parser', false],
-      3: ['terminal', 'terminal ttys003 in ~/src/parser', false],
-      4: ['terminal', 'Windows Terminal in ~/src/parser', false],
+      1: ['terminal', `tmux session "work" in ${TILDE}`, true],
+      2: ['terminal', `a VS Code terminal in ${TILDE}`, false],
+      3: ['terminal', `terminal ttys003 in ${TILDE}`, false],
+      4: ['terminal', `Windows Terminal in ${TILDE}`, false],
       5: ['exec', 'claude --bg job "weekly digest"', false],
       6: ['desktop', 'Claude Desktop', false],
       7: null, 8: null,
@@ -6339,8 +6339,8 @@ console.log('\nwhere else a Claude Code conversation is open');
       ok('a terminal is named by its tmux or screen session, as a VS Code terminal, by its device, or by the Windows terminal it runs under; a claude --bg run by its job; the desktop app and other entry points as such; a VS Code panel only when it is neither this window\'s nor listed by a window\'s file');
     } else bad(`where else conversations are open: ${JSON.stringify(got)}`);
     const d1 = one(1) && one(1).detail, d3 = one(3) && one(3).detail;
-    if (JSON.stringify(d1) === JSON.stringify(['tmux pane %3', 'Device: /dev/pts/4', 'Process 101, running for 2h 5m', 'Folder: ~/src/parser'])
-        && d3 && d3.includes('Terminal program: iTerm.app') && JSON.stringify(one(5).detail) === JSON.stringify(['Process 105, running for 2h 5m', 'Folder: ~/src/parser', 'Job a1b2c3d4'])) {
+    if (JSON.stringify(d1) === JSON.stringify(['tmux pane %3', 'Device: /dev/pts/4', 'Process 101, running for 2h 5m', `Folder: ${TILDE}`])
+        && d3 && d3.includes('Terminal program: iTerm.app') && JSON.stringify(one(5).detail) === JSON.stringify(['Process 105, running for 2h 5m', `Folder: ${TILDE}`, 'Job a1b2c3d4'])) {
       ok('the hover lines give the tmux pane, the terminal program, the device, the process id and how long it has run, the folder and a job\'s id');
     } else bad(`the hover lines: ${JSON.stringify([d1, d3, one(5) && one(5).detail])}`);
     const counts = [S(7), S(8), S(11), S(12), S(20)].map((id) => scan.has(id) ? [scan.get(id).processes, scan.get(id).elsewhere.length] : null);
