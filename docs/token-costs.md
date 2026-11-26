@@ -8,7 +8,7 @@ Claude Code Plus adds text to what Claude Code sends the model. All of it comes 
 
 The work plan plugin added each plan from Claude Code Plus's tests to a message with the conversation brief turned on. Those plans have one-word row titles; most of the text is the same for every plan, and each row adds one line whose length depends on the row's title and any question it asks you.
 
-Run `node build/plan-injection-stats.js` from a checkout of the [Agent Plus repository](https://github.com/xnervwang/vscode-agent-plus) to measure your own Claude Code transcripts from the last 14 days (`--days N` for another span). It prints the median, 90th percentile and largest sizes, in characters, of the plan text added to a message, and how many of those were unchanged from the one before.
+Run `node build/plan-injection-stats.js` from a checkout of the [Agent Plus repository](https://github.com/xnervwang/vscode-agent-plus) to measure your own Claude Code transcripts from the last 14 days (`--days N` for another span). It prints the median, 90th percentile and largest sizes, in characters, of the plan text added to a message, and how many messages carried the same plan as the message before.
 
 [Added to every message](#added-to-every-message) says when each form of the work plan is sent.
 
