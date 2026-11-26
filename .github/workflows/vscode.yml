@@ -4,11 +4,13 @@
 
 # This extension patches files of another extension and of VS Code itself, and draws inside Claude Code's panel. Where
 # those files are, whether they can be written, and how the window draws differ between Linux, macOS and Windows. The
-# tests workflow runs on Linux only and without either install. This one installs the newest VS Code and the newest
-# Claude Code on each of the three and runs the extension in a real window (test/vscode/run.js): it drives the window,
+# tests workflow runs on Linux only and without either install. This one installs the newest VS Code, Claude Code and
+# Agent Plus on each of the three and runs the extension in a real window (test/vscode/run.js): it drives the window,
 # checks what it shows, compares crops of this extension's elements with the approved copies for that platform, and then
-# checks the patched files from inside VS Code. It runs once a day as well as on each push, since either upstream can
-# change without a commit here.
+# checks the patched files from inside VS Code. On a push, Claude Code is the newest build supported-versions.json
+# records and Agent Plus the commit test/vscode/agent-plus-commit names, both moved on on purpose; once a day it runs
+# against the newest of each, since either can change without a commit here, and a failure then says this extension
+# has to follow.
 #
 # The results folder of each job is kept as an artifact whether the run passed or not: the screenshots of every step,
 # the crops, a diff image of each crop that failed, what each page of the window held when a step failed, and VS Code's
@@ -39,32 +41,62 @@ on:
         description: A regular expression; only the window steps whose names match it run, with the steps every run has. Empty runs all of them, split into jobs.
         type: string
         default: ''
+      upstream:
+        description: pinned runs against the Agent Plus commit in test/vscode/agent-plus-commit and the newest Claude Code in supported-versions.json; newest, against the newest of each
+        type: choice
+        options: [pinned, newest]
+        default: pinned
 
 permissions:
   contents: read
 
 jobs:
-  # The jobs of the run below: one per platform and part.
+  # The jobs of the run below, one per platform and part, and what they run against: a push runs against the Agent Plus
+  # commit in test/vscode/agent-plus-commit and the newest Claude Code in supported-versions.json, so that a change in
+  # either does not turn main red; the daily run, against the newest of each, and fails to say that this extension has
+  # to follow them.
   plan:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      agentPlus: ${{ steps.plan.outputs.agentPlus }}
+      claudeCode: ${{ steps.plan.outputs.claudeCode }}
+      label: ${{ steps.plan.outputs.label }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            supported-versions.json
+            test/vscode/agent-plus-commit
+          sparse-checkout-cone-mode: false
       - id: plan
         shell: bash
         env:
           OS: ${{ inputs.os || 'ubuntu-latest,macos-latest,windows-latest' }}
           STEPS: ${{ inputs.steps }}
+          NEWEST: ${{ github.event_name == 'schedule' || inputs.upstream == 'newest' }}
         run: |
           node -e '
+            const fs = require("fs");
             const os = process.env.OS.split(",").map((x) => x.trim()).filter(Boolean);
             const parts = process.env.STEPS ? [{ shard: "", part: "steps" }]
               : [...[1, 2, 3, 4].map((i) => ({ shard: `${i}/4`, part: `${i}-of-4` })), { shard: "suite", part: "suite" }];
             const include = os.flatMap((o) => parts.map((p) => ({ os: o, ...p })));
-            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include })}\n`);
+            const newest = process.env.NEWEST === "true";
+            const num = (v) => v.split(".").map(Number);
+            const later = (a, b) => { const x = num(a), y = num(b); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0) ? a : b; return a; };
+            const agentPlus = newest ? "" : fs.readFileSync("test/vscode/agent-plus-commit", "utf8").trim();
+            const claudeCode = newest ? "" : Object.keys(JSON.parse(fs.readFileSync("supported-versions.json", "utf8")).claudeCode).reduce(later);
+            const label = newest ? ", newest upstream" : "";
+            const out = { matrix: JSON.stringify({ include }), agentPlus, claudeCode, label };
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(out).map(([k, v]) => `${k}=${v}\n`).join(""));
+            const said = `Agent Plus ${agentPlus || "at the head of its default branch"}, Claude Code ${claudeCode || "newest on the marketplace"}`;
+            if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, said + "\n");
+            console.log(said);
             console.log(JSON.stringify(include));'
 
   package:
+    needs: plan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -81,6 +113,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: xnervwang/vscode-agent-plus
+          ref: ${{ needs.plan.outputs.agentPlus }}
           path: agent-plus
       - name: Build Agent Plus's .vsix
         shell: bash
@@ -96,7 +129,7 @@ jobs:
 
   run:
     needs: [plan, package]
-    name: run (${{ matrix.os }}, ${{ matrix.part }})
+    name: run (${{ matrix.os }}, ${{ matrix.part }}${{ needs.plan.outputs.label }})
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -104,6 +137,7 @@ jobs:
     env:
       CLAUDE_CODE_PLUS_UI_SHARD: ${{ matrix.shard }}
       CLAUDE_CODE_PLUS_UI_STEPS_RE: ${{ inputs.steps }}
+      CLAUDE_CODE_PLUS_UI_CLAUDE_CODE: ${{ needs.plan.outputs.claudeCode }}
     steps:
       # Some checks compare source text, so no CRLF on Windows.
       - run: git config --global core.autocrlf false

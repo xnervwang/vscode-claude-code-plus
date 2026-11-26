@@ -12546,7 +12546,8 @@ console.log('\nthe workflow in a real VS Code window');
     const planScript = (/node -e '\n([\s\S]*?)'\n/.exec(ui) || [])[1] || '';
     const plan = (systems, steps) => {
       const outFile = path.join(os.tmpdir(), `cce-plan-${process.pid}-${Math.random().toString(36).slice(2)}`);
-      const r = cp.spawnSync(process.execPath, ['-e', planScript], { env: { ...process.env, OS: systems, STEPS: steps, GITHUB_OUTPUT: outFile }, encoding: 'utf8' });
+      const r = cp.spawnSync(process.execPath, ['-e', planScript], { cwd: path.join(__dirname, '..'),
+        env: { ...process.env, OS: systems, STEPS: steps, NEWEST: 'false', GITHUB_OUTPUT: outFile, GITHUB_STEP_SUMMARY: '' }, encoding: 'utf8' });
       let got = null;
       try { got = JSON.parse(/^matrix=(.*)$/m.exec(fs.readFileSync(outFile, 'utf8'))[1]).include; } catch (_) { /* reported below */ }
       try { fs.unlinkSync(outFile); } catch (_) { /* never written */ }
@@ -12559,9 +12560,30 @@ console.log('\nthe workflow in a real VS Code window');
     'each platform\'s run is split into four jobs of window steps and one with the suite, each with a name of its own for its artifact', JSON.stringify(whole));
     expect(Array.isArray(some) && some.length === 1 && some[0].os === 'macos-latest' && some[0].shard === '' && some[0].part === 'steps',
       'and a run by hand with a pattern for the steps runs them in one job on each platform it names', JSON.stringify(some));
-    expect(/^\s+env:\s*\n\s+CLAUDE_CODE_PLUS_UI_SHARD: \$\{\{ matrix\.shard \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_STEPS_RE: \$\{\{ inputs\.steps \}\}\s*$/m.test(ui)
+    expect(/^\s+env:\s*\n\s+CLAUDE_CODE_PLUS_UI_SHARD: \$\{\{ matrix\.shard \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_STEPS_RE: \$\{\{ inputs\.steps \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_CLAUDE_CODE: \$\{\{ needs\.plan\.outputs\.claudeCode \}\}\s*$/m.test(ui)
       && /matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.matrix\) \}\}/.test(ui),
-    'and each job is given its part and the pattern');
+    'and each job is given its part, the pattern and the Claude Code build to install');
+    /* What a push and the daily run are run against. */
+    const pinned = (() => { try { return fs.readFileSync(path.join(__dirname, 'vscode', 'agent-plus-commit'), 'utf8').trim(); } catch (_) { return ''; } })();
+    const newestSupported = Object.keys(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'supported-versions.json'), 'utf8')).claudeCode)
+      .sort((a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 4; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; }).pop();
+    const against = (newest) => {
+      const outFile = path.join(os.tmpdir(), `cce-plan-${process.pid}-${Math.random().toString(36).slice(2)}`);
+      cp.spawnSync(process.execPath, ['-e', planScript], { cwd: path.join(__dirname, '..'), env: { ...process.env, OS: 'ubuntu-latest', STEPS: '', NEWEST: newest, GITHUB_OUTPUT: outFile, GITHUB_STEP_SUMMARY: '' }, encoding: 'utf8' });
+      let text = '';
+      try { text = fs.readFileSync(outFile, 'utf8'); fs.unlinkSync(outFile); } catch (_) { /* reported below */ }
+      const get = (k) => ((new RegExp(`^${k}=(.*)$`, 'm').exec(text) || [])[1]);
+      return { agentPlus: get('agentPlus'), claudeCode: get('claudeCode'), label: get('label') };
+    };
+    const onPush = against('false'), daily = against('true');
+    expect(/^[0-9a-f]{40}$/.test(pinned) && onPush.agentPlus === pinned && onPush.claudeCode === newestSupported && onPush.label === '',
+      'a push runs against the Agent Plus commit test/vscode/agent-plus-commit names and the newest Claude Code build supported-versions.json records',
+      JSON.stringify({ pinned, newestSupported, onPush }));
+    expect(daily.agentPlus === '' && daily.claudeCode === '' && daily.label === ', newest upstream'
+      && /NEWEST: \$\{\{ github\.event_name == 'schedule' \|\| inputs\.upstream == 'newest' \}\}/.test(ui)
+      && /repository: xnervwang\/vscode-agent-plus\s*\n\s+ref: \$\{\{ needs\.plan\.outputs\.agentPlus \}\}/.test(ui)
+      && /name: run \(\$\{\{ matrix\.os \}\}, \$\{\{ matrix\.part \}\}\$\{\{ needs\.plan\.outputs\.label \}\}\)/.test(ui),
+    'the daily run, and a run by hand that asks for it, runs against the newest of each, with that in its jobs\' names', JSON.stringify(daily));
     expect(/npm install --no-save --no-package-lock @vscode\/test-electron@3 playwright-core@1\s*$/m.test(ui) && !/(^|\s)playwright@/m.test(ui),
       'with @vscode/test-electron and playwright-core installed, and not playwright, which would download browsers it does not use');
     expect(/if \[ -e \/proc\/sys\/kernel\/apparmor_restrict_unprivileged_userns \]; then\s*\n\s*sudo sysctl -w kernel\.apparmor_restrict_unprivileged_userns=0/.test(ui),
