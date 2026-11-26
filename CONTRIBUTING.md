@@ -95,26 +95,26 @@ These checks cannot catch changes to class names or test ids used by the in-page
 
 `.github/workflows/vscode.yml` runs `test/vscode/run.js` on Linux, macOS, and Windows. It runs on pushes to `main` or a `ci/` branch, on pull requests, daily at 09:43 UTC, and by hand.
 
-Except for the daily run and manual runs with `upstream` set to `newest`, the workflow installs the newest Claude Code build recorded in `supported-versions.json`. See the section below on `supported-versions.json`, which `node build/update-versions.js -w` writes. On those same runs, the workflow builds the Agent Plus `.vsix` from the commit in `test/vscode/agent-plus-commit`. The file contains only the full commit hash. To update Agent Plus, change that file in a commit of its own.
+Except for the daily run and manual runs with the `upstream` input set to `newest`, the workflow installs the newest Claude Code build recorded in `supported-versions.json`. `node build/update-versions.js -w` writes that file; see its section below. On the runs that install that build, the workflow builds the Agent Plus `.vsix` from the commit in `test/vscode/agent-plus-commit`. The file contains only the full commit hash. To update Agent Plus, change that file in a commit of its own.
 
-The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". If the daily run fails while runs on `main` pass, a newer Claude Code or Agent Plus needs a change here. If the scheduled run fails, GitHub sends a notification, but pushes can still proceed.
+The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". A daily run that fails while runs on `main` pass means a newer Claude Code or Agent Plus needs a change here. If the scheduled run fails, GitHub sends a notification, but pushes can still proceed.
 
 In each job, the runner:
 
 - downloads the newest stable VS Code;
 - installs the selected Claude Code build, Agent Plus from a supplied `.vsix` or the marketplace, and this extension's `.vsix` into a separate profile;
-- runs the tests assigned to that job against the installed copies.
+- runs the tests assigned to that job (described below) against the installed copies.
 
 Any failed stage makes the runner exit non-zero.
 
-On each platform, five jobs run at the same time. The runner divides the `ui.js` window steps among four jobs, keeping each job's steps consecutive and the estimated times about equal. The fifth job runs `suite/` inside VS Code and `test/check.js`. Every job also writes the patched files, reloads, opens the first conversation in a tab, and checks at the end that no page showed the extension's warning.
+On each platform, five jobs run at the same time. The runner divides the `ui.js` window steps among four jobs, keeping each job's steps consecutive and the estimated times about equal. The fifth job runs `suite/` inside VS Code and `test/check.js`. Every job also writes the patched files, reloads, opens the first test conversation in a tab, and checks at the end that no page showed the extension's self-check warning.
 
 The runner splits the steps using `test/vscode/step-seconds.json`, which records the longest time each step took on any of the three platforms. Each step logs `took <N> s` when it ends. A missing step counts as 20 seconds. `test/check.js` fails if the file omits a step or names one that no longer exists.
 
 Manual runs take three inputs:
 
 - `os` lists the runners separated by commas and defaults to `ubuntu-latest,macos-latest,windows-latest`.
-- `steps` is a regular expression. With `steps` set, each listed platform runs one job with only the matching window steps and the four steps every job runs. It skips `suite/` and `test/check.js`.
+- `steps` is a regular expression matched against the window step names. With `steps` set, each listed platform runs one job with only the matching window steps and the four steps every job runs. It skips `suite/` and `test/check.js`.
 - `upstream` defaults to `pinned`. Set it to `newest` to use the same versions as the daily run.
 
 To run one step on macOS from a branch:
@@ -142,7 +142,7 @@ On Linux, the test stage runs in a network namespace with loopback only. It uses
 
 The `--out` folder holds a screenshot of every step in `shots/`, crops in `actual/<platform>/`, a diff image for each failed crop in `diff/<platform>/`, and VS Code logs in `logs/`. When a step fails, `pages/<step>/` holds two files for each page of the window: a `.txt` file with its address and text, and an `.html` file with its markup. Only elements this extension draws are cropped, never Claude Code's or VS Code's own. If one of ours sits between two Claude Code elements, it gets its own crop.
 
-Each job uploads its `--out` folder as `vscode-<OS>-<part>` whether it passes or fails. `<part>` is `1-of-4` to `4-of-4`, `suite`, or `steps`. A part's artifact has crops only for the steps it ran. `test/vscode/update-baseline.js` takes one artifact at a time.
+Each job uploads its `--out` folder as `vscode-<OS>-<part>` whether it passes or fails. `<part>` is `1-of-4` to `4-of-4` for the four window-step jobs, `suite` for the fifth, or `steps` for a manual run with `steps` set. A part's artifact has crops only for the steps it ran. `test/vscode/update-baseline.js`, below, takes one artifact at a time.
 
 Each crop is compared pixel by pixel with the approved copy for its platform. A pixel differs when any channel differs by more than 32 of 255. A crop fails when more than 0.2% of its pixels differ, or its width or height differs by more than one pixel. Times in crops are masked.
 
@@ -177,7 +177,7 @@ To run only part of the tests, set one of these:
 
 - `CLAUDE_CODE_PLUS_UI_STEPS` to step names separated by commas;
 - `CLAUDE_CODE_PLUS_UI_STEPS_RE` to a regular expression;
-- `CLAUDE_CODE_PLUS_UI_SHARD` to `i/n` for the i-th of n parts, or to `suite`.
+- `CLAUDE_CODE_PLUS_UI_SHARD` to `i/n` for the i-th of n parts, or to `suite` for the part the fifth CI job runs.
 
 With any of these set, `run.js` skips `suite/` and `test/check.js` unless `CLAUDE_CODE_PLUS_UI_SHARD=suite`.
 
