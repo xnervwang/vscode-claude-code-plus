@@ -254,11 +254,20 @@ async function answerDialog(d, label) {
   await d.until(async () => !(await dialog(d)), 5000, 200);
 }
 
+/* In a page, whether it is the page of the fake conversation `q` (ownPageOf): its first message of yours is that
+   conversation's first, it has its messages and a reply, and with `box` a message box. Text alone does not tell: another
+   conversation's page can hold the same words, as a steward's message names the conversation by its title. Run in the
+   page, so it uses nothing outside itself. */
+function ownPage(q) {
+  const mine = document.querySelectorAll('[class*="userMessage_"]');
+  return mine.length >= q.n && mine[0].innerText.includes(q.ask) && !!document.querySelector('[data-testid="assistant-message"]')
+    && (!q.box || !!document.querySelector('[contenteditable][role="textbox"]'));
+}
+const ownPageOf = (t, box = false) => ({ n: t.turns.length, ask: t.turns[0][0], box });
 /* A fake conversation of lib/fake-home.js in a tab of its own, and its page. */
 async function thread(d, t) {
   await d.exec('claude-vscode.editor.open', t.id);
-  const frame = await d.frameWhere((q) => document.querySelectorAll('[class*="userMessage_"]').length >= q.n && document.body.innerText.includes(q.ask)
-    && !!document.querySelector('[data-testid="assistant-message"]'), 60000, { n: t.turns.length, ask: t.turns[0][0] });
+  const frame = await d.frameWhere(ownPage, 60000, ownPageOf(t));
   if (!frame) throw new Error(`the conversation "${t.title}" did not open in 60 s`);
   await d.sleep(1200);
   return frame;
@@ -3044,13 +3053,7 @@ const STEPS = [
       const list = await agentList(d);
       await agentRowWhere(d, list, title, (s) => s.stripe !== 'here', 20000, 'still has the stripe of a conversation open here');
       await agentMenuPick(d, list, title, 'Open in Sidebar');
-      const side = await d.until(async () => {
-        for (const f of d.page.frames()) {
-          const hit = await f.evaluate((ask) => !!document.querySelector('[contenteditable][role="textbox"]') && document.body.innerText.includes(ask), t.turns[0][0]).catch(() => false);
-          if (hit) return f;
-        }
-        return null;
-      }, 60000, 1000);
+      const side = await d.frameWhere(ownPage, 60000, ownPageOf(t, true));
       if (!side) throw new Error('the conversation did not open in the side bar within 60 s');
       d.mapSide = side;
       await d.sleep(2000);
