@@ -389,6 +389,15 @@ const needCountBox = (d) => d.page.evaluate((head) => {
   const r = e.getBoundingClientRect();
   return n ? { x: r.left, y: r.top, width: r.width, height: r.height, text: String(n), says: e.innerText.trim() } : null;
 }, 'Waiting for you to approve something or answer:');
+/* The box and text of Agent Plus's Conversations entry in the status bar, whatever it counts; null while it is not shown. */
+const needEntry = (d) => d.page.evaluate(() => {
+  const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
+  if (!e) return null;
+  const r = e.getBoundingClientRect();
+  return { x: r.left, y: r.top, width: r.width, height: r.height, says: e.innerText.trim() };
+});
+/* How many conversations that text says need you: 0 when it says none do. */
+const needTotal = (says) => { const m = /^(\d+) conversations? needs? you$/.exec(says || ''); return m ? Number(m[1]) : 0; };
 /*
  * Another window of this machine reporting `items` to Agent Plus, which reads every window's file in the folder they
  * share (its src/attention.js), so this window treats them as conversations of that other window. A file not rewritten
@@ -1981,9 +1990,10 @@ const STEPS = [
       + 'questions for you to decide. The conversation here with an unread reply is not counted.',
     unchanged: 'The window is as before.',
     act: async (d) => {
-      /* The demo conversation's plan has questions to decide, so the entry may count it already. */
-      const before = await needCountBox(d);
-      const want = String((before ? Number(before.text) || 0 : 0) + 1);
+      /* The entry's text counts every conversation that needs you, the demo conversation too once Agent Plus has read the
+         questions of its plan; its hover lists the waiting ones in a group of their own. */
+      const waits = Number(((await needCountBox(d)) || {}).text) || 0;
+      const want = needTotal(((await needEntry(d)) || {}).says) + 1;
       otherWindow(d, [{ sessionId: LOOK_ID(15), title: 'Tag the release build', waitingFor: { kind: 'permission', tool: 'Bash' } }]);
       /* The status bar around the entry, also for the picture of a step that fails. */
       const near = async (c) => {
@@ -1992,13 +2002,15 @@ const STEPS = [
         const x = Math.max(0, c.x - 200);
         return { x, y: c.y - 4, width: Math.min(width, c.x + c.width + 200) - x, height: c.height + 8 };
       };
-      const b = await d.until(async () => { const c = await needCountBox(d); return c && c.text === want && c; }, 20000, 300);
+      const b = await d.until(async () => { const c = await needCountBox(d); return c && Number(c.text) === waits + 1 && c; }, 20000, 300);
       if (!b) {
-        const now = await needCountBox(d);
-        throw Object.assign(new Error(`Agent Plus did not count the waiting conversation of another window in 20 s: ${JSON.stringify({ before, now })}`), { area: await near(now) });
+        throw Object.assign(new Error(`Agent Plus did not count the waiting conversation of another window in 20 s: ${JSON.stringify({ waits, now: await needCountBox(d) })}`),
+          { area: await near(await needEntry(d)) });
       }
-      if (b.says !== `${want} ${want === '1' ? 'conversation needs' : 'conversations need'} you`) throw Object.assign(new Error(`the entry reads "${b.says}"`), { area: await near(b) });
-      return near(b);
+      const says = `${want} ${want === 1 ? 'conversation needs' : 'conversations need'} you`;
+      const e = await d.until(async () => { const x = await needEntry(d); return x && x.says === says && x; }, 5000, 300);
+      if (!e) throw Object.assign(new Error(`the entry reads "${((await needEntry(d)) || {}).says}", not "${says}"`), { area: await near(await needEntry(d)) });
+      return near(e);
     },
     undo: async (d) => {
       noOtherWindow(d);
