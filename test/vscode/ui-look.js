@@ -2888,9 +2888,12 @@ const STEPS = [
       + 'running one with a filled green dot and "running", how long and an eight-digit job id on its second line; the '
       + 'finished one with a grey dot and "done", when it finished and its job id. Each card has a small arrow at the end of '
       + 'its title line, pointing right.',
-    unchanged: 'The conversation behind the map has two more exchanges at its end.',
+    unchanged: 'The conversation behind the map has two more exchanges at its end, and after the first of them one more reply '
+      + 'with no message of yours before it: the answer to the notice Claude Code Plus sends when the first claude --bg session '
+      + 'has finished.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
+      const from = d.model.seen.length;
       const bin = path.join(d.profile.home, 'fake-bg');
       fs.mkdirSync(bin, { recursive: true });
       const script = path.join(bin, 'claude');
@@ -2903,6 +2906,12 @@ const STEPS = [
       if (!first) throw new Error('the first claude --bg session did not finish within 30 s');
       fs.writeFileSync(script, fakeModel.BG_SESSION_SCRIPT(1800), { mode: 0o755 });
       await runAsked(d, frame, `Please ${fakeModel.ASK_FOR_BG_SESSION}.`, '--bg');
+      /* Claude Code Plus tells the conversation of the first session's end on a timer of its own, and the conversation
+         answers; that is let happen here, so that the steps after find the conversation as it stays. */
+      if (!await d.until(() => d.model.seen.slice(from).some((x) => /news of a `claude --bg` session/.test(x.ask || '')), 120000, 1000)) {
+        throw new Error('the conversation was not told the first claude --bg session ended within 120 s');
+      }
+      if (!await d.until(() => liveOf(d, mapThread(d).id).some((r) => r.status === 'idle'), 30000, 500)) throw new Error('the conversation did not go idle after it answered the notice');
       await openMap(d, frame, `${fakeModel.BG_SESSION_NAME}[\\s\\S]*${fakeModel.BG_SESSION_NAME}`);
       return d.editor();
     },
@@ -2914,8 +2923,7 @@ const STEPS = [
       + 'DETACHED COMMANDS, count badge "1", comes right after BACKGROUND TASKS. Its card has a green dot, a title made of '
       + 'the program and the argument that identifies what it runs ("perl -e ... cache-relay:demo") rather than the whole '
       + 'command line, and a second line with its process id, start time and running time.',
-    unchanged: 'The conversation behind the map is as before, but for one more reply at its end, with no message of yours before it: '
-      + 'the answer to the notice Claude Code Plus sends when the first claude --bg session has finished.',
+    unchanged: 'The conversation behind the map is as before.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
       const sock = path.join(d.profile.folder, '.relay', 'cache.sock');
@@ -2931,8 +2939,7 @@ const STEPS = [
       + '"2", after DETACHED COMMANDS where there is one. Each card has a grey dot (nothing runs before its '
       + 'prompt is due), the start of its prompt as its title, cut with an ellipsis, and a second line saying when it fires and when '
       + 'it last fired: "every 20 min . last fired 7 min ago" and "daily at 9:30 . never fired".',
-    unchanged: 'The conversation behind the map is as before, but it may have one more reply at its end, with no message of yours '
-      + 'before it: the answer to the notice Claude Code Plus sends when the first claude --bg session has finished.',
+    unchanged: 'The conversation behind the map is as before.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
       addSchedules(d, mapThread(d).id);
@@ -2966,7 +2973,9 @@ const STEPS = [
       + 'THIS CONVERSATION and its card; then these sections, each with a thin line above it and a count badge: SUBAGENTS 1, BACKGROUND '
       + 'TASKS 1, ' + (LINUX ? 'DETACHED COMMANDS 1, ' : '') + 'SCHEDULED PROMPTS 2, ' + (LINUX ? 'claude -p SESSIONS 1, ' : '')
       + 'claude --bg SESSIONS 2. Every card has a dot, a title on one line and a second, dimmer line. The headings are '
-      + 'smaller than the card text, bold and in capitals. Nothing overlaps, nothing is cut off at the right edge.',
+      + 'smaller than the card text, bold and in capitals. Nothing overlaps, nothing is cut off at the right edge. The map is '
+      + 'taller than the editor and scrolls: shown from its top, its last section\'s cards may lie below the bottom edge, which '
+      + 'the next step scrolls to.',
     unchanged: 'The first conversation is in front again.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
@@ -2985,7 +2994,7 @@ const STEPS = [
       + 'in a box ("The nightly report is written: 2 failed tests, both in the export job."), a folded row "Task" with the task it was '
       + 'given, and two buttons, claude attach and claude logs, each with the job id; the arrow at the end of that card\'s title line now points down. The other cards '
       + 'are as before, closed.',
-    unchanged: 'The map is as in the picture before, but for the opened card and where the map is scrolled to.',
+    unchanged: 'The conversation behind the map is as before; the map, closed in the picture before, is open again.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
       await openMap(d, frame, 'every 20 min');
@@ -2997,9 +3006,9 @@ const STEPS = [
   {
     name: 'map-opened-prompt', features: ['agent-map'],
     expect: 'Clicked open, the first scheduled prompt\'s card shows the whole prompt in a box under it ("Check whether the '
-      + 'nightly build has finished, and report the tests that failed."), and its arrow points down; the other cards are '
+      + 'nightly build has finished, and report the tests that failed."), and its arrow points down; the other cards in view are '
       + 'closed.',
-    unchanged: 'The map is open again with the session card closed.',
+    unchanged: 'The conversation behind the map is as before; the map, closed in the picture before, is open again.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
       await openMap(d, frame, 'every 20 min');
@@ -3071,7 +3080,7 @@ const STEPS = [
     name: 'map-sidebar-end', features: ['agent-map', 'light-theme', 'narrow-panel'],
     expect: 'The same side bar map scrolled to its end: the last sections and their cards; '
       + 'no card cut in half at the bottom without a way to scroll to it.',
-    unchanged: 'The side bar shows the same map, scrolled.',
+    unchanged: 'The side bar shows the same conversation; its map, closed in the picture before, is open again.',
     act: async (d) => {
       if (!d.mapSide) throw new Error('the conversation is not open in the side bar');
       await openMap(d, d.mapSide, 'Look through the notes');
