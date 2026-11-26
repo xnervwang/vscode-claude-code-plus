@@ -814,9 +814,10 @@ function start(context, log, renamed, handing = false) {
   const confirming = new Set();
   /*
    * Agent Plus's session list (its protocol, Session list): the conversations of this window's first folder, read from
-   * their transcripts (src/claude-session-list.js), the places outside VS Code windows where each is open
-   * (src/claude-elsewhere.js), and the figures of the conversation in front, which the patched host passes on each time
-   * the CLI reports them (src/session-totals.js). Watching the transcripts starts once the list first asks for them.
+   * their transcripts (src/claude-session-list.js), the places where each is open outside the VS Code windows the list
+   * knows of (src/claude-elsewhere.js), and the figures of the conversation in front, which the patched host passes on
+   * each time the CLI reports them (src/session-totals.js). Watching the transcripts starts once the list first asks for
+   * them.
    */
   let claimed = new Map();
   const places = claudeElsewhere.create({ ownPid: process.pid, claimed: (id) => claimed.has(id) });
@@ -1716,7 +1717,7 @@ function start(context, log, renamed, handing = false) {
      more, to set against when Claude Code's log shows the panel asking for the list. */
   let listsLogged = 0;
   const showBackground = () => cfg().get(HIDE_BG_SETTING, true) === false;
-  /* Claude Code's own session list, hidden while claudeCodePlus.hideOfficialSessionList is on (src/official-list.js). */
+  /* Hides Claude Code's own session list while claudeCodePlus.hideOfficialSessionList is on (src/official-list.js). */
   const officialSessionList = officialList.create({
     execute: (...args) => vscode.commands.executeCommand(...args),
     hidden: () => !removed() && !uninstalling() && enabled() && cfg().get(HIDE_OFFICIAL_LIST_SETTING, false) === true,

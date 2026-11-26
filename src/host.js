@@ -237,8 +237,8 @@ const EDITS = [
       + 'this.reconcileRememberedTabSessions()',
   },
   /*
-   * The open conversations' states, sent to every panel, also reach this extension: each conversation's state as the
-   * host knows it and the replies not read yet, for the Conversations view. They come the moment something changes,
+   * The host sends the open conversations' states to every panel and to this extension as well: each one's state as the
+   * host knows it and its replies not read yet, for the Conversations view. They come the moment something changes,
    * while `claude agents` runs every half minute. The states pass through this extension first, which may mark an
    * idle conversation running (__cceWithBackground in extension.js). The message carries the dot this extension draws
    * for each conversation (cceActivity, src/activity.js), for the agent map's own row.
@@ -339,8 +339,8 @@ const EDITS = [
       + 'this.recentlyClosedSessions.length>0&&!(()=>{try{let cceF=globalThis.__cceListReopens;return typeof cceF==="function"&&cceF()===!0}catch(cceE){return!1}})())}',
   },
   /*
-   * The figures of a conversation running in this window, as the host keeps them each time its CLI reports them: at the
-   * start and after every turn. Agent Plus's session list shows them under Account & usage.
+   * The host keeps a conversation's figures each time its CLI reports them, at the start and after every turn, and this
+   * edit passes them on to this extension. Agent Plus's session list shows them under Account & usage.
    */
   {
     name: 'session totals reach this extension',

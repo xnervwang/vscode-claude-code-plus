@@ -22,8 +22,8 @@ const QUESTION = 'Agent Plus now lists your Claude Code conversations. Hide Clau
 const HIDE = 'Hide It';
 const KEEP = 'Keep It';
 
-/* `execute` runs a VS Code command and `hidden` reads the setting. apply() makes the key follow the setting and resolves
-   to whether it set the key; dispose() shows the list again if this extension hid it. */
+/* apply() makes the key follow the setting and resolves to whether it set the key; dispose() shows the list again if
+   this extension hid it. */
 function create({ execute, hidden, log = () => {} }) {
   let hiding = false;
   const set = (shown) => Promise.resolve()

@@ -199,7 +199,7 @@ function createClaudeSource(deps) {
 
   /* listConversations and freshAgents can each have a read of `claude agents` in flight, and the one that started
      earlier can return later with an older list. So a list read before the one held is dropped, and agentsAt records
-     when the held list was read, which is what its age counts from. A failed read from listConversations replaces the
+     when the held list was read. A failed read from listConversations replaces the
      list, so that it reports the error; one from freshAgents keeps it. */
   const take = (started, r, keep) => {
     const at = r && Number.isFinite(r.at) ? r.at : started;

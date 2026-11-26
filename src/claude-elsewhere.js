@@ -181,7 +181,6 @@ function under(pid, ancestor, sys) {
   return false;
 }
 
-/* On Windows, the terminal program a conversation runs in, told from the names of the processes it runs under. */
 function windowsTerminal(names) {
   const lower = (names || []).map((n) => String(n).toLowerCase());
   if (lower.includes('windowsterminal.exe')) return 'Windows Terminal';

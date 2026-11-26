@@ -34,7 +34,6 @@ function duration(ms) {
 }
 const lines = (n) => `${n} ${n === 1 ? 'line' : 'lines'}`;
 
-/* The four figures of one report, or null when it has none of them. */
 function figures(totals) {
   if (!totals || typeof totals !== 'object') return null;
   const f = {
@@ -55,7 +54,6 @@ function rows(f) {
   return out;
 }
 
-/* Keeps the latest figures of each conversation and calls `changed(sessionId)` when they differ from the ones kept. */
 function create({ changed = () => {} } = {}) {
   const kept = new Map();
   return {

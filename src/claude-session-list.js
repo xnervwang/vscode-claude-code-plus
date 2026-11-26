@@ -30,7 +30,7 @@ const LONG_TAIL_BYTES = 4 << 20;
 const MAX_PROMPT = 200;
 const MAX_TITLE = 500;
 const PAGE = 500;
-/* Events from the folders watched and from the source are gathered up for this long before the core is told. */
+/* Changes from the watched folders and from the source are collected for this long, then the core is told once. */
 const SETTLE_MS = 400;
 /* How long the first page waits for a fresh list of the conversations that run; a page settles within 10 seconds. */
 const READY_MS = 3000;
@@ -53,8 +53,9 @@ function promptOf(rec) {
 }
 const parse = (l) => { try { return JSON.parse(l); } catch (_) { return null; } };
 
-/* What the list shows of one transcript: its head says when it started and what was asked first, its tail its titles,
-   which Claude Code writes again every turn, its last message, the user's last message and the agent's last reply. */
+/* What the list shows of one transcript. The head gives when it started and the first prompt; the tail gives its
+   titles, which Claude Code writes again every turn, its last message, the user's last message and the agent's last
+   reply. */
 function summarize(file) {
   let fd;
   try {
@@ -378,8 +379,8 @@ function create(deps) {
 
 /*
  * Renames a conversation that no process has open to `title`, the way Claude Code's own rename does: a custom-title
- * record at the end of its transcript, which its list and its next run read. A transcript whose last record is being
- * written gets the record on a line of its own after it.
+ * record at the end of its transcript, which its list and its next run read. If the transcript's last record is still
+ * being written, the title record goes on a new line after it.
  */
 function appendTitle(file, sessionId, title) {
   let fd;
@@ -403,8 +404,9 @@ function appendTitle(file, sessionId, title) {
 
 /*
  * Deletes the conversations the list asks to, after checking once more that nothing has one open: a panel of this
- * window (`shown`, the ids shown here, or null when this window cannot tell, and then nothing is deleted), another VS Code
- * window (`elsewhere`, a Map of id to the names of the windows that show it), or a Claude Code process (`running`, a Set).
+ * window (`shown`, the ids shown here), another VS Code window (`elsewhere`, a Map of id to the names of the windows that
+ * show it), or a Claude Code process (`running`, a Set). With `shown` null, when this window cannot tell, nothing is
+ * deleted.
  * `findAll` and `remove` are src/deletesession.js's; `forget(id)` drops this extension's own records of a deleted one.
  */
 function deleteChecked(sessionIds, { shown, running, elsewhere, findAll, remove, forget = () => {} }) {
