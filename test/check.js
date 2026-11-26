@@ -9820,6 +9820,17 @@ console.log('\nthe Steward panel');
         && text.includes('steward-peek.py only if you need its latest reply')) {
       ok('the notice says it is not from the user and gives each conversation\'s name, state, rows in progress and questions');
     } else bad(`the notice read ${JSON.stringify(text)}`);
+    /* Titles as stored: an older build put a bell, with or without the emoji variation selector, after a steward's
+       title, and a title can carry the crown and envelopes drawn now. */
+    const stored = ['Many conversations \u{1F6CE}\uFE0F', 'Many conversations \u{1F6CE}', 'Many \u{1F6CE}\uFE0F conversations \u{1F451} \u{1F4E9}',
+      'Many conversations \u2709\uFE0F \u2709', '\u{1F6CE}\uFE0F \u{1F451}'];
+    const lines = stored.map((title) => st.fromLine(S(1), title));
+    const named = lines.map((l) => st.senderOf(l));
+    const marked = /[\u{1F6CE}\u{1F451}\u{1F4E9}\u2709\uFE0E\uFE0F]/u;
+    if (lines.every((l) => !marked.test(l)) && named.slice(0, 4).every((n) => n && n.steward === S(1) && n.title === 'Many conversations')
+        && lines[4] === `Sent by the steward (${S(1)}) for the user:` && named[4] && named[4].title === '') {
+      ok('the line a steward\'s message starts with carries its title without a bell, with or without the emoji variation selector, a crown or an envelope, and names no title when only marks are stored');
+    } else bad(`the lines a steward's message starts with: ${JSON.stringify(lines)}`);
     const sockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-sk-'));
     // A Unix socket elsewhere, a named pipe on Windows; post() is told it is not on Windows so that it connects.
     const sock = process.platform === 'win32' ? '\\\\.\\pipe\\' + path.basename(sockDir) : path.join(sockDir, 's.sock');

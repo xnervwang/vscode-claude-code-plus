@@ -55,6 +55,7 @@ const path = require('path');
 const { planDir, SESSION, writeAtomic } = require('./claude-files');
 const duplicates = require('./duplicates');
 const keys = require('./steward-keys');
+const titleMarks = require('./title-marks');
 
 const FILE = 'stewards.json';
 const VERSION = 3;
@@ -264,12 +265,14 @@ function rename(names, { dir = planDir() } = {}) {
  * The line a steward's message to a conversation starts with, and the steward it names. The managed conversation reads
  * it to know which steward the message is from (hooks/steward.py says so each turn), and the relay reads it in that
  * conversation's transcript to find the steward that started a turn. hooks/steward_table.py parses the same form.
+ * The title loses every mark (src/title-marks.js) here, whatever the caller passed: a stored title can still carry
+ * one that an older build wrote into it, and the line names the steward by its title alone.
  */
 const FROM_HEAD = 'Sent by the steward ';
 const FROM_TAIL = ' for the user:';
 const FROM = /^Sent by the steward (?:"(.*)" )?\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\) for the user:[ \t]*$/i;
 function fromLine(steward, title) {
-  const t = String(title || '').replace(/\s+/g, ' ').trim();
+  const t = titleMarks.withoutMarks(String(title || '')).replace(/\s+/g, ' ').trim();
   return `${FROM_HEAD}${t && t !== steward ? `"${t}" ` : ''}(${steward})${FROM_TAIL}`;
 }
 /* { steward, title } named by the first line of `text`, or null. */
