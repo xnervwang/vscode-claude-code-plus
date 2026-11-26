@@ -5548,6 +5548,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       };
       const editorWidth = () => page.evaluate(() => { const e = document.getElementById('workbench.parts.editor'); return e ? e.getBoundingClientRect().width : 0; });
       try {
+        /* Both side bars closed, so that on a 1024 px screen the panel is wide enough for the bar's full form, and for two
+           widths apart below. */
+        await exec('workbench.action.closeSidebar');
+        await exec('workbench.action.closeAuxiliaryBar');
         await exec('claude-vscode.editor.open', tab0.id);
         await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 15000, 300);
         const panel = await conversation(tab0).catch(() => null) || conv;
@@ -5609,9 +5613,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'with every row done, a check and All rows done, and an empty track', allDone || await bar());
         await shot('plan-bar-done');
 
-        /* Both side bars closed, so that on a 1024 px screen the editor area is wide enough for two widths apart. */
-        await exec('workbench.action.closeSidebar');
-        await exec('workbench.action.closeAuxiliaryBar');
         const full = await editorWidth();
         const grown = (n) => write([row('Export', 'doing', { children: [row('A current row whose title is long enough to be cut short when the panel is narrow', 'doing')] })]
           .concat(Array.from({ length: n - 2 }, (_, i) => row('Row ' + (i + 1), 'todo'))));
