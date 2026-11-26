@@ -63,6 +63,29 @@ const showStatus = async (d) => {
   await d.exec('notification.expand').catch(() => {});
   await d.sleep(500);
 };
+/* Drags the top edge of the panel at the bottom until the panel is `to` px tall. */
+async function panelTo(d, to) {
+  const p = await d.part('workbench.parts.panel');
+  if (!p || Math.abs(p.height - to) < 4) return;
+  const sash = await d.page.evaluate((edge) => {
+    const b = [...document.querySelectorAll('.monaco-sash.horizontal')].map((e) => e.getBoundingClientRect())
+      .find((r) => r.width > 200 && Math.abs(r.top + r.height / 2 - edge) < 6);
+    return b ? { x: b.left + b.width / 2, y: b.top + b.height / 2 } : null;
+  }, p.y);
+  if (!sash) return;
+  await d.page.mouse.move(sash.x, sash.y);
+  await d.sleep(200);
+  await d.page.mouse.down();
+  await d.page.mouse.move(sash.x, sash.y - (to - p.height), { steps: 10 });
+  await d.page.mouse.up();
+  await d.sleep(500);
+}
+/* Whether the panel's Output view shows lines starting with each of `starts`: the view draws only the lines in view. */
+const outputShows = (d, starts) => d.page.evaluate((want) => {
+  const panel = document.getElementById('workbench.parts.panel');
+  const shown = panel ? [...panel.querySelectorAll('.view-lines .view-line')].map((e) => e.textContent.replace(/\u00a0/g, ' ')) : [];
+  return want.every((w) => shown.some((l) => l.startsWith(w)));
+}, starts);
 /* Agent Plus's token mode, and a pause for the extensions to follow it. */
 const modeTo = async (d, mode) => { await setting(d, 'agentPlus.tokenMode', mode); await d.sleep(3000); };
 
@@ -2492,10 +2515,19 @@ const STEPS = [
       if (!Array.isArray(lines) || !lines.some((l) => /^Source claude-code: Claude Code, from xnervwang\.claude-code-plus, plans in /.test(l))) {
         throw new Error(`Agent Plus's status names no Claude Code source: ${JSON.stringify(lines)}`);
       }
-      await d.sleep(1500);
+      /* The panel's default height holds fewer lines than the status, and the Output view keeps its last line in view. */
+      d.panelHeight = ((await d.part('workbench.parts.panel')) || {}).height || 0;
+      await panelTo(d, 470);
+      const ends = [lines[0], lines[lines.length - 1]].map((l) => String(l).slice(0, 24));
+      if (!await d.until(() => outputShows(d, ends), 10000, 300)) throw new Error(`the Output panel does not show both ${JSON.stringify(ends)}`);
+      await d.sleep(800);
       return (await d.part('workbench.parts.panel')) || d.body();
     },
-    undo: async (d) => { await d.exec('workbench.action.closePanel'); await d.sleep(500); },
+    undo: async (d) => {
+      if (d.panelHeight) await panelTo(d, d.panelHeight);
+      await d.exec('workbench.action.closePanel');
+      await d.sleep(500);
+    },
   },
   {
     name: 'command-settings', features: ['settings-command'],
