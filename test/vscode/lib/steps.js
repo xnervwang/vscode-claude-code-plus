@@ -47,7 +47,7 @@ function partial(env = process.env) {
   return !!(env.CLAUDE_CODE_PLUS_UI_STEPS || env.CLAUDE_CODE_PLUS_UI_STEPS_RE || (shard && shard !== 'suite'));
 }
 
-/* A function that says whether a run with these variables takes a step. */
+/* The test of which steps a run takes, from the CLAUDE_CODE_PLUS_UI_* variables in `env`. */
 function chooser(env = process.env, { source, seconds } = {}) {
   const only = (env.CLAUDE_CODE_PLUS_UI_STEPS || '').split(',').map((x) => x.trim()).filter(Boolean);
   const re = env.CLAUDE_CODE_PLUS_UI_STEPS_RE ? new RegExp(env.CLAUDE_CODE_PLUS_UI_STEPS_RE) : null;

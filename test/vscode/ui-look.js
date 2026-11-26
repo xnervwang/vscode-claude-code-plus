@@ -177,7 +177,7 @@ async function sessionList(d) {
   await d.widen();
   return list;
 }
-/* The row of conversation `id` in Claude Code's own list, whose id ends in the session id. */
+/* Conversation `id`'s row in Claude Code's own list: the row's element id ends in the session id. */
 const listRow = (list, id) => list.locator(`[class*="sessionItem_"][id$="${id}"]`).first();
 
 /* Agent Plus's session list in the side bar, which lists Claude Code's conversations through this extension
@@ -1229,10 +1229,10 @@ const STEPS = [
   },
   {
     name: 'background-hidden', features: ['hide-background-sessions'],
-    expect: 'Claude Code\'s own session list in the side bar, its icon back in the Activity Bar. Beside the conversations it lists, the '
-      + 'folder of transcripts holds three written before the window opened: one of a session started with claude --bg, titled "'
-      + BACKGROUND_TITLE + '", one started with claude -p, titled "' + PRINT_TITLE + '", and one of Claude Code\'s daemon '
-      + 'sessions, titled "' + DAEMON_TITLE + '"; the list shows none of them.',
+    expect: 'Claude Code\'s own session list in the side bar, its icon back in the Activity Bar. The list omits the '
+      + 'session titled "' + BACKGROUND_TITLE + '" started with claude --bg, the session titled "' + PRINT_TITLE
+      + '" started with claude -p, and the Claude Code daemon session titled "' + DAEMON_TITLE + '". Their '
+      + 'transcripts are in the same folder as the transcripts of the conversations the list shows.',
     unchanged: 'The editor shows the same conversation as before.',
     act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
   },

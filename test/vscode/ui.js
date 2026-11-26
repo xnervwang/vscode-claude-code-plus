@@ -409,7 +409,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   };
   /* The running attentionTrace, if any; testFocus adds to it each focus it gives a window. */
   let tracing = null;
-  /* Until stop(), records each change of each window's file in the folder Agent Plus's windows share, file by file: the
+  /* Until stop(), records every change to the files Agent Plus's windows share, one window's file at a time: the
      time the file says it was written, the entries of the conversations `ids` with all their fields (null where a
      file has none), and the file's whole record of conversations it told the user about and of those it shows in front.
      It also records each change in the notices on screen in the window of `page`, and, through mark(), the test's own
@@ -720,7 +720,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     if (d.dot === 'blue') return { state: 'waiting', dialog: true, ring: false };
     return { state: d.running ? 'running' : d.waiting ? 'waiting' : '', ring: !!d.ring };
   };
-  /* The row of a conversation in Agent Plus's list, with whether it shows the envelope of a reply not read yet. */
+  /* A conversation's row in Agent Plus's list; envelopeBetween() says whether it shows the unread envelope. */
   const rowParts = (t) => slRow(t).catch(() => null);
   const envelopeBetween = (p) => !!p && p.unread;
   /* ── the conversation's page ── */
@@ -1115,7 +1115,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const rowAt = (title) => sl.locator('.sl-section:not([data-key="closed"]) .sl-row').filter({ has: sl.locator('.sl-title', { hasText: title }) }).first();
       const slHover = () => sl.evaluate(() => { const h = document.querySelector('.sl-hover'); return h && !h.classList.contains('sl-hidden') ? h.textContent : ''; });
       const listed = await until(async () => { const r = await rows().catch(() => null); return r && threads.every((t) => find(r, t.title)) && r; }, 30000, 500);
-      check(!!listed, 'Agent Plus\'s session list lists the fake conversations by their titles, read from their transcripts', listed || await rows().catch(() => null));
+      check(!!listed, 'Agent Plus\'s session list shows the fake conversations by their titles, which it reads from their transcripts', listed || await rows().catch(() => null));
       if (!listed) return;
       check((find(listed, tab0.title) || {}).stripe === 'here', 'the conversation open in this window\'s tab has the solid stripe', find(listed, tab0.title));
       check(!background.some((b) => find(listed, b.title)), 'claude --bg, claude -p and daemon sessions are left out while background conversations are hidden', listed.map((r) => r.title));
@@ -3501,7 +3501,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
          only once the host holds this one's mark. */
       const marks = [];
       await showSl();
-      /* A row Agent Plus already counts as unread (a reply it never saw shown) offers Mark as Read instead: read first. */
+      /* A row Agent Plus already counts as unread, because it never saw the reply on screen, offers Mark as Read instead,
+         so it is marked read first. */
       const markUnread = async (t) => {
         try { await slPick(t, 'Mark as Unread'); return 'marked'; } catch (e) { if (!/Mark as Read/.test(String((e && e.message) || e))) throw e; }
         await page.keyboard.press('Escape');
@@ -4104,7 +4105,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
         /* The click goes to the link itself: in a window behind another, moving the mouse onto it can lose the hover that
-           shows the list. The check above already saw the list come up. */
+           shows the list. */
         await panelB.locator(eyeOf(X.id)).first().hover({ force: true });
         await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown; }, 5000, 200);
         await panelB.locator(`${eyeOf(X.id)} .pop a[data-open="${SA.id}"]`).first().dispatchEvent('click');
@@ -5852,7 +5853,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'nothing was sent: three seconds later the input still holds the text and the transcript has none of it', { still, sent: mentions(tab0, 'About row ') - sentBefore });
 
         await closeTab(t1);
-        /* Its process ends a moment after its tab closes; until then the pen rightly leaves the conversation alone. */
+        /* Its process ends a moment after its tab closes; until then the pen leaves the conversation alone. */
         const ended = await until(() => !liveRecords().some((r) => r.sessionId === t1.id), 20000, 300);
         check(!!ended, 'once its tab is closed, no process runs the second conversation', liveRecords().filter((r) => r.sessionId === t1.id));
         writePlan(t1, ['Check the export filter']);

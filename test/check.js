@@ -6406,7 +6406,7 @@ console.log('\nthe figures of a conversation running here, for the Account & usa
   kept.note('s1', Object.assign({}, four, { total_cost_usd: 3 }));
   kept.note('s201', four);
   if (kept.of('s0') === null && kept.of('s2') === null && kept.of('s1') && kept.of('s1').costUsd === 3 && kept.of('s201') && kept.rows('s3').length === 4) {
-    ok('at most 200 conversations\' figures are kept, the ones reported longest ago going first');
+    ok('at most 200 conversations\' figures are kept; past that, the one reported longest ago is dropped first');
   } else bad('the figures kept past 200 conversations');
 }
 
@@ -7769,7 +7769,6 @@ console.log('\nconversations kept from Claude Code\'s cleanup');
   const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
   const C = '33333333-3333-4333-8333-333333333333', D = '44444444-4444-4444-8444-444444444444';
 
-  /* The pins file an earlier version wrote, and the cleanupPeriodDays the pinned files are kept ahead of. */
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-pins-'));
   try {
     const f = (name, v) => { const p = path.join(tmp, name); fs.writeFileSync(p, JSON.stringify(v)); return p; };
@@ -7975,7 +7974,7 @@ console.log('\nthe open conversations\' states, as the host sends them');
     env.b.call(mgr); mgr.sidebarComms = undefined; env.__cceActivityMap = () => { throw new Error('x'); }; env.b.call(mgr);
     const got = list.sent.map((m) => [m.request.sidebarSessionIds, m.request.cceActivity]);
     if (JSON.stringify(got) === JSON.stringify([[['S'], { A: 'working' }], [['S'], undefined]]) && sidebar.sent[0].request.sidebarSessionIds === undefined) {
-      ok('the patched host sends the dots this extension works out with each update, nothing when that fails, and leaves the sidebar ids as they were');
+      ok('with each update the patched host sends the dots this extension works out, or none when working them out fails, and leaves the sidebar ids as they were');
     } else bad(`the session list was sent ${JSON.stringify(got)}`);
     const hooked = [];
     env.__cceStatesHook = (st) => hooked.push(st[0].state);
@@ -12580,7 +12579,8 @@ console.log('\nthe workflow in a real VS Code window');
     expect(/^\s+env:\s*\n\s+CLAUDE_CODE_PLUS_UI_SHARD: \$\{\{ matrix\.shard \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_STEPS_RE: \$\{\{ inputs\.steps \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_CLAUDE_CODE: \$\{\{ needs\.plan\.outputs\.claudeCode \}\}\s*$/m.test(ui)
       && /matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.matrix\) \}\}/.test(ui),
     'and each job is given its part, the pattern and the Claude Code build to install');
-    /* What a push and the daily run are run against. */
+    /* What a push installs: the pinned Agent Plus commit and the newest Claude Code in supported-versions.json. The
+       daily run takes the newest of each instead. */
     const pinned = (() => { try { return fs.readFileSync(path.join(__dirname, 'vscode', 'agent-plus-commit'), 'utf8').trim(); } catch (_) { return ''; } })();
     const newestSupported = Object.keys(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'supported-versions.json'), 'utf8')).claudeCode)
       .sort((a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 4; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; }).pop();
@@ -14696,13 +14696,13 @@ const repo = path.join(__dirname, '..');
         'with the tab dot\'s reader, a row\'s last user message counts an answer on a question card and a message typed while a turn ran; without it, only typed messages');
       for (const n of [40, 41]) fs.rmSync(path.join(projects, name, S(n) + '.jsonl'), { force: true });
       const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-      /* The deps of the list: from its create({ to the }); that ends it. */
+      /* The text of the list's create({ ... }) call in extension.js, up to the }); that closes it. */
       const listDeps = (() => { const a = extSrc.indexOf('claudeSessionList.create({'); return a < 0 ? '' : extSrc.slice(a, extSrc.indexOf('\n  });\n', a)); })();
       (/\n\s+lastUserAt: \(file\) => lastUser\.at\(file\),/.test(listDeps) ? ok : bad)('and the window gives the list that reader');
       const marked = csl.create(Object.assign({}, deps, { unseen: (id) => id === S(2) }));
       const seen = new Map((await marked.listSessions({ folders: [folder] })).sessions.map((x) => [x.sessionId, x]));
       eq([seen.get(S(2)).unseen, 'unseen' in seen.get(S(1)), 'unseen' in rows.get(S(2))], [true, false, false],
-        'a row Claude Code holds its unread mark on says unseen, and the others leave it out');
+        'a row says unseen while Claude Code holds its unread mark, and the other rows leave it out');
       (/\n\s+unseen: \(id\) => unreadKeys\.has\(id\),/.test(listDeps) ? ok : bad)('and the window gives the list the host\'s unread marks');
     }
 
@@ -14786,7 +14786,7 @@ const repo = path.join(__dirname, '..');
     list.onDidChangeSessions(() => fired++);
     list.changed(); list.changed(); list.wantSessionDetail([S(1)]);
     await new Promise((resolve) => setTimeout(resolve, 600));
-    eq(fired, 1, 'changes that come together are told once');
+    eq(fired, 1, 'changes that arrive together are reported once');
     eq([csl.FEATURES, list.sessionActions], [['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose', 'sessionsNotice'],
       { open: ['tab', 'sidebar'], create: ['tab', 'sidebar'], rename: true, delete: true, own: [] }], 'the features and the actions Claude Code can carry out');
     let note = { text: 'x'.repeat(400), actions: [1, 2, 3, 4] }, notes = 0;
