@@ -4,7 +4,7 @@ Back to the [README](../README.md).
 
 ## Settings
 
-Open `Claude Code Plus: Settings` for all 43 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
+Open `Claude Code Plus: Settings` for all 44 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
 
 **Work plan settings**
 

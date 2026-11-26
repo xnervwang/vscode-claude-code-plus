@@ -71,6 +71,7 @@ const buildDigest = require('./src/build-digest');
 const carryover = require('./src/carryover');
 const unsupported = require('./src/unsupported');
 const sentCheck = require('./src/sent-check');
+const officialList = require('./src/official-list');
 const PACKAGE = require('./package.json');
 
 /* <publisher>.<name>, which is also how the editor names this extension's folders. Read from the manifest rather than
@@ -99,6 +100,7 @@ const REOPEN_SETTING = PREFIX + 'reopenDroppedTabs';
 const LOAD_TABS_SETTING = PREFIX + 'loadRestoredTabs';
 const RECENT_SETTING = PREFIX + 'recentClosedSessions';
 const HIDE_BG_SETTING = PREFIX + 'hideBackgroundSessions';
+const HIDE_OFFICIAL_LIST_SETTING = PREFIX + officialList.SETTING;
 const WORK_PLAN_SETTING = PREFIX + 'workPlan';
 const BRIEF_SETTING = PREFIX + 'conversationBrief';
 const TIME_ZONE_SETTING = PREFIX + 'tellClaudeYourTimeZone';
@@ -1620,6 +1622,14 @@ function start(context, log, renamed, handing = false) {
      more, to set against when Claude Code's log shows the panel asking for the list. */
   let listsLogged = 0;
   const showBackground = () => cfg().get(HIDE_BG_SETTING, true) === false;
+  /* Claude Code's own session list, hidden while claudeCodePlus.hideOfficialSessionList is on (src/official-list.js). */
+  const officialSessionList = officialList.create({
+    execute: (...args) => vscode.commands.executeCommand(...args),
+    hidden: () => !removed() && !uninstalling() && enabled() && cfg().get(HIDE_OFFICIAL_LIST_SETTING, false) === true,
+    log: (m) => log.appendLine(m),
+  });
+  officialSessionList.apply();
+  context.subscriptions.push({ dispose: () => { officialSessionList.dispose(); } });
   /* Read by the patched host each time it lists sessions: with background sessions shown, Claude Code's listing keeps
      its `claude -p` sessions as well (src/host.js). */
   globalThis.__cceListProgrammatic = () => !removed() && showBackground();
@@ -2090,6 +2100,7 @@ function start(context, log, renamed, handing = false) {
     if (modeChanged) followTokenMode();
     if (e.affectsConfiguration(PREFIX + 'show.conversationLinks')) links.settingChanged();
     if (e.affectsConfiguration(PREFIX + 'show.planBar')) planBar.settingChanged();
+    if (e.affectsConfiguration(HIDE_OFFICIAL_LIST_SETTING) || e.affectsConfiguration(SETTING)) officialSessionList.apply();
     if (e.affectsConfiguration(HIDE_BG_SETTING)) {
       try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the list catches up on its next read */ }
     }

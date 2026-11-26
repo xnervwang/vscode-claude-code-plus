@@ -318,6 +318,11 @@
           "default": true,
           "markdownDescription": "Hide sessions started with `claude --bg` or `claude -p` from Claude Code's session list, and transcripts that have no messages. A `claude --bg` session still shows in the agent map of the conversation that started it. Takes effect without a reload."
         },
+        "claudeCodePlus.hideOfficialSessionList": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Hide Claude Code's own session list and its icon in the Activity Bar, since Agent Plus lists the same conversations. The Session history at the top of a conversation stays. Turned off, the list is shown again. Takes effect without a reload."
+        },
         "claudeCodePlus.recentClosedSessions": {
           "type": "integer",
           "default": 10,

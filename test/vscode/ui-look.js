@@ -1291,6 +1291,14 @@ const STEPS = [
     },
   },
   {
+    name: 'official-session-list-hidden', features: ['hide-official-session-list'],
+    expect: 'The Activity Bar at the left edge of the window with Claude Code Plus set to hide Claude Code\'s own session list: '
+      + 'there is no Claude Code icon in it, while the Explorer, Search and the other icons are still there and evenly spaced.',
+    unchanged: 'The editor and the side bar show what they showed before.',
+    act: async (d) => { await setting(d, 'claudeCodePlus.hideOfficialSessionList', true); await d.sleep(2500); return d.part('workbench.parts.activitybar'); },
+    undo: async (d) => { await setting(d, 'claudeCodePlus.hideOfficialSessionList', undefined); await d.sleep(1500); },
+  },
+  {
     name: 'background-hidden', features: ['hide-background-sessions'],
     expect: 'The dialog is gone and "Why does the nightly export skip archived rows?" is back among the rows. The folder of '
       + 'transcripts also holds, written before the window opened, one of a session started with claude --bg, titled "'

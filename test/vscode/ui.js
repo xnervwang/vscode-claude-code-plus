@@ -13,6 +13,9 @@
  *                  dates on every row, the Resume in tab, Resume in sidebar and Text color items of the right-click
  *                  menu, clicking a pin, the hover text of a row, and claude --bg, claude -p and daemon sessions left
  *                  out, with the first two listed once claudeCodePlus.hideBackgroundSessions is off
+ *   the official session list hidden
+ *                  claudeCodePlus.hideOfficialSessionList on: Claude Code's own session list leaves the Activity Bar
+ *                  without a reload, and comes back when the setting is turned off
  *   a tab          a conversation resumed in a tab: its title, the times on every message and reply, the bar on your
  *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
  *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
@@ -1019,6 +1022,25 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       } finally { await setHide(null); }
       const hiddenAgain = await until(async () => !(await backgroundShown()).length, 30000, 500);
       check(!!hiddenAgain, 'and turned back on, it leaves them out again', await backgroundShown());
+    });
+
+    /* claudeCodePlus.hideOfficialSessionList: Claude Code shows its session list in the Activity Bar while one context key
+       is true, and the setting turns that key off (src/official-list.js). */
+    await step('the official session list hidden', async () => {
+      const setOwnList = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('hideOfficialSessionList', arg === null ? undefined : arg,
+        vscode.ConfigurationTarget.Global); return true;`, v);
+      const icons = () => page.evaluate(() => [...document.querySelectorAll('.part.activitybar .action-item .action-label')]
+        .filter((a) => a.offsetParent && /^Claude Code\b/.test(a.getAttribute('aria-label') || '')).length);
+      const before = await icons();
+      check(before >= 1, 'with claudeCodePlus.hideOfficialSessionList off, Claude Code\'s session list has its icon in the Activity Bar', before);
+      await setOwnList(true);
+      try {
+        const gone = await until(async () => (await icons()) === before - 1, 15000, 300);
+        check(!!gone, 'turned on, Claude Code\'s session list leaves the Activity Bar without a reload', await icons());
+        await shot('official-session-list-hidden');
+      } finally { await setOwnList(null); }
+      const back = await until(async () => (await icons()) === before, 15000, 300);
+      check(!!back, 'and turned off again, it is back', await icons());
     });
 
     const tab0 = threads[0];

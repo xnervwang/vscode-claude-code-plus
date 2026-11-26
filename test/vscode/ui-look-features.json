@@ -70,6 +70,8 @@
       "settings": ["claudeCodePlus.show.deleteArchived"] },
     { "id": "delete-open-refused", "what": "Delete session... on a conversation open in a window, this one or another, deletes nothing and says which window has it open.",
       "window": ["an archived conversation", "two windows"] },
+    { "id": "hide-official-session-list", "what": "Claude Code's own session list, its icon in the Activity Bar, is hidden while the setting is on, and shown again when it is turned off.",
+      "settings": ["claudeCodePlus.hideOfficialSessionList"], "window": ["the official session list hidden"] },
     { "id": "hide-background-sessions", "what": "Sessions started with claude --bg or claude -p are left out of the session list.",
       "settings": ["claudeCodePlus.hideBackgroundSessions"], "window": ["session list"] },
     { "id": "steward-panel", "what": "The Steward panel at the bottom of the window: the conversations open in windows, with ticks.",

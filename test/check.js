@@ -6210,6 +6210,62 @@ console.log('\ncommands under both old names');
   if (!r.threw && has.has('claudeCodePlus.status') && !has.has('claudeCodeExtras.status') && has.has('claudeCodePlus.toggle')) {
     ok('an old command name another extension already holds is skipped, and activation carries on');
   } else bad(`with claudeCodeExtras.status taken: threw ${JSON.stringify((r.threw || '').slice(0, 300))}`);
+  const key = require('../src/official-list').KEY;
+  const touched = (r.executed || []).filter((a) => a[0] === 'setContext' && a[1] === key);
+  if (!r.threw && !touched.length) ok('with claudeCodePlus.hideOfficialSessionList at its default, activation leaves Claude Code\'s own session list alone');
+  else bad(`activation set ${key}: ${JSON.stringify(touched)}`);
+}
+
+/* Claude Code shows its session list while one context key is true, and sets it once as it activates; this extension
+   activates after it and can hide the list by setting the key false (src/official-list.js). */
+console.log('\nClaude Code\'s own session list hidden on request');
+{
+  const ol = require('../src/official-list');
+  (async () => {
+    const calls = [], logs = [];
+    let on = false, fail = false;
+    const sw = ol.create({ execute: async (...a) => { calls.push(a); if (fail) throw new Error('no such command'); }, hidden: () => on, log: (m) => logs.push(m) });
+    const steps = [];
+    steps.push([await sw.apply(), calls.length]);
+    on = true;
+    steps.push([await sw.apply(), JSON.stringify(calls[calls.length - 1])]);
+    steps.push([await sw.apply(), calls.length]);
+    on = false;
+    steps.push([await sw.apply(), JSON.stringify(calls[calls.length - 1])]);
+    steps.push([await sw.dispose(), calls.length]);
+    on = true;
+    await sw.apply();
+    fail = true;
+    steps.push([await sw.dispose(), sw.hiding, logs.length]);
+    const want = [[false, 0], [true, JSON.stringify(['setContext', ol.KEY, false])], [false, 1], [true, JSON.stringify(['setContext', ol.KEY, true])],
+      [false, 2], [true, false, 1]];
+    if (JSON.stringify(steps) === JSON.stringify(want)) {
+      ok('the setting off from the start leaves the key alone; on, the key is set false once; off again, set back to true; leaving shows the list again only if it was hidden here, and a failed command is logged');
+    } else bad(`the official session list switch: ${JSON.stringify(steps)}`);
+    const memo = () => { const m = new Map(); return { get: (k) => m.get(k), update: async (k, v) => { m.set(k, v); }, m }; };
+    const answers = async (pick) => {
+      const state = memo(), asked = [];
+      let hidden = 0;
+      const ask = async (q, ...b) => { asked.push([q, ...b]); return pick === 'hide' ? b[0] : pick === 'keep' ? b[1] : undefined; };
+      const first = await ol.askOnce({ state, ask, hide: async () => { hidden++; } });
+      const second = await ol.askOnce({ state, ask, hide: async () => { hidden++; } });
+      return [first, second, asked.length, hidden, state.m.get(ol.ASKED), asked[0] && asked[0].slice(1)];
+    };
+    const got = [await answers('hide'), await answers('keep'), await answers(undefined)];
+    const buttons = [ol.HIDE, ol.KEEP];
+    if (JSON.stringify(got) === JSON.stringify([['hidden', 'asked before', 1, 1, true, buttons], ['kept', 'asked before', 1, 0, true, buttons],
+      ['dismissed', 'asked before', 1, 0, true, buttons]])) {
+      ok('whether to hide the list is asked once: Hide It turns the setting on, Keep It or no answer leaves the list shown, and it is not asked again either way');
+    } else bad(`asking whether to hide the official session list: ${JSON.stringify(got)}`);
+  })().catch((e) => bad(`the official session list switch threw ${e && e.stack}`));
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const setting = require('../package.json').contributes.configuration.properties['claudeCodePlus.' + ol.SETTING];
+  if (setting && setting.type === 'boolean' && setting.default === false && /const officialSessionList = officialList\.create\(/.test(ext)
+      && /cfg\(\)\.get\(HIDE_OFFICIAL_LIST_SETTING, false\) === true/.test(ext)
+      && /e\.affectsConfiguration\(HIDE_OFFICIAL_LIST_SETTING\) \|\| e\.affectsConfiguration\(SETTING\)\) officialSessionList\.apply\(\)/.test(ext)
+      && /dispose: \(\) => \{ officialSessionList\.dispose\(\); \}/.test(ext)) {
+    ok('claudeCodePlus.hideOfficialSessionList is off by default, read at start and on every change of it or of claudeCodePlus.enabled, and undone when the extension stops');
+  } else bad('claudeCodePlus.hideOfficialSessionList is not wired to the switch');
 }
 
 /* The editor gives each extension id its own global storage folder, so the pins and colors chosen under the old id are in
