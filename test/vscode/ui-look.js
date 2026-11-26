@@ -2701,14 +2701,17 @@ const STEPS = [
       await demoAt(d, BUDGET);
       if (!await infoOpen(d.conv)) await d.conv.locator('[data-cce-info]').first().click();
       await d.until(() => d.conv.evaluate(() => /All features/.test((document.getElementById('cce-info') || {}).innerText || '')), 8000, 200);
+      /* At the bottom right, Show Status's notification, opened out, would lie over the information box. */
+      await setting(d, 'workbench.notifications.position', 'top-right');
+      await d.sleep(500);
       await showStatus(d);
       await d.sleep(1500);
       await d.away();
       return d.body();
     },
     undo: async (d) => {
-      /* Show Status's notification, opened out, lies over the footer's info button. */
       await d.exec('notifications.clearAll');
+      await setting(d, 'workbench.notifications.position', undefined);
       await d.sleep(500);
       if (await infoOpen(d.conv)) { await d.conv.locator('[data-cce-info]').first().click(); await d.sleep(400); }
     },
