@@ -2610,9 +2610,21 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }
         /* A test conversation that has an editor tab. An earlier step can leave one in the sidebar, and closing it and
            the tab checks below need it in a tab. */
-        const tabbed = await claudeTabs();
+        let tabbed = await claudeTabs();
         const inTab = (id) => { const t = threads.find((x) => x.id === id); return !!t && tabbed.some((x) => titled(x.label.replace(ENVELOPE, ''), t.title)); };
+        /* With none of them in a tab, the first is opened in one behind the steward's: a steward's message to one that is
+           open nowhere opens it, and Claude Code can put it in a sidebar an earlier step left with a new conversation. */
+        if (!boxes.some(([id]) => inTab(id))) {
+          const first = threads.find((x) => x.id === boxes[0][0]);
+          if (first) {
+            await exec('claude-vscode.editor.open', first.id);
+            await until(async () => { tabbed = await claudeTabs(); return inTab(first.id); }, 30000, 500);
+            await exec('claude-vscode.editor.open', front.id);
+            await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(TRAILING_MARKS, ''), front.title)), 20000, 300);
+          }
+        }
         const chosen = (boxes.find(([id]) => inTab(id)) || boxes[0])[0];
+        check(inTab(chosen), 'the conversation the steward will manage has an editor tab here', { chosen, tabs: tabbed.map((x) => x.label) });
         await frame.locator(`input[data-id="${chosen}"]`).first().click();
         const file = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
         const table = await until(() => {
