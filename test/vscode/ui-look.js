@@ -16,7 +16,8 @@
  * Each step is { name, features, expect, unchanged, act, undo, only }. act puts the window into a state and returns the
  * area the step is about. expect is what a person should see there, and what must not be there; unchanged is what
  * must look as it did just before the step; undo takes back what act left open; only names the platforms the step runs
- * on. A step may leave out undo and only. Notifications are left on screen: one that should not be there is a finding.
+ * on. A step may leave out undo and only. An error act throws may carry the area as its `area`, for the pictures of the
+ * state the step stopped in. Notifications are left on screen: one that should not be there is a finding.
  * The root folder differs from readme-shots.js's, so the two can run at once with different --cache folders.
  *
  * <out>/look.json lists the steps run, each with: name, features, expect, unchanged (null when the step that ran before
@@ -345,6 +346,12 @@ const needToasts = (d) => d.page.evaluate(() => {
   if (items.some((n) => n.closest('.notification-toast-container').getAnimations({ subtree: true }).some((a) => a.playState === 'running'))) return null;
   return items.map((n) => ((n.querySelector('.notification-list-item-message') || {}).innerText || '').replace(/\s+/g, ' ').trim());
 }).catch(() => null);
+/* Whether the text of a notice says `want`. With conversations of more than one program listed (Codex Plus adds its
+   own), Agent Plus starts each notice with the program's name and a colon (its src/attention.js). */
+const noticeSays = (text, want) => text === want || (text.endsWith(want) && /^[^"]+: $/.test(text.slice(0, -want.length)));
+/* For an expect: what that start looks like here. */
+const NOTICE_SOURCE = 'When Agent Plus lists conversations of more than one program, a notification starts with the name of the '
+  + 'conversation\'s program and a colon, "Claude Code: ", and then reads as given.';
 /* Whether an Agent Plus window's attention file (its src/attention.js) has an item for conversation `id` that passes `test`. */
 function attentionHas(d, id, test) {
   const dir = path.join(d.profile.home, '.agent-work-plan', 'attention');
@@ -397,7 +404,7 @@ const testFocus = (d, on) => d.call('if (arg === null) delete globalThis.__agent
 /* The area of the notice toasts, with padding, once every text in `want` (one text or a list) is among the toasts. */
 async function noticeArea(d, want) {
   const wanted = [].concat(want);
-  if (!await d.until(async () => { const t = (await needToasts(d)) || []; return wanted.every((w) => t.includes(w)); }, 20000, 300)) {
+  if (!await d.until(async () => { const t = (await needToasts(d)) || []; return wanted.every((w) => t.some((x) => noticeSays(x, w))); }, 20000, 300)) {
     throw new Error(`Agent Plus showed no notices ${JSON.stringify(wanted)} in 20 s: ${JSON.stringify(await needToasts(d))}`);
   }
   await d.sleep(600);
@@ -1948,7 +1955,7 @@ const STEPS = [
       await d.away();
       if (!await d.until(() => seenUnread(d, d.threads[0].id), SEEN_MS, 300)) throw new Error('Agent Plus did not see the reply unread in 60 s');
       const said = `"${d.threads[0].title}" finished.`;
-      if (await d.until(async () => ((await needToasts(d)) || []).includes(said), 9000, 300)) throw new Error('Agent Plus showed a notice for a conversation this window shows');
+      if (await d.until(async () => ((await needToasts(d)) || []).some((x) => noticeSays(x, said)), 9000, 300)) throw new Error('Agent Plus showed a notice for a conversation this window shows');
       const counted = await needCountBox(d);
       if (counted) throw new Error(`Agent Plus counted an unread reply as waiting for you: ${JSON.stringify(counted)}`);
       await agentRowWhere(d, list, titleNow(d, d.threads[0]), (s) => s.unread === 1 && s.dot === 'none', 20000, 'does not show one envelope and no dot');
@@ -1967,12 +1974,20 @@ const STEPS = [
       const before = await needCountBox(d);
       const want = String((before ? Number(before.text) || 0 : 0) + 1);
       otherWindow(d, [{ sessionId: LOOK_ID(15), title: 'Tag the release build', waitingFor: { kind: 'permission', tool: 'Bash' } }]);
+      /* The status bar around the entry, also for the picture of a step that fails. */
+      const near = async (c) => {
+        if (!c) return null;
+        const width = await d.page.evaluate(() => innerWidth);
+        const x = Math.max(0, c.x - 200);
+        return { x, y: c.y - 4, width: Math.min(width, c.x + c.width + 200) - x, height: c.height + 8 };
+      };
       const b = await d.until(async () => { const c = await needCountBox(d); return c && c.text === want && c; }, 20000, 300);
-      if (!b) throw new Error(`Agent Plus did not count the waiting conversation of another window in 20 s: ${JSON.stringify({ before, now: await needCountBox(d) })}`);
-      if (b.says !== `${want} ${want === '1' ? 'conversation needs' : 'conversations need'} you`) throw new Error(`the entry reads "${b.says}"`);
-      const width = await d.page.evaluate(() => innerWidth);
-      const x = Math.max(0, b.x - 200);
-      return { x, y: b.y - 4, width: Math.min(width, b.x + b.width + 200) - x, height: b.height + 8 };
+      if (!b) {
+        const now = await needCountBox(d);
+        throw Object.assign(new Error(`Agent Plus did not count the waiting conversation of another window in 20 s: ${JSON.stringify({ before, now })}`), { area: await near(now) });
+      }
+      if (b.says !== `${want} ${want === '1' ? 'conversation needs' : 'conversations need'} you`) throw Object.assign(new Error(`the entry reads "${b.says}"`), { area: await near(b) });
+      return near(b);
     },
     undo: async (d) => {
       noOtherWindow(d);
@@ -2003,14 +2018,15 @@ const STEPS = [
     name: 'wait-notice-tool', features: ['wait-notices'],
     expect: 'At the bottom right, one notification from Agent Plus with an Open and a Dismiss button. '
       + 'It reads: "Deploy the staging stack" is waiting for you to approve Bash. The conversation is in another window. '
-      + 'No notification from Claude Code saying it is requesting permission.',
+      + 'No notification from Claude Code saying it is requesting permission. ' + NOTICE_SOURCE,
     unchanged: 'The editor and the side bar are as before.',
     ...waitNotice(LOOK_ID(1), 'Deploy the staging stack', { kind: 'permission', tool: 'Bash' }, '"Deploy the staging stack" is waiting for you to approve Bash.'),
   },
   {
     name: 'wait-notice-question', features: ['wait-notices'],
     expect: 'At the bottom right, one notification from Agent Plus with an Open and a Dismiss button, wholly inside the window and '
-      + 'readable. It reads: "Pick the region for the new cluster" has a question for you. No notification from Claude Code.',
+      + 'readable. It reads: "Pick the region for the new cluster" has a question for you. No notification from Claude Code. '
+      + NOTICE_SOURCE,
     unchanged: 'The editor and the side bar are as before.',
     ...waitNotice(LOOK_ID(2), 'Pick the region for the new cluster', { kind: 'question' }, '"Pick the region for the new cluster" has a question for you.'),
   },
@@ -2020,7 +2036,7 @@ const STEPS = [
       + 'At the bottom right, two notifications from Agent Plus, one above the other, each with its own '
       + 'Open and Dismiss button. One reads: "Rotate the '
       + 'signing keys" is waiting for you to approve Edit. The other reads: "Choose the import config" has a question for you. No '
-      + 'notification naming both.',
+      + 'notification naming both. ' + NOTICE_SOURCE,
     unchanged: 'The editor and the side bar are as before.',
     ...replayNotice({ sessionId: LOOK_ID(3), title: 'Rotate the signing keys', waitingFor: { kind: 'permission', tool: 'Edit' } },
       { sessionId: LOOK_ID(4), title: 'Choose the import config', waitingFor: { kind: 'question' } },
@@ -2762,14 +2778,14 @@ const STEPS = [
   {
     name: 'light-wait-notice-tool', features: ['wait-notices', 'light-theme'],
     expect: 'In the light theme, at the bottom right, one notification from Agent Plus with Open and Dismiss. '
-      + 'It reads: "Deploy the staging stack" is waiting for you to approve Bash.',
+      + 'It reads: "Deploy the staging stack" is waiting for you to approve Bash. ' + NOTICE_SOURCE,
     unchanged: 'The editor and the side bar are as before.',
     ...waitNotice(LOOK_ID(11), 'Deploy the staging stack', { kind: 'permission', tool: 'Bash' }, '"Deploy the staging stack" is waiting for you to approve Bash.'),
   },
   {
     name: 'light-wait-notice-question', features: ['wait-notices', 'light-theme'],
     expect: 'In the light theme, at the bottom right, one notification from Agent Plus with Open and Dismiss. '
-      + 'It reads: "Pick the region for the new cluster" has a question for you.',
+      + 'It reads: "Pick the region for the new cluster" has a question for you. ' + NOTICE_SOURCE,
     unchanged: 'The editor and the side bar are as before.',
     ...waitNotice(LOOK_ID(12), 'Pick the region for the new cluster', { kind: 'question' }, '"Pick the region for the new cluster" has a question for you.'),
   },
@@ -2778,7 +2794,7 @@ const STEPS = [
     expect: 'In the light theme, after the window got the focus back: at the bottom right, two notifications from Agent Plus, one '
       + 'above the other, each with its own Open and Dismiss. '
       + 'One reads: "Rotate the signing keys" is waiting for you to approve Edit. The other reads: '
-      + '"Choose the import config" has a question for you. No notification naming both.',
+      + '"Choose the import config" has a question for you. No notification naming both. ' + NOTICE_SOURCE,
     unchanged: 'The editor and the side bar are as before.',
     ...replayNotice({ sessionId: LOOK_ID(13), title: 'Rotate the signing keys', waitingFor: { kind: 'permission', tool: 'Edit' } },
       { sessionId: LOOK_ID(14), title: 'Choose the import config', waitingFor: { kind: 'question' } },
@@ -3253,7 +3269,7 @@ async function main() {
         await d.sleep(500);
         pageLines.push(`(the script closed a dialog the step before left open: ${left.replace(/\s+/g, ' ').slice(0, 160)})`);
       }
-      try { area = await step.act(d, step.area); } catch (e) { note = e.message.split('\n')[0]; }
+      try { area = await step.act(d, step.area); } catch (e) { note = e.message.split('\n')[0]; area = e.area || null; }
       if (!area) area = await d.body();
       const clip = { x: Math.round(area.x), y: Math.round(area.y), width: Math.round(area.width), height: Math.round(area.height) };
       const image = `${step.name}.jpg`, full = `${step.name}.full.jpg`;
