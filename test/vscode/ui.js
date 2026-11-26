@@ -144,6 +144,7 @@ const fs = require('fs');
 const path = require('path');
 const win = require('./lib/window');
 const { baselines } = require('./lib/baseline');
+const steps = require('./lib/steps');
 const pixels = require('./lib/pixels');
 const fakeHome = require('./lib/fake-home');
 const { folderName } = fakeHome;
@@ -193,6 +194,10 @@ const FOLDER_THREADS = [
 ];
 
 async function run({ exe, vsix, profile, env, playwright, model, threads, background = [], out, check, note }) {
+  /* The failures of this stage, counted so that a step that failed leaves what its pages held (savePages). */
+  let failedHere = 0;
+  const checkAll = check;
+  check = (cond, what, detail) => { const ok = checkAll(cond, what, detail); if (!ok) failedHere++; return ok; };
   const shotsDir = path.join(out, 'shots');
   fs.mkdirSync(shotsDir, { recursive: true });
   const base = baselines({ out, check, note });
@@ -200,9 +205,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const w = await win.open({ exe, profile, env, playwright, log: path.join(out, 'vscode-window.log') });
   const { page, call } = w;
   const shot = (name) => page.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-${name}.png`) }).catch(() => {});
-  /* CLAUDE_CODE_PLUS_UI_STEPS, step names separated by commas, runs only those, after the two that patch Claude Code and
-     reload the window: for trying one step without the whole run. */
-  const only = (process.env.CLAUDE_CODE_PLUS_UI_STEPS || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const runs = steps.chooser(process.env);
   /* Playwright's error lists every attempt in its call log, and the reason an action kept failing (an element in the
      way, or one that kept moving) is in the last lines, so those are kept with the first one. Any other error keeps the
      top of its stack. */
@@ -213,10 +216,28 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     const calls = lines.slice(log + 1).filter((l) => l.startsWith('- '));
     return [lines[0], ...calls.slice(0, 2), ...(calls.length > 8 ? ['...'] : []), ...calls.slice(Math.max(2, calls.length - 6))].join(' | ');
   };
+  /* What each page of the window held when a step failed: its address, its text and its markup, so that a failure on a
+     machine of the CI can be read without running it again. */
+  const pagesDir = path.join(out, 'pages');
+  const savePages = async (name) => {
+    const at = path.join(pagesDir, name.replace(/\W+/g, '-'));
+    try { fs.mkdirSync(at, { recursive: true }); } catch (_) { return; }
+    let n = 0;
+    for (const f of page.frames()) {
+      try {
+        const got = await f.evaluate(() => ({ text: document.body ? document.body.innerText : '', html: document.documentElement ? document.documentElement.outerHTML : '' }));
+        fs.writeFileSync(path.join(at, `${String(++n).padStart(2, '0')}.txt`), `${f.url()}\n\n${got.text}`);
+        fs.writeFileSync(path.join(at, `${String(n).padStart(2, '0')}.html`), got.html);
+      } catch (_) { /* a frame that went away */ }
+    }
+  };
   const step = async (name, fn) => {
-    if (only.length && !only.includes(name) && name !== 'the patch' && name !== 'the reload') return;
+    if (!runs(name)) return;
     console.log(`\n── ${name}`);
+    const failedBefore = failedHere, started = Date.now();
     try { await fn(); } catch (e) { check(false, `${name}: ran to its end`, failure(e)); await shot(`${name.replace(/\W+/g, '-')}-error`); }
+    if (failedHere > failedBefore) await savePages(name).catch(() => {});
+    console.log(`   took ${Math.round((Date.now() - started) / 1000)} s`);
   };
   const notes = path.join(profile.folder, 'notes.txt');
   const transcriptOf = (t) => path.join(profile.home, '.claude', 'projects', folderName(profile.folder), `${t.id}.jsonl`);

@@ -97,6 +97,14 @@ These checks cannot catch changes to class names or test ids used by the in-page
 
 The runner downloads the newest stable VS Code. It installs the newest Claude Code from the marketplace, Agent Plus from a supplied `.vsix` or the marketplace, and this extension's `.vsix` into a separate profile. It then runs `ui.js` in the window, `suite/` inside VS Code, and `test/check.js` against the installed copies. Any failed stage makes the runner exit non-zero.
 
+On each platform, five jobs run at the same time. Four jobs each run one part of `ui.js`. Each part runs consecutive window steps and takes about the same time as the others. The fifth job runs `suite/` inside VS Code and `test/check.js`. Every job also writes the patched files, reloads, opens the first conversation in a tab, and checks at the end that no page showed the extension's warning. The runner splits the steps using `test/vscode/step-seconds.json`, which records the longest time each step took on any of the three platforms. Each step logs `took <N> s` when it ends. A missing step counts as 20 seconds. `test/check.js` fails if the file omits a step or names one that no longer exists.
+
+For a local run, set `CLAUDE_CODE_PLUS_UI_STEPS` to step names separated by commas, `CLAUDE_CODE_PLUS_UI_STEPS_RE` to a regular expression, or `CLAUDE_CODE_PLUS_UI_SHARD` to `i/n` for the i-th of n parts or to `suite`. With any of these set, `run.js` skips `suite/` and `test/check.js` unless `CLAUDE_CODE_PLUS_UI_SHARD=suite`. Run by hand, the workflow takes two inputs. `os` lists the runners separated by commas and defaults to `ubuntu-latest,macos-latest,windows-latest`. `steps` is a regular expression. With `steps` set, each listed platform runs one job with only the matching window steps and the four steps every job runs. It skips `suite/` and `test/check.js`. To run one step on macOS from a branch:
+
+```sh
+gh workflow run vscode.yml --ref <branch> -f os=macos-latest -f steps='^the steward panel$'
+```
+
 The window checks these steps in order:
 
 - Both patched files are written on the first start, and VS Code asks for a reload. The tab bar then has exactly one Claude button: Claude Code's own.
@@ -112,7 +120,7 @@ Every home folder (`HOME`; `USERPROFILE` and the AppData folders on Windows; the
 
 On Linux, the test stage runs in a network namespace with loopback only. It uses `unshare -rn`, then `test/vscode/as-user.py` to run as the caller rather than root. The workflow sets `CLAUDE_CODE_PLUS_UI_OFFLINE=require`, so it fails if it cannot make the namespace. On macOS and Windows, `HTTP_PROXY`, `HTTPS_PROXY`, and VS Code's `http.proxy` point at `127.0.0.1:9`, where no proxy is running.
 
-The `--out` folder holds a screenshot of every step in `shots/`, crops in `actual/<platform>/`, a diff image for each failed crop in `diff/<platform>/`, and VS Code logs in `logs/`. The workflow uploads this folder as `vscode-<OS>` whether the run passes or fails. Only elements this extension draws are cropped, never Claude Code's or VS Code's own. If one of ours sits between two Claude Code elements, it gets its own crop.
+The `--out` folder holds a screenshot of every step in `shots/`, crops in `actual/<platform>/`, a diff image for each failed crop in `diff/<platform>/`, and VS Code logs in `logs/`. When a step fails, `pages/<step>/` holds two files for each page of the window: a `.txt` file with its address and text, and an `.html` file with its markup. Each job uploads its `--out` folder as `vscode-<OS>-<part>` whether it passes or fails. `<part>` is `1-of-4` to `4-of-4`, `suite`, or `steps`. `test/vscode/update-baseline.js` takes one artifact at a time. A part's artifact has crops only for the steps it ran. Only elements this extension draws are cropped, never Claude Code's or VS Code's own. If one of ours sits between two Claude Code elements, it gets its own crop.
 
 Each crop is compared pixel by pixel with the approved copy for its platform. A pixel differs when any channel differs by more than 32 of 255. A crop fails when more than 0.2% of its pixels differ, or its width or height differs by more than one pixel. Times in crops are masked.
 

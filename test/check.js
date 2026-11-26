@@ -12539,7 +12539,29 @@ console.log('\nthe workflow in a real VS Code window');
     expect(days.join(' ') === '* * *' && /^\d+$/.test(minute) && /^\d+$/.test(hour) && !['0', '30'].includes(minute)
       && !others.some(([m, h]) => m === minute && h.split(',').includes(hour)),
     'and once a day, neither on the hour nor on the half hour, and not at the time of another workflow', [minute, hour, ...days].join(' '));
-    expect(/os:\s*\[ubuntu-latest,\s*macos-latest,\s*windows-latest\]/.test(ui), 'on Linux, macOS and Windows');
+    const THREE = 'ubuntu-latest,macos-latest,windows-latest';
+    expect(new RegExp(`OS: \\$\\{\\{ inputs\\.os \\|\\| '${THREE}' \\}\\}`).test(ui) && new RegExp(`default: ${THREE}\\s*$`, 'm').test(ui),
+      'on Linux, macOS and Windows, which a run by hand can narrow');
+    /* The script of the plan job, run here the way the job runs it. */
+    const planScript = (/node -e '\n([\s\S]*?)'\n/.exec(ui) || [])[1] || '';
+    const plan = (systems, steps) => {
+      const outFile = path.join(os.tmpdir(), `cce-plan-${process.pid}-${Math.random().toString(36).slice(2)}`);
+      const r = cp.spawnSync(process.execPath, ['-e', planScript], { env: { ...process.env, OS: systems, STEPS: steps, GITHUB_OUTPUT: outFile }, encoding: 'utf8' });
+      let got = null;
+      try { got = JSON.parse(/^matrix=(.*)$/m.exec(fs.readFileSync(outFile, 'utf8'))[1]).include; } catch (_) { /* reported below */ }
+      try { fs.unlinkSync(outFile); } catch (_) { /* never written */ }
+      return got || { status: r.status, stderr: (r.stderr || '').slice(0, 300) };
+    };
+    const whole = plan(THREE, ''), some = plan('macos-latest', '^the token mode$');
+    const PARTS = ['1/4', '2/4', '3/4', '4/4', 'suite'];
+    expect(Array.isArray(whole) && whole.length === 15 && THREE.split(',').every((o) => JSON.stringify(whole.filter((j) => j.os === o).map((j) => j.shard)) === JSON.stringify(PARTS))
+      && new Set(whole.map((j) => `${j.os} ${j.part}`)).size === 15 && whole.every((j) => /^[\w-]+$/.test(j.part)),
+    'each platform\'s run is split into four jobs of window steps and one with the suite, each with a name of its own for its artifact', JSON.stringify(whole));
+    expect(Array.isArray(some) && some.length === 1 && some[0].os === 'macos-latest' && some[0].shard === '' && some[0].part === 'steps',
+      'and a run by hand with a pattern for the steps runs them in one job on each platform it names', JSON.stringify(some));
+    expect(/^\s+env:\s*\n\s+CLAUDE_CODE_PLUS_UI_SHARD: \$\{\{ matrix\.shard \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_STEPS_RE: \$\{\{ inputs\.steps \}\}\s*$/m.test(ui)
+      && /matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.matrix\) \}\}/.test(ui),
+    'and each job is given its part and the pattern');
     expect(/npm install --no-save --no-package-lock @vscode\/test-electron@3 playwright-core@1\s*$/m.test(ui) && !/(^|\s)playwright@/m.test(ui),
       'with @vscode/test-electron and playwright-core installed, and not playwright, which would download browsers it does not use');
     expect(/if \[ -e \/proc\/sys\/kernel\/apparmor_restrict_unprivileged_userns \]; then\s*\n\s*sudo sysctl -w kernel\.apparmor_restrict_unprivileged_userns=0/.test(ui),
@@ -12549,7 +12571,7 @@ console.log('\nthe workflow in a real VS Code window');
       'on Linux under a 1600x1000 virtual screen of 24 bits, failing if the test stage cannot be cut off from the network', linux || 'no Linux run step');
     expect(/if: runner\.os != 'Linux'\s*\n(?:\s+.*\n)*?\s+run: node test\/vscode\/run\.js extension\.vsix core\.vsix --out vscode-results\s*$/m.test(ui),
       'on macOS and Windows with the results going to the same folder');
-    expect(/uses: actions\/upload-artifact@v\d+\s*\n\s+if: always\(\)\s*\n\s+with:\s*\n\s+name: vscode-\$\{\{ runner\.os \}\}\s*\n\s+path: vscode-results\b/.test(ui),
+    expect(/uses: actions\/upload-artifact@v\d+\s*\n\s+if: always\(\)\s*\n\s+with:\s*\n\s+name: vscode-\$\{\{ runner\.os \}\}-\$\{\{ matrix\.part \}\}\s*\n\s+path: vscode-results\b/.test(ui),
       'and that folder is kept as an artifact whether the run passed or not');
     expect(runner.includes("process.env.CLAUDE_CODE_PLUS_UI_OFFLINE === 'require'"), 'run.js reads the variable the workflow sets to require the network cut off');
     const screens = (text) => [...new Set((text.match(/-screen 0 \d+x\d+x\d+/g) || []))];
@@ -12580,6 +12602,37 @@ console.log('\nthe window test\'s own parts');
   const refused = cp.spawnSync(process.execPath, [path.join(__dirname, 'vscode', 'run.js'), 'none.vsix'], { env, encoding: 'utf8', timeout: 30000 });
   expect(refused.status !== 0 && /runs only where CI=true, or with --local/.test(`${refused.stdout}${refused.stderr}`),
     'test/vscode/run.js refuses to run outside CI unless told --local', `exit ${refused.status}: ${(refused.stderr || '').slice(0, 200)}`);
+
+  /* Which window steps a run takes (test/vscode/lib/steps.js). */
+  const steps = require('./vscode/lib/steps');
+  const all = steps.names();
+  const seconds = JSON.parse(fs.readFileSync(steps.SECONDS, 'utf8'));
+  expect(all.length > 40 && new Set(all).size === all.length && steps.ALWAYS.every((x) => all.includes(x)),
+    'the window steps are read from ui.js, each name once, the steps every run has among them', JSON.stringify(all));
+  const unmeasured = all.filter((x) => !(x in seconds)), stale = Object.keys(seconds).filter((x) => !all.includes(x));
+  expect(!unmeasured.length && !stale.length && Object.values(seconds).every((v) => Number.isInteger(v) && v > 0),
+    'step-seconds.json has a length in seconds for every window step and for no step that is gone', JSON.stringify({ unmeasured, stale }));
+  const four = steps.shards(all, seconds, 4);
+  const rest = all.filter((x) => !steps.ALWAYS.includes(x));
+  const cost = (xs) => xs.reduce((a, x) => a + seconds[x], 0);
+  const total = cost(rest), longest = Math.max(...rest.map((x) => seconds[x]));
+  expect(JSON.stringify(four.flat()) === JSON.stringify(rest) && four.every((xs) => xs.length > 0),
+    'split four ways, every step but those every run has is in one part, the parts in the order of ui.js', JSON.stringify(four));
+  expect(four.every((xs) => cost(xs) <= total / 4 + longest / 2 + 1),
+    'and no part is longer than a quarter by more than half the longest step', JSON.stringify(four.map(cost)));
+  const takes = (env) => all.filter(steps.chooser(env, { seconds }));
+  expect(JSON.stringify(takes({ CLAUDE_CODE_PLUS_UI_STEPS_RE: '^the token mode$' })) === JSON.stringify(all.filter((x) => steps.ALWAYS.includes(x) || x === 'the token mode')),
+    'a pattern for the steps takes the steps it matches and the steps every run has', JSON.stringify(takes({ CLAUDE_CODE_PLUS_UI_STEPS_RE: '^the token mode$' })));
+  expect(JSON.stringify(takes({ CLAUDE_CODE_PLUS_UI_SHARD: '2/4' })) === JSON.stringify(all.filter((x) => steps.ALWAYS.includes(x) || four[1].includes(x)))
+    && JSON.stringify(takes({ CLAUDE_CODE_PLUS_UI_SHARD: 'suite' })) === JSON.stringify(all.filter((x) => steps.ALWAYS.includes(x)))
+    && takes({}).length === all.length,
+  'a part takes its own steps and those every run has, the suite part only those, and no variable all of them');
+  let refusedShard = '';
+  try { steps.chooser({ CLAUDE_CODE_PLUS_UI_SHARD: '5/4' }, { seconds }); } catch (e) { refusedShard = e.message; }
+  expect(/takes i\/n or suite/.test(refusedShard), 'a part that does not exist is refused rather than run as no steps', refusedShard);
+  expect(!steps.partial({}) && !steps.partial({ CLAUDE_CODE_PLUS_UI_SHARD: 'suite' }) && steps.partial({ CLAUDE_CODE_PLUS_UI_SHARD: '1/4' })
+    && steps.partial({ CLAUDE_CODE_PLUS_UI_STEPS_RE: 'x' }) && steps.partial({ CLAUDE_CODE_PLUS_UI_STEPS: 'commands' }),
+  'the suite inside VS Code and test/check.js run in a whole run and in the suite part, and in no other');
 
   const { cleanEnv } = require('./vscode/lib/env');
   const from = { PATH: '/usr/bin', HOME: '/home/someone', VSCODE_IPC_HOOK_CLI: '/run/user/1/vscode-ipc.sock', ELECTRON_RUN_AS_NODE: '1',

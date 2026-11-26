@@ -10,9 +10,15 @@
 # checks the patched files from inside VS Code. It runs once a day as well as on each push, since either upstream can
 # change without a commit here.
 #
-# The results folder of each platform is kept as an artifact whether the run passed or not: the screenshots of every
-# step, the crops, a diff image of each crop that failed, and VS Code's logs. A platform with no approved copies yet
-# only saves its crops there, with a note in the log.
+# The results folder of each job is kept as an artifact whether the run passed or not: the screenshots of every step,
+# the crops, a diff image of each crop that failed, what each page of the window held when a step failed, and VS Code's
+# logs. A platform with no approved copies yet only saves its crops there, with a note in the log.
+#
+# Each platform's run is split into four jobs that run at once, each a run of consecutive window steps of about the same
+# length (CLAUDE_CODE_PLUS_UI_SHARD), and a fifth with the suite inside VS Code and test/check.js. Run by hand, the
+# workflow takes the platforms to run on and a regular expression for the window steps to run; given one, each platform
+# runs those steps in one job, without the suite. To try a fix for a step that fails on one platform:
+#   gh workflow run vscode.yml --ref <branch> -f os=macos-latest -f steps='^the steward panel$'
 name: vscode
 
 on:
@@ -24,11 +30,40 @@ on:
     # 09:43 UTC. Not on the hour or the half hour, when the scheduler is busiest, and apart from upstream-check.yml's.
     - cron: '43 9 * * *'
   workflow_dispatch:
+    inputs:
+      os:
+        description: The runners to run on, separated by commas
+        type: string
+        default: ubuntu-latest,macos-latest,windows-latest
+      steps:
+        description: A regular expression; only the window steps whose names match it run, with the steps every run has. Empty runs all of them, split into jobs.
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
+  # The jobs of the run below: one per platform and part.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        shell: bash
+        env:
+          OS: ${{ inputs.os || 'ubuntu-latest,macos-latest,windows-latest' }}
+          STEPS: ${{ inputs.steps }}
+        run: |
+          node -e '
+            const os = process.env.OS.split(",").map((x) => x.trim()).filter(Boolean);
+            const parts = process.env.STEPS ? [{ shard: "", part: "steps" }]
+              : [...[1, 2, 3, 4].map((i) => ({ shard: `${i}/4`, part: `${i}-of-4` })), { shard: "suite", part: "suite" }];
+            const include = os.flatMap((o) => parts.map((p) => ({ os: o, ...p })));
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include })}\n`);
+            console.log(JSON.stringify(include));'
+
   package:
     runs-on: ubuntu-latest
     steps:
@@ -60,12 +95,15 @@ jobs:
             core.vsix
 
   run:
-    needs: package
+    needs: [plan, package]
+    name: run (${{ matrix.os }}, ${{ matrix.part }})
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    env:
+      CLAUDE_CODE_PLUS_UI_SHARD: ${{ matrix.shard }}
+      CLAUDE_CODE_PLUS_UI_STEPS_RE: ${{ inputs.steps }}
     steps:
       # Some checks compare source text, so no CRLF on Windows.
       - run: git config --global core.autocrlf false
@@ -105,6 +143,6 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: vscode-${{ runner.os }}
+          name: vscode-${{ runner.os }}-${{ matrix.part }}
           path: vscode-results
           if-no-files-found: warn

@@ -6,9 +6,9 @@
 /*
  * Usage: node test/vscode/update-baseline.js <results folder> [<platform>] [--only <name>[,<name>]]
  *
- * Copies <results folder>/actual/<platform>/*.png over test/vscode/baseline/<platform>/, the approved copies. The results folder is run.js's --out, or a CI run's vscode-Linux, vscode-macOS or
- * vscode-Windows artifact, downloaded and unpacked. <platform> is linux, darwin or win32, by default every one the
- * folder has.
+ * Copies <results folder>/actual/<platform>/*.png over test/vscode/baseline/<platform>/, the approved copies. The results folder is run.js's --out, or one of a CI run's
+ * vscode-<OS>-<part> artifacts, downloaded and unpacked; each has the crops of the steps its part ran. <platform> is linux,
+ * darwin or win32, by default every one the folder has.
  *
  * The person who merges into main approves the new copies: before running this they look at each crop it will copy,
  * and at diff/<platform>/ of the same run for the ones that failed, and then commits the new copies on their own,

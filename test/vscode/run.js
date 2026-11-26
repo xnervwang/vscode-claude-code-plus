@@ -175,8 +175,8 @@ async function testStage() {
   }
   await model.close();
 
-  if (process.env.CLAUDE_CODE_PLUS_UI_STEPS) {
-    note('only the window steps CLAUDE_CODE_PLUS_UI_STEPS names ran, so the suite inside VS Code and test/check.js did not');
+  if (require('./lib/steps').partial(process.env)) {
+    note(`only some of the window steps ran (${['CLAUDE_CODE_PLUS_UI_STEPS', 'CLAUDE_CODE_PLUS_UI_STEPS_RE', 'CLAUDE_CODE_PLUS_UI_SHARD'].filter((k) => process.env[k]).map((k) => `${k}=${process.env[k]}`).join(', ')}), so the suite inside VS Code and test/check.js did not`);
     keepLogs(p.user, path.join(out, 'logs'));
     console.log(`\nVS Code window: ${passed} passed, ${failed} failed, ${notes} notes; screenshots in ${path.join(out, 'shots')}`);
     process.exitCode = failed ? 1 : 0;
