@@ -95,9 +95,9 @@ These checks cannot catch changes to class names or test ids used by the in-page
 
 `.github/workflows/vscode.yml` runs `test/vscode/run.js` on Linux, macOS, and Windows. It runs on pushes to `main` or a `ci/` branch, on pull requests, daily at 09:43 UTC, and by hand.
 
-On pushes, pull requests, and runs by hand with the default input, it installs the newest Claude Code build recorded in `supported-versions.json`. See the section below on `supported-versions.json`, which `node build/update-versions.js -w` writes. On those same runs, the workflow builds the Agent Plus `.vsix` from the commit in `test/vscode/agent-plus-commit`. The file contains only the full commit hash. To update Agent Plus, change that file in a commit of its own.
+Except for the daily run and manual runs with `upstream` set to `newest`, the workflow installs the newest Claude Code build recorded in `supported-versions.json`. See the section below on `supported-versions.json`, which `node build/update-versions.js -w` writes. On those same runs, the workflow builds the Agent Plus `.vsix` from the commit in `test/vscode/agent-plus-commit`. The file contains only the full commit hash. To update Agent Plus, change that file in a commit of its own.
 
-The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". If the daily run fails while runs on `main` pass, a newer Claude Code or Agent Plus needs a change here. GitHub sends a notification when the scheduled run fails. The failure does not block pushes.
+The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". If the daily run fails while runs on `main` pass, a newer Claude Code or Agent Plus needs a change here. If the scheduled run fails, GitHub sends a notification, but pushes can still proceed.
 
 In each job, the runner:
 
@@ -115,7 +115,7 @@ Manual runs take three inputs:
 
 - `os` lists the runners separated by commas and defaults to `ubuntu-latest,macos-latest,windows-latest`.
 - `steps` is a regular expression. With `steps` set, each listed platform runs one job with only the matching window steps and the four steps every job runs. It skips `suite/` and `test/check.js`.
-- `upstream` defaults to `pinned`. Set it to `newest` to use the same versions as the daily run: the newest Claude Code from the marketplace and Agent Plus built from the head of its default branch.
+- `upstream` defaults to `pinned`. Set it to `newest` to use the same versions as the daily run.
 
 To run one step on macOS from a branch:
 
