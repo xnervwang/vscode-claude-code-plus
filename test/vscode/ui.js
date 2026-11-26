@@ -4216,7 +4216,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       /* Agent Plus's session list draws its own envelope icon, the same in every theme; it is only checked to be there. */
       const listForms = async () => { const r = await rowParts(tab0); return r ? [r.unread] : []; };
       const listIn = () => until(async () => { const f = await listForms(); return f.length === 1 && f[0] === true && f; }, 15000, 500);
-      let steward = null, trace = null;
+      let steward = null, trace = null, sampler = null, stopSampling = async () => null;
       /* The envelope on the conversation's row in the Steward panel, '' for a row without one. */
       const panelForm = () => steward.evaluate((id) => {
         const a = document.querySelector(`a.name[data-open="${id}"]`), row = a && a.closest('li'), e = row && row.querySelector('.env');
@@ -4233,6 +4233,21 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         /* A reply that lands while another conversation is in front, so the Steward panel shows that other one. What the
            windows' shared files said of both as it happened is kept in the results folder when the envelope does not come. */
         trace = attentionTrace([tab0.id, other.id], page);
+        /* And what this extension counted as in front (src/claude-source.js focusState), at each change. */
+        const short = (x) => (typeof x === 'string' && x ? x.slice(-4) : x);
+        const focusNow = async () => {
+          const st = await call('return typeof globalThis.__cceFocusState === "function" ? globalThis.__cceFocusState() : null;').catch(() => null);
+          return st && { front: short(st.front), tab: st.tab, chat: short(st.chat), panels: (st.panels || []).map(([id, a, v]) => [short(id), a, v]),
+            log: (st.log || []).map(([at, why, id]) => [at - t0, why, short(id)]) };
+        };
+        const t0 = Date.now(), states = [];
+        let lastState = '', sampling = false;
+        sampler = setInterval(async () => {
+          if (sampling) return;
+          sampling = true;
+          try { const st = await focusNow(); const k = JSON.stringify(st && Object.assign({}, st, { log: undefined })); if (k !== lastState) { lastState = k; states.push([Date.now() - t0, st && Object.assign({}, st, { log: undefined })]); } } finally { sampling = false; }
+        }, 250);
+        stopSampling = async () => { clearInterval(sampler); sampler = null; return { states, last: await focusNow() }; };
         model.hold();
         const before = model.seen.length, typed = 'And the light theme?';
         try {
@@ -4248,8 +4263,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         } finally { model.release(); }
         const lit = await tabEnds(ENVELOPE_TEXT);
         trace.mark(lit ? 'the envelope on the tab' : 'no envelope on the tab');
-        const traced = await trace.stop();
-        if (!lit) fs.writeFileSync(path.join(out, 'light-envelope-trace.json'), JSON.stringify({ ids: { tab: tab0.id.slice(-4), other: other.id.slice(-4) }, trace: traced }, null, 1) + '\n');
+        const traced = await trace.stop(), focusTrace = await stopSampling();
+        if (!lit) fs.writeFileSync(path.join(out, 'light-envelope-trace.json'), JSON.stringify({ ids: { tab: tab0.id.slice(-4), other: other.id.slice(-4) }, trace: traced, focus: focusTrace }, null, 1) + '\n');
         check(!!lit, 'a reply that lands with the tab in the background ends its title in the envelope\'s text form', await claudeTabs());
         await showSl();
         const rows = await listIn();
@@ -4272,6 +4287,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       } finally {
         model.release();
         if (trace) await trace.stop().catch(() => {});
+        if (sampler) clearInterval(sampler);
         await theme('Default Dark Modern').catch(() => {});
         await exec('workbench.action.closePanel').catch(() => {});
       }

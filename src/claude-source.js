@@ -192,7 +192,10 @@ function createClaudeSource(deps) {
   let keys = 0;
   const enabled = () => { try { return deps.enabled ? deps.enabled() !== false : true; } catch (_) { return true; } };
   const briefOn = () => { try { return deps.brief ? deps.brief() !== false : false; } catch (_) { return false; } };
-  const say = (sessionId) => { front = sessionId; focused.fire({ sessionId }); };
+  /* The last changes of `front` and what made each, for a test to read through focusState(). */
+  const frontLog = [];
+  const logFront = (why, value) => { frontLog.push([Date.now(), why, value]); if (frontLog.length > 50) frontLog.shift(); };
+  const say = (sessionId, why = 'say') => { front = sessionId; logFront(why, sessionId); focused.fire({ sessionId }); };
 
   /* listConversations and freshAgents can each have a read of `claude agents` in flight, and the one that started
      earlier can return later with an older list. A list replaces the one held only if it was read no earlier, and
@@ -605,11 +608,11 @@ function createClaudeSource(deps) {
       const id = deps.activeChat() || '';
       if (id === lastChat) return false;
       lastChat = id;
-      if (!frontTab || isPanelTab(frontTab)) say(id);
+      if (!frontTab || isPanelTab(frontTab)) say(id, 'host');
       return true;
     },
     pageFocus(sessionId) {
-      if (typeof sessionId === 'string' && sessionId) say(sessionId);
+      if (typeof sessionId === 'string' && sessionId) say(sessionId, 'page');
     },
     /* Called with the active tab whenever tabs change. Another agent's tab in front drops the focus signal; so does
        another Claude Code tab, whose own panel is then the one in front, or none until that panel is known. A sidebar
@@ -619,6 +622,13 @@ function createClaudeSource(deps) {
       frontTab = tab;
       if (!tab) return;
       front = isPanelTab(tab) ? source.sessionForTab(tab) || '' : '';
+      logFront('tab', front);
+    },
+    /* What decides which conversation is in front: the focus signal, the active tab's label, the host's active session,
+       each panel's conversation and whether it is active and visible, and the last changes of the signal. */
+    focusState() {
+      return { front, tab: frontTab ? frontTab.label : null, chat: lastChat,
+        panels: [...panels].map(([panel, entry]) => [entry.sessionId, panel.active, panel.visible]), log: frontLog.slice() };
     },
     /* Fires onDidFocus again for the conversation in front; called once registration with Agent Plus completes, which
        can be after the first signal. */
@@ -634,7 +644,7 @@ function createClaudeSource(deps) {
       if (known) {
         if (known.sessionId === id) return;
         known.sessionId = id;
-        if (id && panel.active) say(id);
+        if (id && panel.active) say(id, 'panel');
         return;
       }
       const entry = { sessionId: id, subs: [] };
@@ -643,7 +653,7 @@ function createClaudeSource(deps) {
       try {
         if (typeof panel.onDidChangeViewState === 'function') {
           keep(panel.onDidChangeViewState(() => {
-            if (panel.active && entry.sessionId) say(entry.sessionId);
+            if (panel.active && entry.sessionId) say(entry.sessionId, 'view');
           }));
         }
         if (typeof panel.onDidDispose === 'function') {
@@ -653,7 +663,7 @@ function createClaudeSource(deps) {
           }));
         }
       } catch (_) { /* focus then comes from the other signals */ }
-      if (id && panel.active) say(id);
+      if (id && panel.active) say(id, 'panel');
     },
     /* The tab showing the conversation, or null when it is in the sidebar or not shown here. */
     panelFor(sessionId) {
