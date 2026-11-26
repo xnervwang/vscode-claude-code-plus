@@ -2961,9 +2961,9 @@ const STEPS = [
       + 'running one with a filled green dot and "running", how long and an eight-digit job id on its second line; the '
       + 'finished one with a grey dot and "done", when it finished and its job id. Each card has a small arrow at the end of '
       + 'its title line, pointing right.',
-    unchanged: 'The conversation behind the map has two more exchanges at its end, and after the first of them one more reply '
-      + 'with no message of yours before it: the answer to the notice Claude Code Plus sends when the first claude --bg session '
-      + 'has finished.',
+    unchanged: 'The conversation behind the map ends with three more replies than before: one after each of two messages of yours '
+      + 'asking for a claude --bg session, and one with no message of yours before it, the answer to the notice Claude Code Plus '
+      + 'sends when the first session has finished, which may come between the two or after both.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
       const from = d.model.seen.length;
