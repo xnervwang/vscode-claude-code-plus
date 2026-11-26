@@ -17,7 +17,7 @@ Run `node build/plan-injection-stats.js` from a checkout of the [Agent Plus repo
 | The work plan, whole block | 1,489 characters with one row, 1,579 with two, 1,983 with eight, plus the plan's path four times and the path of the command that writes it three times | A one-row plan and an eight-row plan with a row in each state other than `done` and `dropped`, from [`test/check.js`](../test/check.js), and a two-row plan with two questions for you, from [`test/with-core.js`](../test/with-core.js) |
 | The work plan, short head | 570 characters with one row, 657 with two, 905 with eight, plus the plan's path twice and the command's path once | The same plans, after one row changed state |
 | The work plan, one line | 238 characters plus the plan's path | The same plans, with nothing changed since the previous message |
-| Messages that repeat the previous message's plan | | Counted on your own machine by the script above. A plan counts as unchanged when the only difference is how long a row had been in its state |
+| Messages that repeat the previous message's plan | Not measured here, since it depends on how often a conversation changes its plan | Counted on your own machine by the script above. A plan counts as unchanged when the only difference is how long a row had been in its state |
 
 ## Token modes
 
