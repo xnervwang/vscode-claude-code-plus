@@ -728,6 +728,9 @@ function start(context, log, renamed, handing = false) {
   context.subscriptions.push({ dispose: () => { closing = true; } });
   let liveStates = new Map(), unreadKeys = new Set(), statesTimer = 0;
   const readTitles = waiting.reader();
+  /* Conversations renamed from the session list or by a steward, whose new conversation is then not named after its
+     first message (nameOpened). */
+  const renamedByOthers = new Set();
   /* A panel reports 'waiting_input'; the rest of this extension calls it 'waiting'. */
   globalThis.__cceStatesHook = (states, active, open, unread) => {
     try {
@@ -841,6 +844,7 @@ function start(context, log, renamed, handing = false) {
     /* Through the panel showing it, so its CLI hears of it too; otherwise in its transcript, which no process has open. */
     rename: async (id, title) => {
       if (claude.source.canDeliver(id)) {
+        renamedByOthers.add(id);
         const r = await renameConversation(id, title);
         return r.outcome === 'submitted' ? { outcome: 'done' } : { outcome: r.outcome === 'refused' ? 'refused' : 'failed', reason: r.reason };
       }
@@ -1055,7 +1059,29 @@ function start(context, log, renamed, handing = false) {
     for (const done of opening.values()) done({ outcome: 'uncertain', reason: 'the window closed' });
     opening.clear();
   } });
+  /* Claude Code titles a new conversation with its first message until it has a title of its own, and the first message
+     of one a steward started is the steward's line. Once that message is sent, the conversation is named after the
+     user's words instead, unless something named it first: tried each second while Claude Code has no transcript to
+     write the title into. */
+  const nameOpened = async (sessionId, text) => {
+    const title = stewards.titleOfWords(text);
+    if (!title) return;
+    renamedByOthers.delete(sessionId);
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      if (renamedByOthers.has(sessionId) || (readTitles.titles({ sessionId }) || {}).custom) return;
+      const r = await renameConversation(sessionId, title).catch(() => null);
+      if (r && r.outcome === 'submitted') return;
+    }
+  };
   const openConversation = async (folder, text) => {
+    const r = await openAndSend(folder, text);
+    if (r && r.outcome === 'submitted' && typeof r.sessionId === 'string' && r.sessionId) {
+      nameOpened(r.sessionId, text).catch((e) => log.appendLine('naming the new conversation: ' + ((e && e.message) || e)));
+    }
+    return r;
+  };
+  const openAndSend = async (folder, text) => {
     if (typeof globalThis.__cceToAllPanels !== 'function') return { outcome: 'notReceived', reason: 'Claude Code is not patched in this window' };
     relay.noteTyped(planDir(), text);
     try {
@@ -1108,7 +1134,8 @@ function start(context, log, renamed, handing = false) {
     focusWindow: () => focusThisWindow(),
     deliver: (sessionId, text) => claude.source.deliverAnswer(sessionId, text, {}),
     pageAt: () => pageAt, duplicates: () => dupGroups, rereadDuplicates: () => readDuplicates(), stopDuplicate, otherFront: () => otherFront,
-    rename: renameConversation, close: closeConversation, open: openConversation,
+    rename: (sessionId, title) => { renamedByOthers.add(sessionId); return renameConversation(sessionId, title); },
+    close: closeConversation, open: openConversation,
     windowName: () => vscode.workspace.name || '', windowFolders: () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath),
   });
   context.subscriptions.push(steward);
@@ -1620,13 +1647,6 @@ function start(context, log, renamed, handing = false) {
       claude.track(panel, sessionId);
       const title = tabdot.withoutMark(panel.title);
       if (panel.title !== title) panel.title = title;
-      /* A conversation a steward started is titled with the steward's line until it has a title of its own: the tab shows
-         the user's words after that line instead, from the title or, when it is cut short there, the first message. */
-      if (typeof sessionId === 'string' && sessionId && stewards.withoutFrom(panel.title) !== panel.title) {
-        const words = stewards.withoutFrom(panel.title)
-          || ((readTitles.file(sessionId) && claudeSessionList.summarize(readTitles.file(sessionId))) || {}).firstPrompt || '';
-        if (words && panel.title !== words) panel.title = words;
-      }
       if (typeof sessionId === 'string' && sessionId) {
         const on = enabled() && !removed();
         const t = on ? stewardTable()[sessionId.toLowerCase()] : null, unseen = on && unread === true;

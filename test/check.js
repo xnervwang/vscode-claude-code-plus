@@ -9096,9 +9096,14 @@ console.log('\nthe Steward panel');
     fs.writeFileSync(tFile, [{ type: 'user', message: { role: 'user', content: st.withFrom(S(1), 'CSV export and budgets', asked) }, sessionId: S(7), timestamp: new Date().toISOString(), cwd: os.tmpdir() }]
       .map((r) => JSON.stringify(r)).join('\n') + '\n');
     const firstPrompt = require('../src/claude-session-list').summarize(tFile).firstPrompt;
-    if (JSON.stringify(stripped) === JSON.stringify([asked, asked, '', '', asked, `Asked: ${st.fromLine(S(1), 'x')}`]) && firstPrompt === asked) {
-      ok('a conversation a steward started shows the user\'s words after the steward\'s line until it has a title, nothing for a line cut short or alone, and text that only contains such a line as it is');
-    } else bad(`the steward's line taken off a title: ${JSON.stringify([stripped, firstPrompt])}`);
+    const long = 'Look through every script under tools and tell me which ones still read the old configuration file\nThen stop.';
+    const titles = [st.titleOfWords(st.withFrom(S(1), 'CSV', asked)), st.titleOfWords(st.withFrom(S(1), 'CSV', long)), st.titleOfWords(st.fromLine(S(1), 'CSV')),
+      st.titleOfWords(st.withFrom(S(1), 'CSV', '\n\n  Second line first.'))];
+    if (JSON.stringify(stripped) === JSON.stringify([asked, asked, '', '', asked, `Asked: ${st.fromLine(S(1), 'x')}`]) && firstPrompt === asked
+        && JSON.stringify(titles) === JSON.stringify(['Start a new piece of work: list the scripts in the\u2026', 'Look through every script under tools and tell me which\u2026', '', 'Second line first.'])
+        && titles.every((t) => t.length <= 60)) {
+      ok('a conversation a steward started is listed by the user\'s words after the steward\'s line and named after their first line, cut at a word; a line cut short or alone gives nothing, and text that only contains such a line is as it is');
+    } else bad(`the steward's line taken off a title: ${JSON.stringify([stripped, firstPrompt, titles])}`);
     const sockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-sk-'));
     // A Unix socket elsewhere, a named pipe on Windows; post() is told it is not on Windows so that it connects.
     const sock = process.platform === 'win32' ? '\\\\.\\pipe\\' + path.basename(sockDir) : path.join(sockDir, 's.sock');

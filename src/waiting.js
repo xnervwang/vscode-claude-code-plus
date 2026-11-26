@@ -207,8 +207,6 @@ function reader() {
   };
   const stat = (file) => { try { return fs.statSync(file); } catch (_) { return null; } };
   return {
-    /* The transcript of the conversation, or ''. */
-    file: (sessionId) => fileOf(sessionId),
     titles(s) {
       const file = fileOf(s.sessionId), st = file && stat(file);
       if (!st) return { custom: '', ai: '' };

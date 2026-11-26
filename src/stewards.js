@@ -292,6 +292,15 @@ function withoutFrom(text) {
   const m = FROM_LEAD.exec(s);
   return m ? s.slice(m[0].length).replace(/^\s+/, '') : '';
 }
+/* A title for a conversation a steward started with `text`: the first line of the user's words, cut at a word to at most
+   TITLE_MAX characters; '' when there are none. */
+const TITLE_MAX = 60;
+function titleOfWords(text) {
+  const line = (withoutFrom(text).split(/\r?\n/).find((l) => l.trim()) || '').replace(/\s+/g, ' ').trim();
+  if (line.length <= TITLE_MAX) return line;
+  const cut = line.slice(0, TITLE_MAX - 1), space = cut.lastIndexOf(' ');
+  return (space > TITLE_MAX / 2 ? cut.slice(0, space) : cut).replace(/[\s,.;:]+$/, '') + '\u2026';
+}
 
 /* Records of typed text are kept under this hash, which ignores whitespace as the transcript check (src/sent-check.js)
    does when it compares a message. */
@@ -380,4 +389,4 @@ function post(address, text, { from = 'claude-code-plus', timeoutMs = POST_TIMEO
 }
 
 module.exports = { read, setManaged, rename, migrate, newer, settle, entriesOf, isSteward, manages, stewardsOf, byUser, changes, noticeText, post,
-  fromLine, senderOf, withFrom, withoutFrom, textHash, FILE, VERSION, MAX_MANAGED };
+  fromLine, senderOf, withFrom, withoutFrom, titleOfWords, textHash, FILE, VERSION, MAX_MANAGED };
