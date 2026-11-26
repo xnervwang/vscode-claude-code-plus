@@ -194,7 +194,7 @@ const FOLDER_THREADS = [
 ];
 
 async function run({ exe, vsix, profile, env, playwright, model, threads, background = [], out, check, note }) {
-  /* The failures of this stage, counted so that a step that failed leaves what its pages held (savePages). */
+  /* Counts failed checks: a step during which one fails saves what its pages held (savePages). */
   let failedHere = 0;
   const checkAll = check;
   check = (cond, what, detail) => { const ok = checkAll(cond, what, detail); if (!ok) failedHere++; return ok; };
@@ -253,8 +253,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const claudeTabs = async () => (await tabs()).flatMap((g) => g.tabs.map((t) => ({ ...t, column: g.column })))
     .filter((t) => t.view === PANEL_VIEW);
   const exec = (command, ...a) => call(`await vscode.commands.executeCommand(${JSON.stringify(command)}, ...arg); return true;`, a);
-  /* A conversation opened in an editor tab, asked for as a steward's --resume asks: opened without that, Claude Code shows
-     one the sidebar has held in the sidebar again. */
+  /* Opens a conversation in an editor tab the way a steward's --resume does; a plain open shows a conversation the
+     sidebar has held in the sidebar again. */
   const openTab = (id) => call('await vscode.commands.executeCommand("claude-vscode.editor.open", arg, undefined, undefined, undefined, undefined, { programmatic: "pin-to-panel" }); return true;', id);
   /* The conversations that can be opened in an editor tab: once the sidebar has held one (the sidebar step opens the
      third there), Claude Code shows it in the sidebar wherever it is opened for as long as the sidebar keeps its
@@ -407,7 +407,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     }, 200);
     return () => { clearInterval(timer); return seen; };
   };
-  /* The trace attentionTrace is recording, if any: testFocus notes in it the focus it gives each window. */
+  /* The running attentionTrace, if any; testFocus adds to it each focus it gives a window. */
   let tracing = null;
   /* Until stop(), records each change of each window's file in the folder Agent Plus's windows share, file by file: the
      time the file says it was written, the entries of the conversations `ids` with all their fields (null where a
@@ -930,7 +930,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await until(async () => !!(await slRow(tab0)), 30000, 500);
       await slRowAt(tab0).click();
       const opened = await until(async () => { const t = await claudeTabs(); return t.find((x) => x.active && titled(x.label, tab0.title)); }, 30000, 500);
-      check(!!opened, 'a click on its row in Agent Plus\'s session list opens the conversation in an editor tab titled by the conversation', opened || await tabs());
+      check(!!opened, 'a click on its row in Agent Plus\'s session list opens the conversation in an editor tab with its title', opened || await tabs());
       check(!await auxiliaryVisible(), 'and not in the sidebar', { before, after: await tabs() });
       conv = await conversation(tab0);
       check(!!conv, 'Claude Code draws every turn of the conversation in that tab');
@@ -1100,8 +1100,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!back && await until(async () => await theirTimes() === 0, 10000, 500), 'turned back on, they are back, and Claude Code\'s are hidden again', await stampsIn(conv));
     });
 
-    /* Agent Plus's session list, which lists Claude Code's conversations through this extension
-       (src/claude-session-list.js): the rows read from the transcripts, the one open in a tab here, the background runs
+    /* Agent Plus's session list: the rows read from the transcripts, the one open in a tab here, the background runs
        left out, a terminal that has a conversation open read from Claude Code's own records, the question whether to hide
        Claude Code's own list, the figures of the conversation in front, and a click opening a conversation in a tab. */
     await step('Agent Plus\'s session list', async () => {
@@ -1121,10 +1120,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check((find(listed, tab0.title) || {}).stripe === 'here', 'the conversation open in this window\'s tab has the solid stripe', find(listed, tab0.title));
       check(!background.some((b) => find(listed, b.title)), 'claude --bg, claude -p and daemon sessions are left out while background conversations are hidden', listed.map((r) => r.title));
 
-      /* The question above the list, answered with Keep It: the list of Claude Code stays. */
+      /* Keep It answers the question above the list and leaves Claude Code's own list shown. */
       const note = await until(() => sl.evaluate(() => { const n = document.querySelector('.sl-notice'); return n && n.innerText; }), 10000, 300);
       check(!!note && /Hide Claude Code's own session list\?/.test(note) && /Hide It/.test(note) && /Keep It/.test(note),
-        'above the list, whether to hide Claude Code\'s own session list is asked, with Hide It and Keep It', note);
+        'above the list, a note asks whether to hide Claude Code\'s own session list, with Hide It and Keep It', note);
       await shot('agent-plus-list-question');
       if (note) {
         await sl.locator('.sl-note-btn').filter({ hasText: 'Keep It' }).click();
@@ -1261,7 +1260,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!running, 'while the turn runs the tab\'s logo carries the green dot', await dotsOn(t.label));
       check(!!running && filled(running.shape) && running.blue === 0, 'a filled dot, green in the middle too, with no blue in it', running);
       const listRunning = await until(async () => { const d = await listDot(tab0); return d && d.dot === 'green' && d; }, 10000, 500);
-      check(!!listRunning, 'and its row in Agent Plus\'s session list draws a filled green dot, not a ring', await listDot(tab0));
+      check(!!listRunning, 'and on its row in Agent Plus\'s session list the logo has a filled green dot, not a ring', await listDot(tab0));
       await shot('tab-dot-running');
       const green = await tabLogo(t.label);
       if (running && green) base.compare('tab-dot-running', green.png);
@@ -1336,7 +1335,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!waiting, 'and while it waits the tab\'s logo carries the red dot', await dotsOn(t.label));
       check(!!waiting && waiting.blue === 0, 'and nothing blue, the colour of Claude Code\'s own dot for this', waiting);
       const listWaiting = await until(async () => { const d = await listDot(tab0); return d && d.dot === 'blue' && d; }, 10000, 500);
-      check(!!listWaiting, 'and its row in Agent Plus\'s session list draws the blue dot of a dialog waiting for you', await listDot(tab0));
+      check(!!listWaiting, 'and on its row in Agent Plus\'s session list the logo has the blue dot Agent Plus uses for a dialog that waits for you', await listDot(tab0));
       /* The conversation in front of the window that has the focus is the one the user is looking at, so Agent Plus
          neither tells of it nor counts it. Checked only after Agent Plus has written that it sees the conversation
          waiting in front. */
@@ -1356,8 +1355,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await shot('tab-permission-answered');
     });
 
-    /* The figures of the conversation in front in Agent Plus's list: Claude Code's host asks a conversation's CLI for them
-       once the CLI runs, and after each turn, which the step before ran. */
+    /* Agent Plus's list shows the figures of the conversation in front. Claude Code's host asks the CLI for them when
+       it starts and after each turn; the step before ran a turn. */
     await step('the figures of a conversation in Agent Plus\'s list', async () => {
       if (!conv) throw new Error('the conversation did not open');
       await exec('claude-vscode.editor.open', tab0.id);
@@ -2322,7 +2321,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const watchRed = async (ms = 20000) => {
         const envelope = !!await until(async () => (await claudeTabs()).find((y) => y.label.endsWith(ENVELOPE) && titled(y.label.replace(ENVELOPE, ''), tab0.title)), 30000, 500);
         /* Agent Plus's row learns that the turn ended on its next refresh; until then it still runs, and a question the
-           plan put while it runs is drawn as a red ring, before the typed answer has been taken into the turn. */
+           plan put while it runs is drawn as a red ring until the turn takes in the typed answer. */
         await until(async () => (await rows()).every((x) => x && !x.ring), 10000, 300);
         const reds = [], t0 = Date.now();
         while (Date.now() - t0 < ms) {
@@ -2494,7 +2493,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const shown = await until(async () => { const r = await slRows().catch(() => null); return r && r.find((x) => x.section === 'closed' && x.title === which.title) && r; }, 20000, 500);
       check(!!shown, 'closing a Claude Code tab puts its conversation in Recently closed at the top of Agent Plus\'s session list', shown || await slRows());
       const own = shown && slFind(shown, which);
-      check(!!own && own.stripe === 'closed', 'and its own row has the stripe of one closed here lately', own);
+      check(!!own && own.stripe === 'closed', 'and its own row has the Recently closed stripe', own);
       await page.mouse.move(5, 880);
       await sleep(300);
       await shot('recently-closed');
@@ -2589,7 +2588,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await slItem('Delete...').click();
         const d = await until(dialog, 15000, 300);
         check(!!d && d.text.includes(t1.title) && /transcript/.test(d.text) && d.text.includes('This cannot be undone.') && d.buttons.includes('Delete') && d.buttons.includes('Cancel'),
-          'Delete... asks first, in a dialog naming the conversation and what of it is on disk, saying it cannot be undone, with Delete and Cancel', d);
+          'Delete... first opens a dialog that names the conversation and what of it is on disk, says it cannot be undone, and offers Delete and Cancel', d);
         await shot('delete-confirmation');
         if (d) check(await answerDialog('Cancel') && fs.existsSync(transcriptOf(t1)), 'Cancel closes it and deletes nothing', transcriptOf(t1));
       }
@@ -2643,11 +2642,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         let tabbed = await claudeTabs();
         const inTab = (id) => { const t = threads.find((x) => x.id === id); return !!t && tabbed.some((x) => titled(x.label.replace(ENVELOPE, ''), t.title)); };
         /* The panel lists a conversation once its process shows up, which can be after the first one, so it is given a
-           while to list one that has a tab. With none, one is opened in a tab behind the steward's, asked for in a tab as
-           a steward's --resume asks: opened without that, Claude Code can put it in a sidebar an earlier step left with a
-           new conversation. Claude Code still shows a conversation in the sidebar while the sidebar's page holds it, as it
-           can hold the one an earlier step opened there, so one that does not come up in a tab is passed over for the
-           next. */
+           while to list one that has a tab. With none, the test opens one in a tab behind the steward's, the way a
+           steward's --resume opens it; a plain open could put it in a sidebar an earlier step left with a new
+           conversation. The sidebar's page can still hold the conversation an earlier step opened there, and Claude Code
+           then shows it in the sidebar, so one that does not come up in a tab is passed over for the next. */
         const withTab = async () => { tabbed = await claudeTabs(); const b = await listed(); if (b.length) boxes = b; return boxes.some(([id]) => inTab(id)); };
         if (!await until(withTab, 40000, 1000)) {
           for (const [id] of boxes) {
@@ -2694,8 +2692,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           && titled(label.slice(0, -' \u{1F451}'.length), front.title);
         const marked = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
         check(!!marked, 'and its tab keeps its title with one crown after it', await claudeTabs());
-        /* Its row in Agent Plus's session list: one crown, after the title and not in it; the other conversations' rows
-           have none. */
+        /* In Agent Plus's session list its row has one crown, after the title and not in it; the other conversations'
+           rows have none. */
         await showSl();
         const crownRow = await until(async () => { const r = await slRow(front); return r && r.crown && !MARK_RE.test(r.title) && r; }, 15000, 500);
         const others = await Promise.all(threads.filter((t) => t.id !== front.id).map((t) => slRow(t)));
@@ -2854,7 +2852,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           /* While the reply is unread, the conversation is renamed through its session list row with envelopes and a
              crown typed into the name: the title is stored without them, its tab ends in one envelope, and its rows
              have one envelope after the title. */
-          /* Its row in Agent Plus's session list, as { envs, crowns, name, after }. */
+          /* What its row in Agent Plus's session list shows: { envs, crowns, name, after }. */
           const envRows = async (id) => {
             const t = threads.find((x) => x.id === id);
             const r = t ? await slRow({ title: storedTitle(id) || t.title }) : null;
@@ -3498,8 +3496,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
       const groups = (await tabs()).filter((g) => g.tabs.some((x) => x.view === PANEL_VIEW));
       check(groups.length === 1, 'the conversations share one editor group, the last opened in front', await tabs());
-      /* Each conversation behind is marked unread in turn from its row in Agent Plus's session list, which records the mark
-         and passes it to this extension (noteSeen), which sets the host's; the next only once the host holds the mark. */
+      /* Each conversation behind is marked unread in turn from its row in Agent Plus's session list. Agent Plus records
+         the mark and passes it to this extension (noteSeen), which sets the host's own; the next conversation is marked
+         only once the host holds this one's mark. */
       const marks = [];
       await showSl();
       /* A row Agent Plus already counts as unread (a reply it never saw shown) offers Mark as Read instead: read first. */
@@ -4104,8 +4103,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         /* Clicking a name brings that steward's conversation to the front in its window. */
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
-        /* The click goes to the link itself: moving the mouse onto it in a window behind another can lose the hover that
-           shows the list, and that the list comes up is checked above. */
+        /* The click goes to the link itself: in a window behind another, moving the mouse onto it can lose the hover that
+           shows the list. The check above already saw the list come up. */
         await panelB.locator(eyeOf(X.id)).first().hover({ force: true });
         await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown; }, 5000, 200);
         await panelB.locator(`${eyeOf(X.id)} .pop a[data-open="${SA.id}"]`).first().dispatchEvent('click');
@@ -4997,7 +4996,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         let detached = null;
         if (m.detached !== undefined && process.platform === 'linux') detached = await detachShort(frame, tab0.id);
 
-        /* Only a page that comes with the new tab: a Claude Code view in the hidden sidebar can be empty too. */
+        /* A Claude Code view in the hidden sidebar can be empty too, so only the new tab's page counts. */
         const framesBefore = new Set(page.frames());
         await exec('claude-vscode.editor.open');
         const fresh = await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]') && !document.querySelector('[class*="userMessage_"]'), 60000, undefined, framesBefore);

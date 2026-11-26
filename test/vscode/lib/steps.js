@@ -4,14 +4,14 @@
 
 'use strict';
 /*
- * Which of ui.js's window steps a run takes.
+ * Which of ui.js's window steps a run takes. Every run takes the steps in ALWAYS: the patch, the reload and the first
+ * conversation, which most steps rely on, and the closing check for the page's warning.
  *
- * CLAUDE_CODE_PLUS_UI_STEPS, step names separated by commas, and CLAUDE_CODE_PLUS_UI_STEPS_RE, a regular expression a
- * step's name has to match, take only those. CLAUDE_CODE_PLUS_UI_SHARD=i/n takes the i-th of n runs of consecutive
- * steps, cut so that each takes about as long by the seconds in step-seconds.json: the longest a step took on any of the
- * three systems of the CI, which each step prints as it ends. CLAUDE_CODE_PLUS_UI_SHARD=suite takes none of them and
- * leaves the run to the suite inside VS Code and test/check.js. Every run takes the steps in ALWAYS: the patch, the
- * reload and the first conversation, which most steps rely on, and the closing check for the page's warning.
+ * Of the other steps, CLAUDE_CODE_PLUS_UI_STEPS, step names separated by commas, and CLAUDE_CODE_PLUS_UI_STEPS_RE, a
+ * regular expression a step's name has to match, take only those. CLAUDE_CODE_PLUS_UI_SHARD=i/n takes the i-th of n
+ * runs of consecutive steps, cut so that each takes about as long by the seconds in step-seconds.json: the longest a
+ * step took on any of the three systems of the CI, as each step prints its time when it ends.
+ * CLAUDE_CODE_PLUS_UI_SHARD=suite takes none of them and leaves the run to the suite inside VS Code and test/check.js.
  */
 const fs = require('fs');
 const path = require('path');

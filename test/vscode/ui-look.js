@@ -53,8 +53,8 @@ const WINDOWS = process.platform === 'win32';
    default. */
 const setting = (d, key, value) => d.call('await vscode.workspace.getConfiguration().update(arg[0], arg[1] === null ? undefined : arg[1], vscode.ConfigurationTarget.Global); return true;', [key, value]);
 const theme = (d, name) => setting(d, 'workbench.colorTheme', name);
-/* Claude Code Plus: Show Status, its notification opened out: VS Code shows a long one on a single line until it is
-   expanded, and the token mode is at its end. */
+/* Runs Claude Code Plus: Show Status and expands its notification: VS Code shows a long one on a single line until it
+   is expanded, and the token mode is at its end. */
 const showStatus = async (d) => {
   await d.exec('claudeCodePlus.status');
   await d.sleep(1500);
@@ -168,7 +168,7 @@ async function hoverLabel(d, frame, sel) {
 }
 
 /* Claude Code's own session list in the side bar, found again each time: switching views can rebuild its page. Known
-   by its rows, in a page that has no message box, which a conversation's page has. */
+   by its rows, in a page without the message box a conversation's page has. */
 async function sessionList(d) {
   await d.exec('workbench.view.extension.claude-sessions-sidebar');
   const list = await d.frameWhere(() => !!document.querySelector('[class*="sessionItem_"]') && !document.querySelector('[contenteditable][role="textbox"]'), 60000);
@@ -201,8 +201,8 @@ const agentRowState = (list, title) => list.evaluate((t) => {
   return r ? { dot: r.dataset.dot, stripe: r.dataset.stripe, dim: r.classList.contains('sl-elsewhere'), unread: r.querySelectorAll('.sl-unread svg').length,
     crowns: r.querySelectorAll('.sl-crown').length, marks: ((r.querySelector('.sl-marks') || {}).textContent || '').trim() } : null;
 }, title).catch(() => null);
-/* Waits up to `ms` for that row to pass `test` and gives what it shows; `fails` says what it does otherwise. Agent Plus
-   draws a change some time after this extension reports it. */
+/* Waits up to `ms` for that row to pass `test` and returns its state, or throws with `fails`, the failure in words
+   ("is not listed"). Agent Plus draws a change some time after this extension reports it. */
 async function agentRowWhere(d, list, title, test, ms, fails) {
   const hit = await d.until(async () => { const s = await agentRowState(list, title); return s && test(s) && s; }, ms, 500);
   if (!hit) throw new Error(`in Agent Plus's session list the row "${title}" ${fails} after ${ms / 1000} s: ${JSON.stringify(await agentRowState(list, title))}`);
@@ -210,8 +210,8 @@ async function agentRowWhere(d, list, title, test, ms, fails) {
 }
 /* The text of Agent Plus's hover box, or '' while none shows. */
 const agentHoverText = (list) => list.evaluate(() => { const h = document.querySelector('.sl-hover'); return h && !h.classList.contains('sl-hidden') ? h.textContent : ''; }).catch(() => '');
-/* Rests on the row titled `title` until the hover box says something matching `re`, and gives its text. The list keeps
-   a hover box as it was while the pointer stays on its row, so the pointer leaves the rows first. */
+/* Hovers over the row titled `title` until the hover box matches `re`, and returns the box's text. The list keeps a
+   hover box as it was while the pointer stays on its row, so the pointer leaves the rows first. */
 async function agentHover(d, list, title, re) {
   for (let i = 0; i < 3; i++) {
     await rest(d, list, 'bottom');
@@ -1099,8 +1099,8 @@ const STEPS = [
     act: async (d) => { await d.exec('claudeCodePlus.toggle'); await d.sleep(2500); await demoAt(d, CSV); return d.editor(); },
   },
 
-  /* Agent Plus's session list, which lists Claude Code's conversations through this extension; then Claude Code's own
-     list, whose view this extension hides when asked and from which it leaves out background sessions. */
+  /* The steps on Agent Plus's session list, then those on Claude Code's own list, whose view this extension hides when
+     asked and from which it leaves out background sessions. */
   {
     name: 'official-list-question', features: ['official-list-question'],
     expect: 'Agent Plus\'s session list in the side bar. Above its rows, a note that starts with the Claude Code logo says that Agent '
@@ -1127,19 +1127,22 @@ const STEPS = [
   },
   {
     name: 'agent-plus-session-list', features: ['agent-plus-session-list', 'official-list-question', 'dot-stopped', ...(LINUX ? ['dot-background'] : [])],
-    expect: 'Keep It was clicked: the note above Agent Plus\'s session list is gone, and the rows moved up into its place. The list '
-      + 'shows Claude Code\'s conversations of this folder, each row starting with the Claude Code logo and ending with how long ago '
-      + 'it was last active: the demo conversation that is in the editor, "Find where the retry delay for the inventory sync is set", '
-      + '"Why does the nightly export skip archived rows?" and "Add a dry-run flag to the cleanup script". The demo conversation\'s '
-      + 'row has a solid light stripe at its start, as the one open in this window, and a pin, and comes first; "Why does the nightly '
-      + 'export skip archived rows?" is written in blue: the pins and title colours Claude Code Plus kept, which the list took over. '
-      + (LINUX ? 'The demo conversation\'s logo carries a small green ring at its top right, hollow in the middle: no turn runs, and '
-        + 'the command it left running detached still does. '
+    expect: 'After the click on "Keep It", the note above Agent Plus\'s session list is gone. The rows now occupy '
+      + 'its space. The list shows Claude Code\'s conversations of this folder, each row starting with the Claude '
+      + 'Code logo and ending with how long ago it was last active: the demo conversation that is in the editor, '
+      + '"Find where the retry delay for the inventory sync is set", "Why does the nightly export skip archived '
+      + 'rows?" and "Add a dry-run flag to the cleanup script". The demo conversation comes first and has a pin. '
+      + 'A solid light stripe at the start of its row marks it as open in this window. "Why does the nightly '
+      + 'export skip archived rows?" is written in blue: the pins and title colours Claude Code Plus kept, which '
+      + 'the list took over. '
+      + (LINUX ? 'A small, hollow green ring appears at the top right of the demo conversation\'s logo. No turn '
+        + 'is running, but the command the conversation left detached is still running. '
         : 'The demo conversation\'s logo has no dot: nothing runs. ')
       + 'No other logo has a dot, and no row has an envelope or a crown. None of "' + BACKGROUND_TITLE + '", "' + PRINT_TITLE
-      + '" or "' + DAEMON_TITLE + '", sessions run in the background, is listed. A RECENTLY CLOSED band, folded or open, holds "Add '
-      + 'a dry-run flag to the cleanup script", whose tab an earlier step closed, and that conversation\'s own row has a light blue '
-      + 'stripe at its start. An ACCOUNT & USAGE band may sit at the top; a later step looks at it.',
+      + '" or "' + DAEMON_TITLE + '", sessions run in the background, is listed. A RECENTLY CLOSED band, folded '
+      + 'or open, holds "Add a dry-run flag to the cleanup script", whose tab an earlier step closed, and that '
+      + 'conversation\'s own row has a light blue stripe at its start. An ACCOUNT & USAGE band may sit at the '
+      + 'top; a later step looks at it.',
     unchanged: 'The rows are those of the picture before, moved up where the note was.',
     act: async (d) => {
       const list = await agentList(d);
@@ -1155,9 +1158,9 @@ const STEPS = [
   },
   {
     name: 'agent-plus-row-click', features: ['agent-plus-session-list'],
-    expect: 'The row "Why does the nightly export skip archived rows?" in Agent Plus\'s session list was clicked: that conversation is '
-      + 'open in a tab of its own, in front in the editor, and its row now has the same solid light stripe at its start as the '
-      + 'demo conversation\'s row.',
+    expect: 'After a click on the "Why does the nightly export skip archived rows?" row in Agent Plus\'s session '
+      + 'list, the conversation has its own active editor tab. Its row now starts with the same solid light '
+      + 'stripe as the demo conversation\'s row.',
     unchanged: 'The other rows of the list are as before.',
     act: async (d) => {
       const t = d.threads[1], title = titleNow(d, t);
@@ -1177,12 +1180,13 @@ const STEPS = [
      in for that process, with the environment a screen session gives it. */
   {
     name: 'agent-plus-elsewhere', features: ['agent-plus-elsewhere'],
-    expect: 'In Agent Plus\'s session list, the row of "Add a dry-run flag to the cleanup script", which a terminal now has open, is '
-      + 'dimmed: its logo, title and time are greyed, and the stripe at its start is an outline rather than solid. The other rows '
-      + 'are not greyed. The mouse rests on that row, and a hover box under it names Claude Code and the row\'s section, gives the '
-      + 'session id and when it started and was last active, then '
+    expect: 'A terminal now has "Add a dry-run flag to the cleanup script" open. In Agent Plus\'s session list, '
+      + 'its row has a greyed logo, title and time. Only the outline of the stripe shows at the start of the row. '
+      + 'The other rows are not greyed. The mouse rests on that row, and a hover box under it names Claude Code '
+      + 'and the row\'s section, gives the session id and when it started and was last active, then '
       + (WINDOWS ? '"Open in a terminal"' : '"Open in screen session "mywork" in" and a folder')
-      + ', and under that "Process" with a number and "running for 2m". The box is readable and wholly inside the side bar.',
+      + ', and under that "Process" with a number and "running for 2m". The box is readable and wholly inside the '
+      + 'side bar.',
     unchanged: 'The tab of "Why does the nightly export skip archived rows?" is closed again, and the demo conversation is in front.',
     act: async (d) => {
       const t = d.threads[2];
@@ -1836,10 +1840,11 @@ const STEPS = [
   /* Live turns, in the first fake conversation, against the fake model. */
   {
     name: 'live-running', features: ['dot-working', 'tool-clock'],
-    expect: 'A turn is running in the conversation "Find where the retry delay for the inventory sync is set", in a tab of its '
-      + 'own, with Focus view on: its tab\'s logo carries a filled green dot at its top right; in Agent Plus\'s session list in '
-      + 'the side bar, the Claude Code logo on its row carries a filled green dot too; and the working line above the message '
-      + 'box says no tool has been called yet this turn and how long ago your message was sent.',
+    expect: 'A turn is running in the conversation "Find where the retry delay for the inventory sync is set", in '
+      + 'a tab of its own, with Focus view on: a filled green dot appears at the top right of the tab\'s logo, '
+      + 'and another filled green dot appears on its row\'s Claude Code logo in Agent Plus\'s session list in the '
+      + 'side bar; and the working line above the message box says no tool has been called yet this turn and how '
+      + 'long ago your message was sent.',
     unchanged: 'The panel at the bottom is closed; the side bar now shows Agent Plus\'s session list.',
     act: async (d) => {
       const frame = await live(d);
@@ -1952,10 +1957,10 @@ const STEPS = [
   },
   {
     name: 'need-you-count', features: ['need-you-notices'],
-    expect: 'A close-up of the status bar around Agent Plus\'s Conversations entry: on a yellow background it reads "1 '
-      + 'conversation needs you", the conversation of another window that waits for you to approve Bash, or "2 conversations '
-      + 'need you" when it already counted the demo conversation, whose plan has questions to decide. The conversation here '
-      + 'with an unread reply is not counted.',
+    expect: 'A close-up of the status bar around Agent Plus\'s Conversations entry: on a yellow background it '
+      + 'reads "1 conversation needs you", the conversation of another window that waits for you to approve Bash, '
+      + 'or "2 conversations need you" if the count already includes the demo conversation. Its plan has '
+      + 'questions for you to decide. The conversation here with an unread reply is not counted.',
     unchanged: 'The window is as before.',
     act: async (d) => {
       /* The demo conversation's plan has questions to decide, so the entry may count it already. */
@@ -2023,13 +2028,14 @@ const STEPS = [
   },
   {
     name: 'renamed-unread', features: ['rename-without-marks', 'long-title-envelope', 'unread-envelope'],
-    expect: 'The conversation with a reply not read yet was renamed through the rename box of its row in Claude Code\'s own '
-      + 'session list, typing a very long name with an envelope before it, an envelope and a crown after it. Now the side bar is '
-      + 'narrow and shows Agent Plus\'s session list, the demo conversation is in front, and the Steward panel is open at the '
-      + 'bottom. In Agent Plus\'s list, the renamed conversation\'s row shows "Where the retry delay..." cut short with an '
-      + 'ellipsis, then exactly one envelope icon, whole and not inside the title, and then the time; no crown. In the Steward '
-      + 'panel its row\'s title is cut short the same way and is followed by one envelope. Its tab\'s title ends in one envelope '
-      + 'and has no crown.',
+    expect: 'Before the screenshot, the test changed the name of the conversation with an unread reply using its '
+      + 'row\'s rename box in Claude Code\'s own session list. The test entered an envelope, then a very long '
+      + 'name, then an envelope and a crown. Now the side bar is narrow and shows Agent Plus\'s session list, the '
+      + 'demo conversation is in front, and the Steward panel is open at the bottom. In Agent Plus\'s list, the '
+      + 'renamed conversation\'s row shows "Where the retry delay..." cut short with an ellipsis, then exactly '
+      + 'one envelope icon, whole and not inside the title, and then the time; no crown. In the Steward panel its '
+      + 'row\'s title is cut short the same way and is followed by one envelope. Its tab\'s title ends in one '
+      + 'envelope and has no crown.',
     unchanged: 'The other conversations\' rows are as before.',
     act: async (d) => {
       const list = await sessionList(d);
@@ -2064,11 +2070,11 @@ const STEPS = [
   },
   {
     name: 'live-background', features: ['dot-background', 'unread-envelope'],
-    expect: 'A turn that put a command in the background ("sleep 40") ended while the conversation\'s tab was behind notes.txt: '
-      + 'the tab\'s logo carries a green ring, not a filled dot, and its title ends in a white envelope, so both show at '
-      + 'once. In Agent Plus\'s session list in the side bar, the logo on its row carries the same green ring, and an envelope '
-      + 'icon follows its title, before the time. Agent Plus does not count it in the status bar or show a notice for it while '
-      + 'its work still runs.',
+    expect: 'A turn that put a command in the background ("sleep 40") ended while the conversation\'s tab was '
+      + 'behind notes.txt: the tab\'s logo carries a green ring, not a filled dot, and its title ends in a white '
+      + 'envelope, so both show at once. In Agent Plus\'s session list in the side bar, the same green ring '
+      + 'appears on its row\'s logo. An envelope icon sits between the title and the time. Agent Plus does not '
+      + 'count it in the status bar or show a notice for it while its work still runs.',
     unchanged: 'The tab bar has the same tabs as before; notes.txt is in front.',
     act: async (d) => {
       const frame = await live(d);
@@ -2099,10 +2105,10 @@ const STEPS = [
   },
   {
     name: 'live-permission', features: ['dot-waiting', 'timestamps'],
-    expect: 'Claude Code asks for permission to run "npm test": the question and its Yes and No choices are in the panel. The '
-      + 'tab\'s logo carries a filled red dot at its top right, and the tab has no blue dot. In Agent Plus\'s session list in the '
-      + 'side bar, the logo on its row carries a filled blue dot, Agent Plus\'s mark of a dialog that waits for you. '
-      + 'The tool row of that call has its time on a line of its own above "Bash" and its '
+    expect: 'Claude Code asks for permission to run "npm test": the question and its Yes and No choices are in '
+      + 'the panel. The tab\'s logo carries a filled red dot at its top right, and the tab has no blue dot. Agent '
+      + 'Plus marks a dialog that waits for you with a filled blue dot on the conversation\'s logo in the session '
+      + 'list in the side bar. The tool row of that call has its time on a line of its own above "Bash" and its '
       + 'description, which stays on one line.',
     unchanged: 'The earlier messages are as before; the tab\'s title has no envelope now that the tab is in front.',
     act: async (d) => {
@@ -2404,10 +2410,10 @@ const STEPS = [
   },
   {
     name: 'off-background-sessions', features: ['background-sessions'],
-    expect: 'A close-up of the footer with the setting that lists claude --bg sessions turned off: the agents button no longer '
-      + 'counts the session, so "1 bg done" is gone and the button reads "0 agents" with a grey dot: the helper an earlier step '
-      + 'ran has finished and the map still lists it, so the button stays. The footer\'s other '
-      + 'buttons are in place and nothing overlaps.',
+    expect: 'A close-up of the footer with the setting that lists claude --bg sessions turned off: the agents '
+      + 'button no longer counts the session. The button now reads "0 agents" with a grey dot in place of "1 bg '
+      + 'done". It stays in the footer because the agent map still lists the finished helper an earlier step ran. '
+      + 'The footer\'s other buttons are in place and nothing overlaps.',
     unchanged: 'The conversation is as before.',
     act: async (d) => {
       const frame = await live(d);
@@ -2705,10 +2711,11 @@ const STEPS = [
   },
   {
     name: 'light-session-list', features: ['light-theme', 'agent-plus-session-list'],
-    expect: 'Agent Plus\'s session list in the light theme: dark text on a light background, the section bands a little darker '
-      + 'than the rows. The titles and times, the Claude Code logos and any dots on them, the pin, the blue title, the crown and '
-      + 'the envelope where a row has them, and the stripes at the start of the rows are all readable against the light '
-      + 'background; nothing is left in the dark theme\'s colours.',
+    expect: 'Agent Plus\'s session list in the light theme: dark text on a light background, the section bands a '
+      + 'little darker than the rows. The titles and times are readable against the light background, including '
+      + 'the blue title. The Claude Code logos, any dots on them and the stripes at the start of the rows are '
+      + 'easy to see. The pin, crown and envelope are also readable on rows that have them. Nothing retains the '
+      + 'dark theme\'s colours.',
     unchanged: 'The editor is as before; the map is closed.',
     act: async (d) => { await agentList(d); await d.away(); return d.sidebar(); },
   },
@@ -3007,11 +3014,13 @@ const STEPS = [
   },
   {
     name: 'map-sidebar-light', features: ['agent-map', 'light-theme', 'narrow-panel'],
-    expect: 'The light theme. The same conversation, reopened in the secondary side bar (narrow, on the right) from Open in Sidebar '
-      + 'in the menu of its row in Agent Plus\'s session list, has started a '
-      + 'helper and a command in the background there again, and its agent map is open. The same sections as in '
-      + 'map-busy-light, but SUBAGENTS 2: besides the new helper, the one started while the conversation was in a tab, stopped '
-      + 'when that tab closed, with a red dot. In the narrow width the cards\' second lines may end in an ellipsis (each card\'s hover text holds the whole line); cards no wider than the side bar or the map scrolls sideways.',
+    expect: 'The light theme. The same conversation is open again in the narrow secondary side bar on the right. '
+      + '"Open in Sidebar" in its row menu in Agent Plus\'s session list reopened it there. The conversation has '
+      + 'again started a helper and a command in the background there. Its agent map is open. The same sections '
+      + 'as in map-busy-light, but SUBAGENTS 2: besides the new helper, the one started while the conversation '
+      + 'was in a tab, stopped when that tab closed, with a red dot. In the narrow width the cards\' second lines '
+      + 'may end in an ellipsis (each card\'s hover text holds the whole line); cards no wider than the side bar '
+      + 'or the map scrolls sideways.',
     unchanged: 'The tab of that conversation is gone from the editor.',
     act: async (d) => {
       const t = mapThread(d), title = titleNow(d, t);
