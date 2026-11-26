@@ -41,6 +41,9 @@ async function open({ exe, profile, env, playwright, log }) {
   fs.rmSync(portFile, { force: true });
   const args = [profile.folder, ...FLAGS, `--extensions-dir=${profile.exts}`, `--user-data-dir=${profile.user}`,
     `--extensionDevelopmentPath=${HELPER}`, '--remote-debugging-port=0'];
+  /* CLAUDE_CODE_PLUS_UI_SCALE sets the window's pixels per point, so that on a screen with two, as a Mac's own is, the
+     crops come out the size of the approved copies, which were taken at one. */
+  if (/^\d+(\.\d+)?$/.test(process.env.CLAUDE_CODE_PLUS_UI_SCALE || '')) args.push(`--force-device-scale-factor=${process.env.CLAUDE_CODE_PLUS_UI_SCALE}`);
   /* AGENT_PLUS_TEST_FOCUS lets a step say through the test helper whether a window has the focus (Agent Plus's
      src/views.js): under xvfb-run every window VS Code has once focused says it is focused for good. */
   const proc = spawn(exe, args, { env: { ...env, CLAUDE_CODE_PLUS_UI_CONTROL: profile.control, AGENT_PLUS_TEST_FOCUS: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
