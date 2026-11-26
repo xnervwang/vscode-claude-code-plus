@@ -1878,7 +1878,7 @@ const STEPS = [
   {
     name: 'agent-plus-account', features: ['agent-plus-account'],
     expect: 'Agent Plus\'s session list in the side bar, its ACCOUNT & USAGE section at the top opened. In it a Claude Code part, '
-      + 'headed by the Claude Code logo and its name, ends with the figures of the conversation in front: a small heading in '
+      + 'headed by the Claude Code logo and its name, has a row Sign-in with "API key" and ends with the figures of the conversation in front: a small heading in '
       + 'capitals, THIS CONVERSATION, and under it the conversation\'s title, "Find where the retry delay for the inventory sync '
       + 'is set". Under that four rows, each a label and a value: Estimated cost with '
       + 'a dollar amount, Total duration (API) and Total duration (wall) each with a time such as "2.3s" or "1m 5s", and Total '
@@ -3073,6 +3073,33 @@ const STEPS = [
       removeSchedules(d);
       await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {});
       await d.sleep(1000);
+    },
+  },
+  /* Last, as it closes every tab: with no Claude Code conversation running in the window, Account & usage keeps the Claude
+     Code part and says so (src/claude-session-list.js accountInfo). */
+  {
+    name: 'agent-plus-account-idle', features: ['agent-plus-account'],
+    expect: 'Agent Plus\'s session list in the side bar, its ACCOUNT & USAGE section at the top opened. In it a Claude Code part, '
+      + 'headed by the Claude Code logo and its name, with two rows, each a label and a value: Sign-in with "API key", and This '
+      + 'window with "No conversation running". There is no THIS CONVERSATION heading and no figures. The rows line up with the '
+      + 'other parts\' rows, are readable, and nothing is cut off at the side bar\'s edge. No Claude Code tab is open.',
+    act: async (d) => {
+      await d.exec('workbench.action.closeAllEditors');
+      await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {});
+      const list = await agentList(d);
+      const section = () => list.evaluate(() => {
+        const a = document.querySelector('.sl-section[data-key="account"]');
+        return a && !a.classList.contains('sl-hidden') ? { open: a.classList.contains('sl-open'), text: a.textContent } : null;
+      }).catch(() => null);
+      /* A closed tab's process ends a moment after, and the section follows the next time the figures change. */
+      if (!await d.until(async () => { const s = await section(); return s && /No conversation running/.test(s.text); }, 60000, 500)) {
+        throw new Error(`Account & usage does not say that no conversation runs in this window: ${JSON.stringify(await section())}`);
+      }
+      if (!(await section()).open) await list.locator('.sl-section[data-key="account"] .sl-head').first().click();
+      await d.until(async () => { const s = await section(); return s && s.open && s; }, 10000, 300);
+      d.liveFrame = null;
+      await d.away();
+      return d.sidebar();
     },
   },
 ];

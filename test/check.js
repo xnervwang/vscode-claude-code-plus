@@ -14726,10 +14726,43 @@ const repo = path.join(__dirname, '..');
     const unread = csl.create(Object.assign({}, deps, { officialLists: () => null }));
     eq([await unread.importSessions({ folders: [folder] }), await list.importSessions({ folders: [] })], [null, null],
       'while Claude Code\'s own lists cannot be read the import answers null, for the core to ask again');
-    eq([list.accountInfo({ sessionId: S(1) }), list.accountInfo({ sessionId: S(2) }), list.accountInfo({})],
-      [{ rows: [], bars: [], links: [], conversation: { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] } }, null,
+    const NONE_HERE = { label: 'This window', value: 'No conversation running',
+      tooltip: 'The cost, time and code changes are shown for a Claude Code conversation that runs in this window.' };
+    const stoppedAll = csl.create(Object.assign({}, deps, { state: () => null }));
+    eq([list.accountInfo({ sessionId: S(1) }), stoppedAll.accountInfo({ sessionId: S(2) }), list.accountInfo({})],
+      [{ rows: [], bars: [], links: [], conversation: { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] } },
+        { rows: [NONE_HERE], bars: [], links: [] },
         { rows: [], bars: [], links: [], conversation: { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] } }],
-      'the Account & usage part is the figures of the conversation in front, and nothing for one with none');
+      'the Account & usage part is the figures of the conversation in front, and for one with none a line saying no conversation runs here');
+    const signed = (login) => csl.create(Object.assign({}, deps, { login: () => login, state: () => null }));
+    eq([signed({ method: 'bedrock', label: 'Amazon Bedrock' }).accountInfo({ sessionId: S(2) }), signed({ method: 'apiKey', label: 'API key' }).accountInfo({ sessionId: S(1) }).rows,
+      signed({ method: 'claudeAi', label: 'claude.ai' }).accountInfo({ sessionId: S(1) }).rows, signed({ method: 'none', label: 'Not signed in' }).accountInfo({ sessionId: S(2) }).rows],
+      [{ rows: [{ label: 'Sign-in', value: 'Amazon Bedrock' }, NONE_HERE], bars: [], links: [] }, [{ label: 'Sign-in', value: 'API key' }], [],
+        [{ label: 'Sign-in', value: 'Not signed in' }, NONE_HERE]],
+      'it says how Claude Code signs in, unless with a claude.ai account, with no conversation running as with one');
+    const early = csl.create(Object.assign({}, deps, { state: (id) => (id === S(2) ? { activity: 'idle' } : null) }));
+    eq(early.accountInfo({ sessionId: S(2) }).rows, [{ label: 'This conversation', value: 'No figures yet',
+      tooltip: 'Claude Code reports the cost, time and code changes of a conversation once it has had a turn in this window.' }],
+    'and a conversation in front that runs but has had no turn here yet has no figures yet, not none running');
+    {
+      const cl = require('../src/claude-login');
+      const m = (o) => cl.method(o).method;
+      eq([m({ env: { CLAUDE_CODE_USE_BEDROCK: '1', ANTHROPIC_API_KEY: 'k' }, config: { oauthAccount: {} } }), m({ env: { CLAUDE_CODE_USE_VERTEX: 'true' } }),
+        m({ env: { CLAUDE_CODE_USE_FOUNDRY: '1' } }), m({ env: { ANTHROPIC_API_KEY: 'k' }, config: { oauthAccount: {} } }), m({ settings: { apiKeyHelper: '~/key.sh' } }),
+        m({ config: { primaryApiKey: 'k' } }), m({ env: { ANTHROPIC_AUTH_TOKEN: 't' } }), m({ config: { oauthAccount: { emailAddress: 'a@b' } } }),
+        m({ env: { CLAUDE_CODE_USE_BEDROCK: '0' } }), m({})],
+      ['bedrock', 'vertex', 'foundry', 'apiKey', 'apiKey', 'apiKey', 'authToken', 'claudeAi', 'none', 'none'],
+      'Claude Code\'s sign-in method is read in its own order: a cloud provider, then an API key, an auth token, a claude.ai account');
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-login-'));
+      fs.mkdirSync(path.join(home, '.claude'));
+      fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'a@b' } }));
+      const claudeAi = cl.reader({ home, env: {}, extra: () => [] })().method;
+      fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ env: { CLAUDE_CODE_USE_BEDROCK: '1' } }));
+      const fromSettings = cl.reader({ home, env: {}, extra: () => [] })().method;
+      const fromSetting = cl.reader({ home: fs.mkdtempSync(path.join(os.tmpdir(), 'cce-login-')), env: {}, extra: () => [{ name: 'ANTHROPIC_API_KEY', value: 'k' }] })().method;
+      eq([claudeAi, fromSettings, fromSetting], ['claudeAi', 'bedrock', 'apiKey'],
+        'and found in ~/.claude.json, the env of ~/.claude/settings.json and the setting claudeCode.environmentVariables');
+    }
     calls.length = 0;
     list.noteSeen([S(1), 'x', S(2)], true);
     list.noteSeen([S(3)], false);

@@ -46,6 +46,9 @@ const textOf = (rec) => {
 /* A message the user wrote: not a tool's result, which Claude Code also files as a user record. */
 const isTyped = (rec) => isMessage(rec) && rec.type === 'user' && rec.toolUseResult === undefined && !!textOf(rec).trim();
 /* The text of a user record's message, for a conversation with no title yet. */
+/* Why the section has no figures: Claude Code reports them for a conversation that runs in this window. */
+const NO_FIGURES = 'The cost, time and code changes are shown for a Claude Code conversation that runs in this window.';
+const NOT_YET = 'Claude Code reports the cost, time and code changes of a conversation once it has had a turn in this window.';
 function promptOf(rec) {
   const line = withoutFrom(String(textOf(rec) || '')).replace(/<[^>]+>[^<]*<\/[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   return line.length > MAX_PROMPT ? line.slice(0, MAX_PROMPT - 1) + '\u2026' : line;
@@ -324,13 +327,21 @@ function create(deps) {
         colors: Object.fromEntries(Object.entries(colors && typeof colors === 'object' ? colors : {}).filter(([id]) => ours(id))),
       };
     },
+    /* Always given, so that the section shows Claude Code as there: how it signs in unless with a claude.ai account,
+       and the figures of the conversation in front, or a line saying that it has none yet or that none runs here. */
     accountInfo({ sessionId } = {}) {
       const id = typeof sessionId === 'string' ? sessionId : String(safe(deps.front, '') || '');
       const rows = SESSION.test(id) ? safe(deps.totals, [], id) : [];
-      if (!Array.isArray(rows) || !rows.length) return null;
+      const login = safe(deps.login, null);
+      const top = login && login.method !== 'claudeAi' && login.label ? [{ label: 'Sign-in', value: login.label }] : [];
+      if (!Array.isArray(rows) || !rows.length) {
+        const running = SESSION.test(id) && !!safe(deps.state, null, id);
+        const why = running ? { label: 'This conversation', value: 'No figures yet', tooltip: NOT_YET } : { label: 'This window', value: 'No conversation running', tooltip: NO_FIGURES };
+        return { rows: top.concat([why]), bars: [], links: [] };
+      }
       const hit = cache.get(id), sum = hit && hit.sum;
       const title = String(safe(deps.titleOf, '', id) || (sum && (sum.custom || sum.ai || sum.firstPrompt)) || '');
-      return { rows: [], bars: [], links: [], conversation: { title: titleMarks.withoutMarks(title), rows } };
+      return { rows: top, bars: [], links: [], conversation: { title: titleMarks.withoutMarks(title), rows } };
     },
     onDidChangeAccountInfo: event(accountListeners),
     /* For the source: the figures, or the conversation in front, changed. */
