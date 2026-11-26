@@ -12188,7 +12188,8 @@ console.log('\nanswering from the Conversations tab');
       p.tell('S2', SUM);
       const other = p.bar().style.display;
       p.tell('S1', SUM);
-      same([other, p.bar().style.display, p.bar().find('apb-count').textContent, p.bar().find('apb-q').textContent], ['none', '', '3 open', '1 to decide'],
+      same([other, p.bar().style.display, p.bar().getAttribute('aria-label'), p.bar().find('apb-q').textContent],
+        ['none', '', 'Work plan: 2 doing, 1 discussing; 1 question waits for your answer', '1 to decide'],
         'a summary of another conversation is not this panel\'s; its own is drawn');
       p.env.out.ensure();
       p.env.out.ensure();

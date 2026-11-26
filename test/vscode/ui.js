@@ -5549,12 +5549,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /*
-     * The plan bar above the input box (src/page/96-plan-bar.js, src/plan-bar.js). It is drawn from the plan of the
-     * conversation the panel shows, in each state a plan can be in; it is compact in a narrow panel, and gone without a
-     * plan or with claudeCodePlus.show.planBar off; it is redrawn when the plan changes; and it stays as wide as the
-     * input box, with the same height and the title in the same place, however many rows the plan has. A click on it
-     * opens Agent Plus's Work plan view at this conversation, and a click on its questions part opens the Answer view at
-     * this conversation's question.
+     * The plan bar above the input box (src/page/04-plan-bar.js, src/plan-bar.js). It is drawn from the plan of the
+     * conversation the panel shows, in each state a plan can be in: a bubble with the count of each of doing, waiting,
+     * discussing and todo, and the rows waiting for the user's answer counted only in a filled "N to decide". It is compact
+     * in a narrow panel, and gone without a plan or with claudeCodePlus.show.planBar off; it is redrawn when the plan
+     * changes; and it stays as wide as the input box, with the same height, however many rows the plan has. A click on it
+     * opens Agent Plus's Work plan view at this conversation, and a click on "to decide" opens the Answer view at this
+     * conversation's question.
      */
     await step('the plan bar', async () => {
       if (!conv) throw new Error('the conversation did not open');
@@ -5588,21 +5589,20 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const send = document.querySelector('button[type="submit"][data-permission-mode]'), form = send && send.closest('form');
           const box = (e) => { if (!e) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, width: r.width, height: r.height }; };
           if (!b || b.style.display === 'none' || !b.offsetParent) return { shown: false, there: !!b };
-          const text = b.querySelector('.apb-row .apb-text'), q = b.querySelector('.apb-q'), dot = q && q.querySelector('.apb-dot');
-          /* The theme's colour for status bar warning entries; the questions part's dot uses it. */
+          const name = b.querySelector('.apb-name'), q = b.querySelector('.apb-q'), done = b.querySelector('.apb-text.apb-dim');
+          /* The colour of the Work plan view's question mark, which fills "to decide". */
           const probe = document.createElement('span');
-          probe.style.color = 'var(--vscode-statusBarItem-warningBackground)';
+          probe.style.color = 'var(--vscode-charts-orange)';
           document.body.appendChild(probe);
-          const warning = getComputedStyle(probe).color;
+          const orange = getComputedStyle(probe).color;
           probe.remove();
+          const parts = [...b.children].filter((e) => e.offsetParent);
           return { shown: true, compact: b.getAttribute('data-compact') === '1', label: b.getAttribute('aria-label') || '',
-            dot: dot ? getComputedStyle(dot).backgroundColor : '', warning,
-            segments: [...b.querySelectorAll('.apb-seg')].map((s) => s.getAttribute('data-state')),
-            count: ((b.querySelector('.apb-count') || {}).textContent || ''),
-            current: ((b.querySelector('.apb-row') || { getAttribute: () => '' }).getAttribute('data-state') || ''),
-            title: text ? text.textContent : '', dim: !!text && /apb-dim/.test(text.className), questions: q ? q.textContent : '',
-            beforeForm: !!form && b.nextElementSibling === form, bar: box(b), form: box(form), text: box(text),
-            oneLine: !!text && text.getBoundingClientRect().height <= b.getBoundingClientRect().height };
+            name: name ? name.textContent : '', orange, ask: q ? getComputedStyle(q).backgroundColor : '',
+            bubbles: [...b.querySelectorAll('.apb-b')].map((s) => [s.getAttribute('data-state'), s.textContent]),
+            done: done ? done.textContent : '', questions: q ? q.textContent : '',
+            beforeForm: !!form && b.nextElementSibling === form, bar: box(b), form: box(form), first: box(parts[1] || parts[0]),
+            oneLine: parts.every((e) => { const r = e.getBoundingClientRect(), o = b.getBoundingClientRect(); return r.top >= o.top - 0.5 && r.bottom <= o.bottom + 0.5; }) };
         });
         const barIs = (want) => until(async () => { const s = await bar(); return want(s) && s; }, 30000, 400);
         const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -5610,12 +5610,25 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         /* Each state of a plan. */
         write([row('Read the code', 'done'), row('Export', 'doing', { children: [row('Write the CSV exporter', 'doing')] }),
           row('Which month to default to', 'discussing', { waitingOn: 'user', question: 'This month or last month?' }), row('Document it', 'todo')]);
-        const doing = await barIs((s) => s.shown && s.count === '4 open');
-        check(!!doing && doing.beforeForm && same(doing.segments, ['doing', 'discussing', 'todo']) && doing.current === 'doing'
-          && doing.title === '2.1 Write the CSV exporter' && doing.questions === '1 to decide' && !doing.compact && !!doing.dot && doing.dot === doing.warning,
-        'with a plan, a bar sits right above the input box: the open rows by state, 4 open, the deepest row being worked on as the current row, and 1 to decide with a dot in the status bar\'s warning colour',
+        const doing = await barIs((s) => s.shown && same(s.bubbles, [['doing', '2'], ['todo', '1']]));
+        check(!!doing && doing.beforeForm && doing.name === 'Plan' && doing.questions === '1 to decide' && !doing.compact && !!doing.ask && doing.ask === doing.orange
+          && doing.label === 'Work plan: 2 doing, 1 to do; 1 question waits for your answer',
+        'with a plan, a bar sits right above the input box: a bubble for the 2 rows being worked on and one for the 1 to do, and the row waiting for the user\'s answer counted only in 1 to decide, filled with the Work plan view\'s orange',
         doing || await bar());
         await shot('plan-bar-doing');
+        /* The list each part shows after the pointer rests on it. */
+        const hoverList = async (sel) => {
+          await panel.locator(`[data-agent-plus-plan-bar] ${sel}`).first().hover({ timeout: 10000 });
+          const got = await until(() => panel.evaluate(() => { const l = document.querySelector('[data-agent-plus-plan-bar-list]'); return l ? l.innerText.split('\n').map((x) => x.trim()).filter(Boolean) : null; }), 5000, 200);
+          await page.mouse.move(5, 5);
+          return got;
+        };
+        const askList = await hoverList('.apb-q');
+        check(!!askList && askList[0] === '1 question for you' && askList.includes('3 This month or last month?'),
+          'resting on 1 to decide lists the question with its row\'s number', askList);
+        const doingList = await hoverList('.apb-b[data-state="doing"]');
+        check(!!doingList && doingList[0] === '2 doing' && doingList.includes('2 Export') && doingList.includes('2.1 Write the CSV exporter'),
+          'and resting on a bubble lists the rows of its state', doingList);
         /* The input area sits over the bottom of the messages, and Claude Code keeps room under them for its height; the
            bar is part of that area, so the last message scrolled to the bottom ends above the bar. */
         const clear = await until(() => panel.evaluate(() => {
@@ -5628,42 +5641,42 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }), 10000, 500);
         check(!!clear, 'scrolled to the bottom, the last message ends above the bar', clear);
         write([row('Read the code', 'done'), row('Export', 'waiting', { waitingOn: 'build' }), row('Document it', 'todo')]);
-        const waiting = await barIs((s) => s.shown && s.count === '2 open');
-        check(!!waiting && same(waiting.segments, ['waiting', 'todo']) && !waiting.current && !waiting.title && !waiting.questions && waiting.label === 'Work plan: 2 rows open',
-          'with no row being worked on and no question, the bar shows its track and the open-row count, with no current row or questions part', waiting || await bar());
+        const waiting = await barIs((s) => s.shown && same(s.bubbles, [['waiting', '1'], ['todo', '1']]));
+        check(!!waiting && !waiting.questions && !waiting.done && waiting.label === 'Work plan: 1 waiting, 1 to do',
+          'with no question, the bar shows a bubble for each state that has rows and no to decide', waiting || await bar());
         write([row('Read the code', 'done'), row('Handle refunds later', 'parked')]);
-        const parked = await barIs((s) => s.shown && s.count === '1 open');
-        check(!!parked && !parked.current && !parked.title && same(parked.segments, ['parked']),
-          'with only a parked row left, there is no current row either', parked || await bar());
+        const parked = await barIs((s) => s.shown && s.label === 'Work plan: 1 row open');
+        check(!!parked && !parked.bubbles.length && !parked.questions && !parked.done,
+          'a parked row gets no bubble', parked || await bar());
         write([row('Read the code', 'done'), row('Export', 'done')]);
-        const allDone = await barIs((s) => s.shown && s.current === 'done');
-        check(!!allDone && allDone.title === 'All rows done' && allDone.count === '' && !allDone.segments.length,
-          'with every row done, a check and All rows done, and an empty track', allDone || await bar());
+        const allDone = await barIs((s) => s.shown && s.done === 'All rows done');
+        check(!!allDone && !allDone.bubbles.length && allDone.label === 'Work plan: all rows done',
+          'with every row done, a check and All rows done and no bubbles', allDone || await bar());
         await shot('plan-bar-done');
 
         const full = await editorWidth();
-        const grown = (n) => write([row('Export', 'doing', { children: [row('A current row whose title is long enough to be cut short when the panel is narrow', 'doing')] })]
+        const grown = (n) => write([row('Export', 'doing', { children: [row('A row being worked on with a title long enough to wrap in a narrow panel', 'doing')] })]
           .concat(Array.from({ length: n - 2 }, (_, i) => row('Row ' + (i + 1), 'todo'))));
         const sizes = [];
         for (const width of [Math.min(1100, full - 120), 520]) {
           const at = await layout(width / full);
           if (at !== 0) throw new Error(`the Claude Code tab is in editor group ${at}, not the first`);
           grown(9);
-          const nine = await barIs((s) => s.shown && s.count === '9 open' && !s.compact);
+          const nine = await barIs((s) => s.shown && same(s.bubbles, [['doing', '2'], ['todo', '7']]) && !s.compact);
           grown(120);
-          const many = await barIs((s) => s.shown && s.count === '120 open');
+          const many = await barIs((s) => s.shown && same(s.bubbles, [['doing', '2'], ['todo', '118']]));
           sizes.push({ width, nine, many });
           check(!!nine && !!many && Math.abs(nine.bar.width - nine.form.width) <= 1 && Math.abs(many.bar.width - many.form.width) <= 1
-            && nine.bar.height === many.bar.height && Math.abs(nine.text.left - many.text.left) < 0.5 && nine.oneLine && many.oneLine,
-          `with the panel about ${width} px wide the bar is as wide as the input box, and as the plan grows from 9 to 120 rows its height and the title's left edge stay the same`,
+            && nine.bar.height === many.bar.height && Math.abs(nine.first.left - many.first.left) < 0.5 && nine.oneLine && many.oneLine,
+          `with the panel about ${width} px wide the bar is as wide as the input box, and as the plan grows from 9 to 120 rows it keeps its height, its start and one line`,
           { nine: nine || null, many: many || await bar() });
         }
         const wide = sizes.map((x) => x.nine && Math.round(x.nine.bar.width));
         check(!!wide[0] && !!wide[1] && wide[0] > wide[1] + 20, 'and the two measurements come from panels of different widths', wide);
         await layout(340 / full);
         const narrow = await barIs((s) => s.shown && s.compact);
-        check(!!narrow && narrow.count === '120 open' && !narrow.segments.length && Math.abs(narrow.bar.width - narrow.form.width) <= 1,
-          'in a narrow panel the bar is compact: the count and no track, still as wide as the input box', narrow || await bar());
+        check(!!narrow && !narrow.name && same(narrow.bubbles, [['doing', '2'], ['todo', '118']]) && narrow.oneLine && Math.abs(narrow.bar.width - narrow.form.width) <= 1,
+          'in a narrow panel the bar is compact: no Plan, the bubbles kept, on one line and still as wide as the input box', narrow || await bar());
         await shot('plan-bar-compact');
         await exec('workbench.action.editorLayoutSingle');
         await exec('claude-vscode.editor.open', tab0.id);
@@ -5671,7 +5684,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         write([row('Export', 'doing'), row('Which month', 'waiting', { waitingOn: 'user', question: 'This month or last month?' }),
           row('Which format', 'discussing', { waitingOn: 'user', question: 'CSV or JSON?' })]);
         const two = await barIs((s) => s.shown && s.questions === '2 to decide');
-        check(!!two && two.count === '3 open' && two.title === '1 Export', 'a change to the plan redraws the bar', two || await bar());
+        check(!!two && same(two.bubbles, [['doing', '1']]), 'a change to the plan redraws the bar', two || await bar());
         fs.unlinkSync(plan);
         const none = await barIs((s) => !s.shown);
         check(!!none, 'a conversation with no plan has no bar', none || await bar());

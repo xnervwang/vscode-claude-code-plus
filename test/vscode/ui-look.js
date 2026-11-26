@@ -755,11 +755,11 @@ const STEPS = [
   /* The bar above the message box, drawn from the demo conversation's plan. */
   {
     name: 'plan-bar', features: ['plan-bar'],
-    expect: 'Right above the message box, a bar exactly as wide as the box: a list mark and "Plan" in bold; a short track of '
-      + 'coloured segments, orange, yellow, purple and grey for the open rows by state, with no green; "19 open"; then an empty '
-      + 'space where the current row would be; at the right a yellowish part with a yellow dot and "3 to '
-      + 'decide", not red; and an arrow. The bar is one line, nothing in it is cut at the top or bottom, and it covers '
-      + 'neither the conversation nor the message box.',
+    expect: 'Right above the message box, a bar exactly as wide as the box: a list mark and "Plan" in bold; a rounded bubble '
+      + 'with a yellow speech-bubble mark and "11" on a yellow tint, and one with a purple circle and "4" on a purple tint; '
+      + 'no other bubble, none green or grey; then empty space; at the right a part filled solid orange with a question '
+      + 'mark and "3 to decide" in dark letters, not red; and an arrow. The bar is one line, nothing in it is cut at the '
+      + 'top or bottom, and it covers neither the conversation nor the message box.',
     unchanged: 'The conversation above the bar and the message box below it are as before.',
     act: async (d) => {
       await demoAt(d, CSV, { focus: true });
@@ -774,13 +774,14 @@ const STEPS = [
   },
   {
     name: 'plan-bar-hover', features: ['plan-bar'],
-    expect: 'The mouse rests on the plan bar, whose border is drawn in the focus colour. A box next to it shows first "19 rows '
-      + 'not done", with no row title above it, then the open rows, each with its number and a mark for its state in the '
-      + 'colours of the track, each nested row indented below its parent. Nothing in the box is cut off or outside the window.',
+    expect: 'The mouse rests on the word "Plan" in the plan bar, whose border is drawn in the focus colour. A box next to it '
+      + 'shows first "19 rows not done", with no row title above it, then the open rows, each with its number and a mark '
+      + 'for its state in its state\'s colour, each nested row indented below its parent. Nothing in the box is cut off or '
+      + 'outside the window.',
     unchanged: 'The bar reads as before.',
     act: async (d) => {
       await demoAt(d, CSV, { focus: true });
-      await d.conv.locator('[data-agent-plus-plan-bar] .apb-count').first().hover({ timeout: 10000 });
+      await d.conv.locator('[data-agent-plus-plan-bar] .apb-name').first().hover({ timeout: 10000 });
       if (!await d.until(() => d.conv.evaluate(() => !!document.querySelector('[data-agent-plus-plan-bar-list]')), 5000, 200)) {
         throw new Error('no list of open rows appeared over the plan bar');
       }
