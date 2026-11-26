@@ -14585,7 +14585,14 @@ const repo = path.join(__dirname, '..');
         'with the tab dot\'s reader, a row\'s last user message counts an answer on a question card and a message typed while a turn ran; without it, only typed messages');
       for (const n of [40, 41]) fs.rmSync(path.join(projects, name, S(n) + '.jsonl'), { force: true });
       const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-      (/claudeSessionList\.create\(\{[\s\S]{0,400}?lastUserAt: \(file\) => lastUser\.at\(file\)/.test(extSrc) ? ok : bad)('and the window gives the list that reader');
+      /* The deps of the list: from its create({ to the }); that ends it. */
+      const listDeps = (() => { const a = extSrc.indexOf('claudeSessionList.create({'); return a < 0 ? '' : extSrc.slice(a, extSrc.indexOf('\n  });\n', a)); })();
+      (/\n\s+lastUserAt: \(file\) => lastUser\.at\(file\),/.test(listDeps) ? ok : bad)('and the window gives the list that reader');
+      const marked = csl.create(Object.assign({}, deps, { unseen: (id) => id === S(2) }));
+      const seen = new Map((await marked.listSessions({ folders: [folder] })).sessions.map((x) => [x.sessionId, x]));
+      eq([seen.get(S(2)).unseen, 'unseen' in seen.get(S(1)), 'unseen' in rows.get(S(2))], [true, false, false],
+        'a row Claude Code holds its unread mark on says unseen, and the others leave it out');
+      (/\n\s+unseen: \(id\) => unreadKeys\.has\(id\),/.test(listDeps) ? ok : bad)('and the window gives the list the host\'s unread marks');
     }
 
     const run = async (...a) => (await list.runSessionAction(...a)).results.map((x) => [x.sessionId, x.outcome, x.reason]);

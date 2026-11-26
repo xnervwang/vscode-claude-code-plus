@@ -875,6 +875,7 @@ function start(context, log, renamed, handing = false) {
     pinned: () => sessionPins.read(pinsFile()).pinned,
     colors: () => sessionColors.read(colorsFile()),
     setUnread: (id, on) => { if (typeof globalThis.__cceSetUnread === 'function') globalThis.__cceSetUnread(id, on === true); },
+    unseen: (id) => unreadKeys.has(id),
     totals: (id) => sessionTotals.rows(id),
     front: () => activeChat(),
     /* Whether to hide Claude Code's own list, asked above the list until it is answered (src/official-list.js). */

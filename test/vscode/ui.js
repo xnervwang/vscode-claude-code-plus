@@ -3492,16 +3492,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       if (ran && ran.holds.some((h) => !h.cleared)) note(`a tab held in front lost no mark in 15 s, so this run does not show what the loading clears: ${JSON.stringify(ran.holds)}`);
       await showSl();
       /* The marks have to come back once the loader has finished, and then stay, while the pages go on reporting. Agent
-         Plus records a conversation read when its tab is in front, also for the moment the loader holds it there, and a
-         source has no way to tell it the conversation is still unread, so its rows are only reported here. */
-      const ours = (e) => e.tab && e.host;
-      const back = pages ? await until(async () => { const e = await envelopesNow(behind); return e.every(ours) && e; }, 10000, 500) : null;
-      const lost = back ? await until(async () => { const e = await envelopesNow(behind); return e.some((x) => !ours(x)) && e; }, 15000, 500) : null;
+         Plus's rows keep theirs too: a tab the loader holds in front for a moment is not seen, and each row says unseen
+         while the host holds its mark. */
+      const back = pages ? await until(async () => { const e = await envelopesNow(behind); return e.every(everywhere) && e; }, 10000, 500) : null;
+      const lost = back ? await until(async () => { const e = await envelopesNow(behind); return e.some((x) => !everywhere(x)) && e; }, 15000, 500) : null;
       const after = lost || back || await envelopesNow(behind);
       const inFront = (await claudeTabs()).find((t) => t.active);
       const rec = await watched();
-      check(!!back && !lost, 'and once it has finished, each background tab and the host\'s marks have the envelope, and keep it', { after, record: rec });
-      if (!after.every((x) => x.row)) note(`after the loading, Agent Plus's rows show no envelope for ${after.filter((x) => !x.row).map((x) => `"${x.title}"`).join(', ')}: it took them as read while each was in front`);
+      check(!!back && !lost, 'and once it has finished, each background tab, its rows and the host\'s marks have the envelope, and keep it', { after, record: rec });
       /* Kept in the output either way: when each tab was in front, the host's marks over the same time, each hold and
          when the loader finished. */
       if (rec) console.log(`        fronts: ${JSON.stringify(rec.tabs.map(([ms], i) => [ms, frontsIn(rec.tabs)[i].map((l) => l.slice(0, 12))]))}`

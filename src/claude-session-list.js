@@ -152,6 +152,7 @@ function projectOf(dir, folder) {
  *   officialLists()               { archived, groups } from Claude Code, or null while it cannot be read
  *   pinned(), colors()            this extension's pins and title colours
  *   setUnread(sessionId, on)      Claude Code's own mark of a reply not read yet
+ *   unseen(sessionId)             optional: whether Claude Code holds that mark now
  *   totals(sessionId)             rows of the figures of a conversation running here (src/session-totals.js)
  *   front()                       the session id in front in this window, or ''
  *   titleOf(sessionId)            its title, for the Account & usage section
@@ -235,6 +236,8 @@ function create(deps) {
       if (w.processes) s.processes = w.processes;
     }
     if (safe(deps.isSteward, false, id) === true) s.steward = true;
+    /* Claude Code's own mark, which can outlast a moment the tab spent in front, such as while restored tabs load. */
+    if (safe(deps.unseen, false, id) === true) s.unseen = true;
     return s;
   };
   /* Ids of this project's conversations, for the import. */
