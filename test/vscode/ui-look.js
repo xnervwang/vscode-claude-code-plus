@@ -1379,8 +1379,10 @@ const STEPS = [
   {
     name: 'steward-relayed', features: ['steward-send'],
     expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. The last message in it from you '
-      + 'reads "Please check the export query once more, then stop.". The demo conversation, which is its steward, passed it on '
-      + 'and Claude Code Plus typed it in, so it is drawn like any message you typed; the fake model\'s reply follows it.',
+      + 'reads "Please check the export query once more, then stop.", after a first line that Claude Code Plus puts before '
+      + 'whatever a steward passes on: Sent by the steward "CSV export and budgets" (and the steward\'s session id) for the user:. '
+      + 'The demo conversation, which is its steward, passed it on and Claude Code Plus typed it in, so it is drawn like any '
+      + 'message you typed; the fake model\'s reply follows it.',
     unchanged: null,
     act: async (d) => {
       for (const t of d.threads.slice(1)) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
@@ -1456,7 +1458,9 @@ const STEPS = [
   {
     name: 'steward-resumed', features: ['steward-resume'],
     expect: 'The steward opened that conversation again, in a tab of this window: "Why does the nightly export skip archived '
-      + 'rows?" is in front and ends with your message "Carry on where you left off, please." and the fake model\'s reply.',
+      + 'rows?" is in front and ends with your message "Carry on where you left off, please." and the fake model\'s reply. The '
+      + 'message starts with the line Claude Code Plus puts before whatever a steward passes on: Sent by the steward "CSV export '
+      + 'and budgets" (and the steward\'s session id) for the user:.',
     unchanged: null,
     act: async (d) => {
       const t = d.threads[1];
