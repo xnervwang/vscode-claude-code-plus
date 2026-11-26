@@ -3721,7 +3721,7 @@ console.log('\nwhat the Stop hook says, and how often');
     fs.rmSync(t.dir, { recursive: true, force: true });
   }
   /* What the threshold is really asking is whether the turn changed anything, not how busy it looked. A turn of reading
-     and measuring makes plenty of calls and owes the plan nothing, and a threshold on calls would remind it. */
+     and measuring makes plenty of calls and owes the plan nothing, yet a call threshold would remind such a turn. */
   {
     const t = stage(0, { nodes: [{ title: 'x', state: 'todo' }] });
     for (let i = 0; i < 20; i++) {
@@ -13767,8 +13767,9 @@ console.log('\nClaude Code\'s own source');
       ok('text left in the input that Claude Code Plus typed there for someone else is named as such, and the user\'s own text is not');
     } else bad(`a draft in the input: ${JSON.stringify([q.ownDraft, q.userDraft])}`);
 
-    /* prefill(), Agent Plus's pen on a Work plan row, against a stand-in panel that answers each prefill with what the
-       case says: first to the hand-over, then to the go. The waits are cut short through prefillTimes. */
+    /* prefill(), Agent Plus's pen on a Work plan row, against a stand-in panel that answers each prefill as the case
+       says, once when it is handed the text and once when it is told to go. The waits are cut short through
+       prefillTimes. */
     const prefillScript = `
       const Module = require('module'), realResolve = Module._resolveFilename;
       Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };

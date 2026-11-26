@@ -6,7 +6,7 @@ Claude Code Plus adds text to what Claude Code sends the model. All of it comes 
 
 ## Measured sizes
 
-The work plan plugin's hook added each plan from Claude Code Plus's tests to a message with the conversation brief turned on. The sizes are the character counts of the text the hook added. Those plans have one-word row titles; most of the text is the same for every plan, and each row adds one line whose length depends on the row's title and any question it asks you.
+The work plan plugin's hook added each plan from Claude Code Plus's tests to a message with the conversation brief turned on. Those plans have one-word row titles; most of the text is the same for every plan, and each row adds one line whose length depends on the row's title and any question it asks you.
 
 Run `node build/plan-injection-stats.js` from a checkout of the [Agent Plus repository](https://github.com/xnervwang/vscode-agent-plus) to measure your own Claude Code transcripts from the last 14 days (`--days N` for another span). It prints the median, 90th percentile and largest work plan injection sizes in characters, and how many injections were unchanged from the one before.
 
@@ -15,7 +15,7 @@ Run `node build/plan-injection-stats.js` from a checkout of the [Agent Plus repo
 | The work plan, whole block | 1,489 characters with one row, 1,579 with two, 1,983 with eight, plus the plan's path four times and the path of the command that writes it three times | A one-row plan and an eight-row plan with a row in each open state, from `test/check.js`, and a two-row plan with two questions for you, from `test/with-core.js` |
 | The work plan, short head | 570, 657 and 905 characters for the same three plans, plus the plan's path twice and the command's path once | The same plans, after one row changed state |
 | The work plan, one line | 238 characters plus the plan's path | The same plans, with nothing changed since the previous message |
-| Messages that repeat the previous message's plan | Not given: it depends on how often a conversation changes its plan | Counted on your own machine by the script above. A plan counts as unchanged when the only difference is how long a row had been in its state |
+| Messages that repeat the previous message's plan | | Counted on your own machine by the script above. A plan counts as unchanged when the only difference is how long a row had been in its state |
 
 ## Token modes
 

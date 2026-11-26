@@ -118,11 +118,10 @@
  *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
  *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn picked or
  *                  highlighted, and only the conversation in a tab in front drawn as the current one
- *   the plan bar   the bar above the input box, drawn from the conversation's plan: as wide as the input box with the
- *                  same height however many rows the plan has, compact in a narrow panel, redrawn when the plan
- *                  changes, gone without a plan and with claudeCodePlus.show.planBar off, its questions part in the
- *                  status bar's warning colour, and its two clicks opening Agent Plus's Work plan view and Answer view
- *                  at this conversation
+ *   the plan bar   the bar above the input box, as wide as it and with the same height however many rows the plan has,
+ *                  compact in a narrow panel, redrawn when the plan changes, gone when there is no plan and when
+ *                  claudeCodePlus.show.planBar is off, its questions part in the status bar's warning colour, and its
+ *                  two clicks opening Agent Plus's Work plan view and Answer view at this conversation
  *   writing about a work plan row
  *                  Agent Plus's pen on a Work plan row: the conversation's tab comes to the front with the row's text in
  *                  its input, after the user's own text with one space between (none when that text ends in a space),
@@ -1247,7 +1246,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         return x && x.label.endsWith(ENVELOPE) && d && d.running === 0 && d.waiting === 0 && { label: x.label, dots: d };
       }, 30000, 500);
       check(!!unread, 'once the reply lands with the tab in the background, the dot goes and the tab\'s title ends in an envelope', await claudeTabs());
-      /* Agent Plus writes the reply down as unread once it has seen the turn end. The window with the focus shows the
+      /* Agent Plus marks the reply unread once it has seen the turn end. The window with the focus shows the
          conversation, behind another editor, so Agent Plus shows no notice of it there; an Agent Plus without
          'waitingFor' does. The toast moves to the notification list after a while, so the list is read when no toast is found. */
       const seenUnread = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'stopped' && a.unseen && a; }, SEEN_MS, 300);
@@ -1261,7 +1260,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'Agent Plus shows a notice that the conversation finished, with Open and Dismiss', told || { toasts: await needNotices(), listed: await listedNotices(), agentPlus: timeline() });
       }
       timeline();
-      check(!!seenUnread && (await needCount()) === null, 'and leaves it out of the status bar count, which is only of conversations waiting for you',
+      check(!!seenUnread && (await needCount()) === null, 'and leaves it out of the status bar count',
         { agentPlus: seenUnread || attentionOf(tab0.id), count: await needCount() });
       await shot('tab-dot-unread-notice');
       const listUnread = await until(async () => {
@@ -5886,9 +5885,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js), clicked in the Work plan view of an Agent
        Plus that has it. The row's conversation comes to the front with "About row N (title): " in its input after what
-       is there, unsent, with the focus in the input and the caret after it. A conversation that no tab here shows is
-       opened in a tab first; one started in a folder other than this window's first folder, which this window cannot
-       open, is left alone, and Agent Plus puts the text on the clipboard and says why. */
+       is there. A conversation that no tab here shows is opened in a tab first; one started in a folder other than this
+       window's first folder, which this window cannot open, is left alone, and Agent Plus puts the text on the
+       clipboard and says why. */
     await step('writing about a work plan row', async () => {
       if (!conv) throw new Error('the conversation did not open');
       const apDir = fs.readdirSync(profile.exts).find((n) => n.startsWith('xnervwang.agent-plus-'));
@@ -6011,7 +6010,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!still && still.text === three && mentions(tab0, 'About row ') === sentBefore,
           'nothing was sent: three seconds later the input still holds the text and the transcript has none of it', { still, sent: mentions(tab0, 'About row ') - sentBefore });
 
-        /* A conversation that no tab here shows. */
         await closeTab(t1);
         writePlan(t1, ['Check the export filter']);
         check(!!await showPlan(t1, '1. Check the export filter'), 'the Work plan view shows the plan of a conversation that is not open in any tab here', await planRows());
@@ -6023,7 +6021,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const got4 = side && await until(async () => { const s = await input(side); return s && s.text === four && s; }, 15000, 200);
         check(!!got4 && await inFront(t1), 'the pen opens it in a tab here, in front, with the text in its input',
           { got: got4 || (side && await input(side)), opened: !!side, ms: Date.now() - asked, tabs: await claudeTabs(), told: await copied() });
-        check(!!got4 && got4.focus && got4.caret === 'end' && got4.draft === four, 'with the focus in its input and the caret after the text', got4);
+        check(!!got4 && got4.focus && got4.caret === 'end' && got4.draft === four, 'with its input focused and the caret at the end', got4);
         await shot('prefill-opened');
         await sleep(2000);
         check(mentions(t1, 'About row ') === 0 && !(await copied()).length, 'and sends nothing', { sent: mentions(t1, 'About row '), told: await copied() });

@@ -140,7 +140,6 @@ async function run() {
     await until(() => rowsNow().length, 5000);
     const rows = rowsNow();
     const status = control.state.status.find((i) => i.id === 'agentPlus.conversations');
-    /* The status bar entry counts this conversation because its plan has questions waiting. */
     eq([rows.map((r) => r.id), rows[0] && rows[0].label, rows[0] && rows[0].description.split(' · ')[0], !!status && /\d+ conversations? needs? you$/.test(status.text)],
       [[`conversations/claude-code/${SID}`], 'Asks two questions', 'needs you', true],
       'the Claude Code conversation in this workspace shows in the Conversations tree with its two questions');
@@ -194,8 +193,7 @@ async function run() {
     /* Notices: this window's unread reply, and a permission prompt in a folder no window here has open. */
     globalThis.__cceStatesHook([], '', [], [SID]);
     /* { n, tip } for the conversations Agent Plus counts as waiting for the user to approve something or answer. Its
-       Conversations entry's hover puts them in its last group, under WAITS, one per line, with "and N more" after the
-       tenth. */
+       Conversations entry's hover puts them in its last group, under WAITS, with "and N more" after the tenth. */
     const WAITS = 'Waiting for you to approve something or answer:';
     const waitCount = () => {
       const tip = String((control.state.status.find((i) => i.id === 'agentPlus.conversations' && !i.disposed && i.shown) || {}).tooltip || '');

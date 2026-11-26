@@ -324,7 +324,7 @@ const seenUnread = (d, id) => attentionHas(d, id, (x) => x.activity === 'stopped
 const SEEN_MS = 60000;
 /* The status bar box of Agent Plus's Conversations entry, or null when the entry counts no conversation waiting for you
    to approve something or answer. VS Code puts the entry's hover after its text in its aria-label; the conversations
-   waiting for you are its last group, under the line below, one per line, with "and N more" after the tenth. */
+   waiting for you are its last group, under the line below, with "and N more" after the tenth. */
 const needCountBox = (d) => d.page.evaluate((head) => {
   const e = [...document.querySelectorAll('.statusbar-item')].find((x) => /agentPlus\.conversations$/.test(x.id) && x.offsetParent);
   const label = (e && e.getAttribute('aria-label')) || '', at = label.indexOf(head);
