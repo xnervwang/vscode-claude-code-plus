@@ -14920,9 +14920,22 @@ const repo = path.join(__dirname, '..');
         return [asked, timers];
       };
       const missed = await run('NEW'), shown = await run('S1');
-      if (JSON.stringify(missed) === JSON.stringify([['S1', 'S1'], [4000]]) && JSON.stringify(shown) === JSON.stringify([['S1'], [4000]])) {
-        ok('a sidebar that shows another conversation 4 s after the open is asked once more, and one that shows it is not');
-      } else bad(`the sidebar retry: ${JSON.stringify({ missed, shown })}`);
+      /* An open of S1, then a new conversation opened in the sidebar before S1's 4 s are up. */
+      const later = await (async () => {
+        const asked = [], timers = [];
+        const senv = { f: true, Pe: { commands: { executeCommand: async () => {} } }, setTimeout: (fn) => { timers.push(fn); },
+          c: { sidebarComms: {}, sidebarChatShows: () => undefined, activateInSidebar: (id) => { asked.push(id === undefined ? 'new' : id); return {}; }, clearPendingSidebarActivation() {} } };
+        vm.createContext(senv);
+        vm.runInContext(sr.out, senv);
+        await senv.OP('S1', undefined);
+        await senv.OP(undefined, undefined);
+        for (const fn of timers) fn();
+        return asked;
+      })();
+      if (JSON.stringify(missed) === JSON.stringify([['S1', 'S1'], [4000]]) && JSON.stringify(shown) === JSON.stringify([['S1'], [4000]])
+          && JSON.stringify(later) === JSON.stringify(['S1', 'new'])) {
+        ok('a sidebar that shows another conversation 4 s after the open is asked once more, one that shows it is not, and one opened again since, such as for a new conversation, is not either');
+      } else bad(`the sidebar retry: ${JSON.stringify({ missed, shown, later })}`);
     }
   }
 

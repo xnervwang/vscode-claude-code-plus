@@ -177,14 +177,15 @@ const EDITS = [
   /*
    * Claude Code hands the sidebar its conversation once the sidebar's page is ready. When the page is created by this
    * request, it can miss the conversation and start a new one (seen on macOS with Claude Code 2.1.327). So if the
-   * sidebar shows another conversation a few seconds later, the conversation is sent to it once more.
+   * sidebar shows another conversation a few seconds later, the conversation is sent to it once more, unless another
+   * open to the sidebar came after it, such as a new conversation there, which that sidebar is right to show.
    */
   {
     name: 'a sidebar open that the new sidebar missed is asked again',
     re: /if\(([\w$]+)\.target==="sidebar"\)\{let ([\w$]+)=([\w$]+)\.activateInSidebar\(([\w$]+),([\w$]+)\);try\{await ([\w$]+)\.commands\.executeCommand\(([^()]*)\)\}catch\(([\w$]+)\)\{throw \3\.clearPendingSidebarActivation\(\2\),\8\}return\}/g,
-    to: (m, r, pend, c, sid, prompt, api, cmd, err) => `if(${r}.target==="sidebar"){let ${pend}=${c}.activateInSidebar(${sid},${prompt});`
+    to: (m, r, pend, c, sid, prompt, api, cmd, err) => `if(${r}.target==="sidebar"){let ${pend}=${c}.activateInSidebar(${sid},${prompt});${c}.cceSidebarAsk=${pend};`
       + `try{await ${api}.commands.executeCommand(${cmd})}catch(${err}){throw ${c}.clearPendingSidebarActivation(${pend}),${err}}`
-      + `if(${sid})setTimeout(()=>{try{if(${c}.sidebarComms&&${c}.sidebarChatShows?.()!==${sid})${c}.activateInSidebar(${sid},${prompt})}catch(cceE){}},4000);`
+      + `if(${sid})setTimeout(()=>{try{if(${c}.cceSidebarAsk===${pend}&&${c}.sidebarComms&&${c}.sidebarChatShows?.()!==${sid})${c}.activateInSidebar(${sid},${prompt})}catch(cceE){}},4000);`
       + 'return}',
   },
   /*

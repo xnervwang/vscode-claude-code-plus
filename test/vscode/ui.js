@@ -232,6 +232,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const claudeTabs = async () => (await tabs()).flatMap((g) => g.tabs.map((t) => ({ ...t, column: g.column })))
     .filter((t) => t.view === PANEL_VIEW);
   const exec = (command, ...a) => call(`await vscode.commands.executeCommand(${JSON.stringify(command)}, ...arg); return true;`, a);
+  /* A conversation opened in an editor tab, asked for as a steward's --resume asks: opened without that, Claude Code shows
+     one the sidebar has held in the sidebar again. */
+  const openTab = (id) => call('await vscode.commands.executeCommand("claude-vscode.editor.open", arg, undefined, undefined, undefined, undefined, { programmatic: "pin-to-panel" }); return true;', id);
+  /* The conversations that can be opened in an editor tab: once the sidebar has held one (the sidebar step opens the
+     third there), Claude Code shows it in the sidebar wherever it is opened for as long as the sidebar keeps its
+     channel. */
+  const tabThreads = () => threads.slice(0, 2);
   /* Started and not waited for: the command opens a dialog that is answered through the window. */
   const start = (command) => call(`vscode.commands.executeCommand(${JSON.stringify(command)}); return true;`);
   const openNotes = (column = 0) => call(`await vscode.window.showTextDocument(vscode.Uri.file(${JSON.stringify(notes)}),
@@ -2618,7 +2625,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         if (!boxes.some(([id]) => inTab(id))) {
           const first = threads.find((x) => x.id === boxes[0][0]);
           if (first) {
-            await call('await vscode.commands.executeCommand("claude-vscode.editor.open", arg, undefined, undefined, undefined, undefined, { programmatic: "pin-to-panel" }); return true;', first.id);
+            await openTab(first.id);
             await until(async () => { tabbed = await claudeTabs(); return inTab(first.id); }, 30000, 500);
             await exec('claude-vscode.editor.open', front.id);
             await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(TRAILING_MARKS, ''), front.title)), 20000, 300);
@@ -3451,17 +3458,17 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
      * been loaded, even when each page reported while its tab was in front (holdInFront).
      */
     await step('restored tabs keep their envelopes', async () => {
-      const [front, ...behind] = threads;
+      const [front, ...behind] = tabThreads();
       await setLoad(undefined);
       await exec('workbench.action.closeAllEditors');
       await exec('workbench.action.closeAuxiliaryBar');
       for (const t of [...behind, front]) {
-        await exec('claude-vscode.editor.open', t.id);
+        await openTab(t.id);
         const open = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), t.title)), 30000, 300);
         if (!open) throw new Error(`"${t.title}" did not open in a tab`);
       }
       const groups = (await tabs()).filter((g) => g.tabs.some((x) => x.view === PANEL_VIEW));
-      check(groups.length === 1, 'the three conversations share one editor group, the last opened in front', await tabs());
+      check(groups.length === 1, 'the conversations share one editor group, the last opened in front', await tabs());
       /* Each conversation behind is marked unread in turn from its row in Agent Plus's session list, which records the mark
          and passes it to this extension (noteSeen), which sets the host's; the next only once the host holds the mark. */
       const marks = [];
@@ -3482,7 +3489,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         marks.push({ id: t.id.slice(-2), said, held: held || await hostUnread() });
       }
       const marked = await until(async () => { const e = await envelopesNow(behind); return e.every(everywhere) && e; }, 20000, 500);
-      check(!!marked, 'the two conversations behind the one in front, marked unread, show the envelope on their tabs, their rows and in the host\'s marks',
+      check(!!marked, 'the conversation behind the one in front, marked unread, shows the envelope on its tab, its row and in the host\'s marks',
         { now: marked || await envelopesNow(behind), marks });
 
       /* First, without the setting, what a reload alone keeps, for comparison. */
@@ -3594,11 +3601,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
      * must still open its conversation.
      */
     await step('restored tabs through three reloads', async () => {
-      const [front, ...behind] = threads;
+      const [front, ...behind] = tabThreads();
       await setLoad(true);
       await exec('workbench.action.closeAllEditors');
       for (const t of [...behind, front]) {
-        await exec('claude-vscode.editor.open', t.id);
+        await openTab(t.id);
         const open = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(ENVELOPE, ''), t.title)), 30000, 300);
         if (!open) throw new Error(`"${t.title}" did not open in a tab`);
       }
