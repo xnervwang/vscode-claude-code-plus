@@ -106,6 +106,23 @@ function seed(pack, manifest, home, folder, user, salt) {
   return { sid: main, threads: others.threads };
 }
 
+/* Stops the processes started with `home` as their HOME, and waits for them to go. A window stopped before it could close
+   can leave Claude Code's processes behind, still writing into that home, where the next run in the same root would find
+   its new files written into. Linux only: the processes are found through /proc. */
+async function stopLeftovers(home) {
+  if (process.platform !== 'linux') return;
+  const mark = `HOME=${home}`;
+  const theirs = () => fs.readdirSync('/proc').filter((d) => /^\d+$/.test(d) && Number(d) !== process.pid).filter((d) => {
+    try { return fs.readFileSync(`/proc/${d}/environ`, 'utf8').split('\0').includes(mark); } catch (_) { return false; }
+  }).map(Number);
+  for (const signal of ['SIGTERM', 'SIGKILL']) {
+    const left = theirs();
+    if (!left.length) return;
+    for (const pid of left) { try { process.kill(pid, signal); } catch (_) { /* gone */ } }
+    await until(() => !theirs().length, 10000, 300);
+  }
+}
+
 function writeSettings(user, model, extra = {}) {
   fs.mkdirSync(path.join(user, 'User'), { recursive: true });
   fs.writeFileSync(path.join(user, 'User', 'settings.json'), JSON.stringify({
@@ -128,12 +145,13 @@ function writeSettings(user, model, extra = {}) {
  * settings.json. `prepare`, when given, is called with { home, folder, projects, threads } once the demo files are
  * written and before the window opens. `core`, when given, is an Agent Plus .vsix to install in place of the
  * marketplace's. Returns the page, the helpers below, and close(), which closes the window and the fake model and stops
- * the demo's `sleep`.
+ * the demo's `sleep` and whatever else still runs with the demo's home.
  */
 async function open({ pack, vsix, core, cache, root, salt, settings, prepare }) {
   const manifest = JSON.parse(fs.readFileSync(path.join(pack, 'pack.json'), 'utf8'));
   const te = require('@vscode/test-electron');
   const playwright = require('playwright-core');
+  await stopLeftovers(path.join(root, 'home'));
   fs.rmSync(root, { recursive: true, force: true });
   const p = { exts: path.join(cache, 'exts'), user: path.join(root, 'user'), folder: path.join(root, 'ws', manifest.project),
     control: path.join(root, 'ctl'), home: path.join(root, 'home') };
@@ -179,6 +197,7 @@ async function open({ pack, vsix, core, cache, root, salt, settings, prepare }) 
     if (w) await w.close();
     await model.close();
     for (const pid of sleepers()) { try { process.kill(pid, 'SIGTERM'); } catch (_) { /* gone */ } }
+    await stopLeftovers(p.home);
   };
 
   try {
