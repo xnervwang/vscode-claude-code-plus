@@ -44,6 +44,8 @@ const PLAIN = 'Done. The retry delay is set in config/sync.yml.';
 /* The demo leaves a command running detached on Linux only (lib/demo.js), and detached commands and workers are found
    through /proc, so what the agent map and the dots show of them differs by platform. */
 const LINUX = process.platform === 'linux';
+/* Where a terminal process cannot be told apart by its screen session (src/claude-elsewhere.js). */
+const WINDOWS = process.platform === 'win32';
 
 /* The helpers the steps share. */
 
@@ -156,54 +158,81 @@ async function hoverLabel(d, frame, sel) {
   await d.sleep(300);
 }
 
-/* Claude Code's session list in the side bar, found again each time: switching views can rebuild its page. */
+/* Claude Code's own session list in the side bar, found again each time: switching views can rebuild its page. Known
+   by its rows, in a page that has no message box, which a conversation's page has. */
 async function sessionList(d) {
   await d.exec('workbench.view.extension.claude-sessions-sidebar');
-  /* Known by its rows: claudeCodePlus.show.openInTabOrSidebar off takes this extension's buttons out of it. */
-  const list = await d.frameWhere(() => !!document.querySelector('[data-cce-new-session], [class*="sessionItem_"] [data-cce-pin]'), 60000);
-  if (!list) throw new Error('the session list did not open in 60 s');
+  const list = await d.frameWhere(() => !!document.querySelector('[class*="sessionItem_"]') && !document.querySelector('[contenteditable][role="textbox"]'), 60000);
+  if (!list) throw new Error('Claude Code\'s session list did not open in 60 s');
   await d.sleep(1500);
   await d.widen();
   return list;
 }
-const listRow = (list, id) => list.locator(`[class*="sessionItem_"]:has([data-cce-pin="${id}"]):not([data-cce-section] *)`).first();
-const menus = (list) => list.evaluate(() => [...document.querySelectorAll('[role="menu"]')].filter((m) => m.getClientRects().length).length);
-const menuItem = (list, label, level = 0) => list.locator('[role="menu"]').nth(level).locator('[role="menuitem"]').filter({ hasText: label }).first();
-async function closeMenus(d, list) {
-  for (let i = 0; i < 3 && (await menus(list)); i++) { await d.page.keyboard.press('Escape'); await d.sleep(300); }
-}
+/* The row of conversation `id` in Claude Code's own list, whose id ends in the session id. */
+const listRow = (list, id) => list.locator(`[class*="sessionItem_"][id$="${id}"]`).first();
 
-/* Right-clicks the row of conversation `id` and, given `sub`, rests on that item so its submenu opens. The list closes
-   its menu whenever its page loses the focus, which another webview of the window can take at any moment, so this tries
-   three times. */
-async function rowMenu(d, list, id, sub) {
-  let last = '';
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      await closeMenus(d, list);
-      await listRow(list, id).click({ button: 'right', timeout: 5000 });
-      if (!await d.until(async () => (await menus(list)) > 0, 5000, 100)) throw new Error('no menu opened');
-      if (!sub) return;
-      await menuItem(list, sub).hover({ timeout: 3000 });
-      if (await d.until(async () => (await menus(list)) > 1, 5000, 100)) return;
-      last = `the ${sub} submenu did not open`;
-    } catch (e) { last = e.message.split('\n')[0]; }
+/* Agent Plus's session list in the side bar, which lists Claude Code's conversations through this extension
+   (src/claude-session-list.js), found again each time like Claude Code's own. */
+async function agentList(d) {
+  await d.exec('workbench.view.extension.agentPlusSessions');
+  const list = await d.frameWhere(() => !!document.querySelector('.sl-root .sl-new'), 30000);
+  if (!list) throw new Error('Agent Plus\'s session list did not open in 30 s');
+  await d.sleep(1000);
+  await d.widen();
+  return list;
+}
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/* The row titled exactly `title` in Agent Plus's list, outside its Recently closed section. */
+const agentRow = (list, title) => list.locator('.sl-section:not([data-key="closed"]) .sl-row')
+  .filter({ has: list.locator('.sl-title', { hasText: new RegExp(`^${escapeRe(title)}$`) }) }).first();
+/* What that row shows: the dot on its logo, its stripe, whether it is dimmed as open somewhere else, how many envelopes
+   and crowns follow its title, and the text of its marks; null while no such row is listed. */
+const agentRowState = (list, title) => list.evaluate((t) => {
+  const r = [...document.querySelectorAll('.sl-section:not([data-key="closed"]) .sl-row')].find((x) => (x.querySelector('.sl-title') || {}).textContent === t);
+  return r ? { dot: r.dataset.dot, stripe: r.dataset.stripe, dim: r.classList.contains('sl-elsewhere'), unread: r.querySelectorAll('.sl-unread svg').length,
+    crowns: r.querySelectorAll('.sl-crown').length, marks: ((r.querySelector('.sl-marks') || {}).textContent || '').trim() } : null;
+}, title).catch(() => null);
+/* Waits up to `ms` for that row to pass `test` and gives what it shows; `fails` says what it does otherwise. Agent Plus
+   draws a change some time after this extension reports it. */
+async function agentRowWhere(d, list, title, test, ms, fails) {
+  const hit = await d.until(async () => { const s = await agentRowState(list, title); return s && test(s) && s; }, ms, 500);
+  if (!hit) throw new Error(`in Agent Plus's session list the row "${title}" ${fails} after ${ms / 1000} s: ${JSON.stringify(await agentRowState(list, title))}`);
+  return hit;
+}
+/* The text of Agent Plus's hover box, or '' while none shows. */
+const agentHoverText = (list) => list.evaluate(() => { const h = document.querySelector('.sl-hover'); return h && !h.classList.contains('sl-hidden') ? h.textContent : ''; }).catch(() => '');
+/* Rests on the row titled `title` until the hover box says something matching `re`, and gives its text. The list keeps
+   a hover box as it was while the pointer stays on its row, so the pointer leaves the rows first. */
+async function agentHover(d, list, title, re) {
+  for (let i = 0; i < 3; i++) {
+    await rest(d, list, 'bottom');
+    await agentRow(list, title).hover({ timeout: 5000 });
+    const said = await d.until(async () => { const t = await agentHoverText(list); return re.test(t) && t; }, 5000, 200);
+    if (said) return said;
+  }
+  throw new Error(`the hover box of the row "${title}" in Agent Plus's session list did not say ${re}: ${JSON.stringify(await agentHoverText(list))}`);
+}
+/* Clicks `label` in the right-click menu of the row titled `title` in Agent Plus's list. */
+async function agentMenuPick(d, list, title, label) {
+  const item = list.locator('.sl-ctx:not(.sl-ctx-sub) .sl-ctx-item').filter({ hasText: label }).first();
+  let offered = null;
+  for (let i = 0; i < 3; i++) {
+    await agentRow(list, title).click({ button: 'right', timeout: 5000 });
+    if (await d.until(() => item.isVisible().catch(() => false), 5000, 200)) { await item.click({ timeout: 3000 }); return; }
+    offered = await list.evaluate(() => [...document.querySelectorAll('.sl-ctx:not(.sl-ctx-sub) .sl-ctx-item')].map((x) => x.textContent.trim())).catch(() => null);
+    await d.page.keyboard.press('Escape');
     await d.sleep(1000);
   }
-  throw new Error(`could not open the menu of a row: ${last}`);
+  throw new Error(`the menu of the row "${title}" in Agent Plus's session list has no ${label}: ${JSON.stringify(offered)}`);
 }
-/* Clicks `label` in the menu of the row of `id`, opening it first. */
-async function rowPick(d, list, id, label) {
-  await rowMenu(d, list, id);
-  await menuItem(list, label).click({ timeout: 3000 });
-  await d.sleep(800);
-}
-const archivedHeader = (list) => list.locator('button, [role="button"]').filter({ hasText: /^Archived/ }).first();
-async function showArchived(d, list, id) {
-  if (!await d.until(() => archivedHeader(list).isVisible().catch(() => false), 15000, 500)) throw new Error('there is no Archived sessions section');
-  if (!await listRow(list, id).isVisible().catch(() => false)) await archivedHeader(list).click();
-  await listRow(list, id).waitFor({ state: 'visible', timeout: 15000 });
-}
+/* The note above Agent Plus's list that asks whether to hide Claude Code's own list, or ''. */
+const listQuestion = (list) => list.evaluate(() => {
+  const n = [...document.querySelectorAll('.sl-notice')].find((x) => /Hide Claude Code's own session list\?/.test(x.textContent));
+  return n ? n.innerText : '';
+}).catch(() => '');
+/* A conversation's title as the list shows it now: the name it was last given, or the one it started with. */
+const titleNow = (d, t) => storedTitle(d, t.id) || t.title;
+
 /* VS Code's modal dialog, drawn in the page with window.dialogStyle "custom". */
 const dialog = (d) => d.page.evaluate(() => {
   const e = [...document.querySelectorAll('.monaco-dialog-box')].find((x) => x.offsetParent);
@@ -430,7 +459,7 @@ async function renameInList(d, list, id, name) {
   await d.sleep(2000);
   return held;
 }
-/* The live conversation (the first fake one), with the session list in the side bar for its row under OPEN SESSIONS. */
+/* The live conversation (the first fake one), opened in a tab of its own the first time and brought to the front after. */
 async function live(d) {
   const t = d.threads[0];
   if (!d.liveFrame) d.liveFrame = await thread(d, t);
@@ -1060,234 +1089,120 @@ const STEPS = [
     act: async (d) => { await d.exec('claudeCodePlus.toggle'); await d.sleep(2500); await demoAt(d, CSV); return d.editor(); },
   },
 
-  /* The session list. */
+  /* Agent Plus's session list, which lists Claude Code's conversations through this extension; then Claude Code's own
+     list, whose view this extension hides when asked and from which it leaves out background sessions. */
   {
-    name: 'session-list', features: ['open-sessions', 'session-dates', 'session-pins', 'session-colors', 'new-in-tab-or-sidebar', 'session-selection', 'dot-background', 'dot-stopped'],
-    expect: 'Claude Code\'s session list in the side bar. From the top: Claude Code\'s ACCOUNT & USAGE section, then (when a '
-      + 'tab was closed earlier) RECENTLY CLOSED, then OPEN SESSIONS listing the open conversation, then SESSION MANAGER with '
-      + 'New in tab and New in sidebar buttons whose icons are of normal size; each section is set apart by space and a '
-      + 'divider line. Below, rows of conversations, each with a pin at its start (one pin filled and purple, the others '
-      + 'hollow), a title, and the last-active time followed by dates such as "09/05->09/16"; one title is drawn in blue. '
-      + 'The open conversation is listed twice, under OPEN SESSIONS and among the rows below, and both copies are highlighted; '
-      + 'no other row looks selected or outlined. Titles are readable and none overlaps a pin or a date. '
-      + (LINUX ? 'Both rows of the open conversation start with a small green ring, not a filled dot; no other row has a dot'
-        : 'No row has a dot: nothing runs')
-      + ', and no row has a blue dot or an envelope.',
+    name: 'official-list-question', features: ['official-list-question'],
+    expect: 'Agent Plus\'s session list in the side bar. Above its rows, a note that starts with the Claude Code logo says that Agent '
+      + 'Plus now lists your Claude Code conversations and asks whether to hide Claude Code\'s own session list, naming the setting '
+      + 'that changes it later; two buttons follow, Hide It and Keep It. The note\'s text wraps inside the side bar, and neither '
+      + 'button is cut off or drawn over the text.',
     unchanged: 'The editor shows the same conversation as before.',
-    act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
-  },
-  {
-    name: 'session-hover', features: ['session-hover'],
-    expect: 'The mouse rests on the title of the row "Add a dry-run flag to the cleanup script". A hover label shows two lines: '
-      + 'the group the row is in (Ungrouped) and its session id. The label is readable and wholly inside the side bar.',
-    unchanged: 'The rows of the list are as before, in the same order.',
     act: async (d) => {
-      const list = await sessionList(d);
-      await d.away();
-      await listRow(list, d.threads[2].id).locator('span[class*="sessionName_"]').first().hover();
-      await d.until(() => list.evaluate(() => { const b = document.querySelector('[data-cce-label="1"]'); return !!b && !!b.innerText.trim(); }), 4000, 200);
-      await d.sleep(400);
-      return d.sidebar();
-    },
-    undo: async (d) => { await rest(d, await sessionList(d), 'bottom'); await d.away(); },
-  },
-  {
-    name: 'session-pin', features: ['session-pins'],
-    expect: 'The pin at the start of the row "Add a dry-run flag to the cleanup script" has just been clicked: it is now filled '
-      + 'and purple like the other pinned row\'s, and the row has not moved out of place or lost its title or dates.',
-    unchanged: 'The other rows are as before.',
-    act: async (d) => {
-      const list = await sessionList(d);
-      await list.locator(`[data-cce-pin="${d.threads[2].id}"]:not([data-cce-section] *)`).first().click();
-      await d.sleep(1500);
+      const list = await agentList(d);
+      if (!await d.until(() => listQuestion(list), 15000, 300)) throw new Error('no note above Agent Plus\'s list asks whether to hide Claude Code\'s own list');
       await d.away();
       return d.sidebar();
     },
+    /* Answered with Keep It, which leaves Claude Code's own list shown and takes the note away. */
     undo: async (d) => {
-      const list = await sessionList(d);
-      await list.locator(`[data-cce-pin="${d.threads[2].id}"]:not([data-cce-section] *)`).first().click();
-      await d.sleep(1200);
-    },
-  },
-  {
-    name: 'session-row-menu', features: ['session-colors', 'new-in-tab-or-sidebar'],
-    expect: 'A right-click menu open on the row "Find where the retry delay for the inventory sync is set": items such as Resume '
-      + 'in tab, Resume in sidebar and Text color (no plain "Resume session"), with Text color\'s submenu open beside it: '
-      + 'Default with a check mark and eight colors. Both menus are wholly visible, not cut off by the side bar\'s edge, and no '
-      + 'other menu is drawn over them.',
-    unchanged: 'The pin clicked in the previous step is hollow again; the rows are otherwise as before.',
-    act: async (d) => { const list = await sessionList(d); await rowMenu(d, list, d.threads[0].id, 'Text color'); await d.sleep(500); return d.sidebar(); },
-  },
-  {
-    name: 'session-color-picked', features: ['session-colors', 'session-selection'],
-    expect: 'The session list just after Green was picked from that row\'s Text color submenu. The menus are closed. That row\'s '
-      + 'title is now green, and the other colored title stays blue. Only the open conversation\'s two copies (under OPEN '
-      + 'SESSIONS and among the rows) are highlighted, as before the menu: the row whose color was just picked must not stay '
-      + 'outlined or highlighted as well.',
-    unchanged: 'Apart from the closed menus and the new color, the rows are as before.',
-    act: async (d) => {
-      const list = await sessionList(d);
-      const id = d.threads[0].id;
-      if ((await menus(list)) < 2) await rowMenu(d, list, id, 'Text color');
-      const title = () => listRow(list, id).locator('span[class*="sessionName_"]').first().evaluate((e) => getComputedStyle(e).color);
-      const was = await title();
-      await menuItem(list, 'Green', 1).click({ timeout: 3000 });
-      if (!await d.until(async () => (await title()) !== was && !(await menus(list)), 15000, 300)) throw new Error('picking Green did not recolor the row and close the menu');
-      await d.away();
-      await d.sleep(800);
-      return d.sidebar();
-    },
-  },
-  {
-    name: 'session-menu-closed', features: ['session-selection'],
-    expect: 'The session list after Escape closed the right-click menu of the row "Add a dry-run flag to the cleanup script", '
-      + 'whose conversation is not open, with nothing picked. The editor then took the keyboard focus. That row looks like the '
-      + 'other rows of conversations that are not open, with no tint, outline or lighter background, and without the pencil and '
-      + 'archive buttons. Only the open conversation\'s two copies (under OPEN SESSIONS and among the rows) are highlighted.',
-    unchanged: 'The rows are the same and in the same order as before, and the title made green stays green.',
-    act: async (d) => {
-      const list = await sessionList(d);
-      await rowMenu(d, list, d.threads[2].id);
-      await d.page.keyboard.press('Escape');
-      if (!await d.until(async () => !(await menus(list)), 5000, 200)) throw new Error('Escape did not close the menu');
-      await d.exec('workbench.action.focusActiveEditorGroup');
-      if (!await d.until(() => list.evaluate(() => !document.hasFocus()), 5000, 200)) throw new Error('the list kept the keyboard focus');
-      await rest(d, list, 'bottom');
-      await d.away();
-      return d.sidebar();
-    },
-  },
-  {
-    name: 'session-drag-let-go', features: ['session-selection'],
-    expect: 'The session list after the row "Why does the nightly export skip archived rows?" was dragged down a little and let go '
-      + 'over the empty space below the rows, on no group. The row is back in its place, with no tint and no '
-      + 'outline, the same as the rows of other conversations that are not open. Only the open conversation\'s two copies are highlighted.',
-    unchanged: 'The rows are the same and in the same order as before.',
-    act: async (d) => {
-      const list = await sessionList(d);
-      const b = await listRow(list, d.threads[1].id).boundingBox();
-      if (!b) throw new Error('the row to drag is not on screen');
-      const x = b.x + b.width / 2, y = b.y + b.height / 2;
-      await d.page.mouse.move(x, y);
-      await d.page.mouse.down();
-      await d.page.mouse.move(x, y + 20, { steps: 5 });
-      await d.page.mouse.move(x, y + 160, { steps: 5 });
-      await d.page.mouse.up();
-      await d.exec('workbench.action.focusActiveEditorGroup');
-      await rest(d, list, 'bottom');
-      await d.away();
-      return d.sidebar();
-    },
-  },
-  {
-    name: 'session-search-id', features: ['session-id-search'],
-    expect: 'The session list\'s search box holds "e6f2", four characters of one conversation\'s session id. The list shows that '
-      + 'one conversation, "Why does the nightly export skip archived rows?", and none of the others.',
-    unchanged: 'The search box is in its usual place; the side bar is as wide as before.',
-    act: async (d) => {
-      const list = await sessionList(d);
-      let box = list.locator('input[type="text"], input:not([type]), input[type="search"]').first();
-      if (!await box.isVisible().catch(() => false)) {
-        const opener = list.locator('button[aria-label*="earch" i], button[title*="earch" i], [role="button"][aria-label*="earch" i]').first();
-        if (await opener.count()) { await opener.click(); await d.sleep(800); }
-        box = list.locator('input[type="text"], input:not([type]), input[type="search"]').first();
+      const list = await agentList(d);
+      const keep = list.locator('.sl-notice .sl-note-btn').filter({ hasText: 'Keep It' }).first();
+      if (await keep.isVisible().catch(() => false)) {
+        await keep.click();
+        await d.until(async () => !(await listQuestion(list)), 10000, 300);
       }
-      if (!await box.isVisible().catch(() => false)) throw new Error('the session list has no search box');
-      await box.click();
-      await box.fill('e6f2');
+      await d.away();
+    },
+  },
+  {
+    name: 'agent-plus-session-list', features: ['agent-plus-session-list', 'official-list-question', 'dot-stopped', ...(LINUX ? ['dot-background'] : [])],
+    expect: 'Keep It was clicked: the note above Agent Plus\'s session list is gone, and the rows moved up into its place. The list '
+      + 'shows Claude Code\'s conversations of this folder, each row starting with the Claude Code logo and ending with how long ago '
+      + 'it was last active: the demo conversation that is in the editor, "Find where the retry delay for the inventory sync is set", '
+      + '"Why does the nightly export skip archived rows?" and "Add a dry-run flag to the cleanup script". The demo conversation\'s '
+      + 'row has a solid light stripe at its start, as the one open in this window, and a pin, and comes first; "Why does the nightly '
+      + 'export skip archived rows?" is written in blue: the pins and title colours Claude Code Plus kept, which the list took over. '
+      + (LINUX ? 'The demo conversation\'s logo carries a small green ring at its top right, hollow in the middle: no turn runs, and '
+        + 'the command it left running detached still does. '
+        : 'The demo conversation\'s logo has no dot: nothing runs. ')
+      + 'No other logo has a dot, and no row has an envelope or a crown. None of "' + BACKGROUND_TITLE + '", "' + PRINT_TITLE
+      + '" or "' + DAEMON_TITLE + '", sessions run in the background, is listed. A RECENTLY CLOSED band, folded or open, holds "Add '
+      + 'a dry-run flag to the cleanup script", whose tab an earlier step closed, and that conversation\'s own row has a light blue '
+      + 'stripe at its start. An ACCOUNT & USAGE band may sit at the top; a later step looks at it.',
+    unchanged: 'The rows are those of the picture before, moved up where the note was.',
+    act: async (d) => {
+      const list = await agentList(d);
+      /* Run on its own, this step answers the question the step before shows. */
+      if (await listQuestion(list)) {
+        await list.locator('.sl-notice .sl-note-btn').filter({ hasText: 'Keep It' }).first().click();
+        await d.until(async () => !(await listQuestion(list)), 10000, 300);
+      }
+      for (const t of d.threads) await agentRowWhere(d, list, titleNow(d, t), () => true, 30000, 'is not listed');
+      await d.away();
+      return d.sidebar();
+    },
+  },
+  {
+    name: 'agent-plus-row-click', features: ['agent-plus-session-list'],
+    expect: 'The row "Why does the nightly export skip archived rows?" in Agent Plus\'s session list was clicked: that conversation is '
+      + 'open in a tab of its own, in front in the editor, and its row now has the same solid light stripe at its start as the '
+      + 'demo conversation\'s row.',
+    unchanged: 'The other rows of the list are as before.',
+    act: async (d) => {
+      const t = d.threads[1], title = titleNow(d, t);
+      const list = await agentList(d);
+      await agentRow(list, title).click({ timeout: 5000 });
+      const front = () => d.call(`const t = vscode.window.tabGroups.activeTabGroup.activeTab;
+        return !!t && !!t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)} && !!t.label && arg.startsWith(t.label.replace(/\u2026$/, ''));`, t.title);
+      if (!await d.until(front, 30000, 500)) throw new Error(`a click on the row "${title}" did not bring its conversation to the front in a tab`);
+      await agentRowWhere(d, list, title, (s) => s.stripe === 'here', 15000, 'has no stripe of a conversation open here');
       await d.sleep(1500);
       await d.away();
+      return d.body();
+    },
+    undo: async (d) => { await closeTab(d, d.threads[1]); await d.exec('claude-vscode.editor.open', d.sid); await d.sleep(800); },
+  },
+  /* A terminal that has a conversation open, as Claude Code's record of the process says: a child of this script stands
+     in for that process, with the environment a screen session gives it. */
+  {
+    name: 'agent-plus-elsewhere', features: ['agent-plus-elsewhere'],
+    expect: 'In Agent Plus\'s session list, the row of "Add a dry-run flag to the cleanup script", which a terminal now has open, is '
+      + 'dimmed: its logo, title and time are greyed, and the stripe at its start is an outline rather than solid. The other rows '
+      + 'are not greyed. The mouse rests on that row, and a hover box under it names Claude Code and the row\'s section, gives the '
+      + 'session id and when it started and was last active, then '
+      + (WINDOWS ? '"Open in a terminal"' : '"Open in screen session "mywork" in" and a folder')
+      + ', and under that "Process" with a number and "running for 2m". The box is readable and wholly inside the side bar.',
+    unchanged: 'The tab of "Why does the nightly export skip archived rows?" is closed again, and the demo conversation is in front.',
+    act: async (d) => {
+      const t = d.threads[2];
+      const sessions = path.join(d.profile.home, '.claude', 'sessions');
+      const child = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'],
+        { stdio: 'ignore', env: Object.assign({}, process.env, { STY: '4242.mywork' }) });
+      d.elsewhere = { child, record: path.join(sessions, `${child.pid}.json`) };
+      /* Field 22 of /proc/<pid>/stat, the process's start time, which Claude Code writes as procStart: the 20th after the
+         name in parentheses. */
+      let procStart;
+      if (LINUX) {
+        for (let i = 0; i < 40 && procStart === undefined; i++) {
+          try { procStart = fs.readFileSync(`/proc/${child.pid}/stat`, 'utf8').replace(/^.*\) /s, '').split(' ')[19]; } catch (_) { await d.sleep(50); }
+        }
+      }
+      fs.mkdirSync(sessions, { recursive: true });
+      fs.writeFileSync(d.elsewhere.record, JSON.stringify({ pid: child.pid, sessionId: t.id, cwd: d.profile.folder, startedAt: Date.now() - 125000,
+        procStart, entrypoint: 'cli', kind: 'interactive', status: 'idle' }));
+      const list = await agentList(d);
+      await agentRowWhere(d, list, titleNow(d, t), (s) => s.stripe === 'elsewhere' && s.dim, 20000, 'is not marked open somewhere else');
+      await agentHover(d, list, titleNow(d, t), /Open in /);
       return d.sidebar();
     },
     undo: async (d) => {
-      const list = await sessionList(d);
-      await list.locator('input[type="text"], input:not([type]), input[type="search"]').first().fill('').catch(() => {});
-      await d.sleep(800);
-    },
-  },
-  {
-    name: 'session-list-narrow', features: ['narrow-panel', 'new-in-tab-or-sidebar', 'session-dates'],
-    expect: 'The search is cleared. The session list in a narrow side bar, about 260 px wide. The New buttons at the top keep '
-      + 'icons of their normal size (not squeezed to slivers); a label that does not fit ends in an ellipsis. Row titles end in '
-      + 'an ellipsis where they do not fit; no text overlaps a pin, a date or another row.',
-    unchanged: 'The same rows in the same order as two pictures ago, only narrower.',
-    act: async (d) => { await sessionList(d); await d.sideTo(260); await d.away(); await d.sleep(600); return d.sidebar(); },
-    undo: (d) => d.sideTo(460),
-  },
-  {
-    name: 'recently-closed', features: ['recently-closed'],
-    expect: 'The list is wide again. A RECENTLY CLOSED section sits directly above OPEN SESSIONS, opened, listing the '
-      + 'conversation "Add a dry-run flag to the cleanup script", whose tab was closed. The two sections are set apart by '
-      + 'space and a divider line; their headers are readable.',
-    unchanged: 'The rows below the two sections are as before.',
-    act: async (d) => {
-      await thread(d, d.threads[2]);
-      await closeTab(d, d.threads[2]);
-      const list = await sessionList(d);
-      const head = list.locator('[data-cce-recent-closed] [data-cce-section-head]').first();
-      if (!await d.until(() => head.isVisible().catch(() => false), 10000, 500)) throw new Error('there is no RECENTLY CLOSED section');
-      if (await list.evaluate(() => { const s = document.querySelector('[data-cce-recent-closed]'); return !!s && s.getAttribute('data-cce-collapsed') === '1'; })) await head.click();
-      await d.sleep(800);
+      if (d.elsewhere) {
+        d.elsewhere.child.kill();
+        try { fs.rmSync(d.elsewhere.record, { force: true }); } catch (_) { /* gone */ }
+        d.elsewhere = null;
+      }
       await d.away();
-      return d.sidebar();
-    },
-  },
-  {
-    name: 'archived-menu', features: ['delete-archived'],
-    expect: 'The conversation "Why does the nightly export skip archived rows?" has been archived and shows in an opened '
-      + 'Archived sessions section. Its right-click menu is open and includes "Delete session..." (and Unarchive session). The '
-      + 'menu is wholly visible.',
-    unchanged: 'The other rows are as before, less the archived one.',
-    act: async (d) => {
-      const list = await sessionList(d);
-      const id = d.threads[1].id;
-      if (!await archivedHeader(list).isVisible().catch(() => false)) await rowPick(d, list, id, 'Archive session');
-      await showArchived(d, list, id);
-      await rowMenu(d, list, id);
-      await d.sleep(500);
-      return d.sidebar();
-    },
-  },
-  {
-    name: 'delete-open-refused', features: ['delete-open-refused'],
-    expect: 'The archived conversation "Why does the nightly export skip archived rows?" is open in a tab, and "Delete session..." '
-      + 'was picked from its menu. Nothing was deleted and no dialog asks: a notification at the bottom right starts "Not deleted:" '
-      + 'and names the conversation (VS Code may cut a long notification short; its whole text, ending "is open or running.", is '
-      + 'in the log). The conversation is still listed under Archived sessions.',
-    unchanged: 'The side bar shows the same rows; the menu is closed.',
-    act: async (d) => {
-      await thread(d, d.threads[1]);
-      const list = await sessionList(d);
-      const id = d.threads[1].id;
-      await showArchived(d, list, id);
-      await rowPick(d, list, id, 'Delete session');
-      const said = () => d.page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].some((e) => /^Not deleted:/.test(e.innerText)));
-      if (!await d.until(said, 15000, 300)) throw new Error('within 15 s no notice said that the conversation was not deleted');
-      await d.sleep(800);
-      await d.away();
-      return d.body();
-    },
-    undo: async (d) => { await d.exec('notifications.clearAll'); await closeTab(d, d.threads[1]); },
-  },
-  {
-    name: 'delete-confirm', features: ['delete-archived'],
-    expect: 'After "Delete session..." was picked, VS Code asks in a dialog in the middle of the window whether to delete "Why '
-      + 'does the nightly export skip archived rows?" from disk, says it cannot be undone, and offers Delete and Cancel. The '
-      + 'dialog is readable and wholly inside the window.',
-    unchanged: 'Behind the dialog, the side bar and editor are as before; the menu is closed.',
-    act: async (d) => {
-      const list = await sessionList(d);
-      const id = d.threads[1].id;
-      if ((await menus(list)) < 1) { await showArchived(d, list, id); await rowMenu(d, list, id); }
-      await menuItem(list, 'Delete session').click({ timeout: 3000 });
-      if (!await d.until(() => dialog(d), 15000, 300)) throw new Error('no confirmation appeared');
-      await d.sleep(500);
-      return d.body();
-    },
-    undo: async (d) => {
-      await answerDialog(d, 'Cancel');
-      const list = await sessionList(d);
-      try { await showArchived(d, list, d.threads[1].id); await rowPick(d, list, d.threads[1].id, 'Unarchive session'); } catch (_) { /* left archived */ }
     },
   },
   {
@@ -1300,68 +1215,19 @@ const STEPS = [
   },
   {
     name: 'background-hidden', features: ['hide-background-sessions'],
-    expect: 'The dialog is gone and "Why does the nightly export skip archived rows?" is back among the rows. The folder of '
-      + 'transcripts also holds, written before the window opened, one of a session started with claude --bg, titled "'
+    expect: 'Claude Code\'s own session list in the side bar, its icon back in the Activity Bar. Beside the conversations it lists, the '
+      + 'folder of transcripts holds three written before the window opened: one of a session started with claude --bg, titled "'
       + BACKGROUND_TITLE + '", one started with claude -p, titled "' + PRINT_TITLE + '", and one of Claude Code\'s daemon '
       + 'sessions, titled "' + DAEMON_TITLE + '"; the list shows none of them.',
-    unchanged: 'The rows are as before the archiving.',
+    unchanged: 'The editor shows the same conversation as before.',
     act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
   },
   {
     name: 'background-shown', features: ['hide-background-sessions'], ...off('claudeCodePlus.hideBackgroundSessions'),
-    expect: 'With the setting that hides background sessions turned off, the list now also shows "' + BACKGROUND_TITLE + '" and "'
-      + PRINT_TITLE + '" without a reload, and still not "' + DAEMON_TITLE + '"; the other rows are unchanged.',
+    expect: 'With the setting that hides background sessions turned off, Claude Code\'s own list now also shows "' + BACKGROUND_TITLE
+      + '" and "' + PRINT_TITLE + '" without a reload, and still not "' + DAEMON_TITLE + '"; the other rows are unchanged.',
     unchanged: 'Every row of the previous picture is still there.',
     area: async (d) => { await sessionList(d); await d.sleep(3000); await d.away(); return d.sidebar(); },
-  },
-  {
-    name: 'off-session-pins', features: ['session-pins'], ...off('claudeCodePlus.sessionPins'),
-    expect: 'The two background sessions are hidden again. The pins at the start of the rows are gone; the titles start where the '
-      + 'pins were or a little further left, without overlapping anything.',
-    unchanged: 'The same rows in the same order.',
-    area: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
-  },
-  {
-    name: 'off-session-dates', features: ['session-dates'], ...off('claudeCodePlus.show.sessionDates'),
-    expect: 'The pins are back. The dates after each row\'s last-active time are gone (no "09/05->09/16"-style dates); the '
-      + 'last-active time stays.',
-    unchanged: 'The same rows in the same order.',
-    area: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
-  },
-  {
-    name: 'off-open-sessions', features: ['open-sessions'], ...off('claudeCodePlus.show.openSessions'),
-    expect: 'The dates are back. The OPEN SESSIONS section at the top is gone, and no empty space or stray divider is left '
-      + 'where it was.',
-    unchanged: 'The rows below it are as before.',
-    area: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
-  },
-  {
-    name: 'off-open-in-tab', features: ['new-in-tab-or-sidebar'], ...off('claudeCodePlus.show.openInTabOrSidebar'),
-    expect: 'OPEN SESSIONS is back. At the top of the list, Claude Code\'s own New session button stands in place of New in tab '
-      + 'and New in sidebar.',
-    unchanged: 'The rows are as before.',
-    area: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
-  },
-  {
-    name: 'off-session-colors', features: ['session-colors'], ...off('claudeCodePlus.show.sessionColors'),
-    expect: 'New in tab and New in sidebar are back. A row\'s right-click menu is open and has no Text color item; the other '
-      + 'items are there and the menu is wholly visible.',
-    unchanged: 'The rows behind the menu are as before.',
-    area: async (d) => { const list = await sessionList(d); await rowMenu(d, list, d.threads[2].id); await d.sleep(500); return d.sidebar(); },
-  },
-  {
-    name: 'off-session-hover', features: ['session-hover'], ...off('claudeCodePlus.show.sessionHoverDetails'),
-    expect: 'The menu is closed. The mouse rests on a row\'s title, and no label with its group and session id appears '
-      + '(Claude Code may show its own tooltip with the title).',
-    unchanged: 'The rows are as before.',
-    area: async (d) => {
-      const list = await sessionList(d);
-      await closeMenus(d, list);
-      await listRow(list, d.threads[2].id).locator('span[class*="sessionName_"]').first().hover();
-      await d.sleep(2000);
-      return d.sidebar();
-    },
-    undo: async (d) => { await setting(d, 'claudeCodePlus.show.sessionHoverDetails', undefined); await d.sleep(1500); await rest(d, await sessionList(d), 'bottom'); await d.away(); },
   },
 
   /* The Steward panel. */
@@ -1371,7 +1237,7 @@ const STEPS = [
       + 'conversations open in this window (the two short ones, in tabs of their own) under a heading for the window, each '
       + 'with an unticked box, and an "All, including new ones" choice. The conversation in front is not in the list. Text '
       + 'is readable; boxes line up with their rows.',
-    unchanged: 'The side bar shows the session list as before.',
+    unchanged: 'The side bar shows Claude Code\'s own session list as before.',
     act: async (d) => {
       for (const t of d.threads.slice(1)) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
       await d.exec('claude-vscode.editor.open', d.sid);
@@ -1403,9 +1269,9 @@ const STEPS = [
     name: 'steward-renamed', features: ['steward-rename', 'steward-marks'],
     expect: 'The steward conversation in front was renamed through Claude Code\'s own Rename Session Tab, typing a name that '
       + 'kept a crown in front and added a second crown and the old bell at the end. Its tab now reads "CSV export and '
-      + 'budgets", a space and a crown: exactly one crown, after the title, no bell and no envelope. In the session list, both '
-      + 'rows of that conversation show its pin, its dot, "CSV export and budgets" and then one crown, with no crown or bell '
-      + 'inside the title. No rename box is left open.',
+      + 'budgets", a space and a crown: exactly one crown, after the title, no bell and no envelope. In Agent Plus\'s session '
+      + 'list in the side bar, that conversation\'s row reads "CSV export and budgets", with no crown or bell inside the title, '
+      + 'and then one small yellow crown icon; nothing overlaps the title. No rename box is left open.',
     unchanged: 'The other tabs and the Steward panel\'s tick are as before.',
     act: async (d) => {
       await d.exec('claude-vscode.editor.open', d.sid);
@@ -1419,16 +1285,14 @@ const STEPS = [
       await d.page.keyboard.press('Enter');
       await asked;
       await d.sleep(2500);
-      const list = await sessionList(d);
-      await d.sleep(1500);
+      const list = await agentList(d);
       await d.away();
       const stored = storedTitle(d, d.sid), labels = await tabLabels(d);
       const tab = labels.find((l) => l.includes('CSV export and budgets')) || '';
       if (MARK_RE.test(filled)) throw new Error(`the rename box was filled with a mark: "${filled}"`);
       if (stored !== 'CSV export and budgets') throw new Error(`the transcript stored "${stored}"`);
       if (tab !== `CSV export and budgets ${CROWN}`) throw new Error(`the tab reads "${tab}" (tabs: ${labels.join(' | ')})`);
-      const rows = await list.evaluate(() => [...document.querySelectorAll('[class*="sessionItem_"]')].map((r) => r.innerText).filter((t) => t.includes('CSV export and budgets')));
-      if (!rows.length || rows.some((t) => (t.match(/\u{1F451}/gu) || []).length !== 1)) throw new Error(`the list rows read ${JSON.stringify(rows)}`);
+      await agentRowWhere(d, list, 'CSV export and budgets', (s) => s.crowns === 1, 20000, 'does not have exactly one crown after its title');
       return d.body();
     },
     undo: async (d) => {
@@ -1800,10 +1664,10 @@ const STEPS = [
   },
   {
     name: 'session-twice', features: ['session-twice'],
-    expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once. '
-      + 'In the session list in the side bar, each of its rows ends with "2 '
-      + 'processes" in red after the title. In the Steward panel at the bottom, its row says "2 processes" and has a "Stop '
-      + 'the old process" button. Nothing overlaps.',
+    expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once. In the Steward '
+      + 'panel at the bottom, its row says "2 processes" and has a "Stop the old process" button. In Agent Plus\'s session list in '
+      + 'the side bar, its row says "2 processes" after the title, and the mouse rests on that row: the hover box under it has a '
+      + 'line "Open in 2 processes at once". The box is wholly inside the side bar; nothing overlaps.',
     unchanged: null,
     act: async (d) => {
       const t = d.threads[2];
@@ -1822,9 +1686,9 @@ const STEPS = [
         throw new Error('the Steward panel does not mark it as run twice');
       }
       d.twiceFrame = frame;
-      await sessionList(d);
-      await d.sleep(2000);
-      await d.away();
+      const list = await agentList(d);
+      await agentRowWhere(d, list, titleNow(d, t), (s) => /\b2 processes\b/.test(s.marks), 30000, 'does not say 2 processes');
+      await agentHover(d, list, titleNow(d, t), /Open in 2 processes at once/);
       return d.body();
     },
   },
@@ -1961,16 +1825,16 @@ const STEPS = [
 
   /* Live turns, in the first fake conversation, against the fake model. */
   {
-    name: 'live-running', features: ['dot-working', 'open-sessions', 'tool-clock'],
+    name: 'live-running', features: ['dot-working', 'tool-clock'],
     expect: 'A turn is running in the conversation "Find where the retry delay for the inventory sync is set", in a tab of its '
-      + 'own, with Focus view on: its tab\'s logo carries a filled green dot at its top right, its row under OPEN SESSIONS in '
-      + 'the side bar starts with a filled green dot too, and the working line above the message box says no tool has been '
-      + 'called yet this turn and how long ago your message was sent.',
-    unchanged: 'The panel at the bottom is closed; the side bar now shows the session list.',
+      + 'own, with Focus view on: its tab\'s logo carries a filled green dot at its top right; in Agent Plus\'s session list in '
+      + 'the side bar, the Claude Code logo on its row carries a filled green dot too; and the working line above the message '
+      + 'box says no tool has been called yet this turn and how long ago your message was sent.',
+    unchanged: 'The panel at the bottom is closed; the side bar now shows Agent Plus\'s session list.',
     act: async (d) => {
       const frame = await live(d);
       await focusIn(d, frame, true);
-      await sessionList(d);
+      const list = await agentList(d);
       await d.exec('claude-vscode.editor.open', d.threads[0].id);
       await d.sleep(800);
       d.model.hold();
@@ -1978,6 +1842,7 @@ const STEPS = [
       await send(d, frame, 'Run the tests again.');
       if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error('the message did not reach the model in 30 s');
       await d.sleep(4000);
+      await agentRowWhere(d, list, titleNow(d, d.threads[0]), (s) => s.dot === 'green', 20000, 'has no green dot');
       await d.away();
       return d.body();
     },
@@ -1999,6 +1864,35 @@ const STEPS = [
       return d.editor();
     },
   },
+  /* Claude Code's host asks a conversation's CLI for its figures when it starts and after each turn, which the step
+     before ran. */
+  {
+    name: 'agent-plus-account', features: ['agent-plus-account'],
+    expect: 'Agent Plus\'s session list in the side bar, its ACCOUNT & USAGE section at the top opened. In it a Claude Code part, '
+      + 'headed by the Claude Code logo and its name, names the conversation in front: "This conversation", a dot and "Find '
+      + 'where the retry delay for the inventory sync is set". Under it four rows, each a label and a value: Estimated cost with '
+      + 'a dollar amount, Total duration (API) and Total duration (wall) each with a time such as "2.3s" or "1m 5s", and Total '
+      + 'code changes such as "0 lines added, 0 lines removed". The labels and values line up and are readable, and nothing is '
+      + 'cut off at the side bar\'s edge.',
+    unchanged: 'The conversation in the editor is as before.',
+    act: async (d) => {
+      await live(d);
+      const list = await agentList(d);
+      const section = () => list.evaluate(() => {
+        const a = document.querySelector('.sl-section[data-key="account"]');
+        return a && !a.classList.contains('sl-hidden') ? { open: a.classList.contains('sl-open'), text: a.textContent } : null;
+      }).catch(() => null);
+      if (!await d.until(async () => { const s = await section(); return s && /Claude Code/.test(s.text); }, 30000, 500)) {
+        throw new Error(`Account & usage in Agent Plus's list has no Claude Code part within 30 s: ${JSON.stringify(await section())}`);
+      }
+      if (!(await section()).open) await list.locator('.sl-section[data-key="account"] .sl-head').first().click();
+      const full = await d.until(async () => { const s = await section(); return s && s.open && /Estimated cost/.test(s.text) && /Total duration \(wall\)/.test(s.text)
+        && /Total code changes/.test(s.text) && s; }, 30000, 500);
+      if (!full) throw new Error(`Account & usage does not show the figures of the conversation in front: ${JSON.stringify(await section())}`);
+      await d.away();
+      return d.sidebar();
+    },
+  },
   {
     name: 'off-context-share', features: ['reply-figures'], ...off('claudeCodePlus.show.contextShare'),
     expect: 'The newest reply\'s figures no longer include "ctx" and its share; the time, duration, cost and model remain, '
@@ -2013,16 +1907,16 @@ const STEPS = [
     area: async (d) => { const frame = await live(d); await toBottom(frame); await d.sleep(600); return d.editor(); },
   },
   {
-    name: 'live-unread', features: ['unread-envelope', 'dot-stopped', 'open-sessions', 'need-you-notices'],
+    name: 'live-unread', features: ['unread-envelope', 'dot-stopped', 'need-you-notices'],
     expect: 'A reply landed while the conversation\'s tab was in the background, behind a text file (notes.txt) opened in the '
-      + 'same group: that tab\'s logo has no dot, and its title ends in a white envelope. Its row under OPEN SESSIONS in the '
-      + 'side bar has no dot either and shows the envelope after the title and before the time; the title does not run '
-      + 'into it, and the row\'s time lines up with the other rows\'. No red or blue dot anywhere. No notification at '
-      + 'the bottom right: Agent Plus shows none for a conversation this window shows.',
+      + 'same group: that tab\'s logo has no dot, and its title ends in a white envelope. In Agent Plus\'s session list in the '
+      + 'side bar, the logo on its row has no dot either, and an envelope icon follows its title, before the time; the title '
+      + 'does not run into it, and the row\'s time lines up with the other rows\'. No red or blue dot anywhere. No notification '
+      + 'at the bottom right: Agent Plus shows none for a conversation this window shows.',
     unchanged: 'The tab bar has the same Claude Code tabs as before, plus notes.txt.',
     act: async (d) => {
       const frame = await live(d);
-      await sessionList(d);
+      const list = await agentList(d);
       await d.exec('claude-vscode.editor.open', d.threads[0].id);
       await d.sleep(600);
       if (!await d.front()) throw new Error('the window did not get the focus, which Agent Plus needs before it shows a notice');
@@ -2041,6 +1935,7 @@ const STEPS = [
       if (await d.until(async () => ((await needToasts(d)) || []).includes(said), 9000, 300)) throw new Error('Agent Plus showed a notice for a conversation this window shows');
       const counted = await needCountBox(d);
       if (counted) throw new Error(`Agent Plus counted an unread reply as waiting for you: ${JSON.stringify(counted)}`);
+      await agentRowWhere(d, list, titleNow(d, d.threads[0]), (s) => s.unread === 1 && s.dot === 'none', 20000, 'does not show one envelope and no dot');
       return d.body();
     },
   },
@@ -2113,12 +2008,13 @@ const STEPS = [
   },
   {
     name: 'renamed-unread', features: ['rename-without-marks', 'long-title-envelope', 'unread-envelope'],
-    expect: 'The conversation with a reply not read yet was renamed through its session list row\'s own rename box, typing a '
-      + 'very long name with an envelope before it, an envelope and a crown after it. The side bar is narrow, the demo '
-      + 'conversation is in front, and the Steward panel is open at the bottom. In the side bar, both rows of the renamed '
-      + 'conversation show "Where the retry delay..." cut short with an ellipsis, and exactly one envelope after the title and '
-      + 'before the time, not cut and not inside the title; no crown. In the Steward panel its row\'s title is cut short '
-      + 'the same way and is followed by one envelope. Its tab\'s title ends in one envelope and has no crown.',
+    expect: 'The conversation with a reply not read yet was renamed through the rename box of its row in Claude Code\'s own '
+      + 'session list, typing a very long name with an envelope before it, an envelope and a crown after it. Now the side bar is '
+      + 'narrow and shows Agent Plus\'s session list, the demo conversation is in front, and the Steward panel is open at the '
+      + 'bottom. In Agent Plus\'s list, the renamed conversation\'s row shows "Where the retry delay..." cut short with an '
+      + 'ellipsis, then exactly one envelope icon, whole and not inside the title, and then the time; no crown. In the Steward '
+      + 'panel its row\'s title is cut short the same way and is followed by one envelope. Its tab\'s title ends in one envelope '
+      + 'and has no crown.',
     unchanged: 'The other conversations\' rows are as before.',
     act: async (d) => {
       const list = await sessionList(d);
@@ -2127,10 +2023,12 @@ const STEPS = [
       const held = await renameInList(d, list, id, name);
       await d.exec('claude-vscode.editor.open', d.sid);
       await d.sleep(1200);
+      const agents = await agentList(d);
       await d.sideTo(300);
       await d.exec('workbench.view.extension.claudeCodePlusSteward');
       const frame = await d.frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
       if (frame) await d.until(() => frame.evaluate(() => !!document.querySelector('.env')), 20000, 1000);
+      await agentRowWhere(d, agents, LONG, (s) => s.unread === 1 && !s.crowns, 20000, 'does not show one envelope and no crown');
       await d.away();
       const stored = storedTitle(d, id), labels = await tabLabels(d);
       if (MARK_RE.test(held)) throw new Error(`the rename box held a mark: "${held}"`);
@@ -2150,15 +2048,16 @@ const STEPS = [
     },
   },
   {
-    name: 'live-background', features: ['dot-background', 'unread-envelope', 'open-sessions'],
+    name: 'live-background', features: ['dot-background', 'unread-envelope'],
     expect: 'A turn that put a command in the background ("sleep 40") ended while the conversation\'s tab was behind notes.txt: '
       + 'the tab\'s logo carries a green ring, not a filled dot, and its title ends in a white envelope, so both show at '
-      + 'once. Its row under OPEN SESSIONS starts with the same green ring and has the envelope after the title, before the time. '
-      + 'Agent Plus does not count it in the status bar or show a notice for it while its work still runs.',
+      + 'once. In Agent Plus\'s session list in the side bar, the logo on its row carries the same green ring, and an envelope '
+      + 'icon follows its title, before the time. Agent Plus does not count it in the status bar or show a notice for it while '
+      + 'its work still runs.',
     unchanged: 'The tab bar has the same tabs as before; notes.txt is in front.',
     act: async (d) => {
       const frame = await live(d);
-      await sessionList(d);
+      const list = await agentList(d);
       await d.exec('claude-vscode.editor.open', d.threads[0].id);
       await d.sleep(600);
       d.model.hold();
@@ -2173,6 +2072,7 @@ const STEPS = [
       await d.away();
       const tab = (await tabLabels(d)).find((l) => l.startsWith('Where the retry')) || '';
       if (!/ \u{1F4E9}$/u.test(tab)) throw new Error(`the tab reads "${tab}", not ending in an envelope`);
+      await agentRowWhere(d, list, titleNow(d, d.threads[0]), (s) => s.dot === 'greenRing' && s.unread === 1, 20000, 'does not show a green ring and one envelope');
       return d.body();
     },
     undo: async (d) => {
@@ -2185,11 +2085,19 @@ const STEPS = [
   {
     name: 'live-permission', features: ['dot-waiting', 'timestamps'],
     expect: 'Claude Code asks for permission to run "npm test": the question and its Yes and No choices are in the panel. The '
-      + 'tab\'s logo carries a filled red dot at its top right, its row under OPEN SESSIONS starts with a red dot, and no blue '
-      + 'dot is anywhere. The tool row of that call has its time on a line of its own above "Bash" and its '
+      + 'tab\'s logo carries a filled red dot at its top right, and the tab has no blue dot. In Agent Plus\'s session list in the '
+      + 'side bar, the logo on its row carries a filled blue dot, Agent Plus\'s mark of a dialog that waits for you. '
+      + 'The tool row of that call has its time on a line of its own above "Bash" and its '
       + 'description, which stays on one line.',
     unchanged: 'The earlier messages are as before; the tab\'s title has no envelope now that the tab is in front.',
-    act: async (d) => { const frame = await live(d); await askPermission(d, frame); await d.away(); return d.body(); },
+    act: async (d) => {
+      const frame = await live(d);
+      const list = await agentList(d);
+      await askPermission(d, frame);
+      await agentRowWhere(d, list, titleNow(d, d.threads[0]), (s) => s.dot === 'blue', 20000, 'has no blue dot');
+      await d.away();
+      return d.body();
+    },
   },
   {
     name: 'live-tool-clock', features: ['tool-clock', 'focus-view'],
@@ -2780,22 +2688,25 @@ const STEPS = [
     undo: async (d) => { await d.page.keyboard.press('Escape'); await d.sleep(400); },
   },
   {
-    name: 'light-session-list', features: ['light-theme', 'session-colors', 'session-pins', 'open-sessions', 'recently-closed'],
-    expect: 'The session list in the light theme: section headers, titles, times and dates readable; the purple pin and the '
-      + 'blue and green titles readable against the light background; only the open conversation\'s two copies highlighted.',
+    name: 'light-session-list', features: ['light-theme', 'agent-plus-session-list'],
+    expect: 'Agent Plus\'s session list in the light theme: dark text on a light background, the section bands a little darker '
+      + 'than the rows. The titles and times, the Claude Code logos and any dots on them, the pin, the blue title, the crown and '
+      + 'the envelope where a row has them, and the stripes at the start of the rows are all readable against the light '
+      + 'background; nothing is left in the dark theme\'s colours.',
     unchanged: 'The editor is as before; the map is closed.',
-    act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
+    act: async (d) => { await agentList(d); await d.away(); return d.sidebar(); },
   },
   {
     name: 'light-envelope', features: ['light-envelope', 'light-theme', 'unread-envelope', 'need-you-notices'],
     expect: 'In the light theme, a reply landed while the conversation "Where the retry delay..." was behind notes.txt: its tab\'s '
-      + 'title ends in an envelope drawn as a dark outline on the light tab, not a white or faint shape; '
-      + 'its rows in the session list show the same dark envelope after the title, before the time. No colour emoji envelope anywhere. '
-      + 'No notification at the bottom right: Agent Plus shows none for a conversation this window shows.',
-    unchanged: 'The session list is as before, apart from the envelopes.',
+      + 'title ends in an envelope drawn as a dark outline on the light tab, not a white or faint shape. In Agent Plus\'s session '
+      + 'list in the side bar, its row shows an envelope icon after the title, before the time, drawn dark like the text. No '
+      + 'colour emoji envelope anywhere. No notification at the bottom right: Agent Plus shows none for a conversation this window '
+      + 'shows.',
+    unchanged: 'Agent Plus\'s session list is as before, apart from the envelope.',
     act: async (d) => {
       const frame = await live(d);
-      await sessionList(d);
+      const list = await agentList(d);
       await d.exec('claude-vscode.editor.open', d.threads[0].id);
       await d.sleep(600);
       // A permission question left open by an earlier step holds back any new message.
@@ -2816,12 +2727,7 @@ const STEPS = [
       if (!tab.endsWith(' \u2709\uFE0E')) throw new Error(`the tab reads "${tab}", not ending in the envelope's text form`);
       /* The envelope in the Steward panel is checked against the theme in ui.js, which has another conversation in
          front. */
-      const list = await sessionList(d);
-      await d.away();
-      const forms = await list.evaluate((id) => [...document.querySelectorAll('[class*="sessionItem_"]')]
-        .filter((r) => r.id.endsWith(id) || r.querySelector(`[data-cce-pin="${id}"]`))
-        .map((r) => { const e = r.querySelector('[data-cce-envelope]'); return e ? getComputedStyle(e, '::after').content : null; }), d.threads[0].id);
-      if (forms.length < 2 || !forms.every((f) => f === '"\u2709\uFE0E"')) throw new Error(`the session list draws ${JSON.stringify(forms)}`);
+      await agentRowWhere(d, list, titleNow(d, d.threads[0]), (s) => s.unread === 1, 20000, 'has no envelope');
       if (!await d.until(() => seenUnread(d, d.threads[0].id), SEEN_MS, 300)) throw new Error('Agent Plus did not see the reply unread in 60 s');
       if (await d.until(async () => ((await needToasts(d)) || []).some((x) => / finished\.$/.test(x) && x.includes('Where the retry delay')), 9000, 300)) {
         throw new Error('Agent Plus showed a notice for a conversation this window shows');
@@ -3085,16 +2991,18 @@ const STEPS = [
   },
   {
     name: 'map-sidebar-light', features: ['agent-map', 'light-theme', 'narrow-panel'],
-    expect: 'The light theme. The same conversation, reopened in the secondary side bar (narrow, on the right), has started a '
+    expect: 'The light theme. The same conversation, reopened in the secondary side bar (narrow, on the right) from Open in Sidebar '
+      + 'in the menu of its row in Agent Plus\'s session list, has started a '
       + 'helper and a command in the background there again, and its agent map is open. The same sections as in '
       + 'map-busy-light, but SUBAGENTS 2: besides the new helper, the one started while the conversation was in a tab, stopped '
       + 'when that tab closed, with a red dot. In the narrow width the cards\' second lines may end in an ellipsis (each card\'s hover text holds the whole line); cards no wider than the side bar or the map scrolls sideways.',
     unchanged: 'The tab of that conversation is gone from the editor.',
     act: async (d) => {
-      const t = mapThread(d);
+      const t = mapThread(d), title = titleNow(d, t);
       await closeTab(d, t);
-      const list = await sessionList(d);
-      await rowPick(d, list, t.id, 'Resume in sidebar');
+      const list = await agentList(d);
+      await agentRowWhere(d, list, title, (s) => s.stripe !== 'here', 20000, 'still has the stripe of a conversation open here');
+      await agentMenuPick(d, list, title, 'Open in Sidebar');
       const side = await d.until(async () => {
         for (const f of d.page.frames()) {
           const hit = await f.evaluate((ask) => !!document.querySelector('[contenteditable][role="textbox"]') && document.body.innerText.includes(ask), t.turns[0][0]).catch(() => false);

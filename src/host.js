@@ -96,9 +96,8 @@ const EDITS = [
       + link,
   },
   /*
-   * Messages from a panel meant for this extension: the panel's time zone, a conversation pinned or unpinned in the
-   * session list, a text color chosen for conversations there, archived ones to delete, whether an answer from the
-   * Conversations tab was sent (src/page/91-answer.js), the info box asking for its conversation's process id
+   * Messages from a panel meant for this extension: the panel's time zone, whether an answer from the Conversations
+   * tab was sent (src/page/91-answer.js), the info box asking for its conversation's process id
    * (src/page/80-session-info.js), the panel's page getting focus (src/page/92-focus.js), the page saying it is still
    * there (src/page/99-sweep.js, for src/duplicates.js), a conversation link clicked and a panel asking for the
    * conversations it can link (src/page/93-steward-links.js and 95-conversation-links.js, for
@@ -116,12 +115,6 @@ const EDITS = [
     to: (m, fn, log, msg, rest) => `function ${fn}(${log},${msg}){try{if(${msg}&&${msg}.type==="cce_client_tz"`
       + `&&typeof ${msg}.timeZone==="string"){globalThis.__cceClientTimeZone=${msg}.timeZone;`
       + `globalThis.__cceTzHook&&globalThis.__cceTzHook(${msg}.timeZone)}`
-      + `else if(${msg}&&${msg}.type==="cce_session_pin"&&typeof ${msg}.sessionId==="string"){`
-      + `globalThis.__ccePinHook&&globalThis.__ccePinHook(${msg}.sessionId,${msg}.pinned===true)}`
-      + `else if(${msg}&&${msg}.type==="cce_session_color"&&Array.isArray(${msg}.sessionIds)){`
-      + `globalThis.__cceColorHook&&globalThis.__cceColorHook(${msg}.sessionIds,typeof ${msg}.color==="string"?${msg}.color:null)}`
-      + `else if(${msg}&&${msg}.type==="cce_delete_sessions"&&Array.isArray(${msg}.sessions)){`
-      + `globalThis.__cceDeleteHook&&globalThis.__cceDeleteHook(${msg}.sessions)}`
       + `else if(${msg}&&${msg}.type==="cce_answer_result"&&typeof ${msg}.id==="string"){`
       + `globalThis.__cceAnswerHook&&globalThis.__cceAnswerHook(${msg}.id,${msg}.sent===true,typeof ${msg}.reason==="string"?${msg}.reason:"",`
       + `typeof ${msg}.detail==="string"?${msg}.detail:"")}`
@@ -170,20 +163,10 @@ const EDITS = [
       + `&&await globalThis.__cceOpenElsewhere(${msg}.request.sessionId))return{type:"open_in_editor_response"};`,
   },
   /*
-   * A conversation opened from the session list in the place asked for (src/page/86-open-in-tab-or-sidebar.js). The
-   * list's own open request carries where, and the host passes it to the open command in place of the preferred
-   * location; a request that does not say is opened as before.
-   */
-  {
-    name: 'session list open says where',
-    re: /programmatic:([\w$]+)\.request\.newSessionGroupId&&!\1\.request\.sessionId\?"pin-to-panel":"honor-preferred-location"\}/g,
-    to: (m, msg) => `programmatic:${msg}.request.cceWhere==="sidebar"?"cce-pin-to-sidebar":${msg}.request.cceWhere==="tab"?"pin-to-panel":`
-      + `${msg}.request.newSessionGroupId&&!${msg}.request.sessionId?"pin-to-panel":"honor-preferred-location"}`,
-  },
-  /*
    * Opening one is decided in one function: a programmatic open goes to the sidebar only when the preferred location is
-   * the sidebar, and otherwise to a tab. One more request value sends it to the sidebar whatever that setting says,
-   * unless the conversation is already open in a tab, where it is shown. The setting is not touched, as with the
+   * the sidebar, and otherwise to a tab. One more request value, which Agent Plus's session list asks for through this
+   * extension (src/claude-session-list.js), sends it to the sidebar whatever that setting says, unless the conversation
+   * is already open in a tab, where it is shown. The setting is not touched, as with the
    * official programmatic opens.
    */
   {
@@ -253,43 +236,32 @@ const EDITS = [
       + 'this.reconcileRememberedTabSessions()',
   },
   /*
-   * Whether the sidebar's conversation can be seen, and the tabs closed recently in this workspace
-   * (src/recentclosed.js), sent with the open conversations to every panel. A hidden sidebar
-   * keeps its conversation loaded, so the host still lists it among the sidebar's; OPEN SESSIONS leaves it out while the
-   * sidebar is hidden (src/page/84-open-sessions.js). The state goes out with every update of the open conversations,
-   * and the sidebar showing or hiding sends one.
-   *
-   * The same update also reaches this extension: each conversation's state as the host knows it and the replies not read
-   * yet, for the Conversations view. And the message carries the dot this extension draws for each conversation
-   * (cceActivity, src/activity.js) and which conversations are stewards (cceStewards), which the session list's rows
-   * read. It comes the moment something changes, where `claude agents` is asked every half
-   * minute. The states pass through this extension first, which may mark an idle conversation running
-   * (__cceWithBackground in extension.js).
+   * The open conversations' states, sent to every panel, also reach this extension: each conversation's state as the
+   * host knows it and the replies not read yet, for the Conversations view. They come the moment something changes,
+   * where `claude agents` is asked every half minute. The states pass through this extension first, which may mark an
+   * idle conversation running (__cceWithBackground in extension.js). The message carries the dot this extension draws
+   * for each conversation (cceActivity, src/activity.js), for the agent map's own row.
    *
    * From 2.1.330 one argument depends on the panel it goes to (the session list gets one more open conversation), so
    * each panel's arguments are computed inside the loop. The extension is handed the ones a panel with no special case
    * gets, computed with the loop variable unset.
    */
   {
-    name: 'session states say whether the sidebar is shown',
+    name: 'session states reach this extension',
     re: /for\(let ([\w$]+) of this\.allComms\)\1\.sendSessionStates\(([^;]*?),\1===([\w$]+)\?void 0:([\w$]+)\)/g,
     to: (m, c, args, side, ids) => 'let cceF=globalThis.__cceWithBackground,cceBg=(cceA)=>{try{if(typeof cceF==="function")'
       + 'cceA[0]=cceF(cceA[0])}catch(cceE){}return cceA},cceArgs=null;'
       + `{let ${c};try{cceArgs=cceBg([${args}])}catch(cceE){}}`
       + 'if(cceArgs)(()=>{try{globalThis.__cceStatesHook&&globalThis.__cceStatesHook(...cceArgs)}catch(cceE){}})();'
       + `for(let ${c} of this.allComms){let cceOwn=[${args}];cceOwn[0]=cceArgs?cceArgs[0]:cceBg(cceOwn)[0];`
-      + `${c}.sendSessionStates(...cceOwn,${c}===${side}?void 0:${ids},`
-      + `${side}!==void 0&&[...this.webviews].some((cceV)=>cceV.comms===${side}&&cceV.isVisible()))}`,
+      + `${c}.sendSessionStates(...cceOwn,${c}===${side}?void 0:${ids})}`,
   },
   {
-    name: 'session states message carries whether the sidebar is shown',
+    name: 'session states message carries the dots',
     re: /sendSessionStates\(([\w$]+),([\w$]+),([\w$]+),([\w$]+),([\w$]+),([\w$]+)\)\{let ([\w$]+)=\{type:"request",channelId:"",requestId:([\w$]+)\(\),request:\{type:"session_states_update",([^{}]*?),sidebarSessionIds:\6\}\}/g,
-    to: (m, a, b, c, d, e, f, z, id, fields) => `sendSessionStates(${a},${b},${c},${d},${e},${f},cceShown){let ${z}={type:"request",channelId:"",`
-      + `requestId:${id}(),request:{type:"session_states_update",${fields},sidebarSessionIds:${f},cceSidebarShown:cceShown,`
-      + 'cceRecentClosed:(()=>{try{return typeof globalThis.__cceRecentClosed==="function"?globalThis.__cceRecentClosed():void 0}catch(e){return void 0}})(),'
-      + 'cceActivity:(()=>{try{return typeof globalThis.__cceActivityMap==="function"?globalThis.__cceActivityMap():void 0}catch(e){return void 0}})(),'
-      + 'cceStewards:(()=>{try{return typeof globalThis.__cceStewardIds==="function"?globalThis.__cceStewardIds():void 0}catch(e){return void 0}})(),'
-      + 'cceManagedBy:(()=>{try{return typeof globalThis.__cceManagedBy==="function"?globalThis.__cceManagedBy():void 0}catch(e){return void 0}})()}}',
+    to: (m, a, b, c, d, e, f, z, id, fields) => `sendSessionStates(${a},${b},${c},${d},${e},${f}){let ${z}={type:"request",channelId:"",`
+      + `requestId:${id}(),request:{type:"session_states_update",${fields},sidebarSessionIds:${f},`
+      + 'cceActivity:(()=>{try{return typeof globalThis.__cceActivityMap==="function"?globalThis.__cceActivityMap():void 0}catch(e){return void 0}})()}}',
   },
   {
     // A tab the person closed, as Claude Code notes it for its own reopen-closed command, reaches this extension too.
@@ -373,19 +345,6 @@ const EDITS = [
     name: 'session totals reach this extension',
     re: /keepSessionTotals\(([\w$]+),([\w$]+)\)\{/g,
     to: (m, id, totals) => `${m}try{globalThis.__cceSessionTotalsHook&&globalThis.__cceSessionTotalsHook(${id},${totals})}catch(cceE){}`,
-  },
-  /*
-   * Pinned conversations are not archived for being inactive (src/sessionpins.js says how they are pinned).
-   *
-   * The automatic archive skips every session it counts as in use, and a session in a group of the list is one of them.
-   * Pinned ones join that same set, so they are skipped for the same reason and by the same test; the ids come from this
-   * extension through a global, read each time the set is built. Anything going wrong there leaves the set as it was.
-   */
-  {
-    name: 'pinned conversations not archived',
-    re: /groupedSessionKeys:new Set\(([\w$.]+\.getSessionGroups\(\)\.flatMap\(\(([\w$]+)\)=>\2\.sessionIds\))\)/g,
-    to: (m, groups) => `groupedSessionKeys:new Set([...${groups},...(()=>{try{let p=globalThis.__ccePinnedIds,`
-      + 'r=typeof p==="function"?p():[];return Array.isArray(r)?r.filter((x)=>typeof x==="string"):[]}catch(e){return[]}})()])',
   },
   /*
    * The finished session list passes through this extension, which leaves out background sessions (src/bgsessions.js).

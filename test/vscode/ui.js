@@ -9,10 +9,9 @@
  *
  *   the patch      both of Claude Code's patched files are written on the first start and VS Code says to reload; the
  *                  tab bar keeps the one Claude button, Claude Code's own, before the reload and after it
- *   session list   Claude Code's session list as the patch changes it: New in tab and New in sidebar, a pin and the
- *                  dates on every row, the Resume in tab, Resume in sidebar and Text color items of the right-click
- *                  menu, clicking a pin, the hover text of a row, and claude --bg, claude -p and daemon sessions left
- *                  out, with the first two listed once claudeCodePlus.hideBackgroundSessions is off
+ *   session list   Claude Code's own session list: the conversations by their titles, nothing of this extension's drawn
+ *                  in it, and claude --bg, claude -p and daemon sessions left out, with the first two listed once
+ *                  claudeCodePlus.hideBackgroundSessions is off
  *   the official session list hidden
  *                  claudeCodePlus.hideOfficialSessionList on: Claude Code's own session list leaves the Activity Bar
  *                  without a reload, and comes back when the setting is turned off
@@ -22,16 +21,17 @@
  *                  Keep It, a terminal that has a conversation open (from Claude Code's record of its process) with the
  *                  outlined stripe and a hover saying where, and a click opening a conversation in a tab; after the dots
  *                  below, the Account & usage part with the figures of the conversation in front
- *   a tab          a conversation resumed in a tab: its title, the times on every message and reply, the bar on your
- *                  messages, the rail and its list, the footer's buttons, their hover text and the information box,
- *                  OPEN SESSIONS, and which times show while the extension is off and once it is on again
+ *   a tab          a conversation opened in a tab from Agent Plus's session list: its title, the times on every message
+ *                  and reply, the bar on your messages, the rail and its list, the footer's buttons, their hover text
+ *                  and the information box, its row's solid stripe, and which times show while the extension is off and
+ *                  once it is on again
  *   a fold opened by hand
  *                  in Focus view, a tool call's fold opened by hand: the button is drawn unfolded, and a press folds
  *                  the row again with Focus view still on
- *   the dots       the filled dot on the tab's logo while a turn sent through fake-model.js runs, and on both its
- *                  session list rows; the envelope after the tab's title once its reply lands with the tab in the
- *                  background, after the name and before the time on its rows, and still whole when a narrow side bar
- *                  cuts the name short, and Agent Plus marking that reply unread without counting it in the status bar;
+ *   the dots       the filled dot on the tab's logo while a turn sent through fake-model.js runs, and on its row in
+ *                  Agent Plus's session list; the envelope after the tab's title once its reply lands with the tab in
+ *                  the background, and on its row, and Agent Plus marking that reply unread without counting it in the
+ *                  status bar;
  *                  the red dot while Claude Code waits for permission to run a command, with no notice and no count for
  *                  the conversation in front; no blue
  *   the agent map's sections
@@ -61,7 +61,7 @@
  *                  green dot until the turn ends, then all three
  *   a question answered in its turn
  *                  a question the plan puts to the user during a turn, the turn ending behind another editor: with
- *                  nothing more from the user, a red dot on the tab and both its session list rows and Agent Plus
+ *                  nothing more from the user, a red dot on the tab and its row in Agent Plus's session list, and Agent Plus
  *                  counting it; answered on a question card later in the turn, or typed while the turn runs and taken
  *                  into it, no red dot, and for the card no wait in Agent Plus
  *   conversation links
@@ -82,7 +82,7 @@
  *                  also a conversation two processes run: the marks, and Stop the old process
  *   restored tabs  after a reload, a Claude Code tab behind another left unloaded, and loaded with
  *                  claudeCodePlus.loadRestoredTabs on, the tab that was in front staying in front; two such tabs with
- *                  replies not read keep their envelopes, on the tabs, the session list rows and in the host's marks,
+ *                  replies not read keep their envelopes, on the tabs, their rows in Agent Plus's list and in the host's marks,
  *                  through a reload with the setting on; a restored tab first clicked 45 s after a reload loads and
  *                  takes a message; through three reloads with the setting on, each background tab still opens its
  *                  conversation rather than Claude Code's notice that it was not reopened
@@ -90,18 +90,18 @@
  *                  front, in that window, from the first window's Steward panel, from a steward's link and from the
  *                  first window's session list when a copy of it is kept under that window's folder, and no copy of it
  *                  opens; a link to a conversation open nowhere reports that; its title in a reply in the first
- *                  window, linked and clicked, does the same; once that window has reloaded with the conversation's tab
- *                  restored behind another and not loaded, deleting it from the first window is refused and names the
- *                  second
+ *                  window, linked and clicked, does the same; and what each window knows of it once that window has
+ *                  reloaded with the conversation's tab restored behind another and not loaded
  *   several stewards
  *                  two stewards in two windows ticking one conversation: its box stays free in the other's panel, a
  *                  steward's own box is still greyed, the eye at the end of its row names the other steward, and a
  *                  click on that name brings that steward up in its window
  *   closed, sidebar, archived
- *                  RECENTLY CLOSED once the tab is closed; Resume in sidebar, New in sidebar and New in tab; Delete
- *                  session… on an archived conversation: refused while it is open in a tab, then its confirmation
- *   light theme    the envelope's text form on the tab, the session list rows and the Steward panel, and the colour form
- *                  back in a dark theme
+ *                  in Agent Plus's session list, Recently closed once the tab is closed; Open in Sidebar, New in sidebar
+ *                  and New in tab; an archived conversation: no Delete... while it is open in a tab, then its
+ *                  confirmation
+ *   light theme    the envelope's text form on the tab and the Steward panel, the envelope on its row in Agent Plus's
+ *                  session list, and the colour form back in a dark theme
  *   the old bell   a steward whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
  *                  its list of what needs you and its Conversations view name it with the crown after it and no bell
  *   the focused window
@@ -123,10 +123,6 @@
  *                  after a reload that window keeps the table, and the other, still on the earlier build, saves no tick
  *                  and says so with a Reload Window button
  *   commands       Show Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
- *   rows no longer open
- *                  the session list's rows after each way of opening and closing a conversation, a menu closed with
- *                  nothing picked and a drag let go over no group: none of a conversation open nowhere drawn picked or
- *                  highlighted, and only the conversation in a tab in front drawn as the current one
  *   the plan bar   the bar above the input box, as wide as it and with the same height however many rows the plan has,
  *                  compact in a narrow panel, redrawn when the plan changes, gone when there is no plan and when
  *                  claudeCodePlus.show.planBar is off, its questions part in the status bar's warning colour, and its
@@ -170,10 +166,6 @@ const ENVELOPE_TEXT = ' \u2709\uFE0E';
 const PANEL_VIEW = 'mainThreadWebview-claudeVSCodePanel';
 const CLAUDE_BUTTON = 'Claude Code: Open';
 const RELOAD = /^Claude Code Plus is installed in Claude Code panel and Claude Code host\. Reload the window once to start/;
-/* What Text color's Red and a pinned pin are drawn in, in the Dark Modern theme run.js sets. */
-const RED_TITLE = 'rgb(241, 76, 76)';
-const PIN_PURPLE = 'rgb(177, 128, 215)';
-const COLORS = ['Red', 'Blue', 'Green', 'Yellow', 'Purple', 'Orange', 'Pink', 'Cyan'];
 const LABELS = {
   info: 'About this conversation: its session id, process id, the directory it started in, where its transcripts are kept, their size, and the token mode',
   focusOff: 'Showing thinking and tool calls - click for Focus view: only your messages and the replies',
@@ -637,154 +629,70 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     return { text: got || '', box, png };
   };
 
+  /* ── Agent Plus's session list, where this extension lists Claude Code's conversations (src/claude-session-list.js) ── */
+  let sl = null;
+  const showSl = async () => {
+    await exec('workbench.view.extension.agentPlusSessions');
+    sl = await frameWhere(() => !!document.querySelector('.sl-root .sl-new'), 30000);
+    if (!sl) throw new Error('Agent Plus\'s session list did not open');
+    return sl;
+  };
+  /* Every row as the list draws it: its section, title, dot, stripe, envelope and crown. A page a reload or another
+     view replaced is found again. */
+  const readSl = () => sl.evaluate(() => [...document.querySelectorAll('.sl-row')].map((r) => ({
+    title: r.querySelector('.sl-title').textContent, section: (r.closest('.sl-section') || { dataset: {} }).dataset.key,
+    dot: r.dataset.dot, stripe: r.dataset.stripe, dim: r.classList.contains('sl-elsewhere'),
+    unread: !!r.querySelector('.sl-unread svg'), crown: !!r.querySelector('.sl-crown'), shown: !!r.offsetParent })));
+  const slRows = async () => {
+    try { if (sl) return await readSl(); } catch (_) { /* found again below */ }
+    await showSl();
+    return readSl();
+  };
+  /* A conversation's row outside Recently closed, which shows a conversation again. */
+  const slFind = (rows, t) => (rows || []).find((r) => r.title === t.title && r.section !== 'closed');
+  const slRow = async (t) => slFind(await slRows().catch(() => null), t) || null;
+  const slRowAt = (t) => sl.locator('.sl-section:not([data-key="closed"]) .sl-row').filter({ has: sl.locator('.sl-title', { hasText: t.title }) }).first();
+  const slHoverText = () => sl.evaluate(() => { const h = document.querySelector('.sl-hover'); return h && !h.classList.contains('sl-hidden') ? h.textContent : ''; });
+  const slMenu = () => until(() => sl.evaluate(() => {
+    const b = document.querySelector('.sl-ctx:not(.sl-ctx-sub)');
+    return b ? [...b.querySelectorAll('.sl-ctx-item')].map((x) => x.textContent.replace('\u203a', '').replace('\u2713', '').trim()) : null;
+  }), 5000, 200);
+  const slItem = (label) => sl.locator('.sl-ctx:not(.sl-ctx-sub) .sl-ctx-item').filter({ hasText: label }).first();
+  /* Right-clicks `t`'s row and clicks the item `label` of its menu. */
+  const slPick = async (t, label) => {
+    await page.keyboard.press('Escape');
+    await slRowAt(t).click({ button: 'right' });
+    const m = await slMenu();
+    if (!m || !m.includes(label)) throw new Error(`the row's menu had no ${label}: ${JSON.stringify(m)}`);
+    await slItem(label).click();
+  };
+
   /* ── the session list, Claude Code's own webview ── */
   let list = null;
-  /* A conversation's row below OPEN SESSIONS and RECENTLY CLOSED, which show the same conversations again. */
-  const row = (t) => list.locator(`[class*="sessionItem_"]:has([data-cce-pin="${t.id}"]):not([data-cce-section] *)`).first();
-  const menus = () => list.evaluate(() => [...document.querySelectorAll('[role="menu"]')].filter((m) => m.getClientRects().length)
-    .map((m) => [...m.querySelectorAll('[role="menuitem"]')].map((i) => i.innerText.replace(/\s*›\s*$/, '').trim())));
-  const item = (label, level = 0) => list.locator('[role="menu"]').nth(level).locator('[role="menuitem"]').filter({ hasText: label }).first();
-  /* A press on an empty corner of the list closes its menus and does nothing else. In a short window a menu opened low
-     in the list reaches its bottom, so the corner is one that no menu covers. */
-  const closeMenus = async () => {
-    if (!(await menus()).length) return;
-    const box = await (await list.frameElement()).boundingBox();
-    const at = await list.evaluate(({ w, h }) => {
-      const rects = [...document.querySelectorAll('[role="menu"]')].map((m) => m.getBoundingClientRect());
-      const free = ([x, y]) => !rects.some((r) => x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 4 && y <= r.bottom + 4);
-      return [[w - 12, h - 12], [40, h - 12], [w - 12, h / 2]].find(free) || [w - 12, h - 12];
-    }, { w: box.width, h: box.height });
-    await page.mouse.click(box.x + at[0], box.y + at[1]);
-    await until(async () => !(await menus()).length, 3000, 100);
-  };
-  const openMenu = async (t) => {
-    await closeMenus();
-    await row(t).click({ button: 'right' });
-    return until(async () => { const m = await menus(); return m.length ? m : null; }, 5000, 100);
-  };
-  /*
-   * Right-clicks `t`'s row and clicks the menu item labels[0], or, given labels[1], that item of its submenu. The list
-   * closes its menu when its page loses the focus, and another webview of the window (a Claude Code page that has just
-   * opened) can take the focus at any moment; a click then lands on whatever was under the menu, with no error. So the
-   * page records where each click lands, and a click that missed its item while the page lost the focus is tried again,
-   * at most twice. A click that missed while the page kept the focus fails the check.
-   */
-  const pick = async (t, labels) => {
-    await list.evaluate(() => {
-      window.__cceLanded = [];
-      if (window.__cceLandedHook) return;
-      window.__cceLandedHook = true;
-      window.addEventListener('click', (e) => {
-        const it = e.target.closest && e.target.closest('[role="menuitem"]');
-        window.__cceLanded.push(it ? it.innerText.replace(/\s*›\s*$/, '').trim() : `outside the menu (${e.target.tagName})`);
-      }, true);
-      window.addEventListener('blur', () => window.__cceLanded.push('the page lost the focus'));
-    });
-    const said = [];
-    const wanted = labels[labels.length - 1];
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      /* The dialog an item opens can come up a moment after the check below; the click before this one did land then. */
-      if (attempt > 1 && await dialog().catch(() => null)) return attempt - 1;
-      await list.evaluate(() => { window.__cceLanded = []; });
-      const opened = await openMenu(t);
-      try {
-        if (!opened) throw new Error('no menu opened');
-        if (labels.length > 1) {
-          await item(labels[0]).hover({ timeout: 3000 });
-          await item(labels[1], 1).click({ timeout: 3000 });
-        } else await item(labels[0]).click({ timeout: 3000 });
-      } catch (e) { said.push(e.message.split('\n')[0]); }
-      const landed = await list.evaluate(() => window.__cceLanded.slice());
-      if (landed.some((x) => x.startsWith(wanted))) return attempt;
-      /* A dialog the item opens can take the focus before its click is recorded (seen on macOS); then it did land, and
-         opening the menu again would click behind the dialog. */
-      if (await dialog().catch(() => null)) return attempt;
-      said.push(landed.join(', ') || 'no click recorded');
-      if (!landed.includes('the page lost the focus')) throw new Error(`the click on ${labels.join(' > ')} landed elsewhere: ${said.join('; ')}`);
-      await sleep(1000);
-    }
-    throw new Error(`the menu kept closing before ${labels.join(' > ')} could be clicked: ${said.join('; ')}`);
-  };
-  const retried = (n, what) => { if (n > 1) note(`${what} took ${n} tries: the session list's menu closed before the click landed`); };
+  /* A conversation's row, by the end of its id. */
+  const row = (t) => list.locator(`[class*="sessionItem_"][id$="${t.id}"]`).first();
   const openList = async () => {
     await exec('workbench.view.extension.claude-sessions-sidebar');
-    list = await frameWhere(() => !!document.querySelector('[data-cce-new-session]'), 60000);
+    list = await frameWhere(() => !!document.querySelector('[class*="sessionItem_"]'), 60000);
     return list;
   };
-  /* OPEN SESSIONS and RECENTLY CLOSED, with the conversations each shows: a row drawn by the list's own component has an
-     id that ends in the session id, and one drawn by this extension says it in data-cce-open-row. */
-  const sections = () => list.evaluate(() => [...document.querySelectorAll('[data-cce-section]')].map((s) => ({
-    open: s.hasAttribute('data-cce-open-sessions'), closed: s.hasAttribute('data-cce-recent-closed'), collapsed: s.getAttribute('data-cce-collapsed') === '1',
-    head: ((s.querySelector('[data-cce-section-head]') || {}).innerText || '').replace(/\s+/g, ' ').trim(),
-    rows: [...s.querySelectorAll('[class*="sessionItem_"][id], [data-cce-open-row]')]
-      .map((r) => r.getAttribute('data-cce-open-row') || (/[0-9a-f-]{36}$/.exec(r.id) || [''])[0]) })));
-
-  /* The dot colours on the left of a conversation's row in OPEN SESSIONS, where the list draws its status dot. */
+  /* A conversation's dot in Agent Plus's list, counted the way the tab's dot is counted (dotColours): a turn running or
+     background work as green, a question asked as red, a dialog waiting as blue. Null with no such row. */
+  const DOT_COUNTS = { green: { running: 9 }, greenRing: { running: 9, ring: true }, red: { waiting: 9 }, redRing: { waiting: 9, ring: true }, blue: { blue: 9 }, none: {} };
   const listDot = async (t) => {
-    const b = await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${t.id}"]`).first().boundingBox().catch(() => null);
-    return b ? dotColours(await crop({ x: b.x, y: b.y, width: Math.min(60, b.width), height: b.height })) : null;
+    const r = await slRow(t).catch(() => null);
+    return r ? Object.assign({ running: 0, waiting: 0, blue: 0, dot: r.dot }, DOT_COUNTS[r.dot] || {}) : null;
   };
-  /* The dot the session list draws on a conversation's row, as its element has it: on the row under OPEN SESSIONS, or
-     with `main` on its row in the list below. { state: '' } for a row with no dot; null with no such row. */
-  const listDotState = (t, main) => list.evaluate(({ id, main }) => {
-    const r = [...document.querySelectorAll('[class*="sessionItem_"]')].find((x) => (main ? !x.closest('[data-cce-section]') && x.querySelector(`[data-cce-pin="${id}"]`)
-      : x.closest('[data-cce-open-sessions]') && x.id.endsWith(id)));
-    if (!r) return null;
-    const d = r.querySelector('[data-status-dot]');
-    if (!d) return { state: '' };
-    const s = getComputedStyle(d);
-    return { state: d.getAttribute('data-status-dot'), ring: /statusDotElsewhere/.test(d.className), background: s.backgroundColor, border: s.borderTopColor };
-  }, { id: t.id, main: !!main }).catch(() => null);
-  /* Where the parts of a conversation's row in the list below OPEN SESSIONS lie, each [left, right]: its name, its
-     envelope and its time; whether the name is cut short, and the character the envelope is drawn with. */
-  const rowParts = (t) => list.evaluate((id) => {
-    const r = [...document.querySelectorAll('[class*="sessionItem_"]')].find((x) => !x.closest('[data-cce-section]') && x.querySelector(`[data-cce-pin="${id}"]`));
-    if (!r) return null;
-    const at = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.left * 10) / 10, Math.round(b.right * 10) / 10]; };
-    const name = r.querySelector('span[class*="sessionName_"]'), env = r.querySelector('[data-cce-envelope]'), time = r.querySelector('[class*="sessionMeta_"]');
-    const cut = (e) => { for (let x = e; x && x !== r; x = x.parentElement) if (x.scrollWidth > x.clientWidth + 1) return true; return false; };
-    return { row: at(r), name: at(name), envelope: at(env), time: at(time), cut: !!name && cut(name),
-      form: env ? getComputedStyle(env, '::after').content : '', envelopes: r.querySelectorAll('[data-cce-envelope]').length };
-  }, t.id).catch(() => null);
-  /* Whether the envelope comes after the name and before the time, and is not cut. */
-  const envelopeBetween = (p) => !!p && !!p.name && !!p.envelope && !!p.time && p.envelopes === 1 && p.envelope[0] >= p.name[1] - 0.5
-    && p.envelope[1] <= p.time[0] + 0.5 && p.envelope[1] - p.envelope[0] >= 8 && p.envelope[1] <= p.row[1];
-  /* A press on the empty bottom of the list, which takes the focus off its rows and does nothing else. */
-  const clickEmpty = async () => {
-    const box = await (await list.frameElement()).boundingBox();
-    await page.mouse.click(box.x + 40, box.y + box.height - 12);
-    await page.mouse.move(5, 880);
-    await sleep(300);
+  /* The same dot as a state: { state: 'running' | 'waiting' | '', ring, dialog }; null with no such row. */
+  const listDotState = async (t) => {
+    const d = await listDot(t);
+    if (!d) return null;
+    if (d.dot === 'blue') return { state: 'waiting', dialog: true, ring: false };
+    return { state: d.running ? 'running' : d.waiting ? 'waiting' : '', ring: !!d.ring };
   };
-  /*
-   * Every row of the session list as a person sees it, by what the list's own styles draw: the class it gives the
-   * conversation it counts as in front, the class of the rows selected together for a multi-row action, the row the
-   * arrow keys are on, the keyboard focus, the background and the outline, and whether the row's buttons show. These
-   * are the rows of the list's own row component, whose id ends in the session id: the list's, OPEN SESSIONS' and
-   * RECENTLY CLOSED's, and those of the list a conversation's page opens from its header.
-   */
-  const rowLooks = (frame = list) => frame.evaluate(() => [...document.querySelectorAll('button[class*="sessionItem_"][id]')].map((r) => {
-    const s = getComputedStyle(r), buttons = r.querySelector('[class*="sessionActions_"]');
-    return {
-      id: (/[0-9a-f-]{36}$/.exec(r.id) || [''])[0],
-      where: r.closest('[data-cce-open-sessions]') ? 'open sessions' : r.closest('[data-cce-recent-closed]') ? 'recently closed' : 'list',
-      title: ((r.querySelector('[class*="sessionName_"]') || {}).textContent || '').trim().slice(0, 32),
-      active: /(^|\s)active_/.test(r.className), selected: /(^|\s)selected_/.test(r.className), highlighted: r.hasAttribute('data-highlighted'),
-      focus: document.hasFocus() && (r.matches(':focus-visible') || r.matches(':has(:focus-visible)')), hover: r.matches(':hover'), background: s.backgroundColor,
-      outline: s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0 ? `${s.outlineWidth} ${s.outlineColor}` : '',
-      buttons: !!buttons && getComputedStyle(buttons).visibility === 'visible',
-    };
-  })).catch(() => []);
-  /* A row drawn other than plain: with a background, an outline or its buttons showing. */
-  const drawnRow = (r) => r.background !== 'rgba(0, 0, 0, 0)' || !!r.outline || r.buttons;
-  /* The rows of `looks` drawn wrong, given the ids of the open conversations in `open` and the conversation Claude Code
-     counts as in front in `front` (an id, or null). A row is wrong when its conversation is open nowhere and it is
-     drawn as the one in front, as picked or as the row the arrow keys are on, or drawn other than plain away from the
-     keyboard focus (a list with the focus draws that row as it draws the row under the mouse). A row is also wrong when
-     it is drawn as the one in front but is not `front`, or is `front` and is not drawn so. */
-  const misdrawn = (looks, open, front) => looks.filter((r) => r.id
-    && ((!open.includes(r.id) && (r.active || r.selected || r.highlighted || (!r.focus && drawnRow(r)))) || r.active !== (r.id === front)));
-
+  /* The row of a conversation in Agent Plus's list, with whether it shows the envelope of a reply not read yet. */
+  const rowParts = (t) => slRow(t).catch(() => null);
+  const envelopeBetween = (p) => !!p && p.unread;
   /* ── the conversation's page ── */
   let conv = null;
   const conversation = (t, ms = 90000) => frameWhere((q) => document.querySelectorAll('[class*="userMessage_"]').length >= q.n
@@ -926,86 +834,18 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     await step('session list', async () => {
-      check(!!await openList(), 'Claude Code\'s session list opens with this extension\'s buttons in it');
+      check(!!await openList(), 'Claude Code\'s session list opens');
       if (!list) return;
-      const top = await list.evaluate(() => ({
-        ours: [...document.querySelectorAll('[data-cce-new-session]')].map((b) => [b.getAttribute('data-cce-new-session'), b.innerText.trim(), b.title]),
-        theirs: [...document.querySelectorAll('button')].filter((b) => b.innerText.trim() === 'New session').length }));
-      check(JSON.stringify(top.ours) === JSON.stringify([['tab', 'New in tab', 'Start a conversation in a new editor tab'],
-        ['sidebar', 'New in sidebar', 'Start a conversation in the sidebar']]) && top.theirs === 0,
-      'New in tab and New in sidebar stand in place of Claude Code\'s New session', top);
-      /* Each keeps its 16 px icon however narrow the list is; macOS and Windows open the window narrow enough to test it. */
-      const icons = await list.evaluate(() => [...document.querySelectorAll('[data-cce-new-session]')].map((b) => {
-        const i = b.querySelector('svg') || (b.firstElementChild && b.firstElementChild.firstElementChild);
-        return i ? Math.round(i.getBoundingClientRect().width) : 0;
-      }));
-      check(icons.length === 2 && icons.every((x) => x === 16), 'and each keeps its icon whole', icons);
       const listed = await until(async () => {
         const got = await list.evaluate(() => [...document.querySelectorAll('[class*="sessionItem_"] span[class*="sessionName_"]')].map((e) => e.textContent.trim()));
         return threads.every((t) => got.includes(t.title)) && got;
       }, 30000, 500);
       check(!!listed, `it lists the ${threads.length} fake conversations by their titles`, listed || undefined);
-      const pins = await until(async () => {
-        const p = await list.evaluate((ids) => ids.map((id) => {
-          const e = [...document.querySelectorAll(`[data-cce-pin="${id}"]`)].find((x) => !x.closest('[data-cce-section]'));
-          const r = e && e.closest('[class*="sessionItem_"]');
-          return e && { off: e.hasAttribute('data-cce-pin-off'), pinned: e.getAttribute('data-cce-pinned'), label: e.getAttribute('aria-label'),
-            shown: getComputedStyle(e).display !== 'none', row: r ? r.innerText.replace(/\s+/g, ' ') : '' };
-        }), threads.map((t) => t.id));
-        return p.every((x) => x && !x.off && x.shown) && p;
-      }, 20000, 500);
-      check(!!pins && pins.every((p) => p.pinned === '0' && /^Pin this conversation/.test(p.label)), 'every row has a hollow pin, not pinned', pins);
-      check(!!pins && pins.every((p) => /\b(?:now|\d+[smhd]) · \d\d\/\d\d\b/.test(p.row)), 'and every row shows how long its conversation ran and its date', pins && pins.map((p) => p.row));
+      const ours = await list.evaluate(() => document.querySelectorAll('[data-cce-pin], [data-cce-section], [data-cce-new-session], [data-cce-envelope]').length);
+      check(ours === 0, 'and this extension draws nothing in it: Agent Plus\'s session list is where it adds to the list', ours);
       await page.mouse.move(5, 880);
       await sleep(300);
       await shot('session-list');
-      await compareAt('new-session-buttons', list.locator('div:has(> [data-cce-new-session="tab"])').first());
-      await compareAt('pin', list.locator(`[data-cce-pin="${threads[2].id}"]:not([data-cce-section] *)`).first());
-
-      /* The menu: what this extension puts in it, and no menu of VS Code's over it. */
-      const menu = await openMenu(threads[1]);
-      check(!!menu && menu.length === 1 && ['Resume in tab', 'Resume in sidebar', 'Text color'].every((l) => menu[0].includes(l))
-        && !menu[0].includes('Resume session'), 'a right-click on a row opens the list\'s menu with Resume in tab, Resume in sidebar and Text color, in place of Resume session', menu);
-      check(!await visibleNativeMenu(), 'and no menu of VS Code\'s opens over it');
-      await page.mouse.move(5, 880);
-      await sleep(300);
-      await shot('session-row-menu');
-      const resume = await Promise.all([item('Resume in tab').boundingBox(), item('Resume in sidebar').boundingBox()]);
-      if (resume[0] && resume[1]) {
-        const box = { x: resume[0].x, y: resume[0].y, width: resume[0].width, height: resume[1].y + resume[1].height - resume[0].y };
-        base.compare('row-menu-resume', await crop(box));
-      }
-      await compareAt('row-menu-text-color', item('Text color'));
-      await item('Text color').hover();
-      const sub = await until(async () => { const m = await menus(); return m.length > 1 ? m[1] : null; }, 5000, 200);
-      check(!!sub && sub[0] === 'Default ✓' && JSON.stringify(sub.slice(1)) === JSON.stringify(COLORS),
-        'resting on Text color opens its submenu: Default, checked, and the eight colours', sub);
-      await shot('session-text-color');
-      if (sub) await compareAt('text-color-submenu', list.locator('[role="menu"]').nth(1));
-      const colourOf = () => row(threads[1]).locator('span[class*="sessionName_"]').first().evaluate((e) => getComputedStyle(e).color);
-      const was = await colourOf();
-      await item('Red', 1).click();
-      const now = await until(async () => { const c = await colourOf(); return c === RED_TITLE && c; }, 15000, 300);
-      check(!!now && !(await menus()).length, 'clicking Red closes the menu and draws that row\'s title in the theme\'s red', { was, now: await colourOf() });
-      await shot('session-row-red');
-
-      /* A pin clicked. */
-      const pin = list.locator(`[data-cce-pin="${threads[2].id}"]:not([data-cce-section] *)`).first();
-      await pin.click();
-      const pinned = await until(async () => {
-        const p = await pin.evaluate((e) => ({ pinned: e.getAttribute('data-cce-pinned'), label: e.getAttribute('aria-label'), color: getComputedStyle(e).color }));
-        return p.pinned === '1' && p.color === PIN_PURPLE && p;
-      }, 20000, 500);
-      check(!!pinned && /^Unpin this conversation/.test(pinned.label), 'clicking a pin pins the conversation: the pin turns purple and offers to unpin',
-        pinned || await pin.evaluate((e) => [e.getAttribute('data-cce-pinned'), getComputedStyle(e).color]));
-      await clickEmpty();
-      await shot('session-pinned');
-      await compareAt('pin-pinned', pin);
-
-      /* The hover text of a row. */
-      const hover = await labelOf(list, row(threads[2]).locator('span[class*="sessionName_"]').first());
-      check(hover.text === `Group: Ungrouped\nSession ID: ${threads[2].id}`, 'resting on a row shows its group and its session ID', hover.text);
-      if (hover.png) base.compare('row-hover-label', hover.png);
 
       /* The transcripts of a `claude --bg`, a `claude -p` and a daemon session that lib/fake-home.js wrote with the
          others. claudeCodePlus.hideBackgroundSessions, on by default, leaves all three out; turned off, without a reload,
@@ -1055,11 +895,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     const tab0 = threads[0];
     await step('a conversation in a tab', async () => {
-      if (!list) throw new Error('the session list did not open');
       const before = await tabs();
-      retried(await pick(tab0, ['Resume in tab']), 'Resume in tab');
+      await showSl();
+      await until(async () => !!(await slRow(tab0)), 30000, 500);
+      await slRowAt(tab0).click();
       const opened = await until(async () => { const t = await claudeTabs(); return t.find((x) => x.active && titled(x.label, tab0.title)); }, 30000, 500);
-      check(!!opened, 'Resume in tab opens the conversation in an editor tab titled by the conversation', opened || await tabs());
+      check(!!opened, 'a click on its row in Agent Plus\'s session list opens the conversation in an editor tab titled by the conversation', opened || await tabs());
       check(!await auxiliaryVisible(), 'and not in the sidebar', { before, after: await tabs() });
       conv = await conversation(tab0);
       check(!!conv, 'Claude Code draws every turn of the conversation in that tab');
@@ -1073,10 +914,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(edges.length === tab0.turns.length && edges.every((x) => x === '3px'), 'your messages have the bar down their left edge', edges);
       await shot('conversation-tab');
 
-      /* OPEN SESSIONS in the list. */
-      const open = await until(async () => (await sections()).find((x) => x.open && x.rows.includes(tab0.id)), 15000, 500);
-      check(!!open && /^OPEN SESSIONS 1$/i.test(open.head) && open.rows.length === 1, 'OPEN SESSIONS at the top of the list holds the conversation now open', open || await sections());
-      if (open) await compareAt('open-sessions-head', list.locator('[data-cce-open-sessions] [data-cce-section-head]').first());
+      const here = await until(async () => { const r = await slRow(tab0); return r && r.stripe === 'here' && r; }, 15000, 500);
+      check(!!here, 'and its row in Agent Plus\'s session list has the solid stripe of a conversation open in this window', here || await slRow(tab0));
 
       /* The rail and its list. */
       const rail = await conv.evaluate(() => {
@@ -1391,11 +1230,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const running = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d.waiting === 0 && d; }, 20000, 500);
       check(!!running, 'while the turn runs the tab\'s logo carries the green dot', await dotsOn(t.label));
       check(!!running && filled(running.shape) && running.blue === 0, 'a filled dot, green in the middle too, with no blue in it', running);
-      const listRunning = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
-      check(!!listRunning && listRunning.blue === 0, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
-      const rowRunning = [await listDotState(tab0), await listDotState(tab0, true)];
-      check(rowRunning.every((s) => s && s.state === 'running' && !s.ring && s.background === GREEN),
-        'both its rows in the session list draw a filled dot, not a ring, in the tabs\' green', rowRunning);
+      const listRunning = await until(async () => { const d = await listDot(tab0); return d && d.dot === 'green' && d; }, 10000, 500);
+      check(!!listRunning, 'and its row in Agent Plus\'s session list draws a filled green dot, not a ring', await listDot(tab0));
       await shot('tab-dot-running');
       const green = await tabLogo(t.label);
       if (running && green) base.compare('tab-dot-running', green.png);
@@ -1430,23 +1266,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!seenUnread && (await needCount()) === null, 'and leaves it out of the status bar count',
         { agentPlus: seenUnread || attentionOf(tab0.id), count: await needCount() });
       await shot('tab-dot-unread-notice');
-      const listUnread = await until(async () => {
-        const d = await listDot(tab0), env = await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${tab0.id}"] [data-cce-envelope]`).count();
-        return d && d.running === 0 && env === 1 && d;
-      }, 10000, 500);
-      check(!!listUnread, 'and its row in OPEN SESSIONS has an envelope and no dot', await listDot(tab0));
-      /* In the list below OPEN SESSIONS too: after the name and before the time, and whole while a side bar too narrow for
-         the name cuts the name short. */
-      const parts = await until(async () => { const p = await rowParts(tab0); return envelopeBetween(p) && p; }, 10000, 500);
-      check(!!parts && parts.form === `"${ENVELOPE.trim()}"`, 'its row in the list below has one envelope, in its colour form, after the name and before the time',
-        parts || await rowParts(tab0));
-      const wide = await win.sideWidth(page);
-      await win.sideTo(page, 230);
-      const cut = await until(async () => { const p = await rowParts(tab0); return p && p.cut && envelopeBetween(p) && p; }, 10000, 500);
-      check(!!cut, 'in a side bar too narrow for the name, the name is cut short and the envelope stays whole after it, before the time',
-        { parts: cut || await rowParts(tab0), side: await win.sideWidth(page) });
-      await shot('tab-dot-unread-narrow');
-      if (wide) await win.sideTo(page, wide);
+      const listUnread = await until(async () => { const r = await rowParts(tab0); return r && r.unread && r.dot === 'none' && r; }, 10000, 500);
+      check(!!listUnread, 'and its row in Agent Plus\'s session list has the envelope and no dot', await rowParts(tab0));
       await page.mouse.move(5, 880);
       await shot('tab-dot-unread');
       await page.locator('.tabs-container .tab').filter({ hasText: t.label.slice(0, 16) }).first().click();
@@ -1484,8 +1305,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const waiting = await until(async () => { const d = await dotsOn(t.label); return d && d.waiting >= 6 && d.running === 0 && d; }, 20000, 500);
       check(!!waiting, 'and while it waits the tab\'s logo carries the red dot', await dotsOn(t.label));
       check(!!waiting && waiting.blue === 0, 'and nothing blue, the colour of Claude Code\'s own dot for this', waiting);
-      const listWaiting = await until(async () => { const d = await listDot(tab0); return d && d.waiting >= 4 && d; }, 10000, 500);
-      check(!!listWaiting && listWaiting.blue === 0, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      const listWaiting = await until(async () => { const d = await listDot(tab0); return d && d.dot === 'blue' && d; }, 10000, 500);
+      check(!!listWaiting, 'and its row in Agent Plus\'s session list draws the blue dot of a dialog waiting for you', await listDot(tab0));
       /* The conversation in front of the window that has the focus is the one the user is looking at, so Agent Plus
          neither tells of it nor counts it. Checked only after Agent Plus has written that it sees the conversation
          waiting in front. */
@@ -1702,16 +1523,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && status() === 'idle' && d; }, 25000, 500);
       check(!!green, 'with the turn over and the command still running, the tab\'s logo carries a green ring', Object.assign(seen(), { dots: await dotsOn(t.label) }));
       check(!!green && ringed(green.shape) && green.blue === 0, 'hollow in the middle, not a filled dot', green);
-      const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
-      check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
-      const rowRing = await until(async () => { const s = [await listDotState(tab0), await listDotState(tab0, true)]; return s.every((x) => x && x.state === 'running' && x.ring) && s; }, 10000, 500);
-      check(!!rowRing && rowRing.every((x) => x.border === GREEN && x.background !== GREEN), 'both its rows in the session list draw it as a ring in the tabs\' green',
-        rowRing || [await listDotState(tab0), await listDotState(tab0, true)]);
+      const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.dot === 'greenRing' && d; }, 10000, 500);
+      check(!!listGreen, 'and its row in Agent Plus\'s session list draws the green ring', await listDot(tab0));
       if (hidden) {
         const both = await until(async () => (await claudeTabs()).find((y) => y.label.endsWith(ENVELOPE) && titled(y.label.replace(ENVELOPE, ''), tab0.title)), 15000, 500);
         check(!!both, 'after the turn ended out of sight with work still running, the tab\'s title ends in an envelope beside the ring', await claudeTabs());
-        const listBoth = await until(async () => (await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${tab0.id}"] [data-cce-envelope]`).count()) === 1, 10000, 500);
-        check(!!listBoth && envelopeBetween(await rowParts(tab0)), 'and both its rows in the session list have the envelope, after the name and before the time', await rowParts(tab0));
+        const listBoth = await until(async () => { const r = await rowParts(tab0); return r && r.unread && r; }, 10000, 500);
+        check(!!listBoth, 'and its row in Agent Plus\'s session list has the envelope', await rowParts(tab0));
         /* While its background work runs, the conversation has not finished, so Agent Plus shows no notice for it yet.
            */
         const working = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'background' && a; }, 20000, 300);
@@ -1782,8 +1600,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
         check(!!green, 'with the reply sent and the helper still running, the tab\'s logo carries a green ring', Object.assign(seen(), { dots: await dotsOn(t.label) }));
         check(!!green && ringed(green.shape), 'hollow in the middle, not a filled dot', green);
-        const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
-        check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+        const listGreen = await until(async () => { const d = await listDot(tab0); return d && (d.dot === 'green' || d.dot === 'greenRing') && d; }, 10000, 500);
+        check(!!listGreen, 'and so does its row in Agent Plus\'s session list', await listDot(tab0));
         const pill = await until(async () => { const f = await footer(); return f && f.dot === 'running' && /\b1 agent\b/.test(f.label) && f; }, 20000, 500);
         check(!!pill && pill.colour === GREEN, 'the agents button counts the helper as 1 agent, and its dot is the tabs\' green', await footer());
         if (pill) {
@@ -1832,8 +1650,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const green = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && status() === 'idle' && d; }, 25000, 500);
       check(!!green, 'with the turn over and the detached command running, the tab\'s logo carries a green ring', { status: status(), dots: await dotsOn(t.label) });
       check(!!green && ringed(green.shape), 'hollow in the middle, not a filled dot', green);
-      const listGreen = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
-      check(!!listGreen, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      const listGreen = await until(async () => { const d = await listDot(tab0); return d && (d.dot === 'green' || d.dot === 'greenRing') && d; }, 10000, 500);
+      check(!!listGreen, 'and so does its row in Agent Plus\'s session list', await listDot(tab0));
       const button = conv.locator('button, [role="button"]').filter({ hasText: /\b1 detached\b/ }).first();
       const labelled = await until(() => button.isVisible().catch(() => false), 20000, 500);
       check(!!labelled, 'the Agents button counts it as 1 detached', await conv.evaluate(() => document.body.innerText.slice(-400)));
@@ -2000,8 +1818,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!running && running.colour === GREEN, 'with the turn over, the agents button counts it as 1 bg, and its dot is the tabs\' green', await pill());
       const ring = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
       check(!!ring, 'and the tab\'s logo carries the green ring', await dotsOn(t.label));
-      const listRing = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
-      check(!!listRing, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+      const listRing = await until(async () => { const d = await listDot(tab0); return d && (d.dot === 'green' || d.dot === 'greenRing') && d; }, 10000, 500);
+      check(!!listRing, 'and so does its row in Agent Plus\'s session list', await listDot(tab0));
       await shot('agents-button-bg-running');
       if (running) {
         await conv.locator('button[data-agents-dot]').first().click({ timeout: 5000 });
@@ -2127,8 +1945,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           { footer: await footer(), file: result.file, output: hints(), status: sessionStatus(tab0.id), words: cliWords(job) });
         const ring = await until(async () => { const d = await dotsOn(t.label); return d && d.running >= 6 && d; }, 25000, 500);
         check(!!ring && ringed(ring.shape), 'and the tab\'s logo carries the green ring, hollow in the middle', await dotsOn(t.label));
-        const listRing = await until(async () => { const d = await listDot(tab0); return d && d.running >= 4 && d; }, 10000, 500);
-        check(!!listRing, 'and so does its row in OPEN SESSIONS', await listDot(tab0));
+        const listRing = await until(async () => { const d = await listDot(tab0); return d && (d.dot === 'green' || d.dot === 'greenRing') && d; }, 10000, 500);
+        check(!!listRing, 'and so does its row in Agent Plus\'s session list', await listDot(tab0));
         await shot('agents-button-bg-output-running');
         const button = conv.locator('button[data-agents-dot]').first();
         const opened = await button.isVisible().catch(() => false);
@@ -2212,8 +2030,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const asked = await red();
         check(!!asked && asked.blue === 0,
           'a question the plan put to the user after the user\'s last message makes the tab\'s dot red', asked || await dotsOn(t.label));
-        const rows = await until(async () => { const s = [await listDotState(tab0), await listDotState(tab0, true)]; return s.every((x) => x && x.state === 'waiting') && s; }, 15000, 500);
-        check(!!rows, 'and both its rows in the session list', rows || [await listDotState(tab0), await listDotState(tab0, true)]);
+        const rows = await until(async () => { const s = [await listDotState(tab0)]; return s.every((x) => x && x.state === 'waiting') && s; }, 15000, 500);
+        check(!!rows, 'and its row in Agent Plus\'s session list', rows || [await listDotState(tab0)]);
         /* The window with the focus shows the conversation behind another editor: Agent Plus counts it and, from an Agent
            Plus with 'waitingFor', shows no notice of it there. */
         const told = apWaits ? null : await until(() => noticeOf(tab0), 30000, 250) || (await listedNotices()).find(about(tab0));
@@ -2358,8 +2176,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!shown && CHOICE.options.every((o) => shown.includes(o)), 'Claude Code shows the choice box with its question and both options', shown);
         const chooses = await red();
         check(!!chooses && chooses.blue === 0, 'and while it waits for the choice the tab\'s dot is red', chooses || await dotsOn(t.label));
-        const rowsChoose = await until(async () => { const s = [await listDotState(tab0), await listDotState(tab0, true)]; return s.every((x) => x && x.state === 'waiting') && s; }, 15000, 500);
-        check(!!rowsChoose, 'and so are both its rows in the session list', rowsChoose || [await listDotState(tab0), await listDotState(tab0, true)]);
+        const rowsChoose = await until(async () => { const s = [await listDotState(tab0)]; return s.every((x) => x && x.state === 'waiting') && s; }, 15000, 500);
+        check(!!rowsChoose, 'and so is its row in Agent Plus\'s session list', rowsChoose || [await listDotState(tab0)]);
         const inSight = await until(() => { const a = attentionOf(tab0.id); return a && a.activity === 'waiting' && a.front && a; }, 20000, 300);
         const none = inSight ? await noticesWithin(tab0) : null;
         check(!!inSight && !none.length && (await needCount()) === null, 'Agent Plus sees it waiting in the front tab of the window with the focus, so it shows no notice and counts nothing',
@@ -2427,7 +2245,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await page.keyboard.type(text);
         await page.keyboard.press('Enter');
       };
-      const rows = async () => [await listDotState(tab0), await listDotState(tab0, true)];
+      const rows = async () => [await listDotState(tab0)];
       const redDot = (d) => !!d && d.waiting >= 6 && d.running === 0;
       /* The question card on screen. A card answered earlier leaves its question and options in the transcript, so a
          match that takes in one of the user's messages is the transcript, not the card. */
@@ -2473,6 +2291,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
          tab's dot and both rows watched for red. The host works the dots out again every 10 s (extension.js). */
       const watchRed = async (ms = 20000) => {
         const envelope = !!await until(async () => (await claudeTabs()).find((y) => y.label.endsWith(ENVELOPE) && titled(y.label.replace(ENVELOPE, ''), tab0.title)), 30000, 500);
+        /* Agent Plus's row learns that the turn ended on its next refresh; until then it still runs, and a question the
+           plan put while it runs is drawn as a red ring, before the typed answer has been taken into the turn. */
+        await until(async () => (await rows()).every((x) => x && !x.ring), 10000, 300);
         const reds = [], t0 = Date.now();
         while (Date.now() - t0 < ms) {
           const d = await dotsOn(t.label), r = await rows();
@@ -2529,7 +2350,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const cardTurn = await finish();
           const calm = await watchRed();
           check(cardTurn.running && cardTurn.hidden && cardTurn.over && calm.envelope && !calm.redCount,
-            'a question the plan put during a turn and answered on a question card later in it leaves no red dot on the tab or its session list rows once the turn ends',
+            'a question the plan put during a turn and answered on a question card later in it leaves no red dot on the tab or its row in Agent Plus\'s session list once the turn ends',
             { turn: cardTurn, ...calm });
           const end = await until(() => { const a = attentionOf(tab0.id); return a && a.activity && a.activity !== 'working' && a; }, SEEN_MS, 300);
           if (end) await sleep(noticeDelay.waiting + 3000);
@@ -2552,7 +2373,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           asks.map((x) => ({ parts: x.parts, ask: x.ask.slice(-160), typed: x.typed.slice(-80) })));
         const calm3 = await watchRed();
         check(typedTurn.running && typedTurn.hidden && typedTurn.over && calm3.envelope && !calm3.redCount,
-          'a question the plan put during a turn and answered by a message typed while the turn ran leaves no red dot on the tab or its session list rows once the turn ends',
+          'a question the plan put during a turn and answered by a message typed while the turn ran leaves no red dot on the tab or its row in Agent Plus\'s session list once the turn ends',
           { turn: typedTurn, ...calm3 });
         await shot('question-answered-by-typing');
         await reset();
@@ -2634,36 +2455,28 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     await step('a closed tab', async () => {
-      if (!list) throw new Error('the session list did not open');
-      /* Earlier steps may have closed tabs of their own; the count is taken before this one closes. */
-      const countOf = (x) => { const c = x.find((y) => y.closed); const m = c && /(\d+)\s*$/.exec(c.head); return m ? Number(m[1]) : 0; };
-      const before = countOf(await sections());
+      await showSl();
       const closed = await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)});
-        if (!t) return false; await vscode.window.tabGroups.close(t); return true;`);
+        if (!t) return ''; await vscode.window.tabGroups.close(t); return t.label;`);
       if (!closed) throw new Error('no Claude Code tab to close');
-      const s = await until(async () => { const x = await sections(); const c = x.find((y) => y.closed); return c && countOf(x) === before + 1 && !x.some((y) => y.open && y.rows.length) && x; }, 20000, 500);
-      const c = s && s.find((y) => y.closed);
-      check(!!c && /^RECENTLY CLOSED \d+$/i.test(c.head) && countOf(s) === before + 1 && c.collapsed,
-        'closing the tab puts RECENTLY CLOSED, folded, at the top of the list, with one more conversation than before, and leaves OPEN SESSIONS empty', { before, sections: s || await sections() });
+      const which = threads.find((t) => titled(closed, t.title));
+      if (!which) throw new Error(`the closed tab ${closed} is none of the fake conversations`);
+      const shown = await until(async () => { const r = await slRows().catch(() => null); return r && r.find((x) => x.section === 'closed' && x.title === which.title) && r; }, 20000, 500);
+      check(!!shown, 'closing a Claude Code tab puts its conversation in Recently closed at the top of Agent Plus\'s session list', shown || await slRows());
+      const own = shown && slFind(shown, which);
+      check(!!own && own.stripe === 'closed', 'and its own row has the stripe of one closed here lately', own);
       await page.mouse.move(5, 880);
       await sleep(300);
       await shot('recently-closed');
-      if (!c) return;
-      await compareAt('recently-closed-head', list.locator('[data-cce-recent-closed] [data-cce-section-head]').first());
-      await list.locator('[data-cce-recent-closed] [data-cce-section-head] button').first().click();
-      const shown = await until(async () => { const x = (await sections()).find((y) => y.closed); return x && !x.collapsed && x.rows.includes(tab0.id) && x; }, 10000, 300);
-      check(!!shown, 'and opening it shows the conversation just closed', (await sections()).find((y) => y.closed));
-      await page.mouse.move(5, 880);
-      await shot('recently-closed-open');
     });
 
     await step('the sidebar and new conversations', async () => {
-      if (!list) throw new Error('the session list did not open');
+      await showSl();
       const t2 = threads[2];
       const tabsBefore = (await claudeTabs()).length;
-      retried(await pick(t2, ['Resume in sidebar']), 'Resume in sidebar');
+      await slPick(t2, 'Open in Sidebar');
       const side = await until(async () => await auxiliaryVisible() && await conversation(t2, 1000), 60000, 1000);
-      check(!!side && (await claudeTabs()).length === tabsBefore, 'Resume in sidebar opens the conversation in the secondary sidebar, with no new tab',
+      check(!!side && (await claudeTabs()).length === tabsBefore, 'Open in Sidebar in its row\'s menu opens the conversation in the secondary sidebar, with no new tab',
         { sidebar: await auxiliaryVisible(), tabs: await tabs() });
       await shot('resumed-in-sidebar');
       /* The sidebar is narrower than a reply's stamp: it wraps between its parts rather than running past its column. */
@@ -2681,13 +2494,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       if (fit.length && !fit.some((f) => f.wrapped)) note('the sidebar was wide enough for every stamp, so none had to wrap');
       await exec('workbench.action.closeAuxiliaryBar');
 
-      await list.locator('[data-cce-new-session="sidebar"]').first().click();
+      await showSl();
+      await sl.locator('.sl-new-half[data-where="sidebar"]').click();
       const sideNew = await until(auxiliaryVisible, 20000, 500);
-      check(!!sideNew && (await claudeTabs()).length === tabsBefore, 'New in sidebar opens Claude Code in the secondary sidebar, with no new tab', await tabs());
+      check(!!sideNew && (await claudeTabs()).length === tabsBefore, 'New in sidebar in Agent Plus\'s session list opens Claude Code in the secondary sidebar, with no new tab', await tabs());
       await shot('new-in-sidebar');
       await exec('workbench.action.closeAuxiliaryBar');
 
-      await list.locator('[data-cce-new-session="tab"]').first().click();
+      await showSl();
+      await sl.locator('.sl-new-half[data-where="tab"]').click();
       const tabNew = await until(async () => { const x = await claudeTabs(); return x.length === tabsBefore + 1 && x.find((y) => y.active) && x; }, 30000, 500);
       check(!!tabNew, 'New in tab opens a new Claude Code tab', await tabs());
       /* Its page takes the focus as it starts; the next step's menu would close under it. */
@@ -2697,7 +2512,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     await step('an archived conversation', async () => {
-      if (!list) throw new Error('the session list did not open');
       const t1 = threads[1];
       const tabOf = async () => (await claudeTabs()).find((x) => titled(x.label, t1.title));
       const live = () => {
@@ -2712,56 +2526,49 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           } catch (_) { return false; }
         });
       };
-      /* Archived while it is open in a tab, so that Delete session… meets a conversation that is open. */
+      const archivedRow = async () => { const r = await slRows().catch(() => null); return (r || []).find((x) => x.section === 'archived' && x.title === t1.title) || null; };
+      const openArchived = async () => {
+        const head = sl.locator('.sl-section[data-key="archived"] .sl-head').first();
+        if (!await head.evaluate((e) => e.parentElement.classList.contains('sl-open')).catch(() => true)) await head.click();
+      };
+      /* Archived while it is open in a tab, so that deleting meets a conversation that is open. */
       await exec('claude-vscode.editor.open', t1.id);
       const opened = !!await until(tabOf, 20000, 500);
       if (!opened) note('the conversation did not open in a tab, so deleting an open one was not tried');
-      retried(await pick(t1, ['Archive session']), 'Archive session');
-      check(!!await until(() => list.evaluate(() => [...document.querySelectorAll('button, [role="button"]')].some((b) => /^Archived/.test(b.innerText.trim()))), 15000, 500),
-        'Archive session moves the conversation under Archived sessions');
-      /* Claude Code lists archived conversations in a section of its own, folded until opened. */
-      const header = list.locator('button, [role="button"]').filter({ hasText: /^Archived/ }).first();
-      await header.waitFor({ state: 'visible', timeout: 15000 });
-      if (!await row(t1).isVisible().catch(() => false)) await header.click();
-      await row(t1).waitFor({ state: 'visible', timeout: 15000 });
+      await showSl();
+      await slPick(t1, 'Archive');
+      check(!!await until(archivedRow, 15000, 500), 'Archive moves the conversation to Archived in Agent Plus\'s session list', await slRows());
+      await openArchived();
+      const archivedAt = sl.locator('.sl-section[data-key="archived"] .sl-row').filter({ has: sl.locator('.sl-title', { hasText: t1.title }) }).first();
+      const archivedMenu = async () => { await page.keyboard.press('Escape'); await archivedAt.click({ button: 'right' }); const m = await slMenu(); await page.keyboard.press('Escape'); return m; };
       if (opened) {
-        await exec('notifications.clearAll');
-        retried(await pick(t1, ['Delete session…']), 'Delete session… on the open conversation');
-        const refused = await until(async () => (await toasts()).find((x) => /^Not deleted:/.test(x)) || '', 15000, 300);
-        const asked = await dialog();
-        check(!!refused && refused.includes(t1.title) && !asked && fs.existsSync(transcriptOf(t1)),
-          'Delete session… on an archived conversation open in a tab deletes nothing and says it is open', { refused, asked, toasts: await toasts(), tab: await tabOf() });
-        if (asked) await answerDialog('Cancel');
-        await exec('notifications.clearAll');
+        const m = await archivedMenu();
+        check(!!m && !m.includes('Delete...') && fs.existsSync(transcriptOf(t1)), 'an archived conversation open in a tab offers no Delete...', m);
         await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
           && x.label && ${JSON.stringify(t1.title)}.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12);
           if (t) await vscode.window.tabGroups.close(t); return !!t;`);
         const gone = await until(async () => !(await tabOf()) && !live(), 30000, 500);
         check(!!gone, 'closing its tab ends its Claude Code process', { tab: await tabOf(), running: live() });
-        if (!await row(t1).isVisible().catch(() => false)) await header.click();
-        await row(t1).waitFor({ state: 'visible', timeout: 15000 });
       }
-      const menu = await openMenu(t1);
-      check(!!menu && menu[0].includes('Delete session…'), 'an archived conversation\'s menu has Delete session…', menu);
-      await page.mouse.move(5, 880);
-      await sleep(300);
+      const menu = await until(async () => { const m = await archivedMenu(); return m && m.includes('Delete...') && m; }, 20000, 1000);
+      check(!!menu, 'once nothing has it open, an archived conversation\'s menu has Delete...', menu || await archivedMenu());
       await shot('archived-menu');
-      if (menu) await compareAt('row-menu-delete', item('Delete session…'));
-      retried(await pick(t1, ['Delete session…']), 'Delete session…');
-      const d = await until(dialog, 15000, 300);
-      check(!!d && d.text.includes(`Delete "${t1.title}" from disk?`) && d.text.includes('This cannot be undone.') && d.buttons.includes('Delete') && d.buttons.includes('Cancel'),
-        'Delete session… asks first, in a dialog naming the conversation, saying it cannot be undone, with Delete and Cancel', d);
-      await shot('delete-confirmation');
-      if (d) check(await answerDialog('Cancel') && fs.existsSync(transcriptOf(t1)), 'Cancel closes it and deletes nothing', transcriptOf(t1));
-      /* Later steps right-click and drag this conversation's row as an ordinary one; under Archived sessions its menu
-         differs and its row cannot be dragged. */
-      retried(await pick(t1, ['Unarchive session']), 'Unarchive session');
-      const ordinary = await until(async () => {
-        const m = await openMenu(t1);
-        await closeMenus();
-        return m && m[0].includes('Archive session') && !m[0].includes('Unarchive session') ? m : null;
-      }, 15000, 1000);
-      check(!!ordinary, 'Unarchive session puts it back among the other conversations, for the steps after this one', ordinary);
+      if (menu) {
+        await archivedAt.click({ button: 'right' });
+        await slMenu();
+        await slItem('Delete...').click();
+        const d = await until(dialog, 15000, 300);
+        check(!!d && d.text.includes(t1.title) && /transcript/.test(d.text) && d.text.includes('This cannot be undone.') && d.buttons.includes('Delete') && d.buttons.includes('Cancel'),
+          'Delete... asks first, in a dialog naming the conversation and what of it is on disk, saying it cannot be undone, with Delete and Cancel', d);
+        await shot('delete-confirmation');
+        if (d) check(await answerDialog('Cancel') && fs.existsSync(transcriptOf(t1)), 'Cancel closes it and deletes nothing', transcriptOf(t1));
+      }
+      /* Later steps use this conversation as an ordinary one. */
+      await archivedAt.hover();
+      await archivedAt.locator('.sl-act[data-act="unarchive"]').click();
+      await page.mouse.move(5, 880);
+      const back = await until(async () => { const r = await slRow(t1); return r && r.section === 'ungrouped' && r; }, 15000, 500);
+      check(!!back, 'Unarchive puts it back among the other conversations, for the steps after this one', back || await slRows());
     });
 
     await step('the steward panel', async () => { try {
@@ -2838,25 +2645,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           && titled(label.slice(0, -' \u{1F451}'.length), front.title);
         const marked = await until(async () => (await claudeTabs()).find((x) => belled(x.label)), 10000, 300);
         check(!!marked, 'and its tab keeps its title with one crown after it', await claudeTabs());
-        /* Each of its rows in the session list, in OPEN SESSIONS and below it: one crown, drawn after the title and before
-           any envelope, outside the title, and no mark in the title; the other conversations' rows have none. The crown
-           comes before the title in the row's markup and the stylesheet moves it, so its place is read from where it is
-           drawn. */
-        const rowsOf = (id) => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"], [class*="sessionItem_"]:has([data-cce-pin="${id}"]), [data-cce-open-row="${id}"]`)]
-          .map((r) => {
-            const name = r.querySelector('span[class*="sessionName_"]'), crowns = [...r.querySelectorAll('[data-cce-crown]')];
-            const env = r.querySelector('[data-cce-envelope]'), box = (e) => e.getBoundingClientRect();
-            return { section: !!r.closest('[data-cce-section]'), crowns: crowns.length, name: name ? name.textContent : null,
-              after: !!name && crowns.length === 1 && !name.contains(crowns[0]) && box(crowns[0]).left >= box(name).right - 1
-                && (!env || box(env).left >= box(crowns[0]).right - 1) };
-          }), id);
-        const crownedRows = (rs, title) => rs.length >= 2 && rs.some((r) => r.section) && rs.some((r) => !r.section)
-          && rs.every((r) => r.crowns === 1 && r.after && r.name === title && !MARK_RE.test(r.name));
-        const crownRows = list ? await until(async () => { const rs = await rowsOf(front.id); return crownedRows(rs, front.title) && rs; }, 15000, 500) : null;
-        const others = list ? await Promise.all(threads.filter((t) => t.id !== front.id).map((t) => rowsOf(t.id))) : [];
-        check(!!crownRows && others.every((rs) => rs.every((r) => r.crowns === 0)),
-          'and each of its rows in the session list, in OPEN SESSIONS and below, has one crown, after the title and not in it; no other row has one',
-          { steward: crownRows || (list && await rowsOf(front.id)), others });
+        /* Its row in Agent Plus's session list: one crown, after the title and not in it; the other conversations' rows
+           have none. */
+        await showSl();
+        const crownRow = await until(async () => { const r = await slRow(front); return r && r.crown && !MARK_RE.test(r.title) && r; }, 15000, 500);
+        const others = await Promise.all(threads.filter((t) => t.id !== front.id).map((t) => slRow(t)));
+        check(!!crownRow && others.every((r) => !r || !r.crown),
+          'and its row in Agent Plus\'s session list has the crown, after the title and not in it; no other row has one', { steward: crownRow || await slRow(front), others });
         /* The Steward panel's header shows the steward's name with its crown and without the bell stored in that
            name. */
         const header = () => frame.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : null; });
@@ -2905,6 +2700,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           ['the session list row\'s Rename', (x) => viaRow(front.id, x), `${BELL}${CROWN}Retry delay of the inventory sync`, 'a bell and a crown with no space before the title'],
           ['Rename Session Tab', viaTab, front.title, 'no mark, giving the conversation its own title back'],
         ];
+        /* The conversation's rows in Agent Plus's session list, found by the session id in the row's key since the title
+           changes; each shows the title as stored and one crown outside it. */
+        const rowsOf = async (id) => {
+          await slRows().catch(() => null);
+          return sl.evaluate((id) => [...document.querySelectorAll('.sl-row')].filter((r) => (r.dataset.key || '').includes(`"${id}"`))
+            .map((r) => ({ section: (r.closest('.sl-section') || { dataset: {} }).dataset.key, title: r.querySelector('.sl-title').textContent,
+              crowns: r.querySelectorAll('.sl-crown').length })), id).catch(() => []);
+        };
+        const crownedRows = (rs, title) => rs.length >= 1 && rs.every((r) => r.crowns === 1 && r.title === title && !MARK_RE.test(r.title));
         for (const [how, rename, typed, what] of renames) {
           const want = typed === front.title || typed === null ? front.title : NAME;
           let held = null, err = '';
@@ -3001,15 +2805,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           /* While the reply is unread, the conversation is renamed through its session list row with envelopes and a
              crown typed into the name: the title is stored without them, its tab ends in one envelope, and its rows
              have one envelope after the title. */
-          /* The row's marks come before its title in the page and the envelope is drawn after it, so the test reads its
-             position from the screen. Rows in a folded section have no box. */
-          const envRows = (id) => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"], [class*="sessionItem_"]:has([data-cce-pin="${id}"])`)]
-            .filter((r) => r.getClientRects().length).map((r) => {
-              const name = r.querySelector('span[class*="sessionName_"]'), envs = [...r.querySelectorAll('[data-cce-envelope]')];
-              const nb = name && name.getBoundingClientRect(), eb = envs[0] && envs[0].getBoundingClientRect();
-              return { envs: envs.length, crowns: r.querySelectorAll('[data-cce-crown]').length, name: name ? name.textContent : null,
-                after: !!nb && envs.length === 1 && !name.contains(envs[0]) && eb.width > 0 && eb.left >= nb.right - 1 };
-            }), id);
+          /* Its row in Agent Plus's session list, as { envs, crowns, name, after }. */
+          const envRows = async (id) => {
+            const t = threads.find((x) => x.id === id);
+            const r = t ? await slRow({ title: storedTitle(id) || t.title }) : null;
+            return r ? [{ envs: r.unread ? 1 : 0, crowns: r.crown ? 1 : 0, name: r.title, after: r.unread }] : [];
+          };
           let heldT = null, errT = '';
           try { heldT = await viaRow(target.id, `${ENVELOPE.trim()} ${target.title} ${ENVELOPE.trim()} ${CROWN}`); } catch (e) { errT = String((e && e.message) || e).split('\n')[0]; }
           const kept = !errT && await until(async () => {
@@ -3018,7 +2819,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               && !tab.label.includes(CROWN) && rs.length >= 1 && rs.every((r) => r.envs === 1 && r.after && r.crowns === 0 && r.name === target.title) && { tab: tab.label, rows: rs };
           }, 20000, 500);
           check(!errT && typeof heldT === 'string' && !MARK_RE.test(heldT) && !!kept,
-            'renamed through its row with envelopes and a crown typed while its reply is unread: the title is stored without them, and its tab and rows show a single envelope at the end',
+            'renamed through its row in Claude Code\'s list with envelopes and a crown typed while its reply is unread: the title is stored without them, its tab shows a single envelope at the end, and its row in Agent Plus\'s list the envelope',
             { errT, heldT, stored: storedTitle(target.id), tabs: (await claudeTabs()).map((x) => x.label), rows: await envRows(target.id) });
           await front2();
 
@@ -3355,14 +3156,19 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!own && !!two, 'its tab runs the conversation, and so does a second CLI the test starts afterwards from the extension host, the way the panel starts one', of(t.id));
         const older = own ? own.pid : 0;
         await exec('claude-vscode.editor.open', front.id);
-        await openList();
-        /* The mark is the row's own ::after, after the title and never shrunk, so a title cut short does not cut it. */
-        const mark = () => list.evaluate((id) => [...document.querySelectorAll(`[class*="sessionItem_"][id$="${id}"]`)].map((r) => {
-          const after = getComputedStyle(r, '::after'), name = r.querySelector('span[class*="sessionName_"]');
-          return { mark: after.content, shrink: after.flexShrink, inName: name ? getComputedStyle(name, '::after').content : '' };
-        }), t.id);
-        const marked = await until(async () => { const m = await mark(); return m.length && m.every((x) => /· 2 processes/.test(x.mark) && x.shrink === '0' && !/processes/.test(x.inName)) && m; }, 45000, 1000);
-        check(!!marked, 'each of its rows in the session list says 2 processes after the title, outside it and never shrunk', await mark());
+        /* Agent Plus's session list says it in the row's hover, from Claude Code's records of the two processes. */
+        await showSl();
+        const mark = async () => {
+          await page.mouse.move(5, 880);
+          await sleep(300);
+          const other = threads.find((x) => x.id !== t.id);
+          if (other) { await slRowAt(other).hover().catch(() => {}); await sleep(700); }
+          await slRowAt(t).hover().catch(() => {});
+          return until(async () => { const h = await slHoverText(); return h && h; }, 3000, 200);
+        };
+        const marked = await until(async () => { const h = await mark(); return /Open in 2 processes at once/.test(h || '') && h; }, 45000, 1000);
+        check(!!marked, 'its row\'s hover in Agent Plus\'s session list says it is open in 2 processes at once', await mark());
+        await page.mouse.move(5, 880);
         await exec('workbench.view.extension.claudeCodePlusSteward');
         const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         const rowNow = () => panel.evaluate((id) => {
@@ -3381,7 +3187,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           check(said === `Stopped process ${older} of that conversation.` && !!gone, 'clicked, it stops the older process and says which, and the other runs on', { said, left: of(t.id) });
           /* The process left running is the one this test started the way the panel starts one. No window's panel shows
              it, so the conversation can leave the Steward panel altogether. */
-          const cleared = await until(async () => { const r = await rowNow(), m = await mark(); return (!r || (!r.twice && !r.stop)) && m.every((x) => !/processes/.test(x.mark)); }, 45000, 1000);
+          const cleared = await until(async () => { const r = await rowNow(), m = await mark(); return (!r || (!r.twice && !r.stop)) && !!m && !/processes at once/.test(m); }, 45000, 1000);
           check(!!cleared, 'and the marks go from the panel and the session list', { row: await rowNow(), list: await mark() });
         }
       } finally { await call('if (globalThis.__cceTestSecond) globalThis.__cceTestSecond.kill(); return true;').catch(() => {}); }
@@ -3614,16 +3420,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       globalThis.__cceStatesHook = (...a) => { if (got === null) got = Array.isArray(a[3]) ? a[3].slice() : []; return own(...a); };
       try { send(); } finally { globalThis.__cceStatesHook = own; }
       return got;`);
-    /* Where `t` shows its envelope: after its tab's title, on its row in OPEN SESSIONS, on its row in the list below,
-       and among the host's unread marks (`unread`). */
+    /* Where `t` shows its envelope: after its tab's title, on its row in Agent Plus's session list, and among the host's
+       unread marks (`unread`). */
     const envelopesOf = async (t, unread) => {
       const tab = (await claudeTabs()).find((x) => titled(x.label.replace(ENVELOPE, ''), t.title));
-      const open = list ? await list.locator(`[data-cce-open-sessions] [class*="sessionItem_"][id$="${t.id}"] [data-cce-envelope]`).count().catch(() => -1) : -1;
-      const p = list ? await rowParts(t) : null;
-      return { title: t.title.slice(0, 24), tab: !!tab && tab.label.endsWith(ENVELOPE), open: open === 1, row: !!p && p.envelopes === 1,
+      const p = await rowParts(t);
+      return { title: t.title.slice(0, 24), tab: !!tab && tab.label.endsWith(ENVELOPE), row: !!p && p.unread,
         host: Array.isArray(unread) && unread.includes(t.id), label: tab ? tab.label : null };
     };
-    const everywhere = (e) => e.tab && e.open && e.row && e.host;
+    const everywhere = (e) => e.tab && e.row && e.host;
     const envelopesNow = async (ts) => { const u = await hostUnread(); return Promise.all(ts.map((t) => envelopesOf(t, u))); };
 
     /*
@@ -3644,22 +3449,32 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
       const groups = (await tabs()).filter((g) => g.tabs.some((x) => x.view === PANEL_VIEW));
       check(groups.length === 1, 'the three conversations share one editor group, the last opened in front', await tabs());
-      /* Each conversation behind is marked unread in turn, the next only once the host holds the mark, with what each
-         call returned and the host's marks right after. */
+      /* Each conversation behind is marked unread in turn from its row in Agent Plus's session list, which records the mark
+         and passes it to this extension (noteSeen), which sets the host's; the next only once the host holds the mark. */
       const marks = [];
+      await showSl();
+      /* A row Agent Plus already counts as unread (a reply it never saw shown) offers Mark as Read instead: read first. */
+      const markUnread = async (t) => {
+        try { await slPick(t, 'Mark as Unread'); return 'marked'; } catch (e) { if (!/Mark as Read/.test(String((e && e.message) || e))) throw e; }
+        await page.keyboard.press('Escape');
+        await slPick(t, 'Mark as Read');
+        await sleep(500);
+        await slPick(t, 'Mark as Unread');
+        return 'marked, after marking it read';
+      };
       for (const t of behind) {
-        const said = await call('return globalThis.__cceSetUnread(arg, true);', t.id);
+        let said;
+        try { said = await markUnread(t); } catch (e) { said = String((e && e.message) || e).split('\n')[0]; }
         const held = await until(async () => { const u = await hostUnread(); return Array.isArray(u) && u.includes(t.id) && u; }, 10000, 300);
         marks.push({ id: t.id.slice(-2), said, held: held || await hostUnread() });
       }
-      await openList();
       const marked = await until(async () => { const e = await envelopesNow(behind); return e.every(everywhere) && e; }, 20000, 500);
       check(!!marked, 'the two conversations behind the one in front, marked unread, show the envelope on their tabs, their rows and in the host\'s marks',
         { now: marked || await envelopesNow(behind), marks });
 
       /* First, without the setting, what a reload alone keeps, for comparison. */
       await reloadAndWait(front);
-      await openList();
+      await showSl();
       const kept = await until(async () => { const e = await envelopesNow(behind); return e.every(everywhere) && e; }, 30000, 500);
       check(!!kept, 'after a reload with claudeCodePlus.loadRestoredTabs off, each background tab, its rows and the host\'s marks still have the envelope',
         kept || await envelopesNow(behind));
@@ -3675,14 +3490,18 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         'with claudeCodePlus.loadRestoredTabs on, the reload brings each background tab to the front once and holds it there, then brings the front tab back, and both pages load',
         { pages, record: (await watched()) || 'no record' });
       if (ran && ran.holds.some((h) => !h.cleared)) note(`a tab held in front lost no mark in 15 s, so this run does not show what the loading clears: ${JSON.stringify(ran.holds)}`);
-      await openList();
-      /* The marks have to come back once the loader has finished, and then stay, while the pages go on reporting. */
-      const back = pages ? await until(async () => { const e = await envelopesNow(behind); return e.every(everywhere) && e; }, 10000, 500) : null;
-      const lost = back ? await until(async () => { const e = await envelopesNow(behind); return e.some((x) => !everywhere(x)) && e; }, 15000, 500) : null;
+      await showSl();
+      /* The marks have to come back once the loader has finished, and then stay, while the pages go on reporting. Agent
+         Plus records a conversation read when its tab is in front, also for the moment the loader holds it there, and a
+         source has no way to tell it the conversation is still unread, so its rows are only reported here. */
+      const ours = (e) => e.tab && e.host;
+      const back = pages ? await until(async () => { const e = await envelopesNow(behind); return e.every(ours) && e; }, 10000, 500) : null;
+      const lost = back ? await until(async () => { const e = await envelopesNow(behind); return e.some((x) => !ours(x)) && e; }, 15000, 500) : null;
       const after = lost || back || await envelopesNow(behind);
       const inFront = (await claudeTabs()).find((t) => t.active);
       const rec = await watched();
-      check(!!back && !lost, 'and once it has finished, each background tab, its rows and the host\'s marks have the envelope, and keep it', { after, record: rec });
+      check(!!back && !lost, 'and once it has finished, each background tab and the host\'s marks have the envelope, and keep it', { after, record: rec });
+      if (!after.every((x) => x.row)) note(`after the loading, Agent Plus's rows show no envelope for ${after.filter((x) => !x.row).map((x) => `"${x.title}"`).join(', ')}: it took them as read while each was in front`);
       /* Kept in the output either way: when each tab was in front, the host's marks over the same time, each hold and
          when the loader finished. */
       if (rec) console.log(`        fronts: ${JSON.stringify(rec.tabs.map(([ms], i) => [ms, frontsIn(rec.tabs)[i].map((l) => l.slice(0, 12))]))}`
@@ -3980,7 +3799,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           }
         } else note('window A\'s own conversation did not load, so the link was not clicked');
 
-        /* B reloaded with X's tab restored behind another: what each window knows, then a delete from window A. */
+        /* B reloaded with X's tab restored behind another: what each window knows of it. */
         const setLoad = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('loadRestoredTabs', arg, vscode.ConfigurationTarget.Global); return true;`, v);
         const reloadB = async () => {
           const at = Date.now();
@@ -4009,18 +3828,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!off.tab && !off.tab.active && !off.loaded && off.processes.length === 0 && off.entryLists,
           'after a reload of window B, X\'s restored tab behind another has not loaded and has no process, and B\'s entry still lists it', off);
         await shotB('two-windows-restored-unloaded');
-        if (own) {
-          frontWith(profile.folder);
-          await exec('notifications.clearAll');
-          await own.evaluate((s) => { acquireVsCodeApi().postMessage({ type: 'cce_delete_sessions', sessions: [s] }); return true; }, { id: X.id, title: X.title });
-          const refused = await until(async () => (await toasts()).find((x) => /^Not deleted:/.test(x)) || '', 15000, 300);
-          const asked = await dialog();
-          check(refused === `Not deleted: "${X.title}" is open in the VS Code window "${nameB}".` && !asked && fs.existsSync(transcriptIn(X)),
-            'deleting X from window A, while only window B has it as a tab that has not loaded, deletes nothing and names window B',
-            { refused, asked, toasts: await toasts(), transcript: fs.existsSync(transcriptIn(X)) });
-          await shot('two-windows-delete-refused');
-          if (asked) await answerDialog('Cancel');
-        }
         await setLoad(true);
         const onAt = await reloadB();
         const on = await known(onAt);
@@ -4356,11 +4163,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const theme = (name) => call('await vscode.workspace.getConfiguration().update("workbench.colorTheme", arg, vscode.ConfigurationTarget.Global); return true;', name);
       const kind = () => call('return vscode.window.activeColorTheme.kind;');
       const tabEnds = (form) => until(async () => (await claudeTabs()).find((x) => x.label.endsWith(form) && titled(x.label.replace(form, ''), tab0.title)), 30000, 500);
-      /* For each of the conversation's rows in the session list, the character its envelope is drawn with. */
-      const listForms = () => list.evaluate((id) => [...document.querySelectorAll('[class*="sessionItem_"]')]
-        .filter((r) => (r.closest('[data-cce-open-sessions]') && r.id.endsWith(id)) || (!r.closest('[data-cce-section]') && r.querySelector(`[data-cce-pin="${id}"]`)))
-        .map((r) => { const e = r.querySelector('[data-cce-envelope]'); return e ? getComputedStyle(e, '::after').content : null; }), tab0.id).catch(() => []);
-      const listIn = (form) => until(async () => { const f = await listForms(); return f.length === 2 && f.every((x) => x === `"${form.trim()}"`) && f; }, 15000, 500);
+      /* Agent Plus's session list draws its own envelope icon, the same in every theme; it is only checked to be there. */
+      const listForms = async () => { const r = await rowParts(tab0); return r ? [r.unread] : []; };
+      const listIn = () => until(async () => { const f = await listForms(); return f.length === 1 && f[0] === true && f; }, 15000, 500);
       let steward = null;
       /* The envelope on the conversation's row in the Steward panel, '' for a row without one. */
       const panelForm = () => steward.evaluate((id) => {
@@ -4377,21 +4182,22 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         if (!frame) throw new Error('the conversation did not open');
         /* A reply that lands while another conversation is in front, so the Steward panel shows that other one. */
         model.hold();
-        const turns = model.turns();
+        const before = model.seen.length, typed = 'And the light theme?';
         try {
           await frame.locator('[contenteditable][role="textbox"]').first().click();
-          await page.keyboard.type('And the light theme?');
+          await page.keyboard.type(typed);
           await page.keyboard.press('Enter');
-          await until(() => model.turns() > turns, 30000, 300);
+          /* Its own request, not the next one: another conversation's turn can reach the fake model first. */
+          const sent = await until(() => model.seen.slice(before).some((x) => x.stream && (x.typed || '').includes(typed)), 30000, 300);
+          if (!sent) throw new Error(`the fake model was not sent "${typed}": ${JSON.stringify(model.seen.slice(before).map((x) => (x.typed || '').slice(-60)))}`);
           await exec('claude-vscode.editor.open', other.id);
           await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, other.title)), 20000, 300);
         } finally { model.release(); }
         const lit = await tabEnds(ENVELOPE_TEXT);
         check(!!lit, 'a reply that lands with the tab in the background ends its title in the envelope\'s text form', await claudeTabs());
-        /* A reload in an earlier step replaced the list's page, so the list is opened again. */
-        check(!!await openList(), 'the session list opens', null);
-        const rows = await listIn(ENVELOPE_TEXT);
-        check(!!rows, 'and both its rows in the session list draw the envelope in that form', await listForms());
+        await showSl();
+        const rows = await listIn();
+        check(!!rows, 'and its row in Agent Plus\'s session list has the envelope', await listForms());
         await exec('workbench.view.extension.claudeCodePlusSteward');
         steward = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         /* Running conversations come from `claude agents --json`, which is read at most every 30 s. */
@@ -4402,9 +4208,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await theme('Default Dark Modern');
         check(!!await until(async () => (await kind()) === 2, 15000, 300), 'back in Default Dark Modern', await kind());
         const darkTab = await tabEnds(ENVELOPE);
-        const darkRows = await listIn(ENVELOPE);
+        const darkRows = await listIn();
         const darkPanel = steward ? await until(async () => (await panelForm()) === ENVELOPE.trim(), 20000, 500) : false;
-        check(!!darkTab && !!darkRows && !!darkPanel, 'the tab, the session list and the Steward panel draw the colour form again, without a reload',
+        check(!!darkTab && !!darkRows && !!darkPanel, 'the tab and the Steward panel draw the colour form again, without a reload, and Agent Plus\'s list keeps its envelope',
           { tabs: await claudeTabs(), list: await listForms(), panel: steward ? await panelForm() : null });
         await shot('dark-envelope-again');
       } finally {
@@ -4930,41 +4736,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await setNotify('waiting', null).catch(() => {});
         await testFocus(null).catch(() => {});
         await exec('notifications.clearAll').catch(() => {});
-      }
-    });
-
-    /* Three of the session list's switches, each turned off and on again without a reload: the dates after a row's time,
-       OPEN SESSIONS, and New in tab and New in sidebar in place of Claude Code's New session. */
-    await step('the session list\'s switches without a reload', async () => {
-      const setShow = (k, v) => call('await vscode.workspace.getConfiguration("claudeCodePlus").update(arg[0], arg[1] === null ? undefined : arg[1], vscode.ConfigurationTarget.Global); return true;',
-        [`show.${k}`, v]);
-      await exec('claude-vscode.editor.open', tab0.id);
-      await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, tab0.title)), 20000, 300);
-      check(!!await openList(), 'the session list opens', null);
-      const seen = () => list.evaluate((id) => {
-        const r = [...document.querySelectorAll('[class*="sessionItem_"]')].find((x) => !x.closest('[data-cce-section]') && x.querySelector(`[data-cce-pin="${id}"]`));
-        return { dates: !!r && /\d\d\/\d\d/.test(r.innerText), open: !!document.querySelector('[data-cce-open-sessions]'),
-          ours: document.querySelectorAll('[data-cce-new-session]').length,
-          theirs: [...document.querySelectorAll('button')].filter((b) => b.innerText.trim() === 'New session').length };
-      }, tab0.id).catch(() => null);
-      const SWITCHES = [
-        ['sessionDates', 'the dates after a row\'s time', (s) => !s.dates, (s) => s.dates],
-        ['openSessions', 'OPEN SESSIONS', (s) => !s.open, (s) => s.open],
-        ['openInTabOrSidebar', 'New in tab and New in sidebar', (s) => s.ours === 0 && s.theirs === 1, (s) => s.ours === 2 && s.theirs === 0],
-      ];
-      try {
-        const at = await until(async () => { const s = await seen(); return s && SWITCHES.every(([, , , on]) => on(s)) && s; }, 15000, 500);
-        check(!!at, 'the list shows all three while they are on', await seen());
-        for (const [key, what, offNow, onNow] of SWITCHES) {
-          await setShow(key, false);
-          const gone = await until(async () => { const s = await seen(); return s && offNow(s) && s; }, 15000, 500);
-          check(!!gone, `claudeCodePlus.show.${key} turned off takes ${what} out of the list without a reload`, await seen());
-          await setShow(key, null);
-          const back = await until(async () => { const s = await seen(); return s && onNow(s) && s; }, 15000, 500);
-          check(!!back, 'and turned on again brings it back', await seen());
-        }
-      } finally {
-        for (const [key] of SWITCHES) await setShow(key, null).catch(() => {});
       }
     });
 
@@ -5547,237 +5318,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         && x.label && arg.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, L.title);
     });
 
-    /*
-     * The session list's rows as each way of opening and closing conversations leaves them, read as a person sees them.
-     * A row of a conversation that is open nowhere must not be drawn as picked, as the row the arrow keys are on or as
-     * the one in front, and must be drawn plain unless it holds the keyboard focus; the rows of the conversation in the
-     * tab in front are drawn as the one in front. The ways: a row clicked and its tab closed in front; two opened and
-     * the first closed behind the second; one brought forward from OPEN SESSIONS and closed; one opened in the sidebar
-     * from its page's own list, which then starts a new conversation; one opened with the arrow keys and Enter; a row
-     * picked with a modifier click before another is opened; a row's menu closed with nothing picked; one opened from
-     * its menu; a row dragged and let go over no group. Tabs are closed with their close buttons, and a click there
-     * leaves the keyboard focus where it was.
-     */
-    await step('rows of conversations no longer open', async () => {
-      const [A, B, C] = threads;
-      const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
-      const mainRow = (t, frame = list) => frame.locator(`[id="sessions-list-row-${t.id}"]`).first();
-      const tabOf = async (t) => (await claudeTabs()).find((x) => titled(x.label, t.title));
-      const inFront = (t) => until(async () => { const x = await tabOf(t); return !!x && x.active; }, 30000, 300);
-      const opened = async (t, how) => { if (!await inFront(t)) throw new Error(`${how} did not bring "${t.title}" to the front in a tab`); };
-      const closeTab = async (t) => {
-        const tab = page.locator('.tabs-container .tab').filter({ hasText: t.title.slice(0, 16) }).first();
-        await tab.hover();
-        await tab.locator('.tab-actions .action-label').first().click({ timeout: 5000 });
-        if (!await until(async () => !(await tabOf(t)), 15000, 300)) throw new Error(`the tab of "${t.title}" did not close`);
-      };
-      /* Moves the pointer onto a spot of the list outside the rows, a section header found in the page: in a short
-         window a full list reaches its bottom, so no fixed spot is sure to be free of rows. The pointer stays in the
-         list, since a page is told the pointer left a row only when the pointer moves within the page. */
-      const pointerOffRows = async () => {
-        const box = await (await list.frameElement()).boundingBox();
-        const at = await list.evaluate(() => {
-          const free = ([x, y]) => { const e = document.elementFromPoint(x, y); return !!e && !e.closest('[class*="sessionItem_"]'); };
-          const heads = [...document.querySelectorAll('[class*="sectionHeader_"], [data-cce-section-head]')].map((h) => h.getBoundingClientRect())
-            .filter((r) => r.height > 0 && r.top >= 0 && r.bottom <= innerHeight).map((r) => [r.left + Math.min(40, r.width / 2), r.top + r.height / 2]);
-          return [...heads, [8, 8], [innerWidth - 8, 8]].find(free) || null;
-        });
-        if (!at) throw new Error('the list has no empty spot outside its rows for the pointer');
-        await page.mouse.move(box.x + at[0], box.y + at[1]);
-      };
-      /* Puts the keyboard focus into the list with the view's own command, which no click on a row does. */
-      const focusList = async () => {
-        await exec('workbench.view.extension.claude-sessions-sidebar');
-        const inList = () => list.evaluate(() => document.hasFocus() && !!document.activeElement && document.activeElement !== document.body);
-        if (!await until(inList, 5000, 100)) await list.locator('[class*="root_"][tabindex]').first().focus();
-      };
-      const looked = [];
-      let n = 0;
-      /* `open`: the conversations open now; `front`: the one in a tab in front, or null. */
-      const after = async (what, open, front) => {
-        await pointerOffRows();
-        const ids = open.map((t) => t.id), f = front ? front.id : null;
-        let looks = [];
-        /* Closing a tab adds a row to Recently closed and moves the rows below it, which can bring one under the
-           resting pointer. The test then moves the pointer off again instead of counting how that row is drawn. */
-        const ok = await until(async () => {
-          looks = await rowLooks();
-          if (looks.some((r) => r.hover)) await pointerOffRows();
-          return looks.length && !misdrawn(looks, ids, f).length;
-        }, 15000, 300);
-        await shot(`rows-no-longer-open-${++n}`);
-        looked.push({ n, what, open: ids, front: f, looks });
-        check(!!ok, `${what}: no row of a conversation that is open nowhere is drawn other than plain, and only ${front ? `"${front.title}"` : 'no conversation'} is drawn as the one in front`,
-          misdrawn(looks, ids, f).map((r) => ({ ...r, open: ids.includes(r.id) })));
-      };
-      const way = async (name, fn) => {
-        try { await fn(); } catch (e) {
-          check(false, `${name}: ran to its end`, failure(e));
-          await shot(`rows-no-longer-open-${name.replace(/\W+/g, '-')}-error`);
-        }
-      };
-      /* Claude Code opens a conversation clicked in its list where it last opened one, and opening it in the sidebar
-         makes that the sidebar; the step puts back the setting and the sidebar it found. */
-      const whereNow = () => call("return vscode.workspace.getConfiguration('claudeCode').inspect('preferredLocation').globalValue ?? null;");
-      const whereTo = (v) => call("await vscode.workspace.getConfiguration('claudeCode').update('preferredLocation', arg === null ? undefined : arg, vscode.ConfigurationTarget.Global); return true;", v);
-      const found = { where: await whereNow(), sidebar: await auxiliaryVisible() };
-
-      try {
-        await whereTo(null);
-        await exec('workbench.action.closeAllEditors');
-        await exec('workbench.action.closeAuxiliaryBar');
-        await openNotes();
-        if (!await openList()) throw new Error('the session list did not open');
-        if (!await until(async () => (await rowLooks()).filter((r) => r.where === 'list').length >= threads.length, 30000, 500)) {
-          throw new Error('the list did not draw its rows');
-        }
-        /* A selection an earlier step left: Escape in the list ends it. */
-        await focusList();
-        await page.keyboard.press('Escape');
-
-        await way('a row clicked', async () => {
-          await mainRow(A).click();
-          await opened(A, 'a click on its row');
-          await after('a row clicked', [A], A);
-          await closeTab(A);
-          await after('a row clicked and its tab closed in front', [], null);
-        });
-        await way('two opened', async () => {
-          await mainRow(A).click();
-          await opened(A, 'a click on its row');
-          await mainRow(B).click();
-          await opened(B, 'a click on its row');
-          await closeTab(A);
-          await after('two opened from the list and the first closed behind the second', [B], B);
-        });
-        await way('from OPEN SESSIONS', async () => {
-          await mainRow(A).click();
-          await opened(A, 'a click on its row');
-          await list.locator(`[id="cce-open-${B.id}"]`).first().click();
-          await opened(B, 'a click on its row in OPEN SESSIONS');
-          await closeTab(B);
-          await after('one brought forward from OPEN SESSIONS and closed in front', [A], A);
-          await closeTab(A);
-          await after('the last tab closed', [], null);
-        });
-        await way('the sidebar', async () => {
-          let side = null;
-          const pastOpen = () => side.evaluate(() => !!document.querySelector('[role="dialog"][aria-label="Past conversations"]'));
-          /* The sidebar's page draws the conversation as its own message rows; the list it opens shows the same words as a
-             title. */
-          const shows = (t) => side.evaluate((ask) => [...document.querySelectorAll('[class*="userMessage_"]')].some((m) => m.innerText.includes(ask)), t.turns[0][0]);
-          try {
-            await exec('claude-vscode.sidebar.open');
-            await whereTo(null);
-            side = await frameWhere(() => !!document.querySelector('[aria-label="Session history"]') && !!document.querySelector('[contenteditable][role="textbox"]'), 60000);
-            if (!side) throw new Error('Claude Code did not open in the sidebar');
-            await side.locator('[aria-label="Session history"]').first().click();
-            /* On the start of the row's title. A row under the pointer shows its rename and archive buttons where its time
-               was, and in a box as narrow as the sidebar's they reach back over the end of the title: a click in the
-               middle of the title renames the conversation instead of opening it. */
-            await mainRow(C, side).locator('span[class*="sessionName_"]').first().click({ timeout: 15000, position: { x: 2, y: 6 } });
-            if (!await until(async () => !(await pastOpen()) && await shows(C), 30000, 500)) throw new Error('the sidebar did not switch to the conversation');
-            /* Claude Code counts only a conversation in a tab as the one in front. */
-            await after('one opened in the sidebar from the list its page opens', [C], null);
-            await side.locator('[aria-label="New session"]').first().click();
-            if (!await until(async () => !(await shows(C)), 30000, 500)) throw new Error('the sidebar did not start a new conversation');
-            /* The sidebar keeps the conversation it showed before running, so Claude Code still counts it open there. */
-            await after('the sidebar then started a new conversation', [C], null);
-          } finally {
-            if (side && await pastOpen().catch(() => false)) await side.locator('[role="dialog"][aria-label="Past conversations"]').first().press('Escape').catch(() => {});
-            await exec('workbench.action.closeAuxiliaryBar');
-          }
-        });
-        await way('the arrow keys', async () => {
-          const rowsNow = async () => (await rowLooks()).filter((r) => r.where === 'list');
-          await focusList();
-          await page.keyboard.press('ArrowDown');
-          for (let i = 0; i < 40; i++) {
-            const rows = await rowsNow(), at = rows.findIndex((r) => r.highlighted), to = rows.findIndex((r) => r.id === A.id);
-            if (at === to) break;
-            if (at < 0 || to < 0) throw new Error(`no row ${at < 0 ? 'is highlighted by the arrow keys' : 'shows the conversation'}`);
-            await page.keyboard.press(at < to ? 'ArrowDown' : 'ArrowUp');
-            await until(async () => (await rowsNow()).findIndex((r) => r.highlighted) !== at, 3000, 100);
-          }
-          await page.keyboard.press('Enter');
-          await opened(A, 'Enter on its row');
-          await after('one opened with the arrow keys and Enter', [A], A);
-          await closeTab(A);
-          await after('one opened with the arrow keys and Enter, its tab closed in front', [], null);
-        });
-        await way('a modifier click', async () => {
-          await mainRow(B).click({ modifiers: [MOD] });
-          if (!await until(async () => (await rowLooks()).some((r) => r.id === B.id && r.selected), 5000, 200)) note(`a ${MOD} click did not pick a row of the session list here`);
-          await mainRow(A).click();
-          await opened(A, 'a click on its row');
-          await after('a row picked with a modifier click, then another clicked', [A], A);
-          await closeTab(A);
-          await after('a row picked with a modifier click, then another clicked and its tab closed', [], null);
-        });
-        await way('a menu closed', async () => {
-          await mainRow(B).click();
-          await opened(B, 'a click on its row');
-          /* The list closes its menu when its page loses the focus, and the page of the conversation just opened can take
-             the focus a moment after the right-click, as pick() also allows for. */
-          let menuUp = false;
-          for (let i = 0; i < 3 && !menuUp; i++) {
-            await mainRow(B).click({ button: 'right' });
-            menuUp = !!await until(async () => (await menus()).length, 3000, 100);
-          }
-          if (!menuUp) throw new Error('no menu opened');
-          await page.keyboard.press('Escape');
-          if (!await until(async () => !(await menus()).length, 5000, 100)) throw new Error('the menu did not close');
-          await after('a row\'s menu closed with nothing picked', [B], B);
-          await closeTab(B);
-          await after('a row\'s menu closed with nothing picked, then its tab closed in front', [], null);
-        });
-        await way('the menu', async () => {
-          retried(await pick(A, ['Resume in tab']), 'Resume in tab');
-          await opened(A, 'Resume in tab');
-          await after('one opened from its menu', [A], A);
-          await closeTab(A);
-          await after('one opened from its menu, its tab closed in front', [], null);
-        });
-        /*
-         * The list lets a row be dragged only while it is not archived, and an earlier step can leave one archived. The
-         * drag ends on another row of the list two rows away, which takes no drop; a drag let go outside the list's
-         * page never tells the page that it ended.
-         */
-        await way('a drag', async () => {
-          let dragged = null;
-          const box = await (await list.frameElement()).boundingBox();
-          for (const t of [B, C, A]) {
-            const b = await mainRow(t).boundingBox();
-            if (!b) continue;
-            const x = b.x + Math.min(60, b.width / 3), y = b.y + b.height / 2;
-            const to = await list.evaluate(({ x, y, h, id }) => {
-              for (const d of [2 * h, -2 * h, 3 * h, -3 * h]) {
-                const e = y + d > 4 && y + d < innerHeight - 4 ? document.elementFromPoint(x, y + d) : null;
-                const r = e && e.closest('[class*="sessionItem_"][id]');
-                if (r && !r.id.endsWith(id) && !e.closest('[class*="groupHeader_"]')) return y + d;
-              }
-              return null;
-            }, { x: x - box.x, y: y - box.y, h: b.height, id: t.id });
-            if (to === null) continue;
-            await page.mouse.move(x, y);
-            await page.mouse.down();
-            await page.mouse.move(x, y + Math.sign(to - (y - box.y)) * 6, { steps: 3 });
-            await page.mouse.move(x, box.y + to, { steps: 6 });
-            const during = await rowLooks();
-            await page.mouse.up();
-            if (during.some((r) => r.id === t.id && r.selected)) { dragged = t; break; }
-          }
-          if (!dragged) note('no drag started here: no row was picked while the drag lasted');
-          await after(`a row dragged and let go over no group${dragged ? `, "${dragged.title}"` : ''}`, [], null);
-        });
-        fs.writeFileSync(path.join(out, 'rows-no-longer-open.json'), JSON.stringify(looked, null, 1));
-      } finally {
-        await whereTo(found.where);
-        if (found.sidebar !== await auxiliaryVisible()) await exec(found.sidebar ? 'workbench.action.focusAuxiliaryBar' : 'workbench.action.closeAuxiliaryBar');
-        await exec('workbench.action.closeAllEditors');
-      }
-    });
-
     /* More of the links to other conversations, with a conversation source registered with Agent Plus from the test
        helper and used by nothing else: it lists the conversations the step gives it, tells Agent Plus when they change,
        and records what Agent Plus asks it to open. Its conversations are kept outside the window's folders, so Agent
@@ -6212,6 +5752,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'nothing was sent: three seconds later the input still holds the text and the transcript has none of it', { still, sent: mentions(tab0, 'About row ') - sentBefore });
 
         await closeTab(t1);
+        /* Its process ends a moment after its tab closes; until then the pen rightly leaves the conversation alone. */
+        const ended = await until(() => !liveRecords().some((r) => r.sessionId === t1.id), 20000, 300);
+        check(!!ended, 'once its tab is closed, no process runs the second conversation', liveRecords().filter((r) => r.sessionId === t1.id));
         writePlan(t1, ['Check the export filter']);
         check(!!await showPlan(t1, '1. Check the export filter'), 'the Work plan view shows the plan of a conversation that is not open in any tab here', await planRows());
         await exec('notifications.clearAll');
@@ -6254,13 +5797,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* Last, since every step before needs the patch. Remove from Claude Code restores both files, and after a reload the
-       session list is Claude Code's own. Turning the extension on again puts the patch back, which the suite run after
-       this stage expects. */
+    /* Last, since every step before needs the patch. Remove from Claude Code restores both files, and a reload does not
+       patch them again. Turning the extension on again puts the patch back, which the suite run after this stage
+       expects. */
     await step('removing the patch', async () => {
       const allAre = (st, want) => !!st && st.targets.length === 2 && st.targets.every(([, x]) => x === want);
-      const plainList = () => frameWhere(() => [...document.querySelectorAll('button')].some((b) => b.innerText.trim() === 'New session')
-        && !document.querySelector('[data-cce-new-session]'), 30000);
       await exec('notifications.clearAll');
       await exec('claudeCodePlus.remove');
       const clean = await until(async () => { const st = await patchState(); return allAre(st, 'clean') && st; }, 60000, 1000);
@@ -6272,17 +5813,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await w.reload();
       const after = await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
       check(allAre(after, 'clean'), 'after the reload both files are still Claude Code\'s own: the extension does not patch them again', after);
-      await exec('workbench.view.extension.claude-sessions-sidebar');
-      check(!!await plainList(), 'and the session list is Claude Code\'s own again: its New session button, none of this extension\'s');
       await shot('removed');
       await exec('claudeCodePlus.enable');
       const back = await until(async () => { const st = await patchState(); return allAre(st, 'patched') && st; }, 60000, 1000);
       check(!!back, 'turning Claude Code Plus on again puts the patch back in both files', await patchState());
       await exec('notifications.clearAll');
       await w.reload();
-      await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
-      await exec('workbench.view.extension.claude-sessions-sidebar');
-      check(!!await frameWhere(() => !!document.querySelector('[data-cce-new-session]'), 60000), 'and after a reload the session list has this extension\'s buttons again');
+      const again = await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
+      check(allAre(again, 'patched'), 'and after a reload both files are still patched', again);
     });
 
     await step('no self-check warning', async () => {

@@ -64,7 +64,6 @@ const loadTabs = require('./src/load-tabs');
 const loadMarks = require('./src/load-marks');
 const duplicates = require('./src/duplicates');
 const deleteSession = require('./src/deletesession');
-const recentClosed = require('./src/recentclosed');
 const ADAPTERS = require('./src/adapters');
 const removal = require('./src/removal');
 const buildDigest = require('./src/build-digest');
@@ -97,11 +96,9 @@ const SWEEP_KEY = 'claudeCodeExtras.lastOrphanSweep';
 const LATENCY_KEY = 'claudeCodeExtras.latencyOffset';
 const THRESHOLD_SETTING = PREFIX + 'latencyThresholdSeconds';
 const LATENCY_ON_SETTING = PREFIX + 'recordOpenLatency';
-const PINS_SETTING = PREFIX + 'sessionPins';
 const PIN_MARGIN_SETTING = PREFIX + 'sessionPinsMarginDays';
 const REOPEN_SETTING = PREFIX + 'reopenDroppedTabs';
 const LOAD_TABS_SETTING = PREFIX + 'loadRestoredTabs';
-const RECENT_SETTING = PREFIX + 'recentClosedSessions';
 const HIDE_BG_SETTING = PREFIX + 'hideBackgroundSessions';
 const HIDE_OFFICIAL_LIST_SETTING = PREFIX + officialList.SETTING;
 /* Run by the buttons of the question above Agent Plus's session list; not in the Command Palette. */
@@ -396,14 +393,12 @@ function start(context, log, renamed, handing = false) {
   /* The conversations pinned in the session list (src/sessionpins.js). The file is in this extension's storage on the
      machine that holds the transcripts, and every window reads and writes the same one. */
   const pinsFile = () => path.join(context.globalStorageUri.fsPath, sessionPins.FILE);
-  const pinsOn = () => !removed() && cfg().get(PINS_SETTING, true) !== false;
+  const pinsOn = () => !removed();
   const pinMargin = () => cfg().get(PIN_MARGIN_SETTING, sessionPins.MARGIN_DAYS);
   const colorsFile = () => path.join(context.globalStorageUri.fsPath, sessionColors.FILE);
-  const colorsOn = () => !removed() && !switchedOff().includes('sessionColors');
   /* Conversations run by several editor processes (src/duplicates.js), refreshed with the background work, and the
      time of the last heartbeat from a page of this window's panels (src/page/99-sweep.js). */
   let dupGroups = new Map(), pageAt = 0;
-  const dupsList = (groups) => [...groups].map(([id, g]) => [id, g.length]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   const options = () => {
     const off = switchedOff();
     return {
@@ -413,9 +408,6 @@ function start(context, log, renamed, handing = false) {
       background: off.includes('backgroundSessions') ? [] : background.collect(),
       workers: off.includes('backgroundSessions') ? [] : background.workersNow() || [],
       detached: off.includes('detachedCommands') ? [] : background.jobRows({ jobs: background.jobsNow() || [] }),
-      pins: pinsOn() ? sessionPins.pageData(sessionPins.read(pinsFile()), sessionPins.retentionDays(), pinMargin()) : null,
-      colors: off.includes('sessionColors') || removed() ? null : sessionColors.read(colorsFile()),
-      dups: removed() ? [] : dupsList(dupGroups),
     };
   };
   /* Never after Remove, which has just taken these files out of Claude Code's folder: a scan finishing afterwards would
@@ -717,7 +709,7 @@ function start(context, log, renamed, handing = false) {
     /* Efforts files beside the panel are pruned with the live-session list from the sweep just made; when that list is
        unknown, nothing is removed. */
     if (r.live) for (const dir of installs(webview, true)) webview.pruneEfforts(dir, r.live);
-    try { if (r.live && sessionColors.prune(colorsFile(), r.live)) writeLiveNow(); } catch (_) { /* tried again tomorrow */ }
+    try { if (r.live) sessionColors.prune(colorsFile(), r.live); } catch (_) { /* tried again tomorrow */ }
   };
   /* The reader's time zone as a panel of this window last reported it (src/panel-tz.js), or empty until one has. */
   const clientZone = () => {
@@ -832,6 +824,7 @@ function start(context, log, renamed, handing = false) {
     started: () => { watchList(); },
     ready: () => claude.freshAgents(),
     state: (id) => claude.stateOf(id),
+    lastUserAt: (file) => lastUser.at(file),
     elsewhere: () => {
       try { claimed = deleteSession.shownElsewhere(planDir()); } catch (_) { claimed = new Map(); }
       return places.scan();
@@ -1437,7 +1430,6 @@ function start(context, log, renamed, handing = false) {
   }
   const readDuplicates = () => {
     try {
-      const was = JSON.stringify(dupsList(dupGroups));
       dupGroups = removed() || !enabled() ? new Map() : duplicates.find({ records: background.liveRecords(), dir: planDir() });
       if (!replaced() && !uninstalling() && !removed()) {
         for (const [id, group] of dupGroups) {
@@ -1446,7 +1438,6 @@ function start(context, log, renamed, handing = false) {
           }
         }
       }
-      if (JSON.stringify(dupsList(dupGroups)) !== was) writeLiveNow();
     } catch (e) { log.appendLine('conversations run twice: ' + ((e && e.message) || e)); }
   };
   /* The steward hook (hooks/steward.py) cannot ask the editor, so the set is written to a file for it. Every window
@@ -1582,17 +1573,6 @@ function start(context, log, renamed, handing = false) {
   };
   /* Each change of the dots is logged, like the set of work running, so that a wrong dot can be put down either to what
      was worked out here or to the drawing. */
-  /* The stewards, for the crown the session list draws before their titles (src/page/84-row-marks.js). */
-  globalThis.__cceStewardIds = () => (enabled() && !removed() ? stewardMarks.stewardIds(stewardTable()) : undefined);
-  /* The titles of each managed conversation's stewards, for the session list's hover text (src/page/84-row-hover.js). */
-  globalThis.__cceManagedBy = () => {
-    if (!enabled() || removed()) return undefined;
-    const table = stewardTable(), out = {};
-    for (const s of Object.keys(table)) {
-      for (const id of table[s].manages) if (stewardKeys.isClaude(id)) (out[id] = out[id] || []).push(stewardTitleOf(s, table));
-    }
-    return out;
-  };
   /* A name typed into a rename box, or prefilled in one, without this extension's marks (src/host.js). */
   globalThis.__cceCleanTitle = (title) => (typeof title === 'string' ? titleMarks.withoutMarks(title) : title);
   let marksSent = '', marksLogged = '';
@@ -1624,8 +1604,6 @@ function start(context, log, renamed, handing = false) {
     clearInterval(bgTimer);
     if (globalThis.__cceWithBackground) delete globalThis.__cceWithBackground;
     if (globalThis.__cceActivityMap) delete globalThis.__cceActivityMap;
-    if (globalThis.__cceStewardIds) delete globalThis.__cceStewardIds;
-    if (globalThis.__cceManagedBy) delete globalThis.__cceManagedBy;
     if (globalThis.__cceCleanTitle) delete globalThis.__cceCleanTitle;
   } });
   const tabIcons = new Map(), tabIconUris = new Map();
@@ -1697,62 +1675,7 @@ function start(context, log, renamed, handing = false) {
       log.appendLine('pinned conversations: ' + ((e && e.message) || e));
     } finally { keeping = false; }
   };
-  let keepSoon = 0, toldStale = false;
-  /*
-   * Called by the patched host from inside its own message handling, so the work is put off rather than done there.
-   *
-   * A window whose copy of this extension has been installed again over itself still records the pin - keeping the files
-   * and the exemption from the archive both read the record - but it leaves the shared stylesheet alone, and that is the
-   * only way a pin reaches the panel. Without a word the pin would show as pinned for a few seconds and then go back, so
-   * the first time this happens the reader is told why and offered the reload.
-   */
-  globalThis.__ccePinHook = (id, on) => {
-    setTimeout(() => {
-      try {
-        if (!pinsOn()) return;
-        if (!sessionPins.setPinned(pinsFile(), id, on)) return;
-        log.appendLine(`pinned conversations: ${on ? 'pinned' : 'unpinned'} ${id}`);
-        if (replaced() && !toldStale) {
-          toldStale = true;
-          offerReload('The pin is saved, but this window is running an earlier build of Claude Code Plus than '
-            + 'the one now installed, so the session list here cannot show it. Reload the window to see it.');
-        }
-        writeLiveNow();
-        if (on && !keepSoon) keepSoon = setTimeout(() => { keepSoon = 0; keepPinned(); }, 5000);
-      } catch (e) { log.appendLine('pinned conversations: ' + ((e && e.message) || e)); }
-    }, 0);
-  };
-  /* The patched host calls this from inside its own message handling, so it defers the work. */
-  let toldColorStale = false;
-  globalThis.__cceColorHook = (ids, name) => {
-    setTimeout(() => {
-      try {
-        if (!colorsOn()) return;
-        if (!sessionColors.setColor(colorsFile(), ids, name)) return;
-        log.appendLine(`session colors: ${name || 'default'} for ${ids.length} conversation${ids.length === 1 ? '' : 's'}`);
-        if (replaced() && !toldColorStale) {
-          toldColorStale = true;
-          offerReload('The color is saved, but this window is running an earlier build of Claude Code Plus than '
-            + 'the one now installed, so the session list here cannot show it. Reload the window to see it.');
-        }
-        writeLiveNow();
-      } catch (e) { log.appendLine('session colors: ' + ((e && e.message) || e)); }
-    }, 0);
-  };
-  /* A pin or a color chosen in another window reaches this one's panels as soon as its file changes, rather than at the
-     next periodic refresh, even when that window cannot write the stylesheet itself. The files are replaced rather than
-     written in place, so the folder is what is watched. */
-  let pinsWatch = null, pinsSettle = 0;
-  try {
-    const dir = context.globalStorageUri.fsPath;
-    fs.mkdirSync(dir, { recursive: true });
-    pinsWatch = fs.watch(dir, { persistent: false }, (event, name) => {
-      if (name && name !== sessionPins.FILE && name !== sessionColors.FILE) return;
-      if (pinsSettle) clearTimeout(pinsSettle);
-      pinsSettle = setTimeout(() => { pinsSettle = 0; if (pinsOn() || colorsOn()) writeLiveNow(); }, 300);
-    });
-    pinsWatch.on('error', () => { try { pinsWatch.close(); } catch (_) { /* closed */ } pinsWatch = null; });
-  } catch (_) { /* the periodic refresh still carries a change across */ }
+  let keepSoon = 0;
   /* Read by the patched host each time it builds the session list (src/bgsessions.js). */
   /* Logs, with the time, the first eight lists a window builds and any later one that takes this extension 200 ms or
      more, to set against when Claude Code's log shows the panel asking for the list. */
@@ -1782,20 +1705,12 @@ function start(context, log, renamed, handing = false) {
     }
     return out;
   };
-  /* Read by the patched host each time it works out which conversations are in use and so not to be archived. */
-  globalThis.__ccePinnedIds = () => {
-    try { return pinsOn() ? sessionPins.read(pinsFile()).pinned : []; } catch (_) { return []; }
-  };
   const keepFirst = setTimeout(keepPinned, 60000);
   const keepTimer = setInterval(keepPinned, 30 * 60000);
   context.subscriptions.push({ dispose: () => {
-    clearTimeout(keepFirst); clearInterval(keepTimer); if (keepSoon) clearTimeout(keepSoon); if (pinsSettle) clearTimeout(pinsSettle);
-    if (pinsWatch) { try { pinsWatch.close(); } catch (_) { /* closed */ } }
-    if (globalThis.__ccePinHook) delete globalThis.__ccePinHook;
-    if (globalThis.__cceColorHook) delete globalThis.__cceColorHook;
+    clearTimeout(keepFirst); clearInterval(keepTimer); if (keepSoon) clearTimeout(keepSoon);
     if (globalThis.__cceListedSessions) delete globalThis.__cceListedSessions;
     if (globalThis.__cceListProgrammatic) delete globalThis.__cceListProgrammatic;
-    if (globalThis.__ccePinnedIds) delete globalThis.__ccePinnedIds;
   } });
   /*
    * Claude Code tabs VS Code did not bring back (src/droppedtabs.js), looked for after Claude Code has started: by then
@@ -1893,15 +1808,6 @@ function start(context, log, renamed, handing = false) {
     if (globalThis.__cceSessionsShown) delete globalThis.__cceSessionsShown;
     if (globalThis.__cceSessionsElsewhere) delete globalThis.__cceSessionsElsewhere;
   } });
-  /*
-   * Archived conversations deleted from disk, asked for from the Archived sessions menu (src/deletesession.js). Nothing
-   * goes before the person accepts a confirmation that names each conversation and what of it is on disk. One that is
-   * open in this window, shown by another window (its entry says so even for a restored tab that has not loaded and has
-   * no process yet), or running anywhere on this machine is left alone and named as such.
-   *
-   * Called by the patched host inside its own message handling, so the work is deferred, as the pin hook's is: finding
-   * what is on disk walks every project folder.
-   */
   /* Reads an image file for the panel that asked (src/page/94-reply-images.js) and sends it back. */
   globalThis.__cceImageHook = (sessionId, id, src) => {
     const answer = (r) => {
@@ -1912,96 +1818,17 @@ function start(context, log, renamed, handing = false) {
     replyImages.load(src).then(answer, () => answer({ ok: false, reason: 'The file could not be read.' }));
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceImageHook) delete globalThis.__cceImageHook; } });
-  globalThis.__cceDeleteHook = (asked) => {
-    setTimeout(() => deleteArchived(asked).catch((e) => log.appendLine('deleting archived conversations: ' + (e && e.message))), 0);
-  };
-  const deleteArchived = async (asked) => {
-    const seen = new Set(), want = [];
-    for (const s of Array.isArray(asked) ? asked : []) {
-      if (s && typeof s.id === 'string' && deleteSession.SESSION.test(s.id) && !seen.has(s.id)) {
-        seen.add(s.id);
-        want.push({ id: s.id, title: typeof s.title === 'string' && s.title.trim() ? s.title.trim().slice(0, 120) : s.id });
-      }
-    }
-    if (!want.length || !enabled() || removed()) return;
-    /* Open conversations must never be deleted, so if their list cannot be read nothing is deleted; it is not treated
-       as empty. */
-    let shown;
-    try { shown = typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown() : null; } catch (_) { shown = null; }
-    if (!Array.isArray(shown)) {
-      vscode.window.showWarningMessage('Not deleted: this window could not tell which conversations are open, so none was deleted.');
-      return;
-    }
-    const running = deleteSession.runningSessions();
-    const elsewhere = deleteSession.shownElsewhere(planDir());
-    const busy = want.filter((w) => shown.includes(w.id) || running.has(w.id) || elsewhere.has(w.id));
-    const free = want.filter((w) => !busy.includes(w));
-    const whyBusy = (b) => (!shown.includes(b.id) && elsewhere.has(b.id)
-      ? `"${b.title}" is open in the VS Code window ${elsewhere.get(b.id).map((n) => `"${n}"`).join(', ')}` : `"${b.title}" is open or running`);
-    const found = deleteSession.findAll(free.map((w) => w.id), {
-      planDir: planDir(),
-      extra: (id) => installs(webview, true).map((d) => path.join(d, 'webview', webview.EFFORT_PREFIX + id + '.css')),
-    });
-    const go = free.filter((w) => found.get(w.id).length).map((w) => ({ ...w, found: found.get(w.id) }));
-    if (!go.length) {
-      vscode.window.showInformationMessage(busy.length ? `Not deleted: ${busy.map(whyBusy).join('; ')}.` : 'Nothing of that conversation is left on disk.');
-      return;
-    }
-    const lines = go.map((g) => `"${g.title}": ${deleteSession.describe(g.found)}`);
-    if (busy.length) lines.push('', `Left alone: ${busy.map(whyBusy).join('; ')}`);
-    lines.push('', 'This cannot be undone.');
-    const pick = await vscode.window.showWarningMessage(
-      go.length === 1 ? `Delete "${go[0].title}" from disk?` : `Delete ${go.length} conversations from disk?`,
-      { modal: true, detail: lines.join('\n') }, 'Delete');
-    if (pick !== 'Delete') return;
-    /* A conversation opened or resumed while the question was up is left alone, and so is everything when the list of
-       open ones can no longer be read. */
-    let shownNow;
-    try { shownNow = typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown() : null; } catch (_) { shownNow = null; }
-    const runningNow = deleteSession.runningSessions(), elsewhereNow = deleteSession.shownElsewhere(planDir());
-    const late = go.filter((g) => !Array.isArray(shownNow) || shownNow.includes(g.id) || runningNow.has(g.id) || elsewhereNow.has(g.id));
-    if (late.length) {
-      vscode.window.showWarningMessage(`Not deleted: ${late.map((g) => `"${g.title}"`).join(', ')} ${late.length === 1 ? 'was' : 'were'} opened or started meanwhile.`);
-    }
-    const failed = [];
-    for (const g of go) {
-      if (late.includes(g)) continue;
-      failed.push(...deleteSession.remove(g.found));
-      try { sessionPins.setPinned(pinsFile(), g.id, false); } catch (_) { /* not pinned */ }
-      try { sessionColors.setColor(colorsFile(), [g.id], null); } catch (_) { /* not colored */ }
-      log.appendLine(`Deleted "${g.title}" (${g.id}): ${deleteSession.describe(g.found)}`);
-    }
-    try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the list catches up on its next read */ }
-    if (failed.length) {
-      log.appendLine('Could not delete:\n  ' + failed.join('\n  '));
-      vscode.window.showWarningMessage(`${failed.length} file${failed.length === 1 ? '' : 's'} could not be deleted; the output "Claude Code Plus" lists them.`);
-    }
-  };
   context.subscriptions.push({ dispose: () => {
-    if (globalThis.__cceDeleteHook) delete globalThis.__cceDeleteHook;
     if (globalThis.__cceSessionsChanged) delete globalThis.__cceSessionsChanged;
   } });
-  /*
-   * The tabs closed in this workspace, kept across reloads for Recently closed above OPEN SESSIONS
-   * (src/recentclosed.js). The patched host reports each tab the person closes and asks for the list each time it tells
-   * the panels which conversations are open, so a closing shows at once.
-   */
-  let recentList = context.workspaceState.get(recentClosed.KEY, []);
+  /* A tab the person closes, as the patched host reports it, for Recently closed in Agent Plus's session list. */
   globalThis.__cceClosedHook = (id) => {
     try { sessionList.closed(id, 'tab'); } catch (_) { /* the core finds it closed itself */ }
-    try {
-      recentList = recentClosed.record(recentList, id);
-      Promise.resolve(context.workspaceState.update(recentClosed.KEY, recentList)).catch(() => {});
-      log.appendLine(`recently closed: ${String(id).slice(0, 8)} recorded, ${recentList.length} kept`);
-    } catch (_) { /* the list stays as it was */ }
+    /* Its process ends a moment later; a list of what runs read before then must not stand for 30 s. */
+    try { claude.invalidate(); } catch (_) { /* read again on the next tick */ }
   };
-  globalThis.__cceRecentClosed = () => recentClosed.pageData(recentList, enabled() && !removed() ? cfg().get(RECENT_SETTING, 10) : 0);
-  log.appendLine(`recently closed: ${globalThis.__cceRecentClosed().ids.length} kept for this workspace, up to ${globalThis.__cceRecentClosed().max} shown`);
-  /* Claude Code can send the session list its first state before this extension starts, and that state has no closed tabs. */
-  try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next update */ }
   context.subscriptions.push({ dispose: () => {
     if (globalThis.__cceClosedHook) delete globalThis.__cceClosedHook;
-    if (globalThis.__cceRecentClosed) delete globalThis.__cceRecentClosed;
     if (globalThis.__cceSendSessionStates) delete globalThis.__cceSendSessionStates;
   } });
   claude.followChat();
@@ -2211,7 +2038,7 @@ function start(context, log, renamed, handing = false) {
    * only affects what the panel shows is applied through the live stylesheet alone; the patched bundles are not
    * checked, since that reads ten megabytes and these settings cannot change them.
    */
-  const LIVE_SETTINGS = [SETTING, COLOR_SETTING, EDGE_SETTING, PINS_SETTING, PIN_MARGIN_SETTING]
+  const LIVE_SETTINGS = [SETTING, COLOR_SETTING, EDGE_SETTING]
     .concat(webview.SWITCHES.map((k) => PREFIX + 'show.' + k));
   const listAgain = () => { claude.invalidate(); claude.changed(); };
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(listAgain));
@@ -2223,11 +2050,8 @@ function start(context, log, renamed, handing = false) {
     if (Object.values(HOOK_SETTINGS).some((k) => e.affectsConfiguration(k)) || e.affectsConfiguration(SETTING)
         || e.affectsConfiguration(PREFIX + 'show.replyImages')) writeHookSettings();
     if (e.affectsConfiguration(LATENCY_ON_SETTING)) loadWatchOff();
-    /* A wider margin moves pinned files forward on the next pass, so that pass is not left waiting half an hour. */
+    /* A wider margin moves kept files forward on the next pass, so that pass is not left waiting half an hour. */
     if (e.affectsConfiguration(PIN_MARGIN_SETTING) && !keepSoon) keepSoon = setTimeout(() => { keepSoon = 0; keepPinned(); }, 5000);
-    if (e.affectsConfiguration(RECENT_SETTING) || e.affectsConfiguration(SETTING)) {
-      try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next update */ }
-    }
     const modeChanged = e.affectsConfiguration(tokenMode.SETTING);
     if (modeChanged) writeHookSettings();
     if (modeChanged || e.affectsConfiguration(WORK_PLAN_SETTING)) {

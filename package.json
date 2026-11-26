@@ -217,21 +217,11 @@
           "default": true,
           "markdownDescription": "The three sounds at the end of a turn. Turning it off stops the work, not only the drawing, and takes effect without a reload."
         },
-        "claudeCodePlus.show.sessionDates": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "How long each session ran and the dates it covers, on the session list. Turning it off stops the work, not only the drawing, and takes effect without a reload."
-        },
-        "claudeCodePlus.sessionPins": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "A pin at the start of each row of the session list, hollow until clicked. A pinned conversation is not deleted by Claude Code's transcript cleanup (`cleanupPeriodDays`) and is not moved to Archived sessions. Off hides the pins and stops both, and keeps what was pinned for when it is turned on again."
-        },
         "claudeCodePlus.sessionPinsMarginDays": {
           "type": "number",
           "default": 14,
           "minimum": 1,
-          "markdownDescription": "Days a pinned conversation stays safe from Claude Code's transcript cleanup while no VS Code window with this extension connects to the machine that holds its transcript. After each refresh its files are this many days, or at most one day more, short of `cleanupPeriodDays` (Claude Code's setting, 30 days by default). A larger value covers longer gaps but sorts old pinned conversations higher in the session list; a smaller one keeps the order closer to their real activity. A value above half of `cleanupPeriodDays` counts as half."
+          "markdownDescription": "Days a conversation kept from Claude Code's transcript cleanup stays safe while no VS Code window with this extension connects to the machine that holds its transcript. These are the conversations Agent Plus's session list will not delete yet, and those pinned with an earlier version. After each refresh their files are this many days, or at most one day more, short of `cleanupPeriodDays` (Claude Code's setting, 30 days by default). A value above half of `cleanupPeriodDays` counts as half."
         },
         "claudeCodePlus.show.footerInfo": {
           "type": "boolean",
@@ -278,11 +268,6 @@
           "default": true,
           "markdownDescription": "When a Claude Code conversation has a work plan, show a bar directly above the input box that identifies the current row and shows counts for open rows and questions waiting for your answer. Click the bar to open this conversation's plan in Agent Plus's Work plan view, or click the red \"to decide\" count to open Agent Plus's Answer view at the first question in this conversation that still needs your answer. Turning this setting off hides the bar, stops the panel from requesting a plan summary from the extension, and stops the extension from requesting summaries from Agent Plus or sending them to panels; turning it on or off takes effect without a reload."
         },
-        "claudeCodePlus.show.openInTabOrSidebar": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "On the session list, **New in tab** and **New in sidebar** replace New session, and a closed conversation's right-click menu offers **Resume in tab** and **Resume in sidebar** instead of Resume session. The choice applies to that conversation only; `claudeCode.preferredLocation` is not changed. Off shows Claude Code's own New session and Resume session. Takes effect without a reload."
-        },
         "claudeCodePlus.reopenDroppedTabs": {
           "type": "boolean",
           "default": true,
@@ -293,26 +278,6 @@
           "default": false,
           "markdownDescription": "After a reload, or when the window opens, load the Claude Code conversations in background tabs too, instead of each one when you first click its tab. Each tab comes to the front for a moment, then the tab you had in front comes back."
         },
-        "claudeCodePlus.show.deleteArchived": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Add **Delete session…** to the right-click menu of a conversation in Archived sessions. After you confirm, it permanently deletes the conversation from disk: its transcripts, sub-agent conversations, saved tool outputs, file checkpoints (Claude Code's copies, not your files), debug log and work plan. It cannot be undone. A conversation open in a tab or the sidebar, or still running, is left alone. Takes effect without a reload."
-        },
-        "claudeCodePlus.show.sessionHoverDetails": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Hovering over a conversation in the session list shows its session ID and where it sits in the list below Open sessions: its group, Ungrouped or Archived sessions. Rows in Open sessions show the same. Takes effect without a reload."
-        },
-        "claudeCodePlus.show.sessionIdSearch": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "The session list's search also finds a conversation by part of its session ID, such as `69f9`: four or more characters, using only 0-9, a-f and hyphens. Shorter searches, and ones with other characters, match titles and branches only. Takes effect without a reload."
-        },
-        "claudeCodePlus.show.sessionColors": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Add **Text color** to the right-click menu of a conversation in the session list, to give its title one of the colors of Claude Code's `/color`. The color shows wherever the conversation is listed. Takes effect without a reload."
-        },
         "claudeCodePlus.hideBackgroundSessions": {
           "type": "boolean",
           "default": true,
@@ -322,18 +287,6 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "Hide Claude Code's own session list and its icon in the Activity Bar, since Agent Plus lists the same conversations. The Session history at the top of a conversation stays. Turned off, the list is shown again. Takes effect without a reload."
-        },
-        "claudeCodePlus.recentClosedSessions": {
-          "type": "integer",
-          "default": 10,
-          "minimum": 0,
-          "maximum": 50,
-          "markdownDescription": "Maximum number of conversations listed in **RECENTLY CLOSED**, directly above Open sessions in the session list. It lists the conversations whose Claude Code editor tabs you closed in this workspace, most recently closed first; open ones are not listed. 0 hides the section. Takes effect without a reload."
-        },
-        "claudeCodePlus.show.openSessions": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "OPEN SESSIONS at the top of the session list: the conversations this window has open in an editor tab or in the sidebar, most recently active first, each with its status dot. Clicking one switches to it. Turning it off stops the work, not only the drawing, and takes effect without a reload."
         },
         "claudeCodePlus.workPlan": {
           "scope": "application",

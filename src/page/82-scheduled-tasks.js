@@ -595,7 +595,7 @@
   /*
    * The conversation's own row in the map, drawn as its tab and its session list row are (src/activity.js): green while
    * a turn runs, a green ring once the turn has ended and background work still runs, red while it waits for you.
-   * Background work is what this page counts, or what the extension host found (84-row-marks.js), which also covers
+   * Background work is what this page counts, or what the extension host found (81-host-activity.js), which also covers
    * work the panel does not show, such as a detached command while the map's list of them is switched off.
    * busy is the panel's own reading of a turn running; session is the map's.
    */

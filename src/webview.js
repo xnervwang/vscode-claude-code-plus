@@ -142,24 +142,7 @@ const EDGE_CSS = `${USER_SELECTOR}{`
   + 'var(--vscode-focusBorder, var(--vscode-textLink-foreground)) !important;'
   + 'padding-left:calc(6px + 2px * var(--cce-edge, 1) * var(--cce-on, 1)) !important;}';
 
-/* The session list's dots in the tab icons' green and red (src/tabdot.js), and a steward's crown and the envelope
-   between the title and the time, in that order (src/page/84-row-marks.js): the row lays its children out in a row and
-   the title takes the space left, so the crown and the envelope keep their size beside a title cut short, and moving
-   the time after them keeps the times of all rows lined up at the right. The envelope is drawn here, in the form src/envelope.js gives for the page's theme class, so a theme change redraws it.
-   Claude Code never lets the time shrink, and the dates this extension adds to it (src/page/15-format.js) make it
-   several times wider, so in a sidebar's narrow Past conversations box the title gets no room. The title
-   keeps at least 3em and the time shrinks instead; its end, which holds the dates, is cut off first. */
-const cssChars = (s) => [...String(s)].map((c) => '\\' + c.codePointAt(0).toString(16).toUpperCase() + ' ').join('').trim();
-const LIGHT_BODY = ['body.vscode-light', 'body.vscode-high-contrast-light'];
-const LIST_DOTS_CSS = `[class*="sessionItem_"]{--app-status-busy:${tabdot.GREEN};--app-status-pending:${tabdot.RED};}`
-  + '[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;line-height:1;}'
-  + '[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;flex-shrink:1;min-width:0;grid-template-columns:minmax(0,auto);}'
-  + '[class*="sessionItem_"]>[class*="sessionName_"]{min-width:3em;}'
-  + '[class*="sessionItem_"] [class*="sessionTime_"]{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}'
-  + `[data-cce-envelope]::after{content:"${cssChars(envelope.COLOUR)}";}`
-  + `${LIGHT_BODY.map((b) => `${b} [data-cce-envelope]::after`).join(',')}{content:"${cssChars(envelope.TEXT)}";}`
-  + '[class*="sessionItem_"]>[data-cce-crown]{order:1;flex:none;line-height:1;}';
-/* The same green and red for the dot on the footer's agents button and for every dot in the agent map it opens, whose
+/* The tab icons' green and red (src/tabdot.js) for the dot on the footer's agents button and for every dot in the agent map it opens, whose
    tree of rows (rowMain_ is the conversation's own row) is drawn in every view of it. Two rules, so a browser that
    cannot read :has() still colours the button. */
 const DOT_COLOURS = `{--app-status-busy:${tabdot.GREEN};--app-status-pending:${tabdot.RED};}`;
@@ -203,34 +186,6 @@ function detachedProperty(list) {
 function workersProperty(list) {
   if (!Array.isArray(list) || !list.length) return '';
   return `:root{--cce-workers:"${Buffer.from(JSON.stringify(list), 'utf8').toString('base64')}";}\n`;
-}
-
-/*
- * The pinned conversations, for the pins on the session list - same encoding. Written while pinning is on, even with
- * nothing pinned, because its presence is what tells the page to draw the pins: a stylesheet without it comes from a
- * host that would not act on a click.
- */
-function pinsProperty(data) {
-  if (!Array.isArray(data)) return '';
-  return `:root{--cce-pins:"${Buffer.from(JSON.stringify(data), 'utf8').toString('base64')}";}\n`;
-}
-
-/* The conversations run by several editor processes at once (src/duplicates.js), as [[session ID, count], ...] in
-   session ID order, for a mark on their rows in the session list - same encoding. Absent while there are none. */
-function duplicatesProperty(list) {
-  if (!Array.isArray(list) || !list.length) return '';
-  return `:root{--cce-dups:"${Buffer.from(JSON.stringify(list), 'utf8').toString('base64')}";}\n`;
-}
-
-/*
- * The session list's text colors, in the same encoding: [1, [[session ID, name], ...]] in session ID order. The leading
- * 1 keeps the property present when nothing is colored, and the page offers Text color only while the property is
- * there.
- */
-function colorsProperty(colors) {
-  if (!colors || typeof colors !== 'object') return '';
-  const pairs = Object.keys(colors).sort().map((id) => [id, colors[id]]);
-  return `:root{--cce-colors:"${Buffer.from(JSON.stringify([1, pairs]), 'utf8').toString('base64')}";}\n`;
 }
 
 /*
@@ -287,7 +242,6 @@ const SWITCHES = [
   'toc',              // the handle on the right edge, and the list of your messages behind it
   'contextMeter',     // the usage meter kept on screen after the panel would have hidden it
   'chime',            // the three sounds at the end of a turn
-  'sessionDates',     // how long each session ran, on the session list
   'footerInfo',       // the info button and what it shows
   'footerPlainView',  // the button that turns Claude Code's Focus view on and off
   'footerViewFilter', // main thread versus one sub-agent
@@ -295,12 +249,6 @@ const SWITCHES = [
   'backgroundSessions', // the `claude --bg` sessions a conversation started, in its agent map
   'detachedCommands', // the commands a conversation left running detached, in its agent map
   'replyImages',      // image files and data: images in a reply drawn as images
-  'openSessions',     // OPEN SESSIONS at the top of the session list
-  'openInTabOrSidebar', // New in tab / New in sidebar, and Resume in tab / Resume in sidebar on the session list
-  'deleteArchived',   // Delete in the Archived sessions menu
-  'sessionHoverDetails', // a session list row's group and session ID on hover
-  'sessionIdSearch',  // the session list's search also matching part of a session ID
-  'sessionColors',    // a conversation's text color in the session list, and Text color in its menu
   'conversationLinks', // another conversation's title or session id in a reply drawn as a link that opens it
   'planBar',          // the bar above the input box with the work plan's open rows, current row and waiting questions
 ];
@@ -314,7 +262,7 @@ function liveCss(opts = {}) {
   /* Kept whenever anything is on: this one rule renders the attribute that carries the time, the sub-agent tag, the
      duration and the figures, so dropping it would switch off four things instead of one. */
   if (on) css += STAMP_CSS + '\n';
-  if (on) css += LIST_DOTS_CSS + '\n' + MAP_DOTS_CSS + '\n';
+  if (on) css += MAP_DOTS_CSS + '\n';
   /* Claude Code (2.1.284 and later) draws its own time on your messages and on replies with text: at the top right, in
      its own format, and on those two kinds only. Shown beside this script's, the same message carried two times in two
      places, and a reply's tool calls a third format - so while this script's times are on, Claude Code's are hidden and
@@ -328,15 +276,12 @@ function liveCss(opts = {}) {
      and a build that predates a switch treats it as on. Written in SWITCHES order so that every window produces the
      same bytes.
 
-     `on` switches only the marks; the off flags, the agent map's detached commands, scheduled prompts and background
-     sessions, the pins and the text colors below are written either way. */
+     `on` switches only the marks; the off flags and the agent map's detached commands, scheduled prompts and background
+     sessions below are written either way. */
   if (off.length) css += ':root{' + off.map((k) => `--cce-off-${k}:1;`).join('') + '}\n';
   css += scheduleProperty(opts.tasks);
   if (!off.includes('backgroundSessions')) css += backgroundProperty(opts.background) + workersProperty(opts.workers);
   if (!off.includes('detachedCommands')) css += detachedProperty(opts.detached);
-  css += pinsProperty(opts.pins);
-  if (!off.includes('sessionColors')) css += colorsProperty(opts.colors);
-  css += duplicatesProperty(opts.dups);
   return css;
 }
 
@@ -362,9 +307,8 @@ function pageFragments() {
 }
 
 /** What the extension decides and the page cannot: the mark attribute, the live stylesheet, the fallback rules. */
-/* The marks src/title-marks.js takes off a title, each with its variation selector: the page strips a title typed in the
-   session list's rename box the same way (84-row-marks.js). The page itself names no mark, since the envelope it draws
-   comes from the stylesheet in the form for the theme. */
+/* The marks src/title-marks.js takes off a title, each with its variation selector: the page strips a title typed in one
+   of Claude Code's rename boxes the same way (84-rename-marks.js). */
 const TITLE_MARKS = String.raw`(?:\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709)[\uFE0E\uFE0F]?`;
 
 function configBlock() {
@@ -408,59 +352,10 @@ const STEWARD_HREF = String.raw`/^vscode:\/\/xnervwang\.claude-code-plus\/open\?
 
 const EDITS = [
   {
-    /* OPEN SESSIONS reads what the session list itself reads: the store of sessions, the context that opens one, and the
-       connection that reports which are open in a tab and which in the sidebar. They are named in one place only, where
-       the list is mounted, so they are handed to the page there. */
-    name: 'session list sources for open sessions',
-    re: /([\w$]+)\(([\w$]+),\{sessions:([\w$]+),context:([\w$]+),sessionStates:([\w$]+)\.sessionStates,openSessionIds:\5\.openSessionIds,/g,
-    to: (m, jsx, list, store, ctx, comms) => `${jsx}(${list},{sessions:(window.__cceSessionList={sessions:${store},context:${ctx},comms:${comms}},${store}),context:${ctx},sessionStates:${comms}.sessionStates,openSessionIds:${comms}.openSessionIds,`,
-  },
-  {
-    /* The section itself, between Account & usage and Session manager, drawn with the list's own element factories,
-       section classes and chevron so it looks like the two around it; Recently closed (84-recent-closed.js) comes before it. */
-    name: 'open sessions section',
-    re: /(onViewUsage:[\w$]+\}\)),([\w$]+)\("div",\{className:([\w$]+)\.sectionHeader,children:([\w$]+)\("button",\{className:\3\.sectionToggle,onClick:\(\)=>([\w$]+)\("sessions",!([\w$]+)\),"aria-expanded":!\6,title:\6\?"Expand session manager":"Collapse session manager",children:\[\2\(([\w$]+),/g,
-    to: (m, usage, jsx, cls, jsxs, toggle, collapsed, chevron) => `${usage},`
-      + `(typeof window.__cceRecentClosedSection==="function"?window.__cceRecentClosedSection({jsx:${jsx},jsxs:${jsxs},cls:${cls},Chevron:${chevron}}):null),`
-      + `(typeof window.__cceOpenSessions==="function"?window.__cceOpenSessions({jsx:${jsx},jsxs:${jsxs},cls:${cls},Chevron:${chevron}}):null),${jsx}("div",{className:${cls}.sectionHeader,children:${jsxs}("button",{className:${cls}.sectionToggle,onClick:()=>${toggle}("sessions",!${collapsed}),"aria-expanded":!${collapsed},title:${collapsed}?"Expand session manager":"Collapse session manager",children:[${jsx}(${chevron},`,
-  },
-  {
-    // The status dot the list draws on its rows, so a row in OPEN SESSIONS carries the same one. A function declaration
-    // is hoisted, so naming it before its line is fine.
-    name: 'status dot for open sessions',
-    re: /function ([\w$]+)\(\{state:([\w$]+),ring:([\w$]+)=!1,title:([\w$]+),className:([\w$]+)\}\)\{/g,
-    to: (m, fn, state, ring, title, cls) => `window.__cceStatusDot=${fn};function ${fn}({state:${state},ring:${ring}=!1,title:${title},className:${cls}}){`,
-  },
-  {
-    // The component the list draws a row with, so a row in OPEN SESSIONS is one: pin, time, rename and archive included.
-    name: 'session row component for open sessions',
-    re: /([\w$]+)=([\w$]+)\(function\(\{session:([\w$]+),id:([\w$]+),isActive:/g,
-    to: (m, name, wrap, session, id) => `${name}=window.__cceSessionRow=${wrap}(function({session:${session},id:${id},isActive:`,
-  },
-  {
-    // The row component tells the page when the pointer enters and leaves a row, for its hover text (84-row-hover.js).
-    name: 'session row hover',
-    re: /(\(function\(\{session:([\w$]+),id:([\w$]+),isActive:[^]{0,4000}?return [\w$]+\("button",\{ref:[\w$]+,id:\3,)(className:`\$\{[\w$]+\.sessionItem\} )/g,
-    to: (m, head, session, id, cls) => `${head}`
-      + `onMouseEnter:(cceE)=>{typeof window.__cceRowHover==="function"&&window.__cceRowHover(${session},cceE.currentTarget,!0)},`
-      + `onMouseLeave:(cceE)=>{typeof window.__cceRowHover==="function"&&window.__cceRowHover(${session},cceE.currentTarget,!1)},${cls}`,
-  },
-  {
-    /* The row's dot and envelope (84-row-marks.js), in place of the one dot the list draws, which shows an unread reply
-       only once nothing runs. The page returning null draws the list's own dot. The where text is the list's own words
-       for where the conversation is open, for the dot's title. */
-    name: 'session row marks',
-    re: /(\(function\(\{session:([\w$]+),id:[\w$]+,isActive:[^]{0,6000}?children:\[)([\w$]+)&&([\w$]+)\(([\w$]+),\{state:\3,ring:([\w$]+)!==void 0&&\3!=="unread",title:([\w$]+)\(\3,\6\)\}\),/g,
-    to: (m, head, session, state, jsx, dot, where, title) => `${head}(typeof window.__cceRowMarks==="function"&&window.__cceRowMarks({`
-      + `jsx:${jsx},Dot:${dot},session:${session},state:${state},`
-      + `where:${state}==="running"||${state}==="waiting"||${state}==="idle"?${title}("idle",${where}):""})`
-      + `||${state}&&${jsx}(${dot},{state:${state},ring:${where}!==void 0&&${state}!=="unread",title:${title}(${state},${where})})),`,
-  },
-  {
     /* A rename typed in the session list's box is shown at once, before the title is stored, and the stored one
        replaces it only when the list is next read back; that read does not happen when the stored title has not
-       changed. So the marks this extension draws are taken off what is shown too (84-row-marks.js), as the host takes
-       them off what is stored (src/host.js). */
+       changed. So the marks this extension draws are taken off what is shown too (84-rename-marks.js), as the host
+       takes them off what is stored (src/host.js). */
     name: 'session list renames show no marks',
     re: /renameSession\(([\w$]+),([\w$]+)\)\{this\.lastLocalRenameAt\.set\(\1,Date\.now\(\)\);/g,
     to: (m, id, title) => `${m}${title}=typeof window.__cceCleanTitle==="function"?window.__cceCleanTitle(${title}):${title};`,
@@ -513,133 +408,19 @@ const EDITS = [
     ],
   },
   {
-    // The session list's search: a conversation also matches when part of its session ID was typed. The page decides
-    // whether the query reads as part of an ID (84-search-by-id.js).
-    name: 'session search by id',
-    re: /(\.filter\(\(([\w$]+)\)=>[\w$]+\(\2\)\.toLowerCase\(\)\.includes\(([\w$]+)\)\|\|\(\2\.gitBranch\.value\?\.toLowerCase\(\)\.includes\(\3\)\?\?!1\))/g,
-    to: (m, head, session, query) => `${head}||(typeof window.__cceIdMatch==="function"&&window.__cceIdMatch(${session},${query}))`,
-  },
-  {
-    // The panel's signal constructor, for the one piece of state OPEN SESSIONS keeps: which of its rows is being renamed.
-    name: 'signal constructor for open sessions',
+    // The panel's signal constructor, so that the page's own state redraws the parts that read it, as the panel's does.
+    name: 'signal constructor for the page',
     re: /sessionStates=([\w$]+)\(\[\]\);sessionArchiveChanged=/g,
     to: (m, signal) => `sessionStates=(window.__cceSignal=${signal},${signal}([]));sessionArchiveChanged=`,
   },
   {
-    /* The list scrolls to the active conversation and selects it whenever the active one changes. A switch made from
-       OPEN SESSIONS asks it not to, so the long list stays where the person left it. */
-    name: 'session list keeps its place after a switch from open sessions',
-    re: /if\(([\w$]+)\.current!==null\)return;let ([\w$]+)=([\w$]+)\.findIndex\(\(([\w$]+)\)=>\4===([\w$]+)\);if\(\2<0\|\|\5===null\)return;([\w$]+)\.anchor\(\5\)/g,
-    to: (m, busy, idx, rows, x, active, list) => `if(${busy}.current!==null)return;if(typeof window.__cceSkipFollow==="function"&&window.__cceSkipFollow(${active}))return;let ${idx}=${rows}.findIndex((${x})=>${x}===${active});if(${idx}<0||${active}===null)return;${list}.anchor(${active})`,
-  },
-  {
-    // Delete after Unarchive in the Archived sessions menu (89-delete-archived.js); the page returning null leaves it out.
-    name: 'delete in the archived list',
-    re: /if\(([\w$]+)\.unarchiveSelection\)([\w$]+)\.push\(\{label:([\w$]+)\.length>1\?`Unarchive \$\{\3\.length\} sessions`:"Unarchive session",separatorBefore:\2\.length>0,onSelect:\1\.unarchiveSelection\}\);return \2\}/g,
-    to: (m, act, items, keys) => m.slice(0, -(`return ${items}}`).length)
-      + `{let cceD=typeof window.__cceDeleteItem==="function"?window.__cceDeleteItem(${keys}):null;if(cceD)${items}.push(cceD)}return ${items}}`,
-  },
-  {
-    // Text color before Archive in a conversation's menu (84-session-colors.js); the page returning null leaves it out.
-    name: 'text color in the session list menu',
-    re: /if\(([\w$]+)\.archiveSelection\)([\w$]+)\.push\(\{label:([\w$]+)\.length>1\?`Archive \$\{\3\.length\} sessions`:"Archive session",/g,
-    to: (m, act, items, keys) => `{let cceC=typeof window.__cceColorItem==="function"?window.__cceColorItem(${keys},${items}.length>0,${act}.cceClearSelection):null;`
-      + `if(cceC)${items}.push(cceC)}${m}`,
-  },
-  {
-    // The same in the Archived sessions menu, before Unarchive.
-    name: 'text color in the archived list menu',
-    re: /if\(([\w$]+)\.unarchiveSelection\)([\w$]+)\.push\(\{label:([\w$]+)\.length>1\?`Unarchive \$\{\3\.length\} sessions`:"Unarchive session",/g,
-    to: (m, act, items, keys) => `{let cceC=typeof window.__cceColorItem==="function"?window.__cceColorItem(${keys},${items}.length>0,${act}.cceClearSelection):null;`
-      + `if(cceC)${items}.push(cceC)}${m}`,
-  },
-  {
-    // A right-click selects the row it is on, and Claude Code's own menu items clear that selection once they have run.
-    // The list's menu is handed a way to do the same, for Text color, which would otherwise leave the row outlined as
-    // selected.
-    name: 'row menu can clear the selection',
-    re: /(\{resumeSession:\(\)=>\{([\w$]+)\(new Set\),([\w$]+)\([\w$]+\),[\w$]+\([\w$]+,[\w$]+\([\w$]+\)\)\},)(createGroupFromSelection:)/g,
-    to: (m, head, set, anchor, next) => `${head}cceClearSelection:()=>{${set}(new Set),${anchor}(null)},${next}`,
-  },
-  {
-    // The same for the Archived sessions menu.
-    name: 'archived row menu can clear the selection',
-    re: /(\{resumeSession:\(\)=>\{([\w$]+)\(new Set\),([\w$]+)\([\w$]+\),[\w$]+\([\w$]+,[\w$]+\([\w$]+\)\)\},)(unarchiveSelection:)/g,
-    to: (m, head, set, anchor, next) => `${head}cceClearSelection:()=>{${set}(new Set),${anchor}(null)},${next}`,
-  },
-  {
-    /* Right-clicking a row the list has not picked makes that row the list's selection (the set an action on several
-       rows works on). Claude Code's own items end it once they have run, but a menu closed with nothing picked keeps
-       it, drawn outlined for as long as the list stays open. The one handler that opens the list's menu and the
-       Archived sessions menu leaves a way to end the selection its right-click made; a selection there before the
-       right-click stays. */
-    name: 'row menu ends the selection it made',
-    re: /(function ([\w$]+)\(([\w$]+),([\w$]+)\)\{if\(![\w$]+\|\|![\w$]+\)return;let ([\w$]+)=[\w$]+\(\4\);if\(!\5\)return;)(if\(\3\.preventDefault\(\),\3\.stopPropagation\(\),[\w$]+\(\4\)\)\{let [\w$]+=new Set\([\w$]+\),[\w$]+=([\w$]+)\.has\(\5\)\?\[\.\.\.\7\]\.filter\(\(([\w$]+)\)=>[\w$]+\.has\(\8\)\):\[\5\];if\(!\7\.has\(\5\)\)([\w$]+)\(new Set\(\[\5\]\)\),)/g,
-    to: (m, head, fn, ev, item, key, rest, sel, x, set) => `${head}window.__cceMenuSelection=${sel}.has(${key})?void 0:()=>${set}((cceS)=>cceS.size===1&&cceS.has(${key})?new Set:cceS);${rest}`,
-  },
-  {
-    // Closing the menu, with an item picked or not, ends that selection.
-    name: 'row menu close ends the selection it made',
-    re: /([\w$]+)&&([\w$]+)&&([\w$]+)\(([\w$]+),\{items:\2,x:\1\.x,y:\1\.y,onClose:\(\)=>([\w$]+)\(null\)\}\)/g,
-    to: (m, menu, items, jsx, Menu, setMenu) => `${menu}&&${items}&&${jsx}(${Menu},{items:${items},x:${menu}.x,y:${menu}.y,onClose:()=>{${setMenu}(null);`
-      + 'let cceE=window.__cceMenuSelection;window.__cceMenuSelection=void 0;if(typeof cceE==="function")cceE()}})',
-  },
-  {
-    /* Dragging a row the list has not picked also makes it the selection. A drop on a group ends it; a drag let go
-       anywhere else keeps it. The drag's record holds a function (cceEnd) that ends the selection it made. */
-    name: 'row drag remembers the selection it made',
-    re: /if\(!([\w$]+)\.has\(([\w$]+)\)\)([\w$]+)\(new Set\(\[\2\]\)\),([\w$]+)\(\2\);(let ([\w$]+)=`\$\{Date\.now\(\)\.toString\(36\)\}[^]{0,300}?)([\w$]+)\.current=\{nonce:\6,keys:([\w$]+),sourceKey:\2\}/g,
-    to: (m, sel, key, set, anchor, mid, nonce, ref, keys) => `if(!${sel}.has(${key}))${set}(new Set([${key}])),${anchor}(${key});${mid}`
-      + `${ref}.current={nonce:${nonce},keys:${keys},sourceKey:${key},cceEnd:${sel}.has(${key})?void 0:()=>${set}((cceS)=>cceS.size===1&&cceS.has(${key})?new Set:cceS)}`,
-  },
-  {
-    // Every way a drag ends goes through this.
-    name: 'row drag end ends the selection it made',
-    re: /function ([\w$]+)\(\)\{([\w$]+)\.current=null,([\w$]+)\(null\)\}/g,
-    to: (m, fn, ref, setTarget) => `function ${fn}(){let cceE=${ref}.current&&${ref}.current.cceEnd;${ref}.current=null,${setTarget}(null);if(typeof cceE==="function")cceE()}`,
-  },
-  {
-    // The panel's open request, carrying where the session list's two buttons and two Resume items asked for.
-    name: 'open request says where',
-    re: /openInEditor\(([\w$]+),([\w$]+),([\w$]+)\)\{return this\.sendRequest\(\{type:"open_in_editor",sessionId:\1,newSessionGroupId:\2,usage:\3\}\)\}/g,
-    to: (m, id, group, usage) => `openInEditor(${id},${group},${usage}){let cceW=window.__cceOpenWhere;window.__cceOpenWhere=void 0;`
-      + `return this.sendRequest({type:"open_in_editor",sessionId:${id},newSessionGroupId:${group},usage:${usage},cceWhere:cceW})}`,
-  },
-  {
-    // Whether the sidebar's conversation can be seen and the tabs closed recently, as the patched host sends them; OPEN
-    // SESSIONS and Recently closed read them as they draw. With them, the dot of each conversation, the stewards
-    // (84-row-marks.js) and the stewards of each managed conversation (84-row-hover.js).
-    name: 'sidebar shown for open sessions',
+    // The dot of each conversation, as the patched host sends it with the session states, for the agent map's own row
+    // (81-host-activity.js).
+    name: 'session states carry the dots',
     re: /case"session_states_update":if\(this\.sessionStates\.value=([\w$]+)\.request\.sessions,/g,
-    to: (m, msg) => `case"session_states_update":if(window.__cceSidebarShown=${msg}.request.cceSidebarShown,`
-      + `window.__cceRecentClosed=${msg}.request.cceRecentClosed,`
-      + `(()=>{try{typeof window.__cceSetActivity==="function"&&window.__cceSetActivity(${msg}.request.cceActivity,${msg}.request.cceStewards,${msg}.request.cceManagedBy)}catch(cceE){}})(),`
+    to: (m, msg) => `case"session_states_update":if(`
+      + `(()=>{try{typeof window.__cceSetActivity==="function"&&window.__cceSetActivity(${msg}.request.cceActivity)}catch(cceE){}})(),`
       + `this.sessionStates.value=${msg}.request.sessions,`,
-  },
-  {
-    // New session becomes New in tab and New in sidebar (86-open-in-tab-or-sidebar.js); the page returning null keeps it.
-    name: 'new session in a tab or the sidebar',
-    re: /([\w$]+)\("button",\{className:([\w$]+)\.newSessionButton,onClick:\(\)=>\{([\w$]+)\.openInEditor\(\)\},children:\[([\w$]+)\(([\w$]+),\{className:\2\.newSessionIcon\}\),"New session"\]\}\)/g,
-    to: (m, jsxs, cls, ctx, jsx, icon) => `(typeof window.__cceNewSessionButtons==="function"&&window.__cceNewSessionButtons({jsx:${jsx},jsxs:${jsxs},cls:${cls},Icon:${icon},ctx:${ctx}})||${m})`,
-  },
-  {
-    /* Resume session, for a conversation that is not open, becomes Resume in tab and Resume in sidebar, each doing what
-       Resume session does with where to open it added. The live list's menu and the archived list's menu each build it,
-       with one more argument in the first. */
-    name: 'resume in a tab or the sidebar, live list',
-    re: /function ([\w$]+)\(([\w$]+),([\w$]+),([\w$]+),([\w$]+)\)\{let ([\w$]+)=\[\];if\(\2\.length===1\)\6\.push\(\{label:\5\?\.sessionIsOpen\?"Switch to session":"Resume session",onSelect:\4\.resumeSession\}\);/g,
-    to: (m, fn, keys, groups, act, info, items) => `function ${fn}(${keys},${groups},${act},${info}){let ${items}=[];if(${keys}.length===1){let cceR=!${info}?.sessionIsOpen&&typeof window.__cceResumeItems==="function"?window.__cceResumeItems(${keys}[0],${act}.resumeSession):null;if(cceR)${items}.push(...cceR);else ${items}.push({label:${info}?.sessionIsOpen?"Switch to session":"Resume session",onSelect:${act}.resumeSession})}`,
-  },
-  {
-    name: 'resume in a tab or the sidebar, archived list',
-    re: /function ([\w$]+)\(([\w$]+),([\w$]+),([\w$]+)\)\{let ([\w$]+)=\[\];if\(\2\.length===1\)\5\.push\(\{label:\4\?\.sessionIsOpen\?"Switch to session":"Resume session",onSelect:\3\.resumeSession\}\);/g,
-    to: (m, fn, keys, act, info, items) => `function ${fn}(${keys},${act},${info}){let ${items}=[];if(${keys}.length===1){let cceR=!${info}?.sessionIsOpen&&typeof window.__cceResumeItems==="function"?window.__cceResumeItems(${keys}[0],${act}.resumeSession):null;if(cceR)${items}.push(...cceR);else ${items}.push({label:${info}?.sessionIsOpen?"Switch to session":"Resume session",onSelect:${act}.resumeSession})}`,
-  },
-  {
-    // The list's row classes, so a row in OPEN SESSIONS is laid out like a row of the list.
-    name: 'session list row classes',
-    re: /([\w$]+)=(\{root:"root_[\w$]+",sessionListOnly:"sessionListOnly_[\w$]+",[^{}]*\})/g,
-    to: (m, name, obj) => `${name}=(window.__cceListCls=${obj})`,
   },
   {
     name: 'message builder',
@@ -668,29 +449,6 @@ const EDITS = [
         to: (m, item, msg, row, find, sess) => `for(let ${item} of ${msg}.message.content)if(${item}.type==="tool_result"){let ${row}=${find}(${sess},${item}.tool_use_id);if(${row}){${row}.setToolResult(${item});${row}.cceResultAt=(typeof ${msg}.timestamp==="string"&&Date.parse(${msg}.timestamp))||void 0}}`,
       },
     ],
-  },
-  {
-    // Three sibling factories assign sessionId and transcriptOnDisk the same way; what tells this one apart is that
-    // it goes on to set lastModifiedTime. The match stops at that field name and does not look at what it is set
-    // to, because that expression is the kind of thing a release changes.
-    name: 'session list createdAt',
-    re: /([\w$]+)\.sessionId\.value=([\w$]+)\.id,\1\.transcriptOnDisk=!0,\1\.lastModifiedTime\.value=/g,
-    to: (m, y, s) => `${y}.sessionId.value=${s}.id,${y}.transcriptOnDisk=!0,${y}.cceCreatedAt=${s}.createdAt,${y}.lastModifiedTime.value=`,
-  },
-  {
-    /* The row's id and the panel's own relative-time function go along, so a pinned row can show its real time in the
-       panel's own form. */
-    name: 'session list time render',
-    re: /children:([\w$]+)\(([\w$]+)\.lastModifiedTime\.value\)/g,
-    to: (m, f, j) => `children:(typeof window.__cceSpan==="function"?window.__cceSpan(${f}(${j}.lastModifiedTime.value),${j}.lastModifiedTime.value,${j}.cceCreatedAt,${j}.sessionId&&${j}.sessionId.value,${f}):${f}(${j}.lastModifiedTime.value))`,
-  },
-  {
-    /* The pin, at the start of every row of the session list. It goes into the row right after the title - the one place
-       where the element factory and the row are both named - and the page's stylesheet moves it in front of the status
-       dot, so the pins of all rows line up. */
-    name: 'session list pin',
-    re: /(([\w$]+)\("span",\{className:([\w$]+)\.sessionName,children:[\w$]+\([\w$]+\(([\w$]+)\),[\w$]+\)\},"view"\))/g,
-    to: (m, title, jsx, cls, j) => `${title},(typeof window.__ccePin==="function"?window.__ccePin(${jsx},${j}):null)`,
   },
   {
     // The three artwork states cover half, three quarters and almost all of the circle, but the component picks them at
@@ -1058,5 +816,5 @@ module.exports = {
   VERSION, MARK, ANY_MARK, BACKUP_SUFFIX, EDITS, SCRIPT, TITLE_MARKS, WAITS_LEFT,
   safeColor, patchSource, status: target.status, apply, restore: target.restore, wholeScript, findInstalls, webviewFile, targetFile: webviewFile,
   writeLive, liveCss,
-  writeEffort, pruneEfforts, EFFORT_PREFIX, pinsProperty,
+  writeEffort, pruneEfforts, EFFORT_PREFIX,
 };

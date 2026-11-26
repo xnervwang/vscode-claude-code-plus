@@ -140,6 +140,8 @@ function projectOf(dir, folder) {
  *   started()                     optional: called once, when the list first asks for this window's conversations
  *   ready()                       optional: Promise, settled once the states below are fresh
  *   state(sessionId)              { activity, waitingFor } of a conversation that runs, or null for one that does not
+ *   lastUserAt(file)              optional: when the user last wrote in transcript `file`, answers on a question card and
+ *                                 messages typed while a turn ran included (src/activity.js), or 0
  *   elsewhere()                   Map of session id to { elsewhere, processes } (src/claude-elsewhere.js)
  *   isSteward(sessionId)
  *   open(sessionId, where)        Promise; opens it in a tab or the sidebar of this window
@@ -208,14 +210,16 @@ function create(deps) {
     cache.set(id, entry);
     return entry;
   };
-  const row = (id, entry, folder, where) => {
+  const row = (id, entry, folder, where, file) => {
     const { sum } = entry;
     const kind = kindFor(sum.messages ? entry.kind : 'empty');
     if (!kind) return null;
     const title = titleMarks.withoutMarks(sum.custom || sum.ai || sum.firstPrompt || '').slice(0, MAX_TITLE);
     const s = { sessionId: id, title, cwd: sum.cwd || folder, createdAt: sum.createdAt || 0, lastActiveAt: sum.lastActiveAt || sum.createdAt || 0,
       lastReplyAt: sum.lastReplyAt || 0, kind, activity: 'stopped', running: false };
-    if (sum.lastUserAt) s.lastUserAt = sum.lastUserAt;
+    /* The same time as the tab's dot reads, so that the two agree on whether a plan question is answered. */
+    const typed = deps.lastUserAt ? Number(safe(deps.lastUserAt, 0, file)) || 0 : sum.lastUserAt || 0;
+    if (typed) s.lastUserAt = typed;
     if (sum.branch) s.branch = sum.branch;
     const wt = worktreeOf(sum.cwd, folder);
     if (wt) s.worktree = wt;
@@ -252,7 +256,7 @@ function create(deps) {
       for (; at < ids.length && sessions.length < size; at++) {
         const [id, file] = ids[at];
         const entry = read(id, file);
-        const s = entry && row(id, entry, folder, where);
+        const s = entry && row(id, entry, folder, where, file);
         if (s) sessions.push(s);
       }
       return { sessions, cursor: at < ids.length ? String(at) : null };

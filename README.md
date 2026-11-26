@@ -62,18 +62,14 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 
 | Feature | What it does |
 | --- | --- |
-| [Open sessions](docs/features.md#in-the-session-list) | A section near the top of Claude Code's session list shows conversations open in this window's editor tabs or sidebar, most recently active first. Each row shows a [status dot](#on-editor-tabs) and, while a reply is unread, an envelope. Click the row to switch to that conversation. |
-| [Open in a tab or the sidebar](docs/features.md#in-the-session-list) | **New in tab** and **New in sidebar** replace the New session button. To reopen a closed conversation, right-click it and choose **Resume in tab** or **Resume in sidebar**. |
-| [Section and session ID on hover](docs/features.md#in-the-session-list) | Hover over a conversation to see its session ID and where it appears in the list: its group, Ungrouped or Archived sessions. |
-| [Search by session ID](docs/features.md#in-the-session-list) | Search also matches part of a session ID, such as `69f9`. Enter at least four characters using only 0-9, a-f and hyphens. |
-| [RECENTLY CLOSED](docs/features.md#in-the-session-list) | Directly above Open sessions, RECENTLY CLOSED lists conversations whose Claude Code editor tabs you closed in this workspace, most recently closed first. Click a conversation to reopen it. |
-| [Session dates](docs/features.md#in-the-session-list) | The dates of the first and last messages follow Claude Code's last-active time, so `11d` becomes `11d · 09/05→09/16`. |
-| [Pinned conversations](docs/features.md#in-the-session-list) | Click the pin at the start of a session-list row to keep the conversation out of Archived sessions and protect its transcript from Claude Code's cleanup (`cleanupPeriodDays`). |
-| [Text colors](docs/features.md#in-the-session-list) | Right-click a conversation and choose **Text color** to give its title one of the colors from Claude Code's `/color`. The color appears wherever the conversation is listed. |
-| [Delete archived conversations](docs/features.md#in-the-session-list) | To remove an archived conversation permanently from disk, right-click it, choose **Delete session…** and confirm. You cannot delete a conversation that is running or open in any VS Code window on the same machine. |
-| [Background sessions left out](docs/features.md#in-the-session-list) | The session list skips sessions started with `claude --bg` or `claude -p` (see [Background work](#background-work)), and empty transcripts. Turn off `claudeCodePlus.hideBackgroundSessions` to see those sessions and the empty transcripts. |
+| [Agent Plus's session list](docs/features.md#in-the-session-list) | This folder's Claude Code conversations appear in Agent Plus's session list beside the other agents' ones; open, rename, archive, group, pin and delete them there. |
+| [Where else a conversation is open](docs/features.md#in-the-session-list) | A conversation a terminal, a `claude --bg` job or Claude Desktop has open is dimmed, and its hover says where. |
+| [The figures of the conversation in front](docs/features.md#in-the-session-list) | Account & usage shows the estimated cost, API time, time since it started and lines changed of the Claude Code conversation in front. |
+| [Kept from Claude Code's cleanup](docs/features.md#in-the-session-list) | Claude Code's transcript cleanup does not delete a conversation before Agent Plus's list would. |
+| [Claude Code's own list hidden](docs/features.md#in-the-session-list) | Turn on `claudeCodePlus.hideOfficialSessionList` to take Claude Code's own session list out of the Activity Bar. |
+| [Background sessions left out](docs/features.md#in-the-session-list) | Claude Code's own list skips sessions started with `claude --bg` or `claude -p` (see [Background work](#background-work)), and empty transcripts. |
+| [Not in Agent Plus's list](docs/features.md#in-the-session-list) | Claude Code's Web tab and the claude.ai subscription bars, which need a claude.ai sign-in, are only in Claude Code's own list. |
 
-![Open sessions, a pinned conversation, a colored title, session dates and a session ID on hover](images/shots/session-list.png)
 
 ### On editor tabs
 
@@ -81,7 +77,7 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 | --- | --- |
 | [Status dots](docs/features.md#on-editor-tabs) | A dot at the top right of a Claude Code tab's logo is solid green while a turn runs, a green ring when only [background work](#background-work) is running, and red when the conversation waits for you. Session list rows and the [Steward panel](#steward) show the same dots. |
 | [Notices of waits](docs/features.md#on-editor-tabs) | Agent Plus notifies you in your current VS Code window when a conversation outside it is waiting for tool permission, an answer to a question, a review of the plan it made in plan mode or your choice of Continue or Stop in auto mode. Click Open to go to that conversation's window. |
-| [Unread envelope](docs/features.md#on-editor-tabs) | An envelope (✉️) appears at the end of a conversation's tab title and after its title in the session list and Steward panel while it has a reply you have not seen. The envelope disappears when the conversation is shown. |
+| [Unread envelope](docs/features.md#on-editor-tabs) | An envelope (✉️) appears at the end of a conversation's tab title and after its title in the Steward panel, and Agent Plus's session list marks it too, while it has a reply you have not seen. The envelope disappears when the conversation is shown. |
 | [Tabs back after a restart](docs/features.md#on-editor-tabs) | When the window starts, Claude Code Plus reopens Claude Code tabs that were open when it closed but that VS Code did not restore, as can happen after a lost remote connection. Tabs you closed while connected stay closed. |
 | [Load background tabs](docs/features.md#on-editor-tabs) | Turn on `claudeCodePlus.loadRestoredTabs` to load Claude Code conversations in background tabs when the window starts. By default, they load when you first click them. |
 

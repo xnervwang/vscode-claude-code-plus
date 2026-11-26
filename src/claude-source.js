@@ -42,6 +42,8 @@ const PROTOCOL = 1;
 const ID = 'claude-code';
 const EXTENSION_ID = 'xnervwang.claude-code-plus';
 const AGENTS_FRESH_MS = 30000;
+/* Whether process `pid` still runs; one this user may not signal runs too. */
+const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } };
 /* Shorter than Agent Plus's 20-second wait, after which it reports the answer as uncertain and drops a late
    "not received". */
 const ANSWER_WAIT_MS = 15000;
@@ -343,7 +345,8 @@ function createClaudeSource(deps) {
     if (where.length) return `the VS Code window ${where.map((n) => `"${n}"`).join(', ')} shows it, and opening it here as well would run it twice`;
     const got = await freshAgents();
     if (!got || !Array.isArray(got.records)) return `this window could not tell whether another process runs it: ${(got && got.error) || '`claude agents --json` gave no list'}`;
-    const held = heldBy(got.records, id);
+    /* The list can be up to AGENTS_FRESH_MS old: a tab closed since then had a process that has ended. */
+    const held = heldBy(got.records, id, typeof deps.alive === 'function' ? deps.alive : pidAlive);
     return held ? `${held}, and opening it here as well would run it twice` : '';
   };
   /*

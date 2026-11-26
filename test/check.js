@@ -702,7 +702,7 @@ function checkEdits(adapter, src, label) {
   if (r.error) bad(`${label}: patchSource refused: ${r.error}`);
   else if (!r.out.includes(adapter.MARK)) bad(`${label}: patched output carries no marker`);
   else ok(`${label}: patched output parses and is marked`);
-  if (adapter.name === 'Claude Code panel') { checkReplyShape(src, label); checkRowIds(src, label); if (!r.error) checkWaitNotices(r.out, label); }
+  if (adapter.name === 'Claude Code panel') { checkReplyShape(src, label); if (!r.error) checkWaitNotices(r.out, label); }
 }
 
 /* The panel's notices with a View button, shown only while the conversation is off screen, are all notices of a wait,
@@ -720,14 +720,6 @@ function checkWaitNotices(out, label) {
   }
   if (shown === 2 && left === 2) ok(`${label}: while Agent Plus shows the notices of waits, the panel leaves both of its own to it`);
   else bad(`${label}: ${shown} notices with a View button, ${left} of them left to Agent Plus (expected 2 and 2)`);
-}
-
-/* Text colors find a conversation's rows by the end of their id (84-session-colors.js). No edit covers how the list
-   builds that id, so it is checked here. */
-function checkRowIds(src, label) {
-  const n = [...src.matchAll(/function [\w$]+\(([\w$]+),([\w$]+)\)\{return`\$\{[\w$]+\}-row-\$\{\1\.sessionId\.value\?\?\2\}`\}/g)].length;
-  if (n === 1) ok(`${label}: a session list row's id ends in its session ID`);
-  else bad(`${label}: the session list's row id was built in ${n} places (expected 1); text colors find rows by it`);
 }
 
 /* What a reply holds, read out of the real bundle (test/reply-shape.js says why the stand-in panel cannot tell). The
@@ -1769,7 +1761,7 @@ console.log('\nscheduled prompts');
     new vm.Script(`(function(){${fragment}})()`, { filename: '82-scheduled-tasks.js' }).runInNewContext(sb);
     for (let i = 0; i < 5; i++) sb.window.__cceSchedule(h);
     const setup = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '05-page-setup.js'), 'utf8');
-    const cleared = (setup.match(/pinsCache = null; propCache = \{\};/g) || []).length;
+    const cleared = (setup.match(/offCache = \{\}; propCache = \{\};/g) || []).length;
     if (reads === 4 && cleared === 2) ok('five renders of the agent map read each of its four properties once, and a stylesheet arriving clears them');
     else bad(`five renders read the computed style ${reads} times; the two ways a stylesheet arrives clear the reads ${cleared} time(s)`);
   }
@@ -5958,7 +5950,7 @@ console.log('\nsettings moved from their old names');
     vs.store.userOnly = new Set(Object.entries(manifest.contributes.configuration.properties).filter(([, v]) => v.scope === 'application').map(([k]) => k));
 
     reset({ globalValue: { 'claudeCodeExtras.enabled': false, 'claudeCodeExtras.userMessageColor': 'blue', 'claudeCodePlus.userMessageColor': 'red',
-      'claudeCodeWorkPlan.show.chime': false, 'claudeCodeWorkPlan.sessionPins': false, 'claudeCodeExtras.sessionPins': true },
+      'claudeCodeWorkPlan.show.chime': false, 'claudeCodeWorkPlan.show.toc': false, 'claudeCodeExtras.show.toc': true },
       workspaceValue: { 'claudeCodeWorkPlan.hideBackgroundSessions': false, 'claudeCodeWorkPlan.workPlan': false } });
     const c1 = context();
     const said = await ext.renameSettings(c1);
@@ -5966,8 +5958,8 @@ console.log('\nsettings moved from their old names');
       'a value under the oldest name, claudeCodeExtras, is copied to its new name and cleared from the old one']);
     results.push([at('globalValue', 'claudeCodePlus.show.chime') === false && at('globalValue', 'claudeCodeWorkPlan.show.chime') === undefined,
       'a value under the later name, claudeCodeWorkPlan, is copied to its new name and cleared from the old one']);
-    results.push([at('globalValue', 'claudeCodePlus.sessionPins') === false && at('globalValue', 'claudeCodeWorkPlan.sessionPins') === undefined
-      && at('globalValue', 'claudeCodeExtras.sessionPins') === undefined,
+    results.push([at('globalValue', 'claudeCodePlus.show.toc') === false && at('globalValue', 'claudeCodeWorkPlan.show.toc') === undefined
+      && at('globalValue', 'claudeCodeExtras.show.toc') === undefined,
       'with a value under both old names, the later one is copied and both are cleared']);
     results.push([at('globalValue', 'claudeCodePlus.userMessageColor') === 'red' && at('globalValue', 'claudeCodeExtras.userMessageColor') === undefined,
       'a value already set under the new name is not overwritten']);
@@ -7227,7 +7219,7 @@ console.log('\nwhat a tick and a change of setting cost');
       const SID = 'abababab-1111-4222-8333-444444444444';
       (async () => {
         const out = { threw: '', sent: [] };
-        globalThis.__cceSendSessionStates = () => out.sent.push(typeof globalThis.__cceRecentClosed);
+        globalThis.__cceSendSessionStates = () => out.sent.push('states');
         try {
           await ext.activate({ subscriptions: subs, extensionPath: ${JSON.stringify(root)}, globalState: memo(), workspaceState: memo(),
             extension: { id: 'x.y', packageJSON: require(${JSON.stringify(path.join(root, 'package.json'))}) },
@@ -7239,10 +7231,8 @@ console.log('\nwhat a tick and a change of setting cost');
           for (const t of timers) t.fn();
           globalThis.__cceActiveChat = SID;
           globalThis.__cceChatHook();
-          globalThis.__ccePinHook(SID, true);
-          globalThis.__cceDeleteHook([{ id: SID, title: 't' }]);
           globalThis.__cceClosedHook(SID);
-          out.recent = globalThis.__cceRecentClosed().ids;
+          out.closedHook = typeof globalThis.__cceClosedHook;
           await new Promise((r) => setTimeout(r, 200));
           for (const fn of vs.listeners.ext) await fn();
           ext.deactivate();
@@ -7257,9 +7247,8 @@ console.log('\nwhat a tick and a change of setting cost');
     delete env.CLAUDE_CONFIG_DIR;
     try { r = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000, env })); }
     catch (e) { r = { threw: e.message }; }
-    if (!r.threw && r.listeners === 2 && JSON.stringify(r.timers) === JSON.stringify([1000, 5000, 5000, 10000, 15000, 30000, 1800000]) && JSON.stringify(r.recent) === JSON.stringify(['abababab-1111-4222-8333-444444444444'])
-        && (r.sentAtStart || []).includes('function')) {
-      ok('activation, a change of setting, every timer, the hooks and deactivation run against a stand-in editor without throwing, and the start sends the session list the closed tabs');
+    if (!r.threw && r.listeners === 2 && JSON.stringify(r.timers) === JSON.stringify([1000, 5000, 5000, 10000, 15000, 30000, 1800000]) && r.closedHook === 'function') {
+      ok('activation, a change of setting, every timer, the hooks and deactivation run against a stand-in editor without throwing');
     } else bad(`against a stand-in editor: ${JSON.stringify(r).slice(0, 600)}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
@@ -7291,25 +7280,6 @@ console.log('\nRemove pressed while the plugin is being registered');
 }
 
 /* Deleting after the confirmation, when the conversation was opened meanwhile. */
-console.log('\na conversation opened while its deletion is being confirmed');
-{
-  const SID = 'cdcdcdcd-1111-4222-8333-444444444444';
-  const transcript = '.claude/projects/-work/' + SID + '.jsonl';
-  const run = (shownAfter) => activateStub({ answer: 'Delete',
-    files: { [transcript]: JSON.stringify({ parentUuid: null, type: 'user', message: { content: 'hi' } }) + '\n' },
-    preamble: `globalThis.__shownCalls = 0; globalThis.__cceSessionsShown = () => (globalThis.__shownCalls++ ? ${JSON.stringify(shownAfter)} : []);`
-      + `setTimeout(() => globalThis.__cceDeleteHook([{ id: '${SID}', title: 'old talk' }]), 50);`,
-    report: `require('fs').existsSync(require('path').join(process.env.HOME, ${JSON.stringify(transcript)}))` });
-  const opened = run([SID]), left = run([]);
-  const told = (opened.said || []).some((s) => /opened or started meanwhile/.test(s[0]));
-  if (opened.extra === true && told && left.extra === false) {
-    ok('a conversation opened while the question was up is left on disk, and one still closed is deleted');
-  } else bad(`delete after confirming: opened meanwhile kept ${opened.extra} (told ${told}), still closed kept ${left.extra}`);
-}
-
-/* Links to other conversations, wired up in extension.js (src/conversation-links.js): against an Agent Plus that offers
-   allConversations, the list every panel is sent and the one a panel gets when it asks, where a click and the URI
-   handler go, and the switch stopping the subscription. */
 console.log('\nconversation links, wired up at activation');
 {
   const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
@@ -7616,7 +7586,7 @@ console.log('\na panel whose bundle never arrives says so');
     const r = edit ? applyEdits(fn, [edit]) : { error: 'no such edit' };
     if (r.error) bad('the panel messages edit did not apply to the logging function\'s shape: ' + r.error);
     else {
-      const heard = [], pins = [];
+      const heard = [];
       const env = { bl0: (m) => JSON.stringify(m), out: null };
       env.globalThis = env;
       env.__cceTzHook = (z) => heard.push(z);
@@ -7628,17 +7598,12 @@ console.log('\na panel whose bundle never arrives says so');
         ok('the patched host keeps the zone a panel reports, calls this extension, and still logs the message');
       } else bad(`after the time zone message: kept ${env.__cceClientTimeZone}, heard ${JSON.stringify(heard)}, logged ${env.out}`);
       env.out = null;
-      vm.runInContext('eT({info:(q)=>out=q},{type:"cce_session_pin",sessionId:"s1",pinned:true});', env);
-      const unheard = env.out;
-      env.__ccePinHook = (id, on) => pins.push([id, on]);
+      env.__ccePinHook = () => { throw new Error('no longer a message of this extension'); };
       vm.runInContext('eT({info:(q)=>out=q},{type:"cce_session_pin",sessionId:"s1",pinned:true});'
-        + 'eT({info:(q)=>out=q},{type:"cce_session_pin",sessionId:"s2",pinned:"yes"});'
-        + 'eT({info:(q)=>out=q},{type:"cce_session_pin",sessionId:7,pinned:true});'
         + 'eT({info:(q)=>out=q},{type:"cce_client_tz",timeZone:"Asia/Tokyo"});', env);
-      if (JSON.stringify(pins) === '[["s1",true],["s2",false]]' && /^Received message from webview: /.test(unheard)
-        && JSON.stringify(heard) === '["America/Los_Angeles","Asia/Tokyo"]') {
-        ok('a pin from the session list reaches this extension as an id and a yes or no, and the zone is still kept');
-      } else bad(`after the pin messages: heard pins ${JSON.stringify(pins)}, zones ${JSON.stringify(heard)}, logged without a hook: ${unheard}`);
+      if (/^Received message from webview: /.test(env.out) && JSON.stringify(heard) === '["America/Los_Angeles","Asia/Tokyo"]') {
+        ok('a message type this extension no longer handles is only logged, and the zone is still kept');
+      } else bad(`after a pin message: zones ${JSON.stringify(heard)}, logged ${env.out}`);
     }
   }
   /* Past its logging, a panel's message goes to Claude Code's switch, which logs every type it has no case for as an
@@ -7723,16 +7688,9 @@ console.log('\na panel whose bundle never arrives says so');
     fs.rmSync(root, { recursive: true, force: true });
 
     const live = require('../src/webview').liveCss({}), off = require('../src/webview').liveCss({ enabled: false });
-    if (live.includes('[class*="sessionItem_"]{--app-status-busy:#22c55e;--app-status-pending:#ef4444;}')
-        && live.includes('[class*="sessionItem_"]>[data-cce-envelope]{order:1;flex:none;') && live.includes('[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;') && live.includes('[class*="sessionItem_"]>[data-cce-crown]{order:1;flex:none;')
-        && !off.includes('sessionItem_')) {
-      ok('the session list\'s dots turn green and red, and a steward\'s crown and then the envelope go after the title and before the time');
-    } else bad('the live stylesheet does not colour the list\'s dots as expected');
-    if (live.includes('[class*="sessionItem_"]>[class*="sessionMeta_"]{order:2;flex-shrink:1;min-width:0;grid-template-columns:minmax(0,auto);}')
-        && live.includes('[class*="sessionItem_"]>[class*="sessionName_"]{min-width:3em;}')
-        && live.includes('[class*="sessionItem_"] [class*="sessionTime_"]{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}')) {
-      ok('in a list too narrow for both, a row\'s title keeps 3em and its time is cut short from the end, where the dates are');
-    } else bad('the live stylesheet does not shrink a row\'s time before its title');
+    if (!live.includes('sessionItem_') && !off.includes('sessionItem_') && live.includes('[class*="agentsPill_"]{--app-status-busy:#22c55e;--app-status-pending:#ef4444;}')) {
+      ok('the agent map\'s dots turn green and red, and nothing of Claude Code\'s own session list is styled');
+    } else bad('the live stylesheet styles the dots or the session list rows unexpectedly');
 
     const T = 'Fix the build';
     const titles = tabdot.MARKS.map((m) => tabdot.withoutMark(T + m)).concat([tabdot.withoutMark(T), tabdot.withoutMark(undefined)]);
@@ -7804,180 +7762,14 @@ console.log('\na panel whose bundle never arrives says so');
   } else bad('extension.js does not set the watch flag from the latency setting');
 }
 
-console.log('\nconversations pinned in the session list');
+console.log('\nconversations kept from Claude Code\'s cleanup');
 {
   const { applyEdits } = require('../src/edits');
   const pins = require('../src/sessionpins');
   const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
   const C = '33333333-3333-4333-8333-333333333333', D = '44444444-4444-4444-8444-444444444444';
 
-  /* The automatic archive skips a session the host counts as in use, and the pinned ones join the set the grouped ones
-     are in. Run on the shape of the code that builds the set and the test that reads it. */
-  {
-    const edit = host.EDITS.find((e) => e.name === 'pinned conversations not archived');
-    const code = 'function uG($,J){return J.openSessionIds.has($)||J.groupedSessionKeys.has($)}'
-      + 'class S{constructor(g){this.settings={getSessionGroups:()=>g}}arm(){let Y={openSessionIds:new Set(["o"]),'
-      + 'groupedSessionKeys:new Set(this.settings.getSessionGroups().flatMap((W)=>W.sessionIds)),liveElsewhereSessionIds:new Set};'
-      + 'return(W)=>uG(W,Y)}}';
-    const r = edit ? applyEdits(code, [edit]) : { error: 'no such edit' };
-    if (r.error) bad('the archive edit did not apply to the shape of the in-use set: ' + r.error);
-    else {
-      const run = (pinned) => {
-        const env = {};
-        env.globalThis = env;
-        if (pinned !== undefined) env.__ccePinnedIds = pinned;
-        vm.createContext(env);
-        vm.runInContext(r.out + `;var inUse=new S([{sessionIds:["${B}"]}]).arm();`
-          + `var got=["${A}","${B}","${C}","o"].map((x)=>inUse(x));`, env);
-        return JSON.stringify(env.got);
-      };
-      const got = [run(() => [A]), run(undefined), run(() => { throw new Error('x'); }), run(() => 'not a list'), run(() => [A, 5])];
-      const want = ['[true,true,false,true]', '[false,true,false,true]', '[false,true,false,true]', '[false,true,false,true]', '[true,true,false,true]'];
-      if (JSON.stringify(got) === JSON.stringify(want)) {
-        ok('a pinned conversation counts as in use and is not archived; a grouped one still is in use, and one neither pinned nor grouped is not');
-        ok('with no pins to read, or a list that throws or is not a list, the set is what Claude Code built');
-      } else bad(`in use after the archive edit: ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
-    }
-  }
-
-  /* The pin goes into every row right after the title, where the factory and the row are named, and the title itself is
-     left as it was; the time gets the row's id and the panel's relative-time function. */
-  {
-    const editPin = webview.EDITS.find((e) => e.name === 'session list pin');
-    const editTime = webview.EDITS.find((e) => e.name === 'session list time render');
-    const row = 'L("button",{className:B5.sessionItem,children:[R&&F(xQ,{state:R}),z?F("span",{ref:b,children:db(J)},"edit")'
-      + ':F("span",{className:B5.sessionName,children:vE0(db(J),G)},"view"),w&&J.worktree.value&&F("span",{}),'
-      + 'L("span",{className:B5.sessionMeta,children:[F("span",{className:B5.sessionTime,children:O_5(J.lastModifiedTime.value)})]})]})';
-    const r = editPin && editTime ? applyEdits(row, [editTime, editPin]) : { error: 'no such edit' };
-    if (r.error) bad('the pin and time edits did not both apply to the shape of a row: ' + r.error);
-    else if (r.out.includes(':F("span",{className:B5.sessionName,children:vE0(db(J),G)},"view"),'
-        + '(typeof window.__ccePin==="function"?window.__ccePin(F,J):null),w&&J.worktree.value')
-      && /window\.__cceSpan\(O_5\(J\.lastModifiedTime\.value\),J\.lastModifiedTime\.value,J\.cceCreatedAt,J\.sessionId&&J\.sessionId\.value,O_5\)/.test(r.out)) {
-      ok('the pin goes into every row after its title, with the panel\'s own factory, and the time gets the row\'s id and the relative-time function');
-    } else bad('after the pin and time edits the row reads: ' + r.out);
-    const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '83-session-pins.js'), 'utf8');
-    if (/span\[data-cce-pin\]\{order:-1;/.test(css) && !/sessionActions_/.test(css)) ok('and the page\'s stylesheet moves it to the front of the row, not among the hover buttons');
-    else bad('the pin is not moved to the front of the row by the page\'s stylesheet');
-  }
-
-  /* The page's half, run on a stand-in for the panel: what a pin is, what clicking it does, and the real time of a
-     pinned row. */
-  {
-    const frag = (n) => fs.readFileSync(path.join(__dirname, '..', 'src', 'page', n), 'utf8');
-    const NOW = new Date(2026, 9, 16, 12, 0, 0).getTime(), DAY = 86400000;
-    class FixedDate extends Date { constructor(...a) { if (a.length) super(...a); else super(NOW); } static now() { return NOW; } }
-    const pack = (v) => '"' + Buffer.from(JSON.stringify(v), 'utf8').toString('base64') + '"';
-    const real = NOW - 120 * DAY, given = NOW - 76 * DAY;
-    const env = {
-      Date: FixedDate, window: {}, console, Buffer, TextDecoder,
-      atob: (s) => Buffer.from(s, 'base64').toString('binary'),
-      prop: '', posted: [], hidden: 0, shown: 0, timers: [], appended: [],
-      sessionDates: false,
-    };
-    env.getComputedStyle = () => ({ getPropertyValue: (n) => (n === '--cce-pins' ? env.prop : '') });
-    env.document = { documentElement: {}, createElement: (t) => ({ tag: t, setAttribute() {} }), querySelectorAll: () => env.rows || [] };
-    env.head = { appendChild: (el) => env.appended.push(el) };
-    env.acquireVsCodeApi = () => ({ postMessage: (m) => env.posted.push(m) });
-    env.setTimeout = (f, ms) => { env.timers.push([f, ms]); return env.timers.length; };
-    env.showLabel = () => { env.shown++; };
-    env.hideLabel = () => { env.hidden++; };
-    env.isOff = (k) => (k === 'sessionDates' ? !env.sessionDates : false);
-    vm.createContext(env);
-    vm.runInContext('var pinsCache = null;' + KIT + '\n' + frag('15-format.js') + frag('82-scheduled-tasks.js') + frag('83-session-pins.js')
-      + ';this.reset = function(){ pinsCache = null; propCache = {}; };', env);
-    const h = (type, props, key) => ({ type, props, key });
-    const rowOf = (id, onDisk = true) => ({ sessionId: { value: id }, transcriptOnDisk: onDisk });
-    const draw = (id, onDisk) => env.window.__ccePin(h, rowOf(id, onDisk));
-    const set = (v) => { env.prop = v === null ? '' : pack(v); env.reset(); };
-
-    set(null);
-    const early = draw(A);
-    if (early && early.props['data-cce-pin-off'] === '1') ok('before the stylesheet says pinning is on, a row gets a pin that is hidden, to be shown when it does');
-    else bad(`with no pins in the stylesheet the row got ${JSON.stringify(early && early.props)}`);
-
-    set([[A], { [A]: [real, given] }, 14]);
-    const pinned = draw(A), plain = draw(B);
-    const p = pinned && pinned.props, q = plain && plain.props;
-    const okShape = p && q && p.role === 'button' && p.tabIndex === 0
-      && p['data-cce-pin'] === A && p['data-cce-pin-off'] === undefined && pinned.key === 'cce-pin'
-      && p.children[0].type === 'svg' && p.children[0].props.children[0].props['data-cce-pin-body'] === '1';
-    if (okShape) ok('a pin is a keyed button with its icon inside, the part that fills when pinned marked');
-    else bad(`the pin was drawn as ${JSON.stringify(p)}`);
-    if (p && q && p['data-cce-pinned'] === '1' && p['aria-pressed'] === 'true' && q['data-cce-pinned'] === '0' && q['aria-pressed'] === 'false') {
-      ok('a pinned row and an unpinned one carry different states');
-    } else bad(`pinned state ${p && p['data-cce-pinned']}, unpinned state ${q && q['data-cce-pinned']}`);
-    const label = (p && p['aria-label']) || '', other = (q && q['aria-label']) || '';
-    if (/^Pin this conversation/.test(other) && /transcript cleanup will then not delete it/.test(other) && /Archived sessions/.test(other)
-      && !/Unpin|within/.test(other)) {
-      ok('over a pin not yet pinned, the hover text says what pinning does: not deleted by the cleanup, not moved to Archived sessions');
-    } else bad(`hover text before pinning: "${other}"`);
-    if (/^Unpin this conversation/.test(label) && /cleaned up and archived as usual again/.test(label)
-      && /moved to Archived sessions straight away and deleted within about 14 days/.test(label) && !/^Pin /.test(label)) {
-      ok('over a pinned one already kept past its age, it says what unpinning does: archived at once and deleted within about 14 days unless used');
-    } else bad(`hover text of a pinned row kept past its age: "${label}"`);
-    if (draw(C, false) === null && env.window.__ccePin(h, { sessionId: { value: 'remote:1' }, transcriptOnDisk: true }) === null) {
-      ok('no pin on a row with no transcript on disk, or one whose id is not a session id');
-    } else bad('a row with nothing on disk to keep got a pin');
-
-    let stopped = 0;
-    const target = { attrs: {}, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
-      setAttribute(k, v) { this.attrs[k] = String(v); }, hasAttribute(k) { return k in this.attrs; }, removeAttribute(k) { delete this.attrs[k]; } };
-    const copyOf = (id) => ({ attrs: { 'data-cce-pin': id, 'data-cce-pinned': '0' }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
-      setAttribute(k, v) { this.attrs[k] = String(v); }, hasAttribute(k) { return k in this.attrs; }, removeAttribute(k) { delete this.attrs[k]; } });
-    const sameB = copyOf(B), otherA = copyOf(A);
-    env.rows = [sameB, otherA];
-    q.onClick({ stopPropagation: () => { stopped++; }, currentTarget: target });
-    env.rows = undefined;
-    if (sameB.attrs['data-cce-pinned'] === '1' && otherA.attrs['data-cce-pinned'] === '0') {
-      ok('a click repaints every copy of that conversation\'s pin, as OPEN SESSIONS draws the same row as the list, and leaves the others alone');
-    } else bad(`after the click, the other copy of the pin read ${sameB.attrs['data-cce-pinned']} and another conversation's ${otherA.attrs['data-cce-pinned']}`);
-    const sent = env.posted[0] || {};
-    if (stopped === 1 && sent.type === 'cce_session_pin' && sent.sessionId === B && sent.pinned === true && target.attrs['data-cce-pinned'] === '1'
-      && /^Unpin this conversation/.test(target.attrs['aria-label'] || '') && env.hidden > 0) {
-      ok('clicking a pin stops the click reaching the row, tells the host, and shows it pinned at once, its hover text now about unpinning');
-    } else bad(`after clicking: stopped ${stopped}, sent ${JSON.stringify(env.posted)}, attributes ${JSON.stringify(target.attrs)}`);
-    const again = draw(B);
-    if (again && again.props['data-cce-pinned'] === '1') ok('until the host answers, the row is drawn as the click left it');
-    else bad('drawn again before the host answered, the row lost the click');
-    let keyed = 0;
-    p.onKeyDown({ key: 'Enter', preventDefault: () => { keyed++; }, stopPropagation: () => { keyed++; }, currentTarget: target });
-    const sent2 = env.posted[1] || {};
-    if (keyed === 2 && sent2.sessionId === A && sent2.pinned === false) ok('Enter on a pin unpins it, and goes no further than the pin');
-    else bad(`after Enter: ${keyed} calls stopped, sent ${JSON.stringify(env.posted)}`);
-
-    const spanOf = (last, id) => env.window.__cceSpan('rel', last, real - DAY, id, (ms) => 'rel(' + Math.round((NOW - ms) / DAY) + 'd)');
-    env.sessionDates = true;
-    const withDates = spanOf(given + 500, A);
-    env.sessionDates = false;
-    const without = spanOf(given + 500, A);
-    const written = spanOf(NOW - 60000, A);
-    const unrecorded = spanOf(given, B);
-    const md = (ms) => { const d = new Date(ms); return String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0'); };
-    if (withDates === `rel(120d) · ${md(real - DAY)}→${md(real)}` && without === 'rel(120d)') {
-      ok('a pinned row whose file was given a later time shows when it was really last active, with the dates on and with them off');
-    } else bad(`a pinned row's time read "${withDates}" with the dates on and "${without}" with them off`);
-    if (written === 'rel' && unrecorded === 'rel') ok('once somebody writes to it, or for a row with no record, the list\'s own time stands');
-    else bad(`after a write the row read "${written}", and one without a record "${unrecorded}"`);
-
-    const rows = [target];
-    target.attrs['data-cce-pin'] = B;
-    env.rows = rows;
-    set(null);
-    vm.runInContext('repaintPins()', env);
-    if (target.attrs['data-cce-pin-off'] === '1') ok('a stylesheet with pinning off hides the pins already drawn');
-    else bad('pinning was turned off and the pins drawn stayed');
-    set([[A, B], {}, 5]);
-    vm.runInContext('repaintPins()', env);
-    const fresh = target.attrs['aria-label'];
-    set([[A, B], { [B]: [real, given] }, 5]);
-    vm.runInContext('repaintPins()', env);
-    if (!('data-cce-pin-off' in target.attrs) && target.attrs['data-cce-pinned'] === '1'
-      && /once it has been left unused long enough\.$/.test(fresh) && /within about 5 days\.$/.test(target.attrs['aria-label'])) {
-      ok('and turning it on again shows them, in the state the stylesheet carries; unpinning one never kept past its age is said to change nothing yet, and one that was, with the margin carried');
-    } else bad(`after pinning came back the pin read ${JSON.stringify(target.attrs)}, before its record "${fresh}"`);
-  }
-
-  /* The host's half: the file of pins, the margin, and what goes into the stylesheet. */
+  /* The file of pins from earlier versions, and the retention to keep ahead of. */
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-pins-'));
   try {
     const f = (name, v) => { const p = path.join(tmp, name); fs.writeFileSync(p, JSON.stringify(v)); return p; };
@@ -8011,16 +7803,6 @@ console.log('\nconversations pinned in the session list');
       ok('a pass\'s findings are folded into the file as it is then: records set and dropped, conversations no longer on disk unpinned');
     } else bad(`after folding in a pass: ${JSON.stringify(pins.read(file))}, changed ${changed}/${unchanged}`);
 
-    const data = pins.pageData({ pinned: [B, A], times: { [B]: { real: 10.4, set: 20 }, [A]: { real: 1, set: 2 } } }, 90);
-    const css = webview.liveCss({ enabled: false, pins: data });
-    const packed = (css.match(/--cce-pins:"([^"]+)"/) || [])[1];
-    const back = packed ? JSON.parse(Buffer.from(packed, 'base64').toString('utf8')) : null;
-    const none = webview.liveCss({ enabled: true, pins: null });
-    const empty = webview.liveCss({ enabled: true, pins: pins.pageData({ pinned: [], times: {} }, 10) });
-    if (JSON.stringify(back) === JSON.stringify([[A, B], { [A]: [1, 2], [B]: [10, 20] }, 14]) && !/--cce-pins/.test(none) && /--cce-pins:"/.test(empty)
-      && pins.marginDays(10) === 5) {
-      ok('the stylesheet carries the pins, sorted, while pinning is on - with nothing pinned and with the other additions off - and nothing while it is off');
-    } else bad(`pins in the stylesheet: ${JSON.stringify(back)}; off: ${/--cce-pins/.test(none)}; empty: ${/--cce-pins/.test(empty)}`);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 
   /* Keeping the files: in a child process, since the pass is asynchronous and this suite is not. */
@@ -8113,17 +7895,11 @@ console.log('\nconversations pinned in the session list');
   }
   const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const manifest = require('../package.json').contributes.configuration.properties;
-  if (/const pinsOn = \(\) => !removed\(\) && cfg\(\)\.get\(PINS_SETTING, true\) !== false;/.test(extSrc)
-    && /globalThis\.__ccePinHook = /.test(extSrc) && /globalThis\.__ccePinnedIds = \(\) => \{\s*try \{ return pinsOn\(\) \?/.test(extSrc)
-    && /if \(!pinsOn\(\) && !keeps\) return;/.test(extSrc) && /pins: pinsOn\(\) \?/.test(extSrc)
+  if (/const pinsOn = \(\) => !removed\(\);/.test(extSrc) && /if \(!pinsOn\(\) && !keeps\) return;/.test(extSrc)
     && /agentCore\.features\.includes\('sessionList'\)\) due = agentCore\.sessionDeletionDue\(claude\.source\.id\)/.test(extSrc)
-    && /if \(replaced\(\) && !toldStale\) \{[\s\S]{0,80}offerReload\('The pin is saved/.test(extSrc)
-    && /fs\.watch\(dir, \{ persistent: false \}, \(event, name\) => \{\s*if \(name && name !== sessionPins\.FILE && name !== sessionColors\.FILE\) return;/.test(extSrc)
-    && manifest['claudeCodePlus.sessionPins'] && manifest['claudeCodePlus.sessionPins'].default === true
-    && !manifest['claudeCodePlus.keepGroupedSessions']) {
-    ok('one setting, on by default, decides whether pins are drawn, files are kept and pinned conversations escape the archive');
-    ok('a pin made in a window that can no longer write the stylesheet is saved and the reader told to reload, and every window redraws when the pins or the text colors change');
-  } else bad('extension.js or the manifest does not wire the pins to their setting');
+    && !manifest['claudeCodePlus.sessionPins'] && manifest['claudeCodePlus.sessionPinsMarginDays'] && !/__ccePinHook|__ccePinnedIds/.test(extSrc)) {
+    ok('conversations pinned with an earlier version, and those Agent Plus\'s session list keeps, are kept from the cleanup, with the margin a setting of its own');
+  } else bad('extension.js or the manifest does not keep conversations from the cleanup as expected');
 }
 
 console.log('\nthe date on a message or reply from before today');
@@ -8156,293 +7932,9 @@ console.log('\nthe date on a message or reply from before today');
 
 /* OPEN SESSIONS: the edits hand over what the session list reads and draws with, and the page lists this window's open
    conversations from it. The edits are also checked against every installed build, in the section on matching. */
-console.log('\nopen sessions on the session list');
+console.log('\nopening in the sidebar on request');
 {
   const { applyEdits } = require('../src/edits');
-  const pick = (name) => webview.EDITS.find((e) => e.name === name);
-  const shapes = [
-    ['session list sources for open sessions',
-      'F(Ch0,{sessions:V,context:U,sessionStates:q.sessionStates,openSessionIds:q.openSessionIds,unreadSessionKeys:q.unreadSessionKeys})',
-      'F(Ch0,{sessions:(window.__cceSessionList={sessions:V,context:U,comms:q},V),context:U,sessionStates:q.sessionStates,openSessionIds:q.openSessionIds,'],
-    ['open sessions section',
-      'children:[F(Lh5,{collapsed:i1,onViewUsage:R0}),F("div",{className:e7.sectionHeader,children:w("button",{className:e7.sectionToggle,onClick:()=>W0("sessions",!z0),"aria-expanded":!z0,title:z0?"Expand session manager":"Collapse session manager",children:[F(Va,{className:e7.sectionChevron}),F("span",{children:"Session manager"})]})})]',
-      'onViewUsage:R0}),(typeof window.__cceRecentClosedSection==="function"?window.__cceRecentClosedSection({jsx:F,jsxs:w,cls:e7,Chevron:Va}):null),(typeof window.__cceOpenSessions==="function"?window.__cceOpenSessions({jsx:F,jsxs:w,cls:e7,Chevron:Va}):null),F("div",{className:e7.sectionHeader,'],
-    ['status dot for open sessions',
-      ';function qY({state:$,ring:J=!1,title:Z,className:X}){return 1}',
-      ';window.__cceStatusDot=qY;function qY({state:$,ring:J=!1,title:Z,className:X}){'],
-    ['session row component for open sessions',
-      'var Xh5=u0(function({session:J,id:Z,isActive:X}){return 1});',
-      'var Xh5=window.__cceSessionRow=u0(function({session:J,id:Z,isActive:'],
-    ['signal constructor for open sessions',
-      'class C{activeSessionId=y1(void 0);sessionStates=y1([]);sessionArchiveChanged=y1(void 0)}',
-      'sessionStates=(window.__cceSignal=y1,y1([]));sessionArchiveChanged='],
-    ['session list keeps its place after a switch from open sessions',
-      'i(()=>{if(F8.current!==null)return;let W1=m7.findIndex((f0)=>f0===G);if(W1<0||G===null)return;c.anchor(G),V1(W1)},[G])',
-      'if(F8.current!==null)return;if(typeof window.__cceSkipFollow==="function"&&window.__cceSkipFollow(G))return;let W1=m7.findIndex((f0)=>f0===G);'],
-    ['session list row classes',
-      'var b5={root:"root_x",sessionListOnly:"sessionListOnly_x",sessionItem:"sessionItem_x"};',
-      'var b5=(window.__cceListCls={root:"root_x",sessionListOnly:"sessionListOnly_x",sessionItem:"sessionItem_x"});'],
-  ];
-  for (const [name, src, want] of shapes) {
-    const e = pick(name);
-    const r = e ? applyEdits(src, [e]) : { error: 'no such edit' };
-    if (!r.error && r.out.includes(want)) ok(`"${name}" hands over what OPEN SESSIONS needs`);
-    else bad(`"${name}": ${r.error || r.out}`);
-  }
-
-  const now = Date.now(), MIN = 60000;
-  const sig = (v) => ({ value: v });
-  const item = (id, title, ago, remote) => ({ sessionId: sig(id), summary: sig(title), lastModifiedTime: sig(now - ago), isRemote: sig(!!remote) });
-  const opened = [];
-  const store = { getItem: (k) => store.data[k] ?? null, setItem: (k, v) => { store.data[k] = String(v); }, data: {} };
-  const env = {
-    window: {}, isOff: (k) => env.offKey === k, offKey: '', localStorage: store, Date, Array, String, Math, isFinite,
-    head: { appendChild() {} },
-    document: { createElement: () => ({ setAttribute() {}, textContent: '' }) },
-  };
-  env.window.__cceListCls = { sessionItem: 'sessionItem_x', active: 'active_x', sessionName: 'sessionName_x', sessionMeta: 'sessionMeta_x', sessionTime: 'sessionTime_x' };
-  env.window.__cceStatusDot = function Dot() {};
-  env.window.__cceSessionList = {
-    sessions: { sessions: sig([item('A', 'Alpha', 10 * MIN), item('B', 'Beta', 120 * MIN), item('C', 'Gamma', 1440 * MIN),
-      item('S', 'Side', 5 * MIN), item('R', 'Remote', 1 * MIN, true)]) },
-    context: { openInEditor: (...a) => opened.push(a) },
-    comms: {
-      openSessionIds: sig(['B', 'A', 'N', 'X', 'R']), sidebarSessionIds: sig(['S', 'A']),
-      sessionStates: sig([{ sessionId: 'A', state: 'running' }, { sessionId: 'B', state: 'idle' }, { sessionId: 'N', state: 'waiting', title: 'Fresh' }]),
-      unreadSessionKeys: sig(['B']), activeSessionId: sig('A'),
-    },
-  };
-  vm.createContext(env);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-open-sessions.js'), 'utf8'), env);
-  const h = (type, props, key) => ({ type, props: props || {}, key });
-  const ui = { jsx: h, jsxs: h, cls: { sectionHeader: 'sh', sectionToggle: 'st', sectionChevron: 'sc', sectionChevronExpanded: 'sce', sectionLabel: 'sl' }, Chevron: function Chev() {} };
-  const walk = (n, f, out = []) => { if (!n || typeof n !== 'object') return out; if (Array.isArray(n)) { n.forEach((c) => walk(c, f, out)); return out; } if (f(n)) out.push(n); walk(n.props && n.props.children, f, out); return out; };
-  const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n && n.props ? text(n.props.children) : '');
-  const tree = env.window.__cceOpenSessions(ui);
-  const rows = walk(tree, (n) => n.props && n.props['data-cce-open-row']);
-  const got = rows.map((r) => {
-    const dot = walk(r, (n) => n.type === env.window.__cceStatusDot)[0];
-    return [r.props['data-cce-open-row'], dot && dot.props.state, /active_x/.test(r.props.className) ? 'active' : '', text(r).replace(/^\s+|\s+$/g, '')];
-  });
-  const want = [['N', 'waiting', '', 'Freshnow'], ['S', 'idle', '', 'Side5m · sidebar'], ['A', 'running', 'active', 'Alpha10m'], ['B', 'unread', '', 'Beta2h']];
-  if (JSON.stringify(got) === JSON.stringify(want)) {
-    ok('the open conversations, newest first: one just started counts as now, the sidebar one is marked, a remote one and one the list knows nothing of are left out');
-  } else bad(`the rows were ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
-  const header = walk(tree, (n) => n.props && n.props['data-cce-section-count'])[0];
-  if (header && text(header) === '4' && walk(tree, (n) => n.props && n.props.className === 'sl').some((n) => text(n) === 'Open sessions')) {
-    ok('the header is the list\'s own section header, labelled Open sessions, with the count');
-  } else bad('the header was not the list\'s section header with a count of 4');
-  {
-    const styles = [];
-    env.head.appendChild = (el) => styles.push(el);
-    env.document.createElement = () => ({ setAttribute() {}, textContent: '' });
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-open-sessions.js'), 'utf8'), env);
-    const drawn = env.window.__cceOpenSessions(ui);
-    const css = styles.map((el) => el.textContent).join('\n');
-    const head = walk(drawn, (n) => n.props && n.props['data-cce-section-head'])[0];
-    if (/\[data-cce-section\]:not\(\[data-cce-collapsed="1"\]\)>\[data-cce-section-body\]\{margin-bottom:10px\}/.test(css)
-      && /\[data-cce-section\]:not\(:first-child\)>\[data-cce-section-head\]\{border-top:1px solid var\(--app-primary-border-color\)\}/.test(css)
-      && head && head.props.className === 'sh') {
-      ok('an open section leaves 10px under its last row and a later section header gets the list\'s divider line; a closed one leaves no space');
-    } else bad(`section spacing: header ${JSON.stringify(head && head.props)}, style ${css}`);
-  }
-  rows[3].props.onClick();
-  if (opened.length === 1 && opened[0][0] === 'B' && opened[0][1] === undefined && opened[0][2].openState === 'unread' && opened[0][2].isRemote === false) {
-    ok('a click opens the conversation the way a click on its row in the list does');
-  } else bad(`a click opened ${JSON.stringify(opened)}`);
-  const follow = env.window.__cceSkipFollow;
-  const after = [follow({ sessionId: sig('B') }), follow({ sessionId: sig('B') }), follow({ sessionId: sig('A') }), follow({ sessionId: sig('B') })];
-  if (JSON.stringify(after) === '[true,true,false,false]') {
-    ok('after a switch from here the list keeps its place, until something else makes another conversation active');
-  } else bad(`the list was told to keep its place: ${JSON.stringify(after)}`);
-
-  /* With the list's own row component handed over, the rows the list knows are drawn with it; a conversation it does not
-     list yet keeps the plain row. Renaming goes through a panel signal and the store, archiving through the store. */
-  const renamed = [], archived = [];
-  env.window.__cceSessionRow = function Row() {};
-  env.window.__cceSignal = (v) => ({ value: v });
-  const srcs = env.window.__cceSessionList;
-  srcs.sessions.renameSession = (...a) => renamed.push(a);
-  srcs.sessions.archiveSession = (it) => archived.push(it.sessionId.value);
-  srcs.context.defaultCwd = sig('/work');
-  const drawn = () => walk(env.window.__cceOpenSessions(ui), (n) => n.type === env.window.__cceSessionRow || (n.props && n.props['data-cce-open-row']));
-  let list = drawn();
-  const kinds = list.map((n) => (n.type === env.window.__cceSessionRow ? 'row:' + n.props.session.sessionId.value : 'plain:' + n.props['data-cce-open-row']));
-  const a = list.find((n) => n.type === env.window.__cceSessionRow && n.props.session.sessionId.value === 'A');
-  if (JSON.stringify(kinds) === JSON.stringify(['plain:N', 'row:S', 'row:A', 'row:B']) && a && a.props.isActive === true
-      && a.props.openState === 'running' && a.props.currentCwd === '/work' && a.props.id === 'cce-open-A' && a.props.isRenaming === false) {
-    ok('the rows the list knows are its own row component, active and state set, with an id of their own; one it does not list yet is a plain row');
-  } else bad(`the rows drawn were ${JSON.stringify(kinds)}, A: ${a && JSON.stringify({ isActive: a.props.isActive, openState: a.props.openState, cwd: a.props.currentCwd, id: a.props.id })}`);
-  a.props.onStartRename();
-  list = drawn();
-  const a2 = list.find((n) => n.type === env.window.__cceSessionRow && n.props.session.sessionId.value === 'A');
-  a2.props.onFinishRename(a2.props.session, '  Alpha two ');
-  a2.props.onArchive(a2.props.session);
-  const a3 = drawn().find((n) => n.type === env.window.__cceSessionRow && n.props.session.sessionId.value === 'A');
-  if (a2.props.isRenaming === true && a3.props.isRenaming === false && JSON.stringify(renamed) === '[["A","Alpha two"]]' && JSON.stringify(archived) === '["A"]') {
-    ok('rename and archive work on a row here as on the list, rename saved through the store');
-  } else bad(`rename and archive: renaming ${a2.props.isRenaming}→${a3.props.isRenaming}, renamed ${JSON.stringify(renamed)}, archived ${JSON.stringify(archived)}`);
-  const unarchived = [];
-  srcs.sessions.unarchiveSession = (it) => unarchived.push(it.sessionId.value);
-  srcs.sessions.sessions.value.find((it) => it.sessionId.value === 'B').archived = sig(true);
-  const b = drawn().find((n) => n.type === env.window.__cceSessionRow && n.props.session.sessionId.value === 'B');
-  const a4 = drawn().find((n) => n.type === env.window.__cceSessionRow && n.props.session.sessionId.value === 'A');
-  if (b && b.props.onArchive === undefined && typeof b.props.onUnarchive === 'function' && a4.props.onUnarchive === undefined) {
-    b.props.onUnarchive(b.props.session);
-    if (JSON.stringify(unarchived) === '["B"]') ok('an archived conversation gets unarchive and no archive, as on the list');
-    else bad(`unarchiving called ${JSON.stringify(unarchived)}`);
-  } else bad('an archived conversation still got the archive button, or a live one got unarchive');
-
-  /* The props the list gives its row component, read out of the real bundles: each is either passed here or left out on
-     purpose. A new one is a behaviour of the list's rows that OPEN SESSIONS would not have, so it fails until reviewed. */
-  const PASSED = ['id', 'session', 'isActive', 'isHighlighted', 'isSelected', 'isRenaming', 'searchQuery', 'onClick', 'onFocus', 'onKeyDown',
-    'draggable', 'onMouseMove', 'onStartRename', 'onFinishRename', 'onCancelRename', 'onArchive', 'onUnarchive', 'currentCwd', 'openState'];
-  const LEFT_OUT = ['ref', 'onContextMenu', 'onDragStart', 'onDragEnd', 'onOpenInNewWindow', 'liveElsewhere'];
-  const rowKeys = (src) => {
-    const m = /([\w$]+)=[\w$]+\(function\(\{session:[\w$]+,id:[\w$]+,isActive:/.exec(src);
-    if (!m) return null;
-    const at = src.indexOf('(' + m[1] + ',{');
-    if (at < 0) return null;
-    // A key is the name that opens a property: right after the brace or after a comma at the object's own depth.
-    let i = at + m[1].length + 2, depth = 0, keys = [], key = '', quote = '', expect = false;
-    for (; i < src.length; i++) {
-      const ch = src[i];
-      if (quote) { if (ch === '\\') i++; else if (ch === quote) quote = ''; continue; }
-      if (ch === '"' || ch === "'" || ch === '`') { quote = ch; expect = false; continue; }
-      if (ch === '{' || ch === '(' || ch === '[') { depth++; expect = depth === 1; key = ''; continue; }
-      if (ch === '}' || ch === ')' || ch === ']') { if (depth === 1 && ch === '}') break; depth--; expect = false; continue; }
-      if (depth !== 1) continue;
-      if (ch === ',') { expect = true; key = ''; continue; }
-      if (expect && /[\w$]/.test(ch)) { key += ch; continue; }
-      if (expect && ch === ':' && key) keys.push(key);
-      expect = false; key = '';
-    }
-    return keys;
-  };
-  for (const ext of extensionsDirs ? [].concat(...extensionsDirs().map((d) => { try { return fs.readdirSync(d).filter((n) => /^anthropic\.claude-code-/.test(n)).map((n) => path.join(d, n)); } catch (e) { return []; } })) : []) {
-    const bak = path.join(ext, 'webview', 'index.js.claude-code-extras-webview.bak');
-    const file = fs.existsSync(bak) ? bak : path.join(ext, 'webview', 'index.js');
-    if (!fs.existsSync(file)) continue;
-    const keys = rowKeys(fs.readFileSync(file, 'utf8'));
-    const unknown = keys ? keys.filter((k) => !PASSED.includes(k) && !LEFT_OUT.includes(k)) : null;
-    if (keys && !unknown.length) ok(`${path.basename(ext)}: every prop the list gives its rows is passed by OPEN SESSIONS or left out on purpose`);
-    else bad(`${path.basename(ext)}: ${keys ? 'the list gives its rows props OPEN SESSIONS has not been reviewed for: ' + unknown.join(', ') : 'the row call could not be read'}`);
-  }
-  store.data['cce.openSessionsCollapsed'] = '1';
-  const shut = env.window.__cceOpenSessions(ui);
-  const toggle = walk(shut, (n) => n.props && n.props.className === 'st')[0];
-  if (shut && shut.props['data-cce-collapsed'] === '1' && toggle && toggle.props['aria-expanded'] === 'false') ok('a collapsed section stays collapsed the next time the list draws it');
-  else bad('the collapsed state was not kept');
-  env.offKey = 'openSessions';
-  const off = env.window.__cceOpenSessions(ui);
-  env.offKey = '';
-  env.window.__cceSessionList.comms.openSessionIds = sig([]); env.window.__cceSessionList.comms.sidebarSessionIds = sig(undefined);
-  const none = env.window.__cceOpenSessions(ui);
-  if (off === null && none === null) ok('nothing is drawn with the switch off, or with no conversation open');
-  else bad('the section was drawn with the switch off or with nothing open');
-  if (webview.SWITCHES.includes('openSessions') && require('../package.json').contributes.configuration.properties['claudeCodePlus.show.openSessions']) {
-    ok('the switch is a setting of its own');
-  } else bad('the openSessions switch has no setting');
-}
-
-console.log('\nopening in a tab or the sidebar from the session list');
-{
-  const { applyEdits } = require('../src/edits');
-  const pick = (name) => webview.EDITS.find((e) => e.name === name);
-  const ID = '0b6f0c2e-5d1a-4c3b-9e8f-1a2b3c4d5e6f';
-  const env = { window: {}, isOff: (k) => env.offKey === k, offKey: '' };
-  vm.createContext(env);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '86-open-in-tab-or-sidebar.js'), 'utf8'), env);
-  const h = (type, props, key) => ({ type, props: props || {}, key });
-  const walk = (n, f, out = []) => { if (!n || typeof n !== 'object') return out; if (Array.isArray(n)) { n.forEach((c) => walk(c, f, out)); return out; } if (f(n)) out.push(n); walk(n.props && n.props.children, f, out); return out; };
-  const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n && n.props ? text(n.props.children) : '');
-  const Icon = function Plus() {};
-  const opens = [];
-  const ctx = { openInEditor: (...a) => opens.push([env.window.__cceOpenWhere, a.length]) };
-  const ui = { jsx: h, jsxs: h, cls: { newSessionButton: 'nsb', newSessionIcon: 'nsi' }, Icon, ctx };
-
-  // The button edit, on the official button's own shape: the page's two buttons, or the official one when it returns null.
-  const button = 'w("button",{className:e7.newSessionButton,onClick:()=>{J.openInEditor()},children:[F(zQ1,{className:e7.newSessionIcon}),"New session"]})';
-  const be = pick('new session in a tab or the sidebar');
-  const br = be ? applyEdits('children:[' + button + ',null]', [be]) : { error: 'no such edit' };
-  if (!br.error && br.out.includes('window.__cceNewSessionButtons({jsx:F,jsxs:w,cls:e7,Icon:zQ1,ctx:J})||' + button)) {
-    ok('New session hands the panel\'s factories, classes, icon and context to the page, and keeps the official button as the fallback');
-  } else bad(`the New session edit gave ${br.error || br.out}`);
-  const pair = env.window.__cceNewSessionButtons(ui);
-  const buttons = walk(pair, (n) => n.type === 'button');
-  const labels = buttons.map((b) => [b.props['data-cce-new-session'], b.props.className, text(b), walk(b, (n) => n.type === Icon).length]);
-  if (JSON.stringify(labels) === JSON.stringify([['tab', 'nsb', 'New in tab', 1], ['sidebar', 'nsb', 'New in sidebar', 1]])) {
-    ok('two buttons in the official button\'s style: New in tab and New in sidebar');
-  } else bad(`the buttons were ${JSON.stringify(labels)}`);
-  const parts = buttons.map((b) => [].concat(b.props.children).filter(Boolean).map((k) => k.props.style || {}));
-  if (parts.length === 2 && parts.every(([icon, label]) => icon.flex === '0 0 auto' && label.textOverflow === 'ellipsis' && label.minWidth === 0)) {
-    ok('in a list too narrow for a label, the icon keeps its size and the label ends in an ellipsis');
-  } else bad(`the buttons' icon and label were styled ${JSON.stringify(parts)}`);
-  buttons[0].props.onClick(); buttons[1].props.onClick();
-  if (JSON.stringify(opens) === JSON.stringify([['tab', 0], ['sidebar', 0]]) && env.window.__cceOpenWhere === undefined) {
-    ok('each does what New session does, with where to open it set only for that call');
-  } else bad(`the buttons opened ${JSON.stringify(opens)}, leaving ${env.window.__cceOpenWhere}`);
-
-  // The two menus, each run as a function: the live list's takes one more argument than the archived list's.
-  const menus = [
-    ['resume in a tab or the sidebar, live list', 'function Uh0($,J,Z,X){let Y=[];if($.length===1)Y.push({label:X?.sessionIsOpen?"Switch to session":"Resume session",onSelect:Z.resumeSession});return Y}', (keys, info) => `Uh0(${keys},null,act,${info})`],
-    ['resume in a tab or the sidebar, archived list', 'function Hh0($,J,Z){let X=[];if($.length===1)X.push({label:Z?.sessionIsOpen?"Switch to session":"Resume session",onSelect:J.resumeSession});return X}', (keys, info) => `Hh0(${keys},act,${info})`],
-  ];
-  for (const [name, fn, call] of menus) {
-    const e = pick(name);
-    const r = e ? applyEdits(fn, [e]) : { error: 'no such edit' };
-    if (r.error) { bad(`"${name}" did not apply: ${r.error}`); continue; }
-    const resumed = [];
-    const menv = { window: env.window, act: { resumeSession: () => resumed.push(env.window.__cceOpenWhere || 'as set') }, out: null, items: null };
-    vm.createContext(menv);
-    const run = (keys, info) => { vm.runInContext(r.out + `;items=${call(keys, info)};out=items.map((i)=>i.label);`, menv); return menv.out; };
-    const closed = run(`["${ID}"]`, '{sessionIsOpen:false}');
-    menv.items.forEach((i) => i.onSelect());
-    const open = run(`["${ID}"]`, '{sessionIsOpen:true}');
-    const remote = run('["remote:abc"]', '{sessionIsOpen:false}');
-    const many = run(`["${ID}","x"]`, '{sessionIsOpen:false}');
-    const saved = env.window.__cceResumeItems; delete env.window.__cceResumeItems;
-    const bare = run(`["${ID}"]`, '{sessionIsOpen:false}');
-    env.window.__cceResumeItems = saved;
-    const got = JSON.stringify([closed, open, remote, many, bare]);
-    const want = JSON.stringify([['Resume in tab', 'Resume in sidebar'], ['Switch to session'], ['Resume session'], [], ['Resume session']]);
-    if (got === want) ok(`"${name}": a closed conversation gets Resume in tab and Resume in sidebar; an open one, a remote one and a page without the script keep the official item`);
-    else bad(`"${name}" gave ${got}, expected ${want}`);
-    if (JSON.stringify(resumed) === '["tab","sidebar"]' && env.window.__cceOpenWhere === undefined) {
-      ok(`"${name}": each Resume item runs the list's own resume, which clears the list's selection, with where to open it`);
-    } else bad(`"${name}": the Resume items resumed ${JSON.stringify(resumed)}`);
-  }
-  env.offKey = 'openInTabOrSidebar';
-  const offButtons = env.window.__cceNewSessionButtons(ui), offItems = env.window.__cceResumeItems(ID, () => {});
-  env.offKey = '';
-  if (offButtons === null && offItems === null && env.window.__cceResumeItems(ID) === null) {
-    ok('with the switch off, or without the list\'s own resume, New session and Resume session are the official ones');
-  } else bad('the switch off still drew the two buttons or the two Resume items');
-
-  // The panel's open request carries where, once; the host opens it there, and a request that does not say as before.
-  const re = pick('open request says where');
-  const rr = re ? applyEdits('class K{sendRequest(m){return m}openInEditor($,J,Z){return this.sendRequest({type:"open_in_editor",sessionId:$,newSessionGroupId:J,usage:Z})}}', [re]) : { error: 'no such edit' };
-  if (rr.error) bad('the open request edit did not apply: ' + rr.error);
-  else {
-    const kenv = { window: { __cceOpenWhere: 'sidebar' } };
-    vm.createContext(kenv);
-    vm.runInContext(rr.out + ';var k=new K();var first=k.openInEditor("s1");var second=k.openInEditor("s1");', kenv);
-    if (kenv.first.cceWhere === 'sidebar' && kenv.first.sessionId === 's1' && kenv.second.cceWhere === undefined) ok('the panel\'s open request carries where it was asked to open, for that one request');
-    else bad(`the open requests were ${JSON.stringify([kenv.first, kenv.second])}`);
-  }
-  const he = host.EDITS.find((e) => e.name === 'session list open says where');
-  const hsrc = 'async function o($){await D1.commands.executeCommand("claude-vscode.editor.open",$.request.sessionId,void 0,void 0,$.request.newSessionGroupId,!0,{programmatic:$.request.newSessionGroupId&&!$.request.sessionId?"pin-to-panel":"honor-preferred-location"})}';
-  const hr = he ? applyEdits(hsrc, [he]) : { error: 'no such edit' };
-  if (hr.error) bad('the host open edit did not apply: ' + hr.error);
-  else {
-    const calls = [];
-    const henv = { D1: { commands: { executeCommand: (...a) => { calls.push(a[6].programmatic); } } } };
-    vm.createContext(henv);
-    vm.runInContext(hr.out + ';o({request:{cceWhere:"sidebar"}});o({request:{cceWhere:"tab",sessionId:"s"}});o({request:{}});o({request:{newSessionGroupId:"g"}});o({request:{cceWhere:"window"}});', henv);
-    if (JSON.stringify(calls) === JSON.stringify(['cce-pin-to-sidebar', 'pin-to-panel', 'honor-preferred-location', 'pin-to-panel', 'honor-preferred-location'])) {
-      ok('the patched host opens a session-list request where it says, and one that does not say as before');
-    } else bad(`the host asked for ${JSON.stringify(calls)}`);
-  }
   const ci = 'function CI1({programmatic:$,preferredLocation:J,sessionAlreadyOpenInPanel:Q,fullEditor:X}){if($)return{target:$==="honor-preferred-location"&&J==="sidebar"&&!Q?"sidebar":"panel",updatePreferredLocationToPanel:!1,focusInput:!1};return{target:"panel",updatePreferredLocationToPanel:!X,focusInput:!0}}';
   const cr = applyEdits(ci, [host.EDITS.find((e) => e.name === 'open in the sidebar on request')]);
   if (cr.error) bad('the location chooser edit did not apply: ' + cr.error);
@@ -8458,144 +7950,19 @@ console.log('\nopening in a tab or the sidebar from the session list');
       ok('the sidebar request opens in the sidebar whatever the setting says, unless the conversation is open in a tab; the official requests choose as before');
     } else bad(`the location chooser gave ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
   }
-  if (webview.SWITCHES.includes('openInTabOrSidebar') && require('../package.json').contributes.configuration.properties['claudeCodePlus.show.openInTabOrSidebar']) {
-    ok('the switch is a setting of its own');
-  } else bad('the openInTabOrSidebar switch has no setting');
 }
 
-console.log('\nhover text on the session list rows');
-{
-  const sig = (v) => ({ value: v });
-  const shown = [], timers = [];
-  const env = { window: {}, isOff: (k) => env.offKey === k, offKey: '',
-    showLabel: (el, text) => shown.push(text), hideLabel: () => {},
-    setTimeout: (f) => { timers.push(f); return timers.length; }, clearTimeout: () => {} };
-  env.window.__cceSessionList = { sessions: { sessionGroups: sig([{ id: 'g1', name: 'Release', sessionIds: ['A', 'C', 'R'] }, { id: 'g2', name: 'Docs', sessionIds: ['C', 'Z'] }]) } };
-  vm.createContext(env);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-row-hover.js'), 'utf8'), env);
-  const el = () => ({ isConnected: true, addEventListener() {} });
-  const session = (id, extra) => ({ sessionId: sig(id), ...(extra || {}) });
-  const hover = (id, extra) => { timers.length = 0; shown.length = 0; env.window.__cceRowHover(session(id, extra), el(), true); timers.forEach((f) => f()); return shown.slice(); };
-  const got = [hover('A'), hover('B'), hover('C'), hover('Z', { archived: sig(true) }), hover('R', { isRemote: sig(true) })];
-  const want = [['Group: Release\nSession ID: A'], ['Group: Ungrouped\nSession ID: B'], ['Group: Docs\nSession ID: C'],
-    ['Group: Archived sessions\nSession ID: Z'], ['Session ID: R']];
-  if (JSON.stringify(got) === JSON.stringify(want)) {
-    ok('hovering a row shows the section the list puts it under - its group, Ungrouped or Archived sessions - and its session ID');
-  } else bad(`the hover text was ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
-  timers.length = 0; shown.length = 0;
-  env.window.__cceRowHover(session('A'), el(), true);
-  env.window.__cceRowHover(session('A'), el(), false);
-  const afterLeave = shown.length;
-  env.offKey = 'sessionHoverDetails';
-  const off = hover('A');
-  env.offKey = '';
-  if (afterLeave === 0 && timers.length === 0 && off.length === 0) ok('leaving the row before the delay shows nothing, and the switch off shows nothing');
-  else bad(`after leaving ${afterLeave} box(es) were shown; with the switch off ${JSON.stringify(off)}`);
-  /* A managed conversation's row names its stewards, from the titles the host sends with its states (84-row-marks.js). */
-  {
-    const menv = { window: { __cceSignal: (v) => ({ value: v }) }, isOff: () => false, isOn: () => true, asList: (v) => (Array.isArray(v) ? v : []),
-      showLabel: (el, text) => mshown.push(text), hideLabel: () => {}, TITLE_MARKS: /x^/g,
-      setTimeout: (f) => { mtimers.push(f); return mtimers.length; }, clearTimeout: () => {} };
-    const mshown = [], mtimers = [];
-    menv.window.__cceSessionList = { sessions: { sessionGroups: sig([]) } };
-    vm.createContext(menv);
-    vm.runInContext(['84-row-hover.js', '84-row-marks.js'].map((f) => fs.readFileSync(path.join(__dirname, '..', 'src', 'page', f), 'utf8')).join('\n'), menv);
-    menv.window.__cceSetActivity({}, ['s1'], { m1: ['Docs steward', 'Night steward'], m2: ['Only one'], m3: ['A', 'B', 'C'], m4: [], r1: ['Docs steward'] });
-    const mhover = (id, extra) => { mtimers.length = 0; mshown.length = 0; menv.window.__cceRowHover(session(id, extra), el(), true); mtimers.forEach((f) => f()); return mshown.slice(); };
-    const mgot = [mhover('m1'), mhover('M2'), mhover('m3'), mhover('m4'), mhover('x'), mhover('r1', { isRemote: sig(true) })];
-    const mwant = [['Group: Ungrouped\nSession ID: m1\nManaged by Docs steward and Night steward'], ['Group: Ungrouped\nSession ID: M2\nManaged by Only one'],
-      ['Group: Ungrouped\nSession ID: m3\nManaged by A, B and C'], ['Group: Ungrouped\nSession ID: m4'], ['Group: Ungrouped\nSession ID: x'], ['Session ID: r1']];
-    if (JSON.stringify(mgot) === JSON.stringify(mwant)) {
-      ok('a managed conversation\'s row ends its hover text with the stewards that manage it, "Managed by" and their names; a row nobody manages, and a remote one, has no such line');
-    } else bad(`the managed rows' hover text was ${JSON.stringify(mgot)}, expected ${JSON.stringify(mwant)}`);
-  }
-  /* The row pin shares the tooltip box: the row's tooltip is held back while the pointer is on the pin and returns when
-     it is back on the row. */
-  {
-    const PIN = '0ccccccc-2222-4333-8444-555555555555';
-    let current = null, tn = 0;
-    const due = new Map();
-    const penv = { window: {}, isOff: () => false, pinsCache: null, readProp: () => [[], {}, 14],
-      showLabel: (target, text) => { current = typeof text === 'string' ? text : target.getAttribute('aria-label'); },
-      hideLabel: () => { current = null; },
-      setTimeout: (f) => { due.set(++tn, f); return tn; }, clearTimeout: (t) => { due.delete(t); },
-      head: { appendChild() {} }, document: { createElement: () => ({ setAttribute() {} }) } };
-    vm.createContext(penv);
-    vm.runInContext(['83-session-pins.js', '84-row-hover.js'].map((f) => fs.readFileSync(path.join(__dirname, '..', 'src', 'page', f), 'utf8')).join('\n'), penv);
-    const fire = () => { const now = [...due.values()]; due.clear(); now.forEach((f) => f()); };
-    const pin = penv.window.__ccePin((type, props, key) => ({ type, props, key }), { sessionId: { value: PIN }, transcriptOnDisk: true });
-    const pinEl = { getAttribute: (k) => (k === 'aria-label' ? pin.props['aria-label'] : null) };
-    penv.window.__cceRowHover({ sessionId: { value: PIN } }, { isConnected: true, addEventListener() {} }, true);
-    pin.props.onMouseEnter({ currentTarget: pinEl });
-    fire();
-    const onPin = current;
-    pin.props.onMouseLeave();
-    fire();
-    const backOnRow = current;
-    if (/^Pin this conversation/.test(onPin || '') && backOnRow === 'Group: Ungrouped\nSession ID: ' + PIN) {
-      ok('on the pin its own hover text stays, the row\'s waiting, and back on the row the row\'s text comes up');
-    } else bad(`hover text on the pin was ${JSON.stringify(onPin)}, and back on the row ${JSON.stringify(backOnRow)}`);
-  }
-  const { applyEdits } = require('../src/edits');
-  const e = webview.EDITS.find((x) => x.name === 'session row hover');
-  const row = 'var Xh5=u0(function({session:J,id:Z,isActive:X},E){let g=1;return w("button",{ref:E,id:Z,className:`${b5.sessionItem} ${X?b5.active:""}`,onMouseMove:W})});';
-  const r = e ? applyEdits(row, [e]) : { error: 'no such edit' };
-  if (!r.error && r.out.includes('return w("button",{ref:E,id:Z,onMouseEnter:(cceE)=>{typeof window.__cceRowHover==="function"&&window.__cceRowHover(J,cceE.currentTarget,!0)},onMouseLeave:(cceE)=>{typeof window.__cceRowHover==="function"&&window.__cceRowHover(J,cceE.currentTarget,!1)},className:')) {
-    ok('the list\'s row component tells the page as the pointer enters and leaves a row, with the row\'s conversation');
-  } else bad(`the row hover edit gave ${r.error || r.out}`);
-  if (webview.SWITCHES.includes('sessionHoverDetails') && require('../package.json').contributes.configuration.properties['claudeCodePlus.show.sessionHoverDetails']) ok('the switch is a setting of its own');
-  else bad('the sessionHoverDetails switch has no setting');
-}
-console.log('\nsearching the session list by session id');
-{
-  const sig = (v) => ({ value: v });
-  const env = { window: {}, isOff: (k) => env.offKey === k, offKey: '' };
-  vm.createContext(env);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-search-by-id.js'), 'utf8'), env);
-  const one = { sessionId: sig('7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346') };
-  const m = (q) => env.window.__cceIdMatch(one, q);
-  const got = ['7d2a5c81', '7D2A5C81', ' 9e4f-4b63 ', 'c5f0e2b9d346', 'de', 'add', 'map-design', '0000', ''].map(m);
-  const want = [true, true, true, true, false, false, false, false, false];
-  if (JSON.stringify(got) === JSON.stringify(want)) {
-    ok('part of a session ID finds its conversation; a query shorter than four characters, or one that cannot be part of an ID, does not test the ID');
-  } else bad(`ID matching gave ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
-  env.offKey = 'sessionIdSearch';
-  if (m('7d2a5c81') === false) ok('the switch off leaves the search to the title and the branch');
-  else bad('the switch off still matched the session ID');
-  env.offKey = '';
-  const { applyEdits } = require('../src/edits');
-  const e = webview.EDITS.find((x) => x.name === 'session search by id');
-  const src = 'var f=(M4,u1,mk)=>{let g0=u1.toLowerCase(),Y5=u1?M4.filter((W1)=>mk(W1).toLowerCase().includes(g0)||(W1.gitBranch.value?.toLowerCase().includes(g0)??!1)):M4;return Y5.map((W1)=>W1.sessionId.value)};';
-  const r = e ? applyEdits(src, [e]) : { error: 'no such edit' };
-  if (r.error) bad('the search edit did not apply: ' + r.error);
-  else {
-    vm.runInContext(r.out, env);
-    const rows = [
-      { sessionId: sig('7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346'), gitBranch: sig('main'), t: 'Garden notes' },
-      { sessionId: sig('3c9e1f27-5b4d-4e8a-9f61-2d7c8b0a4e53'), gitBranch: sig('feature/maps'), t: 'Recipe box' },
-    ];
-    const run = (q) => JSON.stringify(env.f(rows, q, (x) => x.t));
-    const got2 = [run('7d2a'), run('garden'), run('maps'), run('xyz')];
-    const want2 = [JSON.stringify(['7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346']), JSON.stringify(['7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346']),
-      JSON.stringify(['3c9e1f27-5b4d-4e8a-9f61-2d7c8b0a4e53']), '[]'];
-    if (JSON.stringify(got2) === JSON.stringify(want2)) ok('the list\'s filter keeps its title and branch matches and adds the ID test');
-    else bad(`the patched filter gave ${JSON.stringify(got2)}, expected ${JSON.stringify(want2)}`);
-  }
-  if (webview.SWITCHES.includes('sessionIdSearch') && require('../package.json').contributes.configuration.properties['claudeCodePlus.show.sessionIdSearch']) ok('the switch is a setting of its own');
-  else bad('the sessionIdSearch switch has no setting');
-}
-console.log('\na hidden sidebar in open sessions');
+console.log('\nthe open conversations\' states, as the host sends them');
 {
   const { applyEdits } = require('../src/edits');
   const hedit = (name) => host.EDITS.find((e) => e.name === name);
-  // The host: every update of the open conversations says whether the sidebar's conversation can be seen.
   const loop = 'function b(){let z=this.sidebarComms,G=["S"];for(let K of this.allComms)K.sendSessionStates([{sessionId:"A",state:"idle"}],this.activeSessionId,["A"],[],[],K===z?void 0:G);return 1}';
   const send = 'class C{constructor(){this.sent=[]}send(m){this.sent.push(m)}sendSessionStates($,J,Q,X,Y,W){let z={type:"request",channelId:"",requestId:l$(),request:{type:"session_states_update",sessions:$,activeSessionId:J,openSessionIds:Q,unreadSessionKeys:X,liveElsewhereSessions:Y,sidebarSessionIds:W}};this.send(z)}}';
   const vis = 'function r($,G){$.onDidChangeVisibility(()=>{G.notifyVisibilityChange($.visible),this.updateSidebarActiveState()},null,this.disposables)}';
-  const lr = applyEdits(loop, [hedit('session states say whether the sidebar is shown')]);
-  const sr = applyEdits(send, [hedit('session states message carries whether the sidebar is shown')]);
+  const lr = applyEdits(loop, [hedit('session states reach this extension')]);
+  const sr = applyEdits(send, [hedit('session states message carries the dots')]);
   const vr = applyEdits(vis, [hedit('sidebar showing or hiding updates the open conversations')]);
-  if (lr.error || sr.error || vr.error) bad(`the sidebar edits did not apply: ${lr.error || sr.error || vr.error}`);
+  if (lr.error || sr.error || vr.error) bad(`the session state edits did not apply: ${lr.error || sr.error || vr.error}`);
   else {
     const env = { l$: () => 'id' };
     vm.createContext(env);
@@ -8604,10 +7971,11 @@ console.log('\na hidden sidebar in open sessions');
     const shown = { v: true };
     const mgr = { sidebarComms: sidebar, allComms: [sidebar, list], activeSessionId: 'A',
       webviews: new Set([{ comms: sidebar, isVisible: () => shown.v }, { comms: list, isVisible: () => true }]) };
-    env.b.call(mgr); shown.v = false; env.b.call(mgr); mgr.sidebarComms = undefined; env.b.call(mgr);
-    const got = list.sent.map((m) => [m.request.sidebarSessionIds, m.request.cceSidebarShown]);
-    if (JSON.stringify(got) === JSON.stringify([[['S'], true], [['S'], false], [['S'], false]]) && sidebar.sent[0].request.sidebarSessionIds === undefined) {
-      ok('the patched host sends whether the sidebar is shown with each update, false with no sidebar, and leaves the sidebar ids as they were');
+    env.__cceActivityMap = () => ({ A: 'working' });
+    env.b.call(mgr); mgr.sidebarComms = undefined; env.__cceActivityMap = () => { throw new Error('x'); }; env.b.call(mgr);
+    const got = list.sent.map((m) => [m.request.sidebarSessionIds, m.request.cceActivity]);
+    if (JSON.stringify(got) === JSON.stringify([[['S'], { A: 'working' }], [['S'], undefined]]) && sidebar.sent[0].request.sidebarSessionIds === undefined) {
+      ok('the patched host sends the dots this extension works out with each update, nothing when that fails, and leaves the sidebar ids as they were');
     } else bad(`the session list was sent ${JSON.stringify(got)}`);
     const hooked = [];
     env.__cceStatesHook = (st) => hooked.push(st[0].state);
@@ -8621,8 +7989,8 @@ console.log('\na hidden sidebar in open sessions');
     } else bad(`states sent ${JSON.stringify(states)}, heard ${JSON.stringify(hooked)}`);
     // 2.1.330: the session list is sent its own list of open conversations, chosen inside the loop.
     const loop330 = 'function b3(){let z=this.sidebarComms,u=this.listComms,G=["S"],t=["A"],d=["A","S"];for(let p of this.allComms)p.sendSessionStates([{sessionId:"A",state:"idle"}],this.activeSessionId,p===u?d:t,[],[],p===z?void 0:G);return 1}';
-    const l3 = applyEdits(loop330, [hedit('session states say whether the sidebar is shown')]);
-    if (l3.error) bad('the sidebar edit did not apply to the 2.1.330 shape: ' + l3.error);
+    const l3 = applyEdits(loop330, [hedit('session states reach this extension')]);
+    if (l3.error) bad('the session state edit did not apply to the 2.1.330 shape: ' + l3.error);
     else {
       vm.runInContext(l3.out + ';this.b3=b3;', env);
       const sb = new env.C(), ls = new env.C(), heard = [];
@@ -8642,40 +8010,6 @@ console.log('\na hidden sidebar in open sessions');
     if (broadcasts === 1) ok('the sidebar showing or hiding sends an update');
     else bad(`the sidebar's visibility change sent ${broadcasts} update(s)`);
   }
-
-  // The panel keeps what the host said, ahead of the signals that make the list draw again.
-  const we = webview.EDITS.find((e) => e.name === 'sidebar shown for open sessions');
-  const hsrc = 'function h($){switch($.request.type){case"session_states_update":if(this.sessionStates.value=$.request.sessions,this.activeSessionId.value=$.request.activeSessionId,$.request.openSessionIds!==void 0)this.openSessionIds.value=$.request.openSessionIds;break}}';
-  const wr = we ? applyEdits(hsrc, [we]) : { error: 'no such edit' };
-  if (wr.error) bad('the panel edit did not apply: ' + wr.error);
-  else {
-    const penv = { window: {}, seen: [] };
-    vm.createContext(penv);
-    vm.runInContext(wr.out + ';const o={sessionStates:{set value(v){seen.push(window.__cceSidebarShown)}},activeSessionId:{},openSessionIds:{}};'
-      + 'h.call(o,{request:{type:"session_states_update",sessions:[],cceSidebarShown:false}});h.call(o,{request:{type:"session_states_update",sessions:[]}});', penv);
-    if (JSON.stringify(penv.seen) === '[false,null]' || (penv.seen[0] === false && penv.seen[1] === undefined)) {
-      ok('the panel keeps whether the sidebar is shown before the list is told to draw');
-    } else bad(`the panel kept ${JSON.stringify(penv.seen)}`);
-  }
-
-  // OPEN SESSIONS: the sidebar's conversation is listed while the sidebar is shown, or when the host does not say.
-  const sig = (v) => ({ value: v });
-  const env = { window: {}, isOff: () => false, localStorage: { getItem: () => null, setItem() {} }, Date, Array, String, Math, isFinite,
-    head: { appendChild() {} }, document: { createElement: () => ({ setAttribute() {}, textContent: '' }) } };
-  const item = (id) => ({ sessionId: sig(id), summary: sig(id), lastModifiedTime: sig(Date.now()), isRemote: sig(false) });
-  env.window.__cceSessionList = {
-    sessions: { sessions: sig([item('A'), item('S')]) }, context: { openInEditor() {} },
-    comms: { openSessionIds: sig(['A']), sidebarSessionIds: sig(['S']), sessionStates: sig([]), unreadSessionKeys: sig([]), activeSessionId: sig('A') },
-  };
-  vm.createContext(env);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-open-sessions.js'), 'utf8'), env);
-  const h = (type, props, key) => ({ type, props: props || {}, key });
-  const walk = (n, f, out = []) => { if (!n || typeof n !== 'object') return out; if (Array.isArray(n)) { n.forEach((c) => walk(c, f, out)); return out; } if (f(n)) out.push(n); walk(n.props && n.props.children, f, out); return out; };
-  const ids = () => walk(env.window.__cceOpenSessions({ jsx: h, jsxs: h, cls: {} }), (n) => n.props && n.props['data-cce-open-row']).map((n) => n.props['data-cce-open-row']).sort().join(',');
-  const got = [];
-  for (const v of [true, false, undefined]) { env.window.__cceSidebarShown = v; got.push(ids()); }
-  if (JSON.stringify(got) === JSON.stringify(['A,S', 'A', 'A,S'])) ok('a hidden sidebar\'s conversation leaves OPEN SESSIONS, and comes back when the sidebar is shown');
-  else bad(`with the sidebar shown, hidden and unsaid the rows were ${JSON.stringify(got)}`);
 }
 
 console.log('\ntabs VS Code did not restore');
@@ -8872,11 +8206,10 @@ console.log('\ndeleting an archived conversation');
       } else bad(`shown elsewhere: ${JSON.stringify(got)}`);
     } finally { fs.rmSync(wroot, { recursive: true, force: true }); }
     const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-    if (/const elsewhere = deleteSession\.shownElsewhere\(planDir\(\)\);\s*const busy = want\.filter\(\(w\) => shown\.includes\(w\.id\) \|\| running\.has\(w\.id\) \|\| elsewhere\.has\(w\.id\)\);/.test(ext)
-        && /is open in the VS Code window \$\{elsewhere\.get\(b\.id\)/.test(ext)
-        && /const late = go\.filter\(\(g\) => !Array\.isArray\(shownNow\) \|\| shownNow\.includes\(g\.id\) \|\| runningNow\.has\(g\.id\) \|\| elsewhereNow\.has\(g\.id\)\);/.test(ext)) {
-      ok('a delete leaves alone a conversation another window shows, before the question and again after it, and names that window');
-    } else bad('extension.js does not refuse a conversation another window shows');
+    if (/const results = claudeSessionList\.deleteChecked\(ids, \{\s*shown, running: deleteSession\.runningSessions\(\), elsewhere: deleteSession\.shownElsewhere\(planDir\(\)\),/.test(ext)
+        && /findAll: \(want\) => deleteSession\.findAll\(want, \{ planDir: planDir\(\), extra: effortFiles \}\)/.test(ext)) {
+      ok('a delete from Agent Plus\'s session list checks once more what this window shows, what other windows show and what runs, then removes what is found of each');
+    } else bad('extension.js does not check open conversations before a delete from the session list');
   }
 
   /* A session folder that is a symlink is deleted as a link; following it would add the target, which could be
@@ -8926,66 +8259,9 @@ console.log('\ndeleting an archived conversation');
       } else bad(`finding two at once listed ${JSON.stringify(walked.map((p) => path.relative(root3, p)))} and found ${JSON.stringify([...all].map(([k, v]) => [k, v.map((f) => path.relative(root3, f.path))]))}`);
     } finally { fs.rmSync(root3, { recursive: true, force: true }); }
   }
-
-  // The menu: Delete after Unarchive, for local conversations only, and it only asks this extension.
-  const posted = [];
-  const penv = { window: { __cceSessionList: { sessions: { sessions: { value: [{ sessionId: { value: A }, summary: { value: 'Alpha' } }] } } } },
-    isOff: (k) => penv.offKey === k, offKey: '', acquireVsCodeApi: () => ({ postMessage: (m) => posted.push(m) }) };
-  vm.createContext(penv);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '89-delete-archived.js'), 'utf8'), penv);
-  const e = webview.EDITS.find((x) => x.name === 'delete in the archived list');
-  const menu = 'function Hh0($,J,Z){let X=[];if($.length===1)X.push({label:"Resume session",onSelect:J.resumeSession});if(J.unarchiveSelection)X.push({label:$.length>1?`Unarchive ${$.length} sessions`:"Unarchive session",separatorBefore:X.length>0,onSelect:J.unarchiveSelection});return X}';
-  const mr = e ? applyEdits(menu, [e]) : { error: 'no such edit' };
-  if (mr.error) bad('the delete edit did not apply: ' + mr.error);
-  else {
-    const menv = { window: penv.window, out: null, items: null };
-    vm.createContext(menv);
-    const run = (keys) => { vm.runInContext(mr.out + `;items=Hh0(${keys},{resumeSession(){},unarchiveSelection(){}},{});out=items.map((i)=>i.label+(i.separatorBefore?"|":""));`, menv); return menv.out; };
-    const one = run(`["${A}"]`), two = run(`["${A}","${B}"]`), remote = run('["remote:x"]');
-    menv.items = null; run(`["${A}"]`); menv.items[2].onSelect();
-    penv.offKey = 'deleteArchived'; const off = run(`["${A}"]`); penv.offKey = '';
-    const got = JSON.stringify([one, two, remote, off]);
-    const want = JSON.stringify([['Resume session', 'Unarchive session|', 'Delete session…|'], ['Unarchive 2 sessions', 'Delete 2 sessions…|'],
-      ['Resume session', 'Unarchive session|'], ['Resume session', 'Unarchive session|']]);
-    if (got === want) ok('Archived sessions gets Delete after Unarchive, for one or several, not for a remote conversation, and not with the switch off');
-    else bad(`the archived menu was ${got}, expected ${want}`);
-    if (JSON.stringify(posted) === JSON.stringify([{ type: 'cce_delete_sessions', sessions: [{ id: A, title: 'Alpha' }] }])) ok('choosing it only asks this extension, with each conversation\'s ID and title');
-    else bad(`Delete sent ${JSON.stringify(posted)}`);
-  }
-  // The host: the request reaches this extension; and a delete can tell every panel to read the conversations again.
-  const me = host.EDITS.find((x) => x.name === 'panel messages');
-  const hr = applyEdits('function eT($,J){let Q=`Received message from webview: ${bl0(J)}`;$.info(Q)}', [me]);
-  const asked = [];
-  const henv = { bl0: (m) => JSON.stringify(m), __cceDeleteHook: (l) => asked.push(l) };
-  henv.globalThis = henv;
-  vm.createContext(henv);
-  vm.runInContext(hr.out + ';const L={info(){}};eT(L,{type:"cce_delete_sessions",sessions:[{id:"a"}]});eT(L,{type:"cce_delete_sessions",sessions:"a"});', henv);
-  const te = host.EDITS.find((x) => x.name === 'tab record at start');
-  const tr = applyEdits('class V{constructor(X){this.allComms=new Set([{n:0,sendSessionStoreChanged(){this.n++}},{n:0,sendSessionStoreChanged(){throw new Error("gone")}}]);this.sessionPanels=new Map;this.liveElsewhereSessions=[];this.rememberedTabSessions=X.getPanelTabSessions?.()??[],this.reconcileRememberedTabSessions()}reconcileRememberedTabSessions(){}reportableRememberedTabSessions(){return[]}sidebarChatSessionIds(){return[]}}', [te]);
-  const tenv = {};
-  tenv.globalThis = tenv;
-  vm.createContext(tenv);
-  vm.runInContext(tr.out + ';var v=new V({getPanelTabSessions:()=>[]});globalThis.__cceSessionsChanged();var n=[...v.allComms][0].n;', tenv);
-  if (JSON.stringify(asked) === '[[{"id":"a"}]]' && tenv.n === 1) ok('the patched host passes a delete request on, and can tell every panel to read the conversations on disk again');
-  else bad(`the host passed on ${JSON.stringify(asked)}, panels told ${tenv.n}`);
-  const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  if (/showWarningMessage\([\s\S]{0,200}\{ modal: true, detail: lines\.join\('\\n'\) \}, 'Delete'\);\s*if \(pick !== 'Delete'\) return;/.test(extSrc)
-      && /shown\.includes\(w\.id\) \|\| running\.has\(w\.id\)/.test(extSrc) && /const running = deleteSession\.runningSessions\(\);/.test(extSrc)
-      && webview.SWITCHES.includes('deleteArchived') && require('../package.json').contributes.configuration.properties['claudeCodePlus.show.deleteArchived']) {
-    ok('nothing is deleted before a modal confirmation is accepted, an open or running conversation is left alone, and the switch is a setting of its own');
-  } else bad('the delete is not guarded as expected');
-  /* The hook runs inside Claude Code's message handling and finding the files walks every project folder, so the work
-     is deferred. If the open conversations cannot be read, nothing is deleted; treating them as none would allow
-     deleting an open one. */
-  const hook = (/globalThis\.__cceDeleteHook = \(asked\) => \{([\s\S]*?)\n  \};/.exec(extSrc) || [])[1] || '';
-  const work = (/const deleteArchived = async \(asked\) => \{([\s\S]*?)\n  \};/.exec(extSrc) || [])[1] || '';
-  if (/^\s*setTimeout\(\(\) => deleteArchived\(asked\)[\s\S]*, 0\);\s*$/.test(hook)
-      && /if \(!Array\.isArray\(shown\)\) \{[\s\S]{0,200}return;/.test(work) && /deleteSession\.findAll\(/.test(work) && !/deleteSession\.find\(/.test(work)) {
-    ok('a delete is worked out after Claude Code\'s message handling, in one walk, and refused when the open conversations cannot be told');
-  } else bad('the delete hook runs inside Claude Code\'s message handling, walks per conversation, or deletes when it cannot tell what is open');
 }
 
-console.log('\nthe pins\' margin setting');
+console.log('\nthe margin kept from Claude Code\'s cleanup');
 {
   const sp = require('../src/sessionpins');
   const got = [sp.marginDays(90), sp.marginDays(90, 30), sp.marginDays(90, 60), sp.marginDays(20, 14), sp.marginDays(90, 0), sp.marginDays(90, 'x')];
@@ -9013,32 +8289,16 @@ console.log('\nthe pins\' margin setting');
   catch (e) { m = { error: e.message }; }
   if (m.age === 59) ok('a pass with a 30-day margin under a 90-day retention gives an 80-day-old pinned file the age of 59 days, a day inside the margin');
   else bad(`the margin pass gave ${JSON.stringify(m)}`);
-  if (sp.pageData({ pinned: [], times: {} }, 90, 30)[2] === 30) ok('the page is told the same margin, for the pin\'s hover text');
-  else bad('the page was not told the margin');
   const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const setting = require('../package.json').contributes.configuration.properties['claudeCodePlus.sessionPinsMarginDays'];
-  if (setting && setting.default === 14 && setting.minimum === 1 && /margin: pinMargin\(\)/.test(extSrc) && /retentionDays\(\), pinMargin\(\)\)/.test(extSrc)) {
-    ok('the setting, 14 by default, reaches both the pass and the page');
+  if (setting && setting.default === 14 && setting.minimum === 1 && /margin: pinMargin\(\), keeps/.test(extSrc) && /sessionPins\.marginDays\(days, pinMargin\(\)\)/.test(extSrc)) {
+    ok('the setting, 14 by default, reaches the pass, for pinned conversations and for those the session list keeps');
   } else bad('the margin setting is not wired as expected');
 }
 
-console.log('\nrecently closed sessions');
+console.log('\na tab the person closes');
 {
-  const rc = require('../src/recentclosed');
   const { applyEdits } = require('../src/edits');
-  const id = (n) => `0000000${n}-0000-4000-8000-000000000000`;
-  let list = [];
-  list = rc.record(list, id(1), 100); list = rc.record(list, id(2), 200); list = rc.record(list, id(1), 300); list = rc.record(list, 'not-an-id', 400);
-  const page = rc.pageData(list, 10), none = rc.pageData(list, 0), big = rc.pageData(list, 999);
-  if (JSON.stringify(page) === JSON.stringify({ max: 10, ids: [id(1), id(2)] }) && none.max === 0 && big.max === rc.KEEP) {
-    ok('a closed tab goes first and only once, a malformed ID is ignored, and the page is told how many to show, 0 hiding the section');
-  } else bad(`the closed list was ${JSON.stringify(page)}, ${JSON.stringify(none)}, ${JSON.stringify(big)}`);
-  let many = [];
-  for (let i = 0; i < 70; i++) many = rc.record(many, `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`, i);
-  if (many.length === rc.KEEP && many[0].id.startsWith('00000069')) ok(`no more than ${rc.KEEP} closings are kept`);
-  else bad(`${many.length} closings were kept`);
-
-  // The host: a closing reaches this extension; the list rides along with every update of the open conversations.
   const he = host.EDITS.find((e) => e.name === 'closed tab reaches this extension');
   const hsrc = 'function d($,Z,q,X){if(!this.discardedReplacements.has($))this.pushRecentlyClosedSession(Z,q,!!X)}';
   const hr = he ? applyEdits(hsrc, [he]) : { error: 'no such edit' };
@@ -9069,113 +8329,8 @@ console.log('\nrecently closed sessions');
       } else bad(`with a throwing hook: threw ${JSON.stringify(lenv.threw)}, then ran ${JSON.stringify(lenv.after)}`);
     }
   }
-  const se = host.EDITS.find((e) => e.name === 'session states message carries whether the sidebar is shown');
-  const sr = applyEdits('class C{send(m){this.m=m}sendSessionStates($,J,Q,X,Y,W){let z={type:"request",channelId:"",requestId:l$(),request:{type:"session_states_update",sessions:$,activeSessionId:J,openSessionIds:Q,unreadSessionKeys:X,liveElsewhereSessions:Y,sidebarSessionIds:W}};this.send(z)}}', [se]);
-  const senv = { l$: () => 'i' };
-  senv.globalThis = senv;
-  vm.createContext(senv);
-  vm.runInContext(sr.out + ';var c=new C();globalThis.__cceRecentClosed=()=>({max:3,ids:["a"]});c.sendSessionStates([],1,[],[],[],[],true);var one=c.m.request.cceRecentClosed;'
-    + 'globalThis.__cceRecentClosed=()=>{throw new Error("x")};c.sendSessionStates([],1,[],[],[],[],true);var two=c.m.request.cceRecentClosed;', senv);
-  if (JSON.stringify(senv.one) === '{"max":3,"ids":["a"]}' && senv.two === undefined) ok('every update of the open conversations carries the closed list, and a failing list leaves the update as it was');
-  else bad(`the update carried ${JSON.stringify(senv.one)} and ${JSON.stringify(senv.two)}`);
-
-  // The panel: the section goes right before OPEN SESSIONS, and the closed list is kept as updates arrive.
-  const we = webview.EDITS.find((e) => e.name === 'open sessions section');
-  const wr = we ? applyEdits('children:[F(Lh5,{collapsed:i1,onViewUsage:R0}),F("div",{className:e7.sectionHeader,children:w("button",{className:e7.sectionToggle,onClick:()=>W0("sessions",!z0),"aria-expanded":!z0,title:z0?"Expand session manager":"Collapse session manager",children:[F(Va,{className:e7.sectionChevron}),F("span",{children:"Session manager"})]})})]', [we]) : { error: 'no such edit' };
-  const at = (s) => (wr.out || '').indexOf(s);
-  if (!wr.error && at('__cceRecentClosedSection({jsx:F,') >= 0 && at('__cceRecentClosedSection({jsx:F,') < at('__cceOpenSessions(') && at('__cceOpenSessions(') < at('className:e7.sectionHeader')
-    && !webview.EDITS.some((e) => e.name === 'recently closed section')) {
-    ok('Recently closed is drawn right before OPEN SESSIONS, handed the list\'s own factories, and nowhere else');
-  } else bad(`the section edit gave ${wr.error || wr.out}`);
-  const ke = webview.EDITS.find((e) => e.name === 'sidebar shown for open sessions');
-  const kr = applyEdits('function h($){switch($.request.type){case"session_states_update":if(this.sessionStates.value=$.request.sessions,this.activeSessionId.value=1,$.request.openSessionIds!==void 0)this.openSessionIds.value=$.request.openSessionIds;break}}', [ke]);
-  const kenv = { window: {} };
-  vm.createContext(kenv);
-  vm.runInContext(kr.out + ';const o={sessionStates:{},activeSessionId:{},openSessionIds:{}};h.call(o,{request:{type:"session_states_update",sessions:[],cceRecentClosed:{max:2,ids:["a"]}}});', kenv);
-  if (JSON.stringify(kenv.window.__cceRecentClosed) === '{"max":2,"ids":["a"]}') ok('the panel keeps the closed list each update brings');
-  else bad(`the panel kept ${JSON.stringify(kenv.window.__cceRecentClosed)}`);
-
-  // The section itself, drawn from the two fragments it shares code with.
-  const sig = (v) => ({ value: v });
-  const store = { data: {}, getItem(k) { return this.data[k] ?? null; }, setItem(k, v) { this.data[k] = String(v); } };
-  const env = { window: {}, isOff: () => false, localStorage: store, Date, Array, String, Math, isFinite, Number,
-    head: { appendChild() {} }, document: { createElement: () => ({ setAttribute() {}, textContent: '' }) } };
-  const item = (n, extra) => ({ sessionId: sig(id(n)), summary: sig('t' + n), lastModifiedTime: sig(Date.now()), isRemote: sig(false), ...(extra || {}) });
-  env.window.__cceSessionRow = function Row() {};
-  env.window.__cceSessionList = {
-    sessions: { sessions: sig([item(1), item(2), item(3), item(4), item(5, { isRemote: sig(true) })]) }, context: { openInEditor: (...a) => env.opened.push(a) },
-    comms: { openSessionIds: sig([id(2)]), sidebarSessionIds: sig([id(3)]), sessionStates: sig([]), unreadSessionKeys: sig([]), activeSessionId: sig(id(2)) },
-  };
-  env.opened = [];
-  vm.createContext(env);
-  for (const f of ['84-open-sessions.js', '84-recent-closed.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', f), 'utf8'), env);
-  const h = (type, props, key) => ({ type, props: props || {}, key });
-  const ui = { jsx: h, jsxs: h, cls: { sectionToggle: 'st' } };
-  const walk = (n, f, out = []) => { if (!n || typeof n !== 'object') return out; if (Array.isArray(n)) { n.forEach((c) => walk(c, f, out)); return out; } if (f(n)) out.push(n); walk(n.props && n.props.children, f, out); return out; };
-  const draw = (data, shown) => { env.window.__cceRecentClosed = data; env.window.__cceSidebarShown = shown; return env.window.__cceRecentClosedSection(ui); };
-  const rowsOf = (t) => walk(t, (n) => n.type === env.window.__cceSessionRow).map((n) => n.props.session.sessionId.value.slice(7, 8));
-  const t1 = draw({ max: 10, ids: [id(4), id(3), id(2), id(9), id(5), id(1)] }, true);
-  const t2 = draw({ max: 1, ids: [id(4), id(1)] }, true);
-  const t3 = draw({ max: 10, ids: [id(3), id(1)] }, false);
-  const t0 = draw({ max: 0, ids: [id(1)] }, true), tNone = draw({ max: 10, ids: [id(2)] }, true);
-  const got = JSON.stringify([rowsOf(t1), rowsOf(t2), rowsOf(t3), t0, tNone, t1 && t1.props['data-cce-collapsed']]);
-  const want = JSON.stringify([['4', '1'], ['4'], ['3', '1'], null, null, '1']);
-  if (got === want) {
-    ok('Recently closed lists closed conversations most recent first, not those open in a tab or the shown sidebar, not unknown or remote ones, as many as asked, collapsed at first, and nothing when there is none or the count is 0');
-  } else bad(`Recently closed drew ${got}, expected ${want}`);
-  const r1 = walk(t1, (n) => n.type === env.window.__cceSessionRow)[0];
-  r1.props.onClick();
-  const toggle = walk(t1, (n) => n.props && n.props.className === 'st')[0];
-  const root = { attrs: { 'data-cce-collapsed': '1' }, getAttribute(k) { return this.attrs[k]; }, setAttribute(k, v) { this.attrs[k] = v; } };
-  toggle.props.onClick({ currentTarget: { closest: () => root, setAttribute() {}, querySelector: () => null } });
-  const reopened = draw({ max: 10, ids: [id(4)] }, true);
-  if (env.opened.length === 1 && env.opened[0][0] === id(4) && store.data['cce.recentClosedExpanded'] === '1' && reopened.props['data-cce-collapsed'] === '0') {
-    ok('a click opens the conversation, and the section opened stays open the next time it is drawn');
-  } else bad(`clicking opened ${JSON.stringify(env.opened)}; expanded ${store.data['cce.recentClosedExpanded']}`);
-  const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  const setting = require('../package.json').contributes.configuration.properties['claudeCodePlus.recentClosedSessions'];
-  if (setting && setting.default === 10 && setting.minimum === 0 && /context\.workspaceState\.update\(recentClosed\.KEY, recentList\)/.test(extSrc)
-      && /recentClosed\.pageData\(recentList, enabled\(\) && !removed\(\) \? cfg\(\)\.get\(RECENT_SETTING, 10\) : 0\)/.test(extSrc)) {
-    ok('the closed list is kept per workspace, and the setting, 10 by default, says how many to show');
-  } else bad('the closed list is not wired as expected');
-
-  /* Both sections use one index of the list's conversations. It is kept while the list holds the same array, so a
-     redraw touches only the conversations it looks up, and a conversation that gets its id after joining the array is
-     still found. */
-  {
-    let reads = 0;
-    const counted = (sid) => {
-      const it = { summary: sig('t'), lastModifiedTime: sig(Date.now()), isRemote: sig(false) };
-      Object.defineProperty(it, 'sessionId', { get() { reads++; return sid; } });
-      return it;
-    };
-    const many = [], LATE = '0aaaaaaa-1111-4000-8000-000000000000', lateId = sig('');
-    for (let n = 0; n < 200; n++) many.push(counted(sig(`${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`)));
-    many.push(counted(lateId));
-    const src = env.window.__cceSessionList;
-    src.sessions.sessions = sig(many);
-    src.comms.openSessionIds = sig([id(1), id(2)]);
-    src.comms.sidebarSessionIds = sig([]);
-    const both = () => [env.window.__cceOpenSessions(ui), draw({ max: 3, ids: [id(5), id(6), id(7)] }, true)];
-    both();
-    reads = 0;
-    const [openAgain, closedAgain] = both();
-    const again = reads;
-    lateId.value = LATE;
-    src.comms.openSessionIds = sig([LATE]);
-    const late = walk(env.window.__cceOpenSessions(ui), (n) => n.type === env.window.__cceSessionRow);
-    const drewBoth = walk(openAgain, (n) => n.type === env.window.__cceSessionRow).length === 2
-      && walk(closedAgain, (n) => n.type === env.window.__cceSessionRow).length === 3;
-    // Five conversations are asked for, each looked at once; a single pass over the list would be 201.
-    if (drewBoth && again <= 20 && late.length === 1 && late[0].props.id === 'cce-open-' + LATE) {
-      ok(`drawn again over 201 conversations, the two sections read an id ${again} times for the five they show, and one given its id later is still found`);
-    } else bad(`drawn again over 201 conversations the two sections read a conversation's id ${again} times (drew both: ${drewBoth}); `
-      + `the one given its id later was drawn ${late.length} time(s)`);
-  }
 }
 
-/* Every window writes the same patched file, so each needs its own temporary name; with a shared one they truncate each
-   other's copy and a rename fails. */
 console.log('\na patched file written by several windows at once');
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-atomic-'));
@@ -9241,11 +8396,9 @@ console.log('\na restore and a patch in two windows at once');
   }
 }
 
-console.log('\ntext colors in the session list');
+console.log('\ntext colours kept from earlier versions, for the session list\'s import');
 {
   const colors = require('../src/sessioncolors');
-  const { applyEdits } = require('../src/edits');
-  const frag = (n) => fs.readFileSync(path.join(__dirname, '..', 'src', 'page', n), 'utf8');
   const A = '7d2a5c81-9e4f-4b63-8a17-c5f0e2b9d346', B = '3c9e1f27-5b4d-4e8a-9f61-2d7c8b0a4e53', C = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
   const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cce-colors-'));
   const file = path.join(dir, colors.FILE);
@@ -9269,184 +8422,8 @@ console.log('\ntext colors in the session list');
     if (!kept && pruned && JSON.stringify(colors.read(file)) === JSON.stringify({ [A]: 'blue' })) ok('the colors of conversations no longer on disk are dropped, and none when the transcripts could not all be read');
     else bad(`pruning gave ${kept}/${pruned} and left ${JSON.stringify(colors.read(file))}`);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-
-  const unpack = (css) => { const m = /--cce-colors:"([^"]+)"/.exec(css); return m ? JSON.parse(Buffer.from(m[1], 'base64').toString('utf8')) : null; };
-  const full = unpack(webview.liveCss({ colors: { [A]: 'cyan', [B]: 'red' } })), empty = unpack(webview.liveCss({ colors: {} }));
-  const none = unpack(webview.liveCss({})), off = unpack(webview.liveCss({ colors: { [A]: 'red' }, off: ['sessionColors'] }));
-  if (JSON.stringify(full) === JSON.stringify([1, [[B, 'red'], [A, 'cyan']]]) && JSON.stringify(empty) === '[1,[]]' && none === null && off === null) {
-    ok('the stylesheet carries the colors in session ID order, and says the host acts on a choice even with nothing colored; with the switch off it carries nothing');
-  } else bad(`the stylesheet carried ${JSON.stringify([full, empty, none, off])}`);
-
-  /* The mark on a conversation run by several processes (src/duplicates.js), carried the same way. */
-  {
-    const unpackDups = (css) => { const m = /--cce-dups:"([^"]+)"/.exec(css); return m ? JSON.parse(Buffer.from(m[1], 'base64').toString('utf8')) : null; };
-    const carried = unpackDups(webview.liveCss({ dups: [[A, 2]] })), absent = unpackDups(webview.liveCss({ dups: [] }));
-    const denv = { window: {}, Buffer, TextDecoder, atob: (x) => Buffer.from(x, 'base64').toString('binary'), appended: [], prop: '' };
-    denv.getComputedStyle = () => ({ getPropertyValue: (n) => (n === '--cce-dups' ? denv.prop : '') });
-    denv.document = { documentElement: {}, createElement: (t) => ({ tag: t, textContent: '', setAttribute() {} }) };
-    denv.head = { appendChild: (el) => denv.appended.push(el) };
-    vm.createContext(denv);
-    vm.runInContext(frag('82-scheduled-tasks.js') + frag('84-session-twice.js') + ';this.reset = function(){ propCache = {}; };this.paint = function(){ paintTwice(); };', denv);
-    denv.paint();
-    const before = denv.appended.length;
-    denv.prop = '"' + Buffer.from(JSON.stringify([[A, 2], ['not an id', 3], [B, 1]]), 'utf8').toString('base64') + '"'; denv.reset(); denv.paint();
-    const rule = denv.appended[0] && denv.appended[0].textContent;
-    if (JSON.stringify(carried) === JSON.stringify([[A, 2]]) && absent === null && before === 0
-        && rule === `[class*="sessionItem_"][id$="${A}"]::after{content:"\u00b7 2 processes";order:1;flex:none;white-space:nowrap;color:var(--vscode-errorForeground,#f14c4c);font-weight:normal}`) {
-      ok('a conversation run by several processes gets a mark after its title in every session-list row that shows it, drawn by the stylesheet outside the title and never shrunk');
-    } else bad(`the mark on a conversation run twice: ${JSON.stringify([carried, absent, before, rule])}`);
-  }
-
-  const pack = (v) => '"' + Buffer.from(JSON.stringify(v), 'utf8').toString('base64') + '"';
-  const env = { window: {}, Buffer, TextDecoder, atob: (x) => Buffer.from(x, 'base64').toString('binary'), prop: '', posted: [], timers: [], appended: [], offKey: '' };
-  env.getComputedStyle = () => ({ getPropertyValue: (n) => (n === '--cce-colors' ? env.prop : '') });
-  env.document = { documentElement: {}, createElement: (t) => ({ tag: t, textContent: '', setAttribute() {} }) };
-  env.head = { appendChild: (el) => env.appended.push(el) };
-  env.acquireVsCodeApi = () => ({ postMessage: (m) => env.posted.push(m) });
-  env.setTimeout = (f, ms) => { env.timers.push([f, ms]); return env.timers.length; };
-  env.isOff = (k) => env.offKey === k;
-  vm.createContext(env);
-  vm.runInContext(frag('82-scheduled-tasks.js') + frag('84-session-colors.js')
-    + ';this.reset = function(){ propCache = {}; };this.paint = function(){ paintColors(); };', env);
-  const item = (keys, after) => env.window.__cceColorItem(keys, after);
-  const labels = (it) => it ? [it.label + (it.separatorBefore ? '|' : ''), it.submenu.map((x) => (x.separatorBefore ? '|' : '') + x.label)] : null;
-  const missing = item([A], true);
-  env.prop = pack([1, [[A, 'red']]]); env.reset();
-  const red = labels(item([A], true)), mixed = labels(item([A, B], false)), plain = labels(item([B], true));
-  const remote = item(['remote:x'], true);
-  env.offKey = 'sessionColors'; const switched = item([A], true); env.offKey = '';
-  const names = ['Red', 'Blue', 'Green', 'Yellow', 'Purple', 'Orange', 'Pink', 'Cyan'];
-  const sub = (mark) => ['Default' + (mark === 'Default' ? ' ✓' : '')].concat(names.map((n, i) => (i === 0 ? '|' : '') + n + (mark === n ? ' ✓' : '')));
-  const want = [['Text color|', sub('Red')], ['Text color', sub('')], ['Text color|', sub('Default')]];
-  if (missing === null && remote === null && switched === null && JSON.stringify([red, mixed, plain]) === JSON.stringify(want)) {
-    ok('Text color offers Default and the eight /color colors and marks the one the selection has; nothing for a remote conversation, with the switch off, or from a host that would not act on it');
-  } else bad(`the Text color item was ${JSON.stringify({ missing, red, mixed, plain, remote, switched })}`);
-  env.listJsx = (type, props) => ({ type, props });
-  const drawn = item([A], true).submenu[1].label;
-  env.listJsx = null;
-  if (drawn && drawn.props.children[0].props.style.background === 'var(--vscode-charts-red,#f14c4c)' && drawn.props.children[1] === 'Red ✓') {
-    ok('with the list\'s element factory each color is shown with a swatch in the theme\'s own color');
-  } else bad(`a color entry was drawn as ${JSON.stringify(drawn)}`);
-  env.paint();
-  const style = env.appended[0];
-  const ruled = style && style.textContent;
-  if (env.appended.length === 1 && ruled === `[class*="sessionItem_"][id$="${A}"] span[class*="sessionName_"]{color:var(--vscode-charts-red,#f14c4c)}`) {
-    ok('a colored conversation gets one rule, for its title in every row whose id ends in its session ID, the open conversation\'s row included');
-  } else bad(`the colors were drawn as ${JSON.stringify(ruled)}`);
-  item([A], true).submenu[2].onSelect();
-  const chosen = style.textContent;
-  item([A], true).submenu[0].onSelect();
-  const cleared = style.textContent;
-  if (JSON.stringify(env.posted) === JSON.stringify([{ type: 'cce_session_color', sessionIds: [A], color: 'blue' }, { type: 'cce_session_color', sessionIds: [A], color: null }])
-      && /charts-blue/.test(chosen) && !/charts-red/.test(chosen) && cleared === '' && env.timers.some(([, ms]) => ms > 15000)) {
-    ok('choosing a color asks this extension and shows it at once; Default takes it away; the stylesheet decides again after a while');
-  } else bad(`choosing sent ${JSON.stringify(env.posted)} and drew ${JSON.stringify([chosen, cleared])}`);
-  env.prop = pack([1, [[A, 'red']]]); env.reset(); env.offKey = 'sessionColors'; env.paint(); env.offKey = '';
-  if (style.textContent === '') ok('with the switch off no title is colored');
-  else bad(`with the switch off the colors were ${JSON.stringify(style.textContent)}`);
-
-  const live = webview.EDITS.find((x) => x.name === 'text color in the session list menu');
-  const archived = webview.EDITS.find((x) => x.name === 'text color in the archived list menu');
-  const del = webview.EDITS.find((x) => x.name === 'delete in the archived list');
-  const menus = 'function dF(e,t,n,i){let o=[];if(e.length===1)o.push({label:"Resume session",onSelect:n.resumeSession});o.push({label:"New group from session",separatorBefore:o.length>0,onSelect:n.createGroupFromSelection});'
-    + 'if(n.archiveSelection)o.push({label:e.length>1?`Archive ${e.length} sessions`:"Archive session",separatorBefore:!0,onSelect:n.archiveSelection});return o}'
-    + 'function uF(e,t,n){let i=[];if(e.length===1)i.push({label:"Resume session",onSelect:t.resumeSession});if(t.unarchiveSelection)i.push({label:e.length>1?`Unarchive ${e.length} sessions`:"Unarchive session",separatorBefore:i.length>0,onSelect:t.unarchiveSelection});return i}';
-  const mr = live && archived && del ? applyEdits(menus, [live, archived, del]) : { error: 'no such edit' };
-  if (mr.error) bad('the text color edits did not apply: ' + mr.error);
-  else {
-    const menv = { window: env.window, out: null };
-    vm.createContext(menv);
-    const act = '{resumeSession(){},createGroupFromSelection(){},archiveSelection(){},unarchiveSelection(){}}';
-    const run = (call) => { vm.runInContext(mr.out + `;out=${call}.map((x)=>x.label+(x.separatorBefore?"|":""));`, menv); return menv.out; };
-    const got = [run(`dF(["${A}"],[],${act},{})`), run(`uF(["${A}"],${act},{})`), run(`uF(["${A}","${B}"],${act},{})`)];
-    env.offKey = 'sessionColors'; got.push(run(`dF(["${A}"],[],${act},{})`)); env.offKey = '';
-    const wantM = [['Resume session', 'New group from session|', 'Text color|', 'Archive session|'], ['Resume session', 'Text color|', 'Unarchive session|'],
-      ['Text color', 'Unarchive 2 sessions|'], ['Resume session', 'New group from session|', 'Archive session|']];
-    if (JSON.stringify(got) === JSON.stringify(wantM)) ok('Text color comes before Archive in a conversation\'s menu and before Unarchive in Archived sessions, with Delete still after it, and goes with the switch off');
-    else bad(`the menus were ${JSON.stringify(got)}, expected ${JSON.stringify(wantM)}`);
-  }
-  // A right-click selects its row; picking a text color then ends that selection, as Claude Code's own items do.
-  const clearEdits = ['row menu can clear the selection', 'archived row menu can clear the selection'].map((n) => webview.EDITS.find((x) => x.name === n));
-  const lists = 'function se(){return dF(xr,E,{resumeSession:()=>{Ro(new Set),Hn(On),c(Mt,Ot(Mt))},createGroupFromSelection:()=>{},archiveSelection:()=>{}},{})}'
-    + 'function sa(){return uF(xr,{resumeSession:()=>{Ro(new Set),Hn(On),c(Mt,Ot(Mt))},unarchiveSelection:()=>{}},{})}';
-  const cr = clearEdits.every(Boolean) && !mr.error ? applyEdits(lists, clearEdits) : { error: 'no such edit' };
-  if (cr.error) bad('the selection edits did not apply: ' + cr.error);
-  else {
-    const senv = { window: env.window, xr: [A], E: [], On: A, Mt: {}, sel: [], Ro: (s) => senv.sel.push(['set', s.size]), Hn: (k) => senv.sel.push(['anchor', k]),
-      c() {}, Ot() {}, out: null };
-    vm.createContext(senv);
-    vm.runInContext(mr.out + ';' + cr.out + ';out=[se(),sa()].map((m)=>m.find((x)=>x.label==="Text color"));', senv);
-    senv.out.forEach((m) => m.submenu[1].onSelect());
-    if (JSON.stringify(senv.sel) === JSON.stringify([['set', 0], ['anchor', null], ['set', 0], ['anchor', null]])) {
-      ok('picking a text color from either list\'s menu ends the selection the right-click made');
-    } else bad(`picking a text color left the selection calls ${JSON.stringify(senv.sel)}`);
-  }
-  /* A right-click or a drag on a row the list has not picked makes that row the selection; it ends with that menu or
-     that drag, however they end, and a selection that was there before them stays. The source is the shape of the
-     list's handlers. State is kept the way React keeps it: a handler sees the state of the last render, and its updates
-     take effect after it returns. */
-  {
-    const gestureEdits = ['row menu ends the selection it made', 'row menu close ends the selection it made',
-      'row drag remembers the selection it made', 'row drag end ends the selection it made'].map((n) => [n, webview.EDITS.find((x) => x.name === n)]);
-    const handlers = 'function se(he,Mt){if(!E||!I)return;let On=cr(Mt);if(!On)return;if(he.preventDefault(),he.stopPropagation(),Af(Mt)){'
-      + 'let $a=new Set(Wd),Mm=Qr.has(On)?[...Qr].filter((tV)=>$a.has(tV)):[On];if(!Qr.has(On))Ro(new Set([On])),Hn(On);Yi({items:["archived"]});return}'
-      + 'let xr=Upe(Qr,Nl,On);if(!Qr.has(On))Ro(new Set([On])),Hn(On);Yi({items:["live"]})}'
-      + 'function Kg(he,Mt){let On=cr(Mt);let xr=Upe(Qr,Nl,On);if(!Qr.has(On))Ro(new Set([On])),Hn(On);'
-      + 'let th=`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;he.dataTransfer.setData("x",th),Am.current={nonce:th,keys:xr,sourceKey:On}}'
-      + 'function Dm(){Am.current=null,bv(null)}'
-      + 'function menu(){return Ir&&eh&&m(SHt,{items:eh,x:Ir.x,y:Ir.y,onClose:()=>Yi(null)})}';
-    const missing = gestureEdits.filter(([, e]) => !e).map(([n]) => n);
-    const gr = missing.length ? { error: `no edit named ${missing.join(', ')}` } : applyEdits(handlers, gestureEdits.map(([, e]) => e));
-    if (gr.error) bad('the edits that end the selection made by a right-click or a drag did not apply: ' + gr.error);
-    else {
-      const R1 = 'aaaaaaaa-0000-4000-8000-000000000001', R2 = 'aaaaaaaa-0000-4000-8000-000000000002', R3 = 'aaaaaaaa-0000-4000-8000-000000000003';
-      let sel = new Set(), menuState = null, queued = [];
-      const g = { window: {}, E: [], I() {}, Wd: [], Nl: [], Am: { current: null }, SHt: 'menu',
-        cr: (x) => x.key, Af: (x) => !!x.archived, Upe: (q, n, k) => (q.has(k) ? [...q] : [k]), Hn() {}, bv() {}, m: (c, props) => props,
-        Ro: (v) => queued.push(['sel', v]), Yi: (v) => queued.push(['menu', v]) };
-      const render = () => {
-        for (const [k, v] of queued) { if (k === 'sel') sel = typeof v === 'function' ? v(sel) : v; else menuState = v; }
-        queued = [];
-        Object.assign(g, { Qr: sel, Ir: menuState, eh: menuState && menuState.items });
-      };
-      vm.createContext(g);
-      vm.runInContext(gr.out, g);
-      const ev = { preventDefault() {}, stopPropagation() {}, dataTransfer: { setData() {} } };
-      const from = (keys) => { queued = [['sel', new Set(keys)], ['menu', null]]; g.window.__cceMenuSelection = void 0; g.Am.current = null; render(); };
-      const now = () => [...sel].sort();
-      const got = {};
-      from([]); vm.runInContext('se', g)(ev, { key: R1 }); render(); got.menuMade = now();
-      g.menu().onClose(); render(); got.menuClosed = now();
-      from([]); vm.runInContext('se', g)(ev, { key: R1, archived: true }); render(); g.menu().onClose(); render(); got.archivedClosed = now();
-      from([R1, R2]); vm.runInContext('se', g)(ev, { key: R1 }); render(); g.menu().onClose(); render(); got.pickedBefore = now();
-      from([]); vm.runInContext('se', g)(ev, { key: R1 }); render(); g.Ro(new Set([R1, R3])); render(); g.menu().onClose(); render(); got.changedSince = now();
-      from([]); vm.runInContext('Kg', g)(ev, { key: R2 }); render(); got.dragMade = now(); vm.runInContext('Dm', g)(); render(); got.dragEnded = now();
-      from([R1, R2]); vm.runInContext('Kg', g)(ev, { key: R2 }); render(); vm.runInContext('Dm', g)(); render(); got.dragPicked = now();
-      const want = { menuMade: [R1], menuClosed: [], archivedClosed: [], pickedBefore: [R1, R2], changedSince: [R1, R3], dragMade: [R2], dragEnded: [],
-        dragPicked: [R1, R2] };
-      if (JSON.stringify(got) === JSON.stringify(want)) {
-        ok('when a right-click or a drag selects a row, it stays selected only until the menu closes or the drag ends, in the list and in Archived sessions; a selection made before, or changed since, stays');
-      } else bad(`the selection a right-click or a drag made: ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
-    }
-  }
-  const me = host.EDITS.find((x) => x.name === 'panel messages');
-  const hr = applyEdits('function eT($,J){let Q=`Received message from webview: ${bl0(J)}`;$.info(Q)}', [me]);
-  const asked = [];
-  const henv = { bl0: (m) => JSON.stringify(m), __cceColorHook: (ids, c) => asked.push([ids, c]) };
-  henv.globalThis = henv;
-  vm.createContext(henv);
-  vm.runInContext(hr.out + `;const L={info(){}};eT(L,{type:"cce_session_color",sessionIds:["${A}"],color:"red"});`
-    + `eT(L,{type:"cce_session_color",sessionIds:["${A}"],color:7});eT(L,{type:"cce_session_color",sessionIds:"${A}",color:"red"});`, henv);
-  if (JSON.stringify(asked) === JSON.stringify([[[A], 'red'], [[A], null]])) ok('the patched host passes a color choice on, reading anything but a name as Default');
-  else bad(`the host passed on ${JSON.stringify(asked)}`);
-  const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
-  if (/globalThis\.__cceColorHook = \(ids, name\) => \{\s*setTimeout\(/.test(extSrc)
-      && /sessionColors\.setColor\(colorsFile\(\), \[g\.id\], null\)/.test(extSrc)
-      && /r\.live && sessionColors\.prune\(colorsFile\(\), r\.live\)/.test(extSrc)
-      && webview.SWITCHES.includes('sessionColors') && require('../package.json').contributes.configuration.properties['claudeCodePlus.show.sessionColors']) {
-    ok('a choice is handled outside the host\'s message handling, a deleted or vanished conversation loses its color, and the switch is a setting of its own');
-  } else bad('the text colors are not wired into the extension as expected');
 }
+
 console.log('\nbackground sessions left out of the session list');
 {
   const bg = require('../src/bgsessions');
@@ -11392,11 +10369,14 @@ console.log('\nthe Steward panel');
         relay.heldBy([{ sessionId: S(4), kind: 'background', id: 'done0001', state: 'done' }, { sessionId: S(5), pid: 7 }], S(4)),
         relay.heldBy([{ sessionId: S(4), pid: 99, kind: 'background', id: 'job00001', state: 'working' }], S(4)),
         relay.heldBy([{ sessionId: S(4), kind: 'background', id: 'stop0001', state: 'stopped' }, { sessionId: S(4), kind: 'background', id: 'fail0001', state: 'failed' }], S(4)),
-        relay.heldBy([{ sessionId: S(4), kind: 'background', id: 'work0001', state: 'working' }], S(4))];
+        relay.heldBy([{ sessionId: S(4), kind: 'background', id: 'work0001', state: 'working' }], S(4)),
+        relay.heldBy([{ sessionId: S(7), pid: 4242, kind: 'interactive' }], S(7), (pid) => pid !== 4242),
+        relay.heldBy([{ sessionId: S(4), pid: 99, kind: 'background', id: 'job00002', state: 'working' }], S(4), () => false)];
       if (held[0] === 'process 4242 runs it' && held[1] === 'the claude --bg job abcd1234 holds it (blocked)' && held[2] === ''
-          && held[3] === 'process 99 runs it (the claude --bg job job00001)' && held[4] === '' && held[5] === 'the claude --bg job work0001 holds it (working)') {
+          && held[3] === 'process 99 runs it (the claude --bg job job00001)' && held[4] === '' && held[5] === 'the claude --bg job work0001 holds it (working)'
+          && held[6] === '' && held[7] === 'the claude --bg job job00002 holds it (working)') {
         ok('a conversation counts as run elsewhere while a process holds it, or a claude --bg job that is working or blocked with no process of its own; '
-          + 'one done, stopped or failed holds nothing');
+          + 'one done, stopped or failed holds nothing, and neither does a process that has ended since the list was read');
       } else bad(`held by: ${JSON.stringify(held)}`);
 
       /* A window opens the conversation, waits for its panel, and only then sends; text not received is tried again. */
@@ -12621,8 +11601,8 @@ console.log('\nthe patch markers follow the code');
     return m.exports.MARK;
   };
   const cases = [
-    ['src/host.js', 'host.js', require('../src/host').MARK, (src) => src.replace('?"cce-pin-to-sidebar":', '?"cce-pin-to-sidebar-x":')],
-    ['src/webview.js', 'webview.js', require('../src/webview').MARK, (src) => src.replace('cceWhere:cceW})}`', 'cceWhere:cceW,x:1})}`')],
+    ['src/host.js', 'host.js', require('../src/host').MARK, (src) => src.replace('==="cce-pin-to-sidebar"||', '==="cce-pin-to-sidebar-x"||')],
+    ['src/webview.js', 'webview.js', require('../src/webview').MARK, (src) => src.replace('window.__cceSetActivity(${msg}.request.cceActivity)', 'window.__cceSetActivity(${msg}.request.cceActivity,1)')],
     // An edit with several shapes has no pattern or replacement of its own; one of its shapes changing counts all the same.
     ['src/webview.js, one shape of an edit with several', 'webview.js', require('../src/webview').MARK,
       (src) => src.replace('${row}.setToolResult(${item},${opts});', '${row}.setToolResult(${item},${opts}) ;')],
@@ -14181,7 +13161,7 @@ console.log('\nClaude Code\'s own source');
         out.noTranscript = await run({ transcript: '' });
         out.otherFolder = await run({ transcript: filed('/work/other', A) });
         out.otherWindow = await run({ elsewhere: ['Shop (second window)'] });
-        out.process = await run({ agents: { records: [{ sessionId: A, pid: 4242, kind: 'interactive' }], error: '' } });
+        out.process = await run({ agents: { records: [{ sessionId: A, pid: process.pid, kind: 'interactive' }], error: '' } });
         out.noList = await run({ agents: { records: null, error: 'no cli' } });
         out.openFails = await run({ openFails: true });
         out.neverLoads = await run({ loads: false, replies: ['ready', 'drafted'] });
@@ -14219,7 +13199,7 @@ console.log('\nClaude Code\'s own source');
     if (!pf.threw && pfIs(pf.opened, 'drafted') && events(pf.opened) === 'openTab prefillTo go'
         && pfIs(pf.restoredTab, 'drafted') && events(pf.restoredTab) === 'openTab prefillTo go'
         && pfIs(pf.noTranscript, 'notReceived', /no transcript/) && pfIs(pf.otherFolder, 'notReceived', /started in a folder other than/)
-        && pfIs(pf.otherWindow, 'notReceived', /"Shop \(second window\)" shows it/) && pfIs(pf.process, 'notReceived', /process 4242 runs it/)
+        && pfIs(pf.otherWindow, 'notReceived', /"Shop \(second window\)" shows it/) && pfIs(pf.process, 'notReceived', /process \d+ runs it/)
         && pfIs(pf.noList, 'notReceived', /could not tell whether another process runs it: no cli/)
         && ['noTranscript', 'otherFolder', 'otherWindow', 'process', 'noList'].every((k) => !events(pf[k]).includes('openTab') && !events(pf[k]).includes('prefillTo'))
         && pfIs(pf.openFails, 'notReceived', /could not open it: no such command/) && pfIs(pf.neverLoads, 'notReceived', /no panel here showed it/)
@@ -14615,7 +13595,7 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
         ok('the patched host says whether a tab or the sidebar shows a conversation on screen, and marks a reply unread through its own setter');
       } else bad(`on screen ${JSON.stringify(seen)}, marked ${JSON.stringify(env.v.marked)}`);
     }
-    const se = host.EDITS.find((e) => e.name === 'session states message carries whether the sidebar is shown');
+    const se = host.EDITS.find((e) => e.name === 'session states message carries the dots');
     const send = 'class C{constructor(){this.sent=[]}send(m){this.sent.push(m)}sendSessionStates($,J,Q,X,Y,W){let z={type:"request",channelId:"",requestId:l$(),request:{type:"session_states_update",sessions:$,activeSessionId:J,openSessionIds:Q,unreadSessionKeys:X,liveElsewhereSessions:Y,sidebarSessionIds:W}};this.send(z)}}';
     const sr = se ? applyEdits(send, [se]) : { error: 'no such edit' };
     if (sr.error) bad('the session states edit did not apply: ' + sr.error);
@@ -14633,7 +13613,7 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     }
   }
 
-  /* The panel reports whether a turn runs beside its state, and a session list row draws its dot and envelope. */
+  /* The panel reports whether a turn runs beside its state, and a rename typed in Claude Code's list shows no marks. */
   {
     const wedit = (name) => webview.EDITS.find((e) => e.name === name);
     const report = 'Zt(()=>{let p=(c.permissionRequests.value.length??0)>0||c.userDialogRequests.value.length>0,f=c.busy.value,'
@@ -14660,34 +13640,6 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
       ok('a panel reports whether a turn runs and whether background tasks run beside the one state Claude Code sends for both, '
         + 'a command put in the background included, which the panel\'s own set of background tasks leaves out');
     } else bad('the panel\'s report: ' + (rr.error || JSON.stringify(sent)));
-    const row = 'var Row=W(function({session:t,id:n,isActive:i,openState:E,liveElsewhere:I},L){vt();return k("button",{ref:L,id:n,className:`${Dn.sessionItem}`,'
-      + 'children:[E&&m(Ef,{state:E,ring:I!==void 0&&E!=="unread",title:THt(E,I)}),m("span",{className:Dn.sessionName,children:"x"})]})});';
-    const mr = applyEdits(row, [wedit('session row marks')]);
-    if (mr.error) bad('the session row marks edit did not apply: ' + mr.error);
-    else {
-      const calls = [];
-      const env = { W: (f) => f, vt: () => {}, Dn: { sessionItem: 'si', sessionName: 'sn' }, Ef: function Ef() {},
-        THt: (s, w) => (w === 'vscode' ? 'Open in another VS Code window' : 'Open in this window') + (s === 'idle' ? '' : ' - ' + s),
-        m: (type, props) => ({ type, props }), k: (type, props) => ({ type, props }), window: {} };
-      vm.createContext(env);
-      vm.runInContext(mr.out, env);
-      const draw = (state, where) => env.Row({ session: { s: 1 }, id: 'r', openState: state, liveElsewhere: where }, null).props.children[0];
-      const rowKids = (state) => env.Row({ session: { s: 1 }, id: 'r', openState: state }, null).props.children;
-      const own = draw('running', void 0);
-      env.window.__cceRowMarks = (o) => { calls.push([o.state, o.where, !!o.session, o.Dot === env.Ef, typeof o.jsx]); return ['D', 'E']; };
-      const marked = [draw('running', 'vscode'), draw('unread', void 0), draw(void 0, void 0)];
-      const kids = rowKids('unread');
-      const outside = JSON.stringify(kids[0]) === '["D","E"]' && kids[1].props.className === 'sn' && !JSON.stringify(kids[1]).includes('"E"');
-      env.window.__cceRowMarks = () => null;
-      const fallback = draw('waiting', void 0);
-      if (own && own.type === env.Ef && own.props.state === 'running' && JSON.stringify(marked) === '[["D","E"],["D","E"],["D","E"]]'
-          && JSON.stringify(calls) === '[["running","Open in another VS Code window",true,true,"function"],["unread","",true,true,"function"],[null,"",true,true,"function"],["unread","",true,true,"function"]]'
-          && fallback.type === env.Ef && fallback.props.state === 'waiting' && outside) {
-        ok('a session list row asks the page for its dot, crown and envelope, with where the conversation is open, and draws its own dot when the page gives none; '
-          + 'they are children of the row beside the title element the list cuts short, not inside it');
-      } else bad(`row marks ${JSON.stringify([own, marked, calls, fallback])}`);
-    }
-
     /* A rename typed in the list's box: the list shows it at once (renameSession below is Claude Code 2.1.330's opening),
        and with the edit the shown name has no marks, as src/title-marks.js stores it. */
     {
@@ -14702,7 +13654,7 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
           TITLE_MARKS: new RegExp(webview.TITLE_MARKS, 'gu'),
           document: { createElement: () => ({ setAttribute() {}, textContent: '' }) }, localStorage: { getItem: () => null } };
         vm.createContext(penv);
-        vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-row-marks.js'), 'utf8'), penv);
+        vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-rename-marks.js'), 'utf8'), penv);
         vm.runInContext(lr.out, penv);
         const shown = [];
         for (const t of typed) {
@@ -14717,50 +13669,7 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
         } else bad(`a rename typed in the list shows ${JSON.stringify(shown)}, not ${JSON.stringify(want)}`);
       }
     }
-
-    /* The page side (src/page/84-row-marks.js), with the list's own dot component. */
-    const sig = (v) => ({ value: v });
-    const env = { window: {}, isOn: () => env.on, on: true, Date, Array, String, Math, isFinite, JSON, Object,
-      head: { appendChild() {} }, document: { createElement: () => ({ setAttribute() {}, textContent: '' }) }, localStorage: { getItem: () => null } };
-    env.window.__cceSignal = (v) => ({ value: v });
-    env.window.__cceSessionList = { comms: { unreadSessionKeys: sig(['U', 'T0', 'SU']) } };
-    vm.createContext(env);
-    for (const f of ['84-open-sessions.js', '84-row-marks.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'page', f), 'utf8'), env);
-    const Dot = function Dot() {};
-    const h = (type, props) => ({ type, props: props || {} });
-    const s = (id, extra) => Object.assign({ sessionId: sig(id) }, extra || {});
-    env.window.__cceSetActivity({ W: 'working', B: 'background', Q: 'waiting', U: 'working' }, ['ST', 'SU']);
-    const marks = (session, state, where) => env.window.__cceRowMarks({ jsx: h, Dot, session, state, where });
-    const shape = (out) => (out === null ? null : out.map((n) => (n === null ? '-' : n.type === Dot
-      ? `${n.props.state}${n.props.ring ? '/ring' : ''}:${n.props.title}` : n.props['data-cce-envelope'] === '' ? 'envelope' + (n.props.children === undefined ? '' : ':' + n.props.children)
-        : n.props['data-cce-crown'] === '' ? 'crown:' + n.props.children : '?')));
-    const got = {
-      working: shape(marks(s('W'), 'running', '')), background: shape(marks(s('B'), 'running', 'Open in this window')), waiting: shape(marks(s('Q'), 'idle', '')),
-      unseenWorking: shape(marks(s('U'), 'running', '')), stopped: shape(marks(s('X'), 'idle', '')), unseenStopped: shape(marks(s('T1', { teleportedFromSessionId: sig('T0') }), 'unread', '')),
-      fallback: shape(marks(s('Y'), 'waiting', '')), fallbackRun: shape(marks(s('Z'), 'running', '')),
-      remote: marks(s('R', { isRemote: sig(true) }), 'running', ''),
-      steward: shape(marks(s('st'), 'idle', '')), stewardUnseen: shape(marks(s('SU'), 'unread', '')),
-    };
-    env.on = false;
-    got.off = marks(s('W'), 'running', '');
-    env.on = true;
-    env.window.__cceSetActivity({});
-    got.cleared = shape(marks(s('W'), 'idle', ''));
-    const ENV = '\u2709\uFE0F';
-    const CROWN = '\u{1F451}';
-    const want = {
-      working: ['running:Working', '-', '-'], background: ['running/ring:Open in this window \u2014 Turn ended; background work still running', '-', '-'],
-      waiting: ['waiting:Waiting for you', '-', '-'], unseenWorking: ['running:Working', '-', 'envelope'], stopped: ['-', '-', '-'],
-      unseenStopped: ['-', '-', 'envelope'], fallback: ['waiting:Waiting for you', '-', '-'], fallbackRun: ['running:Working', '-', '-'],
-      remote: null, steward: ['-', 'crown:' + CROWN, '-'], stewardUnseen: ['-', 'crown:' + CROWN, 'envelope'], off: null, cleared: ['-', '-', '-'],
-    };
-    if (JSON.stringify(got) === JSON.stringify(want)) {
-      ok('a row\'s dot is green while a turn runs, a green ring for background work only, red while it waits and absent once stopped, '
-        + 'a steward\'s crown comes after the dot and before the envelope, which comes last for a reply not read yet whatever the dot; '
-        + 'a web session, or the extension off, keeps Claude Code\'s dot');
-    } else bad(`row marks: ${JSON.stringify(got)}`);
   }
-
   /* A rename never stores a mark, whatever was typed, by whichever path it goes; the tab's rename box is filled without
      one; and a steward renamed while keeping the crown shows one crown, after the title. */
   {
@@ -14843,25 +13752,20 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     const stripped = [tm.withoutMarks('Fix ' + T), tm.withoutMarks('Fix ' + Cl + ' ' + T + ' \u2709'), tm.withoutEnvelope(T + ' Fix')];
     const tab = sm.tabTitle('Fix it', null, '', 2, 'Fix it', true, T).title;
     const tabBack = sm.tabTitle(tab, null, '', 2, 'Fix it', true, Cl).title;
-    const css = require('../src/webview').liveCss({});
-    const esc = (c) => [...c].map((x) => '\\' + x.codePointAt(0).toString(16).toUpperCase()).join(' ');
-    const cssOk = css.includes(`[data-cce-envelope]::after{content:"${esc(Cl)}";}`)
-      && css.includes(`body.vscode-light [data-cce-envelope]::after,body.vscode-high-contrast-light [data-cce-envelope]::after{content:"${esc(T)}";}`);
     const sv = require('../src/steward-view');
     const rowsOf = (e) => sv.body({ front: { id: 'f', title: 'F' }, rows: [], groups: [{ key: 'w:1', name: 'w', rows: [{ sessionId: 'x', title: 'x', cwd: '', state: 'unread', dot: '',
       unseen: true, running: true, processes: [], lastActiveAt: 0, doing: [], questions: 0, managed: false }] }], managed: 0, hidden: 0, every: false, envelope: e });
     const panel = [rowsOf(T), rowsOf(Cl)].map((h) => (/<span class="env"[^>]*>([^<]*)<\/span>/.exec(h) || [])[1]);
     const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8'), view = fs.readFileSync(path.join(__dirname, '..', 'src', 'steward-view.js'), 'utf8');
-    const page = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '84-row-marks.js'), 'utf8');
     if (JSON.stringify(forms) === JSON.stringify([T, Cl, Cl, T]) && heard === 1 && typeof d.dispose === 'function' && typeof none.dispose === 'function'
         && JSON.stringify(stripped) === JSON.stringify(['Fix', 'Fix', 'Fix']) && tab === 'Fix it \u{1F451} ' + T && tabBack === 'Fix it \u{1F451} ' + Cl
-        && cssOk && panel[0] === '&#x2709;&#xFE0E;' && panel[1] === '&#x1F4E9;'
+        && panel[0] === '&#x2709;&#xFE0E;' && panel[1] === '&#x1F4E9;'
         && /envelope\.onEnvelopeChange\(vscode, \(\) => \{\s*try \{ if \(typeof globalThis\.__cceRefreshTabIcons === 'function'\) globalThis\.__cceRefreshTabIcons\(\);/.test(ext)
         && /named\.custom \|\| named\.ai, unseen, envelope\.envelope\(vscode\)\);/.test(ext)
-        && /const themeWatch = envelope\.onEnvelopeChange\(vscode, \(\) => render\(\)\);/.test(view) && !/\\u2709/.test(page)) {
-      ok('the envelope is the text form in light and high-contrast light themes and the colour form otherwise, in the tab title, the Steward panel and the session list, '
-        + 'which picks it by the page\'s theme class; a theme change redraws the tabs and the panel; both forms are taken off titles');
-    } else bad(`envelope forms ${JSON.stringify({ forms, heard, stripped, tab, tabBack, cssOk, panel })}`);
+        && /const themeWatch = envelope\.onEnvelopeChange\(vscode, \(\) => render\(\)\);/.test(view)) {
+      ok('the envelope is the text form in light and high-contrast light themes and the colour form otherwise, in the tab title and the Steward panel; '
+        + 'a theme change redraws the tabs and the panel; both forms are taken off titles');
+    } else bad(`envelope forms ${JSON.stringify({ forms, heard, stripped, tab, tabBack, panel })}`);
   }
 
   /* The Steward panel draws the same dots and the envelope at the row's end. */
@@ -15663,6 +14567,26 @@ const repo = path.join(__dirname, '..');
     fs.appendFileSync(f1, line(user(30, 'one more')) + line(agent(31, 'ok')));
     const again = (await list.listSessions({ folders: [folder] })).sessions.find((x) => x.sessionId === S(1)) || {};
     eq([again.lastActiveAt, again.lastUserAt], [Date.parse(T(31)), Date.parse(T(30))], 'a transcript that changed is read again');
+    {
+      /* With the reader the tab's dot uses (src/activity.js), an answer on a question card and a message typed while a
+         turn ran are the user's last message on the row too, so Agent Plus's red dot agrees with the tab's. */
+      const activity = require('../src/activity');
+      const reader = activity.lastUserReader();
+      put(name, S(40), [user(40, 'Pick the config, please.'), agent(41, 'Which one?'),
+        user(42, [{ type: 'tool_result', content: 'Staging' }], { toolUseResult: { answers: { 'Which config?': 'Staging' } } }), agent(43, 'Staging it is.')]);
+      put(name, S(41), [user(44, 'Pause for two seconds, please.'), agent(45, 'Pausing.'),
+        { type: 'attachment', timestamp: T(46), cwd: folder, attachment: { type: 'queued_command', commandMode: 'prompt', origin: { kind: 'human' }, prompt: 'Staging, please.' } },
+        user(47, [{ type: 'tool_result', content: 'done' }], { toolUseResult: { stdout: 'done' } }), agent(48, 'Done.')]);
+      const typed = csl.create(Object.assign({}, deps, { lastUserAt: (file) => reader.at(file) }));
+      const rows = new Map((await typed.listSessions({ folders: [folder] })).sessions.map((x) => [x.sessionId, x]));
+      const plain = new Map((await list.listSessions({ folders: [folder] })).sessions.map((x) => [x.sessionId, x]));
+      eq([rows.get(S(40)).lastUserAt, rows.get(S(41)).lastUserAt, rows.get(S(1)).lastUserAt, plain.get(S(40)).lastUserAt],
+        [Date.parse(T(42)), Date.parse(T(46)), Date.parse(T(30)), Date.parse(T(40))],
+        'with the tab dot\'s reader, a row\'s last user message counts an answer on a question card and a message typed while a turn ran; without it, only typed messages');
+      for (const n of [40, 41]) fs.rmSync(path.join(projects, name, S(n) + '.jsonl'), { force: true });
+      const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+      (/claudeSessionList\.create\(\{[\s\S]{0,400}?lastUserAt: \(file\) => lastUser\.at\(file\)/.test(extSrc) ? ok : bad)('and the window gives the list that reader');
+    }
 
     const run = async (...a) => (await list.runSessionAction(...a)).results.map((x) => [x.sessionId, x.outcome, x.reason]);
     calls.length = 0;

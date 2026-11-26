@@ -293,12 +293,12 @@ function takesHere(action, to, deps, req) {
 
 /* Why a process other than a window's panel holds conversation `id`, from `claude agents --json`, or ''. A `claude --bg`
    job with no process of its own counts only while it is working or blocked on an answer: one done, stopped or failed
-   holds nothing. */
-function heldBy(records, id) {
+   holds nothing. `alive(pid)`, when given, drops a process that has ended since the list was read. */
+function heldBy(records, id, alive) {
   for (const r of records || []) {
     if (!r || String(r.sessionId || '').toLowerCase() !== id) continue;
     const job = r.kind === 'background' ? `the claude --bg job ${r.id || '(no id)'}` : '';
-    if (Number.isInteger(r.pid) && r.pid > 0) return `process ${r.pid} runs it${job ? ` (${job})` : ''}`;
+    if (Number.isInteger(r.pid) && r.pid > 0 && (typeof alive !== 'function' || alive(r.pid))) return `process ${r.pid} runs it${job ? ` (${job})` : ''}`;
     if (job && (r.state === 'working' || r.state === 'blocked')) return `${job} holds it (${r.state})`;
   }
   return '';

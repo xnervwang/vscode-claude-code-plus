@@ -4,7 +4,7 @@ Back to the [README](../README.md).
 
 ## Settings
 
-Open `Claude Code Plus: Settings` for all 44 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
+Open `Claude Code Plus: Settings` for all 35 settings. Most take effect without a reload. Installing or upgrading the patch needs one.
 
 **Work plan settings**
 
@@ -25,7 +25,6 @@ Open `Claude Code Plus: Settings` for all 44 settings. Most take effect without 
 | Your time zone in Claude's context | Choose a token mode without it, or in Custom set `claudeCodePlus.tellClaudeYourTimeZone` to off. |
 | Work plan plugin, skill description included | Run `Claude Code Plus: Stop Loading the Work Plan Plugin`. |
 | Reopening Claude Code tabs VS Code did not restore | Set `claudeCodePlus.reopenDroppedTabs` to off. |
-| Pins on the session list | Set `claudeCodePlus.sessionPins` to off. Pinned conversations are then cleaned up and archived as usual. |
 | Patch and restore Claude Code's files | Run `Claude Code Plus: Remove from Claude Code (restore original files)`, or uninstall. |
 
 Message appearance: `claudeCodePlus.userMessageColor` and `claudeCodePlus.userMessageEdge`.

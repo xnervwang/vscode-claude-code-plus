@@ -168,19 +168,16 @@
         if (sheet.parentNode) sheet.parentNode.removeChild(sheet);
       }
       var asked = offCache;
-      sheet = l; loadedOnce = true; onCache = null; offCache = {}; pinsCache = null; propCache = {};
+      sheet = l; loadedOnce = true; onCache = null; offCache = {}; propCache = {};
       try { switchesMoved(asked); } catch (e) { /* the next render of each part reads the switches anyway */ }
       if (fallback && fallback.parentNode) { fallback.parentNode.removeChild(fallback); fallback = null; }
-      try { repaintPins(); } catch (e) { /* the next render of the list draws them anyway */ }
-      try { paintColors(); } catch (e) { /* the next stylesheet draws them */ }
-      try { paintTwice(); } catch (e) { /* the next stylesheet draws them */ }
       try { if (typeof window.__cceStyleArrived === 'function') window.__cceStyleArrived(); } catch (e) { /* the next render reads it */ }
       schedule();
     };
     l.onerror = function(){
       if (loading === l) loading = null;
       if (l.parentNode) l.parentNode.removeChild(l);
-      useFallback(); onCache = null; offCache = {}; pinsCache = null; propCache = {}; schedule();
+      useFallback(); onCache = null; offCache = {}; propCache = {}; schedule();
     };
     loading = l;
     head.appendChild(l);
@@ -285,8 +282,6 @@
    * computing it every refresh is the one outcome a switch must not have.
    */
   var offCache = {};
-  /* The pins the stylesheet carries (83-session-pins.js), decoded once per stylesheet like the two above. */
-  var pinsCache = null;
   /* A signal read by every isOff. A render subscribes only to what it reads. The session list's sections, dates and
      buttons, and the other parts the switches turn off, are drawn from the panel's state, which a new stylesheet does
      not change. The signal is bumped when a new stylesheet flips a switch that isOff has read since the last one. */
