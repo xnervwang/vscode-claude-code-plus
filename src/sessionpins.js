@@ -113,16 +113,17 @@ function setPinned(file, id, on) {
 /**
  * Move pinned conversations' transcripts and tool outputs older than the cutoff plus the margin to a later modification
  * time, and compute the updated record of real times. Newer files are left alone, so back-to-back passes change
- * nothing.
+ * nothing. `keeps(id, file)`, when given, names further conversations to move the same way: those Agent Plus's session
+ * list will not delete before Claude Code's cleanup would, so that the cleanup never deletes one first.
  *
  * Touches nothing in the pins file: the caller folds `updates` and `gone` into what the file holds by then. `gone` is
  * only filled when every project folder could be read and at least one transcript was found in them, so a folder that
  * fails to list, or a projects folder that is not the one Claude Code writes to, cannot unpin anything.
  */
-async function keep({ ids, times = {}, days, margin = MARGIN_DAYS, projectsDir: projects = projectsDir(), now = Date.now() }) {
-  const out = { pinned: ids.size, found: 0, touched: 0, errors: 0, updates: {}, gone: [] };
+async function keep({ ids, times = {}, days, margin = MARGIN_DAYS, projectsDir: projects = projectsDir(), now = Date.now(), keeps = null }) {
+  const out = { pinned: ids.size, found: 0, touched: 0, errors: 0, updates: {}, gone: [], kept: 0 };
   const recorded = Object.keys(times);
-  if (!ids.size && !recorded.length) return out;
+  if (!ids.size && !recorded.length && !keeps) return out;
   const floor = now - days * DAY + marginDays(days, margin) * DAY;
   const given = new Date(floor + Math.min(STEP_MS, days * DAY / 4));
   const fsp = fs.promises;
@@ -144,6 +145,19 @@ async function keep({ ids, times = {}, days, margin = MARGIN_DAYS, projectsDir: 
       if (e.isDirectory()) { if (depth > 0) await refreshTree(p, depth - 1); } else await refresh(p);
     }
   };
+  /* A conversation Agent Plus's session list keeps, which is not pinned here: moved like a pinned one once `keeps` says
+     so, which it is asked only for a file this old. No real time is recorded for it; the list reads the last activity
+     from the transcript itself. */
+  const keepListed = async (id, file) => {
+    let st;
+    try { st = await fsp.stat(file); } catch (_) { out.errors++; return; }
+    if (!st.isFile() || !(st.mtimeMs < floor)) return;
+    let yes = false;
+    try { yes = keeps(id, file) === true; } catch (_) { yes = false; }
+    if (!yes) return;
+    if (await refresh(file)) out.kept++;
+    await refreshTree(path.join(path.dirname(file), id, 'tool-results'), 1);
+  };
   const seen = new Set();
   let complete = true, transcripts = 0;
   const folders = projectFolders(projects);
@@ -156,7 +170,10 @@ async function keep({ ids, times = {}, days, margin = MARGIN_DAYS, projectsDir: 
       transcripts++;
       const id = n.slice(0, -6);
       const pinned = ids.has(id);
-      if (!pinned && !times[id]) continue;
+      if (!pinned && !times[id]) {
+        if (keeps && SESSION.test(id)) await keepListed(id, path.join(dir, n));
+        continue;
+      }
       seen.add(id);
       const file = path.join(dir, n);
       let rec = times[id] || null;

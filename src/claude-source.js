@@ -35,6 +35,7 @@ const { oncePerDelivery } = require('./core-link');
 const { opensHere, heldBy } = require('./relay');
 const titleMarks = require('./title-marks');
 const waitingFor = require('./waiting-for');
+const { FEATURES: LIST_FEATURES } = require('./claude-session-list');
 
 /* The protocol major this source implements; package.json repeats it under "agentPlus". */
 const PROTOCOL = 1;
@@ -170,6 +171,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   elsewhere(sessionId)            optional: the names of the other VS Code windows that show it
  *   prefillTimes                    optional, for tests: { all, ready, go, check, retry, ask } in place of the PREFILL_ waits
  *   isBackground(id, cwd)           optional, for tests
+ *   sessionList                     optional: the members for Agent Plus's session list (src/claude-session-list.js),
+ *                                   which this source then has, with their features
  */
 function createClaudeSource(deps) {
   const focused = emitter(), changed = emitter(), noticeChanged = emitter(), stewardsChanged = emitter();
@@ -409,6 +412,7 @@ function createClaudeSource(deps) {
       return r;
     });
 
+  const list = deps.sessionList && typeof deps.sessionList === 'object' ? deps.sessionList : null;
   const source = {
     protocol: PROTOCOL,
     /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. 'shows': it asks shows(). 'stewards'
@@ -417,7 +421,7 @@ function createClaudeSource(deps) {
     get features() {
       const on = enabled();
       return ['shows'].concat(on && briefOn() ? ['brief'] : [], on && typeof deps.stewardsOf === 'function' ? ['stewards', 'stewardList'] : [],
-        prefills ? ['prefill'] : []);
+        prefills ? ['prefill'] : [], list ? LIST_FEATURES : []);
     },
     id: ID,
     label: 'Claude Code',
@@ -534,11 +538,48 @@ function createClaudeSource(deps) {
     planNotice: () => notice,
     timeZone: () => { try { return deps.timeZone ? deps.timeZone() || '' : ''; } catch (_) { return ''; } },
   };
+  if (list) {
+    Object.assign(source, {
+      listSessions: (a) => list.listSessions(a),
+      onDidChangeSessions: list.onDidChangeSessions,
+      sessionActions: list.sessionActions,
+      runSessionAction: (action, sessionIds, args) => list.runSessionAction(action, sessionIds, args),
+      describeDeletion: (sessionIds) => list.describeDeletion(sessionIds),
+      wantSessionDetail: (sessionIds) => list.wantSessionDetail(sessionIds),
+      importSessions: (a) => list.importSessions(a),
+      accountInfo: (a) => list.accountInfo(a),
+      onDidChangeAccountInfo: list.onDidChangeAccountInfo,
+      noteSeen: (sessionIds, seen) => list.noteSeen(sessionIds, seen),
+      onDidCloseSession: list.onDidCloseSession,
+    });
+  }
+  /* What runs now, by session id, from the latest `claude agents` list fetched, worked out again when that list changes. */
+  let runningAt = -1, runningNow = new Map();
 
   return {
     source,
     invalidate() { stale = true; agentsAt = 0; },
-    changed() { changed.fire(); },
+    changed() { changed.fire(); if (list) list.changed(); },
+    /*
+     * For the session list's rows: { activity, waitingFor } of a conversation that some process has open, by the latest
+     * `claude agents` list and what this window's panels report, or null for one that none has open. A conversation a panel
+     * here shows that the list does not have yet counts as open.
+     */
+    stateOf(sessionId) {
+      if (runningAt !== agentsAt) {
+        runningNow = agentsLast.records ? waiting.merge(agentsLast.records) : new Map();
+        runningAt = agentsAt;
+      }
+      const id = typeof sessionId === 'string' ? sessionId : '';
+      let s = runningNow.get(id);
+      if (!s) {
+        if (!SESSION.test(id) || !yes('canDeliver', id)) return null;
+        s = { sessionId: id, id: '', kind: '', cwd: '', name: '', waitingFor: '', busy: false, processes: 1 };
+      }
+      const out = { activity: activityOf(id) };
+      if (out.activity === 'waiting') { const why = reasonOf(s); if (why) out.waitingFor = why; }
+      return out;
+    },
     stewardsChanged() { stewardsChanged.fire(); },
     /* `next` is { title, description, detail, command, arguments } or null. */
     setNotice(next) {

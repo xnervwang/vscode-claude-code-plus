@@ -6266,6 +6266,150 @@ console.log('\nClaude Code\'s own session list hidden on request');
       && /dispose: \(\) => \{ officialSessionList\.dispose\(\); \}/.test(ext)) {
     ok('claudeCodePlus.hideOfficialSessionList is off by default, read at start and on every change of it or of claudeCodePlus.enabled, and undone when the extension stops');
   } else bad('claudeCodePlus.hideOfficialSessionList is not wired to the switch');
+  const wired = {
+    asked: /started: \(\) => \{ watchList\(\); askAboutOfficialList\(\); \}/.test(ext) && /officialList\.askOnce\(\{\s*state: context\.globalState,/.test(ext)
+      && /hide: \(\) => cfg\(\)\.update\(HIDE_OFFICIAL_LIST_SETTING, true, vscode\.ConfigurationTarget\.Global\)/.test(ext),
+    source: /const claude = createClaudeSource\(\{\s*sessionList,/.test(ext),
+    totals: /globalThis\.__cceSessionTotalsHook = \(id, totals\) => \{ try \{ sessionTotals\.note\(id, totals\);/.test(ext) && /delete globalThis\.__cceSessionTotalsHook/.test(ext),
+    closed: /globalThis\.__cceClosedHook = \(id\) => \{\s*try \{ sessionList\.closed\(id, 'tab'\);/.test(ext),
+    reopen: /globalThis\.__cceListReopens = \(\) => listManages;/.test(ext) && /agentCore\.sessionListManages\(\) === true/.test(ext)
+      && /decideWaits\(\);\s*decideReopen\(\);/.test(ext) && /affectsConfiguration\('agentPlus\.sessions'\)[^\n]*decideReopen\(\)/.test(ext),
+  };
+  if (Object.values(wired).every(Boolean)) {
+    ok('the session list\'s members reach Agent Plus through the Claude Code source; the figures, the closed tabs and the reopen key are wired, and whether to hide Claude Code\'s own list is asked the first time the list reads this window\'s conversations');
+  } else bad(`the session list wiring: ${JSON.stringify(wired)}`);
+}
+
+/* Where else a conversation is open or runs, from the records Claude Code's processes keep in <config>/sessions
+   (src/claude-elsewhere.js), for the session list's rows. */
+console.log('\nwhere else a Claude Code conversation is open');
+{
+  const el = require('../src/claude-elsewhere');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-elsewhere-'));
+  try {
+    const S = (n) => `5e5e5e5e-0000-4000-8000-0000000007${String(n).padStart(2, '0')}`;
+    const t0 = 1_800_000_000_000, cwd = path.join(os.homedir(), 'src', 'parser');
+    const write = (pid, r) => fs.writeFileSync(path.join(dir, `${pid}.json`), JSON.stringify(Object.assign({ pid, cwd, startedAt: t0 - 7_500_000, procStart: String(pid * 10), status: 'idle' }, r)));
+    write(101, { sessionId: S(1), entrypoint: 'cli', kind: 'interactive', status: 'busy' });
+    write(102, { sessionId: S(2), entrypoint: 'cli', kind: 'interactive' });
+    write(103, { sessionId: S(3), entrypoint: 'cli', kind: 'interactive' });
+    write(104, { sessionId: S(4), entrypoint: 'cli', kind: 'interactive' });
+    write(105, { sessionId: S(5), entrypoint: 'cli', kind: 'bg', jobId: 'a1b2c3d4' });
+    write(106, { sessionId: S(6), entrypoint: 'claude-desktop', kind: 'interactive' });
+    write(107, { sessionId: S(7), entrypoint: 'claude-vscode', kind: 'interactive' });
+    write(108, { sessionId: S(8), entrypoint: 'claude-vscode', kind: 'interactive' });
+    write(109, { sessionId: S(9), entrypoint: 'claude-vscode', kind: 'interactive' });
+    write(110, { sessionId: S(10), entrypoint: 'sdk-ts', kind: 'interactive' });
+    write(111, { sessionId: S(11), entrypoint: 'cli', kind: 'interactive' });
+    write(112, { sessionId: S(12), entrypoint: 'cli', kind: 'interactive', procStart: '1' });
+    write(113, { sessionId: 'not-a-session', entrypoint: 'cli', kind: 'interactive' });
+    for (let i = 0; i < 10; i++) write(200 + i, { sessionId: S(20), entrypoint: 'cli', kind: 'interactive' });
+    fs.writeFileSync(path.join(dir, '300.json'), '{ cut short');
+    const env = { 101: { TMUX: '/tmp/tmux-1/default,4242,0', TMUX_PANE: '%3' }, 102: { TERM_PROGRAM: 'vscode' }, 103: { TERM_PROGRAM: 'iTerm.app' } };
+    const tty = { 101: '/dev/pts/4', 103: '/dev/ttys003' };
+    const parents = { 107: 900, 900: 4000 };
+    const sys = {
+      alive: (pid) => pid !== 111, startToken: (pid) => String(pid * 10), parentOf: (pid) => parents[pid] || 1,
+      tty: (pid) => tty[pid] || '', env: (pid) => env[pid] || {},
+      names: (pid) => (pid === 104 ? ['claude.exe', 'pwsh.exe', 'OpenConsole.exe', 'WindowsTerminal.exe'] : null),
+      tmuxSession: (sock, pane) => (sock.startsWith('/tmp/tmux-1/default') && pane === '%3' ? 'work' : ''),
+    };
+    const scan = el.create({ dir, sys, ownPid: 4000, claimed: (id) => id === S(8), jobName: (id) => (id === 'a1b2c3d4' ? 'weekly digest' : ''), now: () => t0 }).scan();
+    const one = (n) => (scan.get(S(n)) || { elsewhere: [] }).elsewhere[0] || null;
+    const where = (n) => { const p = one(n); return p && [p.kind, p.label, p.running]; };
+    const want = {
+      1: ['terminal', 'tmux session "work" in ~/src/parser', true],
+      2: ['terminal', 'a VS Code terminal in ~/src/parser', false],
+      3: ['terminal', 'terminal ttys003 in ~/src/parser', false],
+      4: ['terminal', 'Windows Terminal in ~/src/parser', false],
+      5: ['exec', 'claude --bg job "weekly digest"', false],
+      6: ['desktop', 'Claude Desktop', false],
+      7: null, 8: null,
+      9: ['vscode', 'another VS Code window', false],
+      10: ['other', 'another Claude process (sdk-ts)', false],
+    };
+    const got = Object.fromEntries(Object.keys(want).map((n) => [n, where(Number(n))]));
+    if (JSON.stringify(got) === JSON.stringify(want)) {
+      ok('a terminal is named by its tmux or screen session, as a VS Code terminal, by its device, or by the Windows terminal it runs under; a claude --bg run by its job; the desktop app and other entry points as such; a VS Code panel only when it is neither this window\'s nor listed by a window\'s file');
+    } else bad(`where else conversations are open: ${JSON.stringify(got)}`);
+    const d1 = one(1) && one(1).detail, d3 = one(3) && one(3).detail;
+    if (JSON.stringify(d1) === JSON.stringify(['tmux pane %3', 'Device: /dev/pts/4', 'Process 101, running for 2h 5m', 'Folder: ~/src/parser'])
+        && d3 && d3.includes('Terminal program: iTerm.app') && JSON.stringify(one(5).detail) === JSON.stringify(['Process 105, running for 2h 5m', 'Folder: ~/src/parser', 'Job a1b2c3d4'])) {
+      ok('the hover lines give the tmux pane, the terminal program, the device, the process id and how long it has run, the folder and a job\'s id');
+    } else bad(`the hover lines: ${JSON.stringify([d1, d3, one(5) && one(5).detail])}`);
+    const counts = [S(7), S(8), S(11), S(12), S(20)].map((id) => scan.has(id) ? [scan.get(id).processes, scan.get(id).elsewhere.length] : null);
+    if (JSON.stringify(counts) === JSON.stringify([[1, 0], [1, 0], null, null, [10, el.MAX_PLACES]]) && !scan.has('not-a-session')) {
+      ok('this window\'s own panel still counts as a process; a record whose process is gone, whose process id belongs to a later process, or that is not a session is left out; and at most 8 places are given while every process is counted');
+    } else bad(`process counts and records left out: ${JSON.stringify(counts)}`);
+    fs.writeFileSync(path.join(dir, '400.json'), JSON.stringify({ pid: 400, sessionId: S(40), entrypoint: 'cli', kind: 'interactive', cwd: '/' + 'x'.repeat(120), procStart: '4000' }));
+    const long = el.create({ dir, sys, ownPid: 4000, now: () => t0 }).scan().get(S(40)).elsewhere[0];
+    if (long.label === 'a terminal' && long.detail.every((l) => l.length <= el.MAX_DETAIL) && el.lasted(3 * 86400e3 + 4 * 3600e3) === '3d 4h' && el.lasted(40e3) === '40s') {
+      ok('a folder too long for the label is left to the hover, within the protocol\'s lengths');
+    } else bad(`a long folder: ${JSON.stringify(long)}`);
+    {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-jobs-'));
+      try {
+        fs.mkdirSync(path.join(root, 'jobs', 'a1b2c3d4'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'jobs', 'a1b2c3d4', 'state.json'), JSON.stringify({ name: '  weekly\n digest ', state: 'working' }));
+        fs.mkdirSync(path.join(root, 'jobs', 'bad'), { recursive: true });
+        const names = [el.jobNameOf('a1b2c3d4', root), el.jobNameOf('ffffffff', root), el.jobNameOf('../jobs/a1b2c3d4', root), el.jobNameOf('', root)];
+        if (JSON.stringify(names) === JSON.stringify(['weekly digest', '', '', ''])) ok('a claude --bg job is named from its record, and an id that is not a job id is never used as a path');
+        else bad(`job names: ${JSON.stringify(names)}`);
+      } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    }
+    /* The Linux readers against a real process: its environment and start time from /proc. */
+    if (process.platform === 'linux') {
+      const child = cp.spawn('sleep', ['30'], { env: Object.assign({}, process.env, { TERM_PROGRAM: 'iTerm.app', STY: '4242.mywork' }), stdio: 'ignore' });
+      try {
+        const live = el.system('linux');
+        let token = null;
+        for (let i = 0; i < 50 && !token; i++) { token = live.startToken(child.pid); if (!token) cp.execFileSync('sleep', ['0.05']); }
+        fs.writeFileSync(path.join(dir, `${child.pid}.json`), JSON.stringify({ pid: child.pid, sessionId: S(50), entrypoint: 'cli', kind: 'interactive', cwd: '/', procStart: token, startedAt: Date.now() }));
+        const real = el.create({ dir, ownPid: process.pid }).scan().get(S(50));
+        const p = real && real.elsewhere[0];
+        if (p && p.label === 'screen session "mywork" in /' && p.detail.includes('Terminal program: iTerm.app') && live.parentOf(child.pid) === process.pid) {
+          ok('on Linux the process\'s environment, start time and parent are read from /proc');
+        } else bad(`the Linux readers: ${JSON.stringify(real)}`);
+      } finally { child.kill(); }
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+console.log('\nthe figures of a conversation running here, for the Account & usage section');
+{
+  const st = require('../src/session-totals');
+  const rowsOf = (t) => st.rows(st.figures(t)).map((r) => `${r.label}: ${r.value}`);
+  const four = { total_cost_usd: 1.234, total_api_duration_ms: 130400, total_duration_ms: 3_780_000, total_lines_added: 12, total_lines_removed: 1 };
+  if (JSON.stringify(rowsOf(four)) === JSON.stringify(['Estimated cost: $1.23', 'Total duration (API): 2m 10s', 'Total duration (wall): 1h 3m',
+    'Total code changes: 12 lines added, 1 line removed'])) {
+    ok('the four figures Claude Code\'s own list shows under Session come out as its rows: cost, API time, wall time, lines changed');
+  } else bad(`the rows: ${JSON.stringify(rowsOf(four))}`);
+  const formats = [st.cost(0.004), st.cost(0), st.cost(12.3), st.duration(800), st.duration(9950), st.duration(45_000), st.duration(60_000)];
+  if (JSON.stringify(formats) === JSON.stringify(['<$0.01', '$0.00', '$12.30', '0.8s', '10s', '45s', '1m 0s'])) {
+    ok('a cost under a cent reads <$0.01, and a duration under ten seconds keeps a tenth');
+  } else bad(`the formats: ${JSON.stringify(formats)}`);
+  const some = rowsOf({ total_cost_usd: 'x', total_api_duration_ms: -5, total_duration_ms: 2000, total_lines_removed: 3 });
+  if (JSON.stringify(some) === JSON.stringify(['Total duration (wall): 2s', 'Total code changes: 0 lines added, 3 lines removed'])
+      && st.figures({ total_cost_usd: 'x' }) === null && st.figures(null) === null && st.rows(null).length === 0) {
+    ok('a figure that is not a number of zero or more is left out, and a report with none of them gives no rows');
+  } else bad(`some figures: ${JSON.stringify(some)}`);
+  const changes = [];
+  const kept = st.create({ changed: (id) => changes.push(id) });
+  kept.note('a', four);
+  kept.note('a', Object.assign({}, four));
+  kept.note('a', Object.assign({}, four, { total_cost_usd: 2 }));
+  kept.note('b', { total_cost_usd: 'x' });
+  kept.note('a', null);
+  kept.note('', four);
+  if (JSON.stringify(changes) === JSON.stringify(['a', 'a', 'a']) && kept.of('a') === null && kept.rows('a').length === 0) {
+    ok('the figures kept are told as changed only when they change, and a report of none drops them');
+  } else bad(`the changes told: ${JSON.stringify(changes)}`);
+  for (let i = 0; i <= 200; i++) kept.note('s' + i, four);
+  kept.note('s1', Object.assign({}, four, { total_cost_usd: 3 }));
+  kept.note('s201', four);
+  if (kept.of('s0') === null && kept.of('s2') === null && kept.of('s1') && kept.of('s1').costUsd === 3 && kept.of('s201') && kept.rows('s3').length === 4) {
+    ok('at most 200 conversations\' figures are kept, the ones reported longest ago going first');
+  } else bad('the figures kept past 200 conversations');
 }
 
 /* The editor gives each extension id its own global storage folder, so the pins and colors chosen under the old id are in
@@ -7908,8 +8052,21 @@ console.log('\nconversations pinned in the session list');
         fs.chmodSync(path.join(root, 'r', 'locked'), 0);
         const partial = await pins.keep({ ids: new Set(['${A}']), days: 90, projectsDir: path.join(root, 'r'), now });
         fs.chmodSync(path.join(root, 'r', 'locked'), 0o755);
+        /* The session list's own: kept unless the list deletes it within the margin or does not keep it, and asked only
+           about a file old enough to move. */
+        const csl = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-session-list.js'))});
+        const L = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n;
+        for (const n of [1, 2, 3, 4]) put('s/p1/' + L(n) + '.jsonl', 100);
+        put('s/p1/' + L(5) + '.jsonl', 10); put('s/p1/' + L(1) + '/tool-results/a.txt', 100);
+        const asked = [];
+        const base = csl.keepsFor({ [L(2)]: now + DAY, [L(3)]: now + 30 * DAY, [L(1)]: null }, { now, soonMs: 14 * DAY,
+          kindOf: (f) => (f.includes(L(4)) ? 'bg' : '') });
+        const keeps = (id, f) => { asked.push(id.slice(-1)); return base(id, f); };
+        const listed = await pins.keep({ ids: new Set(), days: 90, projectsDir: path.join(root, 's'), now, keeps });
+        const listedAges = [1, 2, 3, 4, 5].map((n) => age('s/p1/' + L(n) + '.jsonl')).concat(age('s/p1/' + L(1) + '/tool-results/a.txt'));
+        const noDue = csl.keepsFor(null);
         process.stdout.write(JSON.stringify({ first, ages, soon, stale, second, written, short: age('q/one/${A}.jsonl'), empty, partial,
-          root: ${CANNOT_LOCK} }));
+          root: ${CANNOT_LOCK}, listed, listedAges, asked: asked.sort(), noDue }));
       } finally { fs.rmSync(root, { recursive: true, force: true }); }
     })().catch((e) => process.stdout.write(JSON.stringify({ error: e.message })));`;
   let k;
@@ -7943,12 +8100,17 @@ console.log('\nconversations pinned in the session list');
     if (!k.empty.gone.length && (k.root || !k.partial.gone.length)) {
       ok('nothing is reported gone when no transcript at all was found, or a project folder could not be read');
     } else bad(`gone with nothing found: ${JSON.stringify(k.empty.gone)}; with a folder unreadable: ${JSON.stringify(k.partial.gone)}`);
+    if (JSON.stringify(k.listedAges) === JSON.stringify([75, 100, 75, 100, 10, 75]) && JSON.stringify(k.asked) === '["1","2","3","4"]'
+        && k.listed.kept === 2 && k.listed.touched === 3 && JSON.stringify(k.listed.updates) === '{}' && !k.listed.gone.length && k.noDue === null) {
+      ok('with Agent Plus\'s session list, a conversation it keeps is moved like a pinned one, with its tool outputs, unless the list deletes it within the margin or it is a background run; only files old enough to move are asked about, and no real time is recorded for them');
+    } else bad(`keeping the session list's conversations: ages ${JSON.stringify(k.listedAges)}, asked ${JSON.stringify(k.asked)}, ${JSON.stringify(k.listed)}`);
   }
   const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const manifest = require('../package.json').contributes.configuration.properties;
   if (/const pinsOn = \(\) => !removed\(\) && cfg\(\)\.get\(PINS_SETTING, true\) !== false;/.test(extSrc)
     && /globalThis\.__ccePinHook = /.test(extSrc) && /globalThis\.__ccePinnedIds = \(\) => \{\s*try \{ return pinsOn\(\) \?/.test(extSrc)
-    && /if \(keeping \|\| !pinsOn\(\)\) return;/.test(extSrc) && /pins: pinsOn\(\) \?/.test(extSrc)
+    && /if \(!pinsOn\(\) && !keeps\) return;/.test(extSrc) && /pins: pinsOn\(\) \?/.test(extSrc)
+    && /agentCore\.features\.includes\('sessionList'\)\) due = agentCore\.sessionDeletionDue\(claude\.source\.id\)/.test(extSrc)
     && /if \(replaced\(\) && !toldStale\) \{[\s\S]{0,80}offerReload\('The pin is saved/.test(extSrc)
     && /fs\.watch\(dir, \{ persistent: false \}, \(event, name\) => \{\s*if \(name && name !== sessionPins\.FILE && name !== sessionColors\.FILE\) return;/.test(extSrc)
     && manifest['claudeCodePlus.sessionPins'] && manifest['claudeCodePlus.sessionPins'].default === true
@@ -8586,6 +8748,54 @@ console.log('\ntabs VS Code did not restore');
     try { env.__cceRefreshTabIcons(); } catch (_) { /* reported below */ }
     if (JSON.stringify(asked) === '[1,3]') ok('__cceRefreshTabIcons refreshes every tab icon, even after one panel throws');
     else bad(`refreshing tab icons reached ${JSON.stringify(asked)}`);
+  }
+  if (!r.error) {
+    /* Claude Code's own archive and groups for the session list's import, and the reopen key worked out again. */
+    const env = { again: 0 };
+    env.globalThis = env;
+    vm.createContext(env);
+    vm.runInContext(r.out.replace('class V{', 'class V{updateLastClosedWasSessionContext(){again++}')
+      + ';new V({getArchivedSessionIds:()=>new Set(["x","y"]),getSessionGroups:()=>[{name:"Parser",sessionIds:new Set(["a","b"]),id:"g1"}]});'
+      + 'var lists=__cceOfficialLists();__cceLastClosedAgain();'
+      + 'new V({getArchivedSessionIds:()=>{throw new Error("x")}});var broken=__cceOfficialLists();'
+      + 'new V({});var none=__cceOfficialLists();', env);
+    if (JSON.stringify(env.lists) === '{"archived":["x","y"],"groups":[{"name":"Parser","sessionIds":["a","b"]}]}' && env.broken === null
+        && JSON.stringify(env.none) === '{"archived":[],"groups":[]}' && env.again === 1) {
+      ok('the patched host hands over Claude Code\'s archived conversations and its groups as plain arrays, null when reading them fails, and works the reopen key out again when asked');
+    } else bad(`the host handed over ${JSON.stringify([env.lists, env.broken, env.none, env.again])}`);
+  }
+  {
+    const reo = host.EDITS.find((e) => e.name === 'reopen shortcut left to the session list');
+    const rsrc = 'class R{constructor(){this.recentlyClosedSessions=[]}updateLastClosedWasSessionContext(){D1.commands.executeCommand("setContext","claude-vscode.lastClosedWasSession",this.recentlyClosedSessions.length>0)}}';
+    const rr = reo ? applyEdits(rsrc, [reo]) : { error: 'no such edit' };
+    if (rr.error) bad('the reopen shortcut edit did not apply: ' + rr.error);
+    else {
+      const env = { set: [], D1: { commands: { executeCommand: (c, k, v) => { env.set.push(v); } } } };
+      env.globalThis = env;
+      vm.createContext(env);
+      vm.runInContext(rr.out + ';var x=new R();x.updateLastClosedWasSessionContext();x.recentlyClosedSessions.push("a");x.updateLastClosedWasSessionContext();'
+        + 'globalThis.__cceListReopens=()=>true;x.updateLastClosedWasSessionContext();'
+        + 'globalThis.__cceListReopens=()=>{throw new Error("x")};x.updateLastClosedWasSessionContext();'
+        + 'globalThis.__cceListReopens=()=>1;x.updateLastClosedWasSessionContext();', env);
+      if (JSON.stringify(env.set) === '[false,true,false,true,true]') {
+        ok('Claude Code\'s reopen key stays off while the session list reopens closed conversations, and follows Claude Code\'s own list otherwise');
+      } else bad(`the reopen key was set to ${JSON.stringify(env.set)}`);
+    }
+    const tot = host.EDITS.find((e) => e.name === 'session totals reach this extension');
+    const tsrc = 'class T{constructor(){this.m=new Map}keepSessionTotals(i,t){this.m.set(i,t)}}';
+    const tr = tot ? applyEdits(tsrc, [tot]) : { error: 'no such edit' };
+    if (tr.error) bad('the session totals edit did not apply: ' + tr.error);
+    else {
+      const env = { got: [] };
+      env.globalThis = env;
+      vm.createContext(env);
+      vm.runInContext(tr.out + ';var x=new T();x.keepSessionTotals("a",{total_cost_usd:1});'
+        + 'globalThis.__cceSessionTotalsHook=(i,t)=>got.push([i,t.total_cost_usd]);x.keepSessionTotals("b",{total_cost_usd:2});'
+        + 'globalThis.__cceSessionTotalsHook=()=>{throw new Error("x")};x.keepSessionTotals("c",{total_cost_usd:3});var size=x.m.size;', env);
+      if (JSON.stringify(env.got) === '[["b",2]]' && env.size === 3) {
+        ok('each set of figures the host keeps reaches this extension, and a failing hook does not stop the host keeping them');
+      } else bad(`the totals hook got ${JSON.stringify(env.got)}, the host kept ${env.size}`);
+    }
   }
   const extSrc = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   if (/executeCommand\('claude-vscode\.editor\.open', t\.sessionId, undefined, undefined, undefined, t\.fullEditor,\s*\{ programmatic: 'pin-to-panel' \}\)/.test(extSrc)
@@ -13715,6 +13925,36 @@ console.log('\nClaude Code\'s own source');
         out.problem = out.list.problem;
         out.revealed = await c.source.reveal('Z');
         out.shown = shown;
+        {
+          const fake = { calls: [], changedN: 0, sessionActions: Object.freeze({ open: ['tab'], create: [], rename: false, delete: false, own: [] }),
+            onDidChangeSessions: () => ({ dispose() {} }), onDidChangeAccountInfo: () => ({ dispose() {} }), onDidCloseSession: () => ({ dispose() {} }),
+            listSessions: async (a) => { fake.calls.push(['list', a.cursor]); return { sessions: [], cursor: null }; },
+            runSessionAction: async (a, ids, args) => { fake.calls.push([a, ids, args]); return { results: [] }; },
+            describeDeletion: async (ids) => { fake.calls.push(['describe', ids]); return []; },
+            wantSessionDetail: (ids) => fake.calls.push(['detail', ids]), importSessions: async (a) => { fake.calls.push(['import', a.folders]); return null; },
+            accountInfo: (a) => { fake.calls.push(['account', a.sessionId]); return null; }, noteSeen: (ids, seen) => fake.calls.push(['seen', ids, seen]),
+            changed: () => { fake.changedN++; } };
+          const R1 = 'efefefef-1111-4222-8333-444444444441', R2 = 'efefefef-1111-4222-8333-444444444442', R3 = 'efefefef-1111-4222-8333-444444444443';
+          const L = C.createClaudeSource({ planDir: () => '/plans', enabled: () => true, timeZone: () => '', sessionList: fake,
+            listAgents: async () => ({ records: [{ sessionId: R1, id: 'j', kind: 'interactive', cwd: '/w', status: 'waiting', waitingFor: 'permission', pid: 9 }] }),
+            folders: () => ['/w'], readPlan: () => null, titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
+            activeChat: () => '', logo: () => null, canDeliver: (id) => id === R2, hand: () => false, reveal: async () => false,
+            activity: (id) => (id === R1 ? 'waiting' : 'working'), waitingFor: (id) => (id === R1 ? { tool: 'Bash' } : null) });
+          out.sessionList = { features: L.source.features, bare: c.source.listSessions === undefined && c.source.runSessionAction === undefined };
+          await L.source.listSessions({ folders: ['/w'], cursor: null, limit: 5 });
+          await L.source.runSessionAction('open', [R1], { where: 'tab' });
+          await L.source.describeDeletion([R1]);
+          await L.source.importSessions({ folders: ['/w'] });
+          L.source.wantSessionDetail([R1]); L.source.accountInfo({ sessionId: R1 }); L.source.noteSeen([R1], true);
+          out.sessionList.actions = L.source.sessionActions;
+          out.sessionList.calls = fake.calls;
+          out.sessionList.before = [L.stateOf(R1), L.stateOf(R2)];
+          await L.freshAgents();
+          out.sessionList.states = [L.stateOf(R1), L.stateOf(R2), L.stateOf(R3), L.stateOf('nope')];
+          L.changed();
+          out.sessionList.changed = fake.changedN;
+          L.dispose();
+        }
         process.stdout.write(JSON.stringify(out));
       })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
     const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
@@ -13728,6 +13968,19 @@ console.log('\nClaude Code\'s own source');
     if (JSON.stringify(o.features) === JSON.stringify(['["shows","brief"]', '["shows"]', '["shows"]'])) {
       ok('features lists shows always, and brief only while both the work plan and the brief are on');
     } else bad(`features with plan and brief on, plan off, brief off: ${JSON.stringify(o.features)}`);
+    {
+      const R1 = 'efefefef-1111-4222-8333-444444444441', R2 = 'efefefef-1111-4222-8333-444444444442';
+      const l = o.sessionList || {};
+      const eq = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+      eq([l.features, l.bare, l.actions], [['shows', 'sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose'], true,
+        { open: ['tab'], create: [], rename: false, delete: false, own: [] }],
+        'given the session list\'s members, Claude Code\'s source lists their features and has them; without them it has neither');
+      eq(l.calls, [['list', null], ['open', [R1], { where: 'tab' }], ['describe', [R1]], ['import', ['/w']], ['detail', [R1]], ['account', R1], ['seen', [R1], true]],
+        'the source hands each session list call to the list\'s members as it came');
+      eq([l.before, l.states, l.changed], [[null, { activity: 'working' }],
+        [{ activity: 'waiting', waitingFor: { kind: 'permission', tool: 'Bash' } }, { activity: 'working' }, null, null], 1],
+        'a row\'s state is what runs by the latest list of running conversations, or a panel here that shows it, and nothing for one that does not run; a change of states tells the list too');
+    }
     {
       const A = { sourceId: 'claude-code', sessionId: 'cdcdcdcd-1111-4222-8333-444444444444' }, B = { sourceId: 'claude-code', sessionId: 'cdcdcdcd-1111-4222-8333-444444444445' };
       if (JSON.stringify(o.stewards) === JSON.stringify(['["shows","stewards","stewardList"]', [Object.assign({}, A, { title: 'Docs steward' }), Object.assign({}, B, { title: '' })], A,
@@ -14965,9 +15218,10 @@ console.log('\nthe token mode');
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
     const f = r.features || {}, d = r.redraws || {};
-    if (f.interface === '["shows","prefill"]' && f.essential === '["shows","stewards","stewardList","prefill"]' && f.all === '["shows","brief","stewards","stewardList","prefill"]'
-        && d.interface > 0 && d.essential > 0 && d.all > 0) {
-      ok('the brief is offered to Agent Plus only in a mode that runs it, and stewards only in one that runs the work plan, prefill in every mode, and every change of mode redraws its list');
+    const LIST = ',"sessions","sessionImport","accountInfo","sessionSeen","sessionClose"]';
+    if (f.interface === '["shows","prefill"' + LIST && f.essential === '["shows","stewards","stewardList","prefill"' + LIST
+        && f.all === '["shows","brief","stewards","stewardList","prefill"' + LIST && d.interface > 0 && d.essential > 0 && d.all > 0) {
+      ok('the brief is offered to Agent Plus only in a mode that runs it, and stewards only in one that runs the work plan, prefill and the session list in every mode, and every change of mode redraws its list');
     } else bad(`features ${JSON.stringify(f)}, redraws ${JSON.stringify(d)}`);
     const told = r.told || [];
     if (told.length === 1 && /^Claude Code Plus: the token mode is Essential features, so claudeCodePlus\.conversationBrief has no effect/.test(told[0][0])
@@ -15325,6 +15579,150 @@ const repo = path.join(__dirname, '..');
         ok('the patched host leaves a session list row to another window when the extension says that window shows it, and opens it here otherwise');
       } else bad(`the host opened ${JSON.stringify([eenv.opened, eenv.asked])}`);
     }
+  }
+
+  console.log('\nClaude Code\'s conversations for Agent Plus\'s session list');
+  {
+    const csl = require('../src/claude-session-list');
+    const marks = require('../src/title-marks');
+    const projects = tmp('projects');
+    const folder = path.join(scratch, 'work', 'parser');
+    const name = folder.replace(/[^a-zA-Z0-9]/g, '-');
+    const S = (n) => `5e551000-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`;
+    const T = (m) => new Date(Date.UTC(2026, 10, 20, 10, m)).toISOString();
+    const line = (o) => JSON.stringify(o) + '\n';
+    const put = (dir, id, recs, oldMs) => {
+      fs.mkdirSync(path.join(projects, dir), { recursive: true });
+      const f = path.join(projects, dir, id + '.jsonl');
+      fs.writeFileSync(f, recs.map(line).join(''));
+      if (oldMs) fs.utimesSync(f, new Date(oldMs), new Date(oldMs));
+      return f;
+    };
+    const user = (m, content, extra) => Object.assign({ type: 'user', parentUuid: null, timestamp: T(m), cwd: folder, gitBranch: 'main', message: { role: 'user', content } }, extra || {});
+    const agent = (m, text, extra) => Object.assign({ type: 'assistant', parentUuid: 'p', timestamp: T(m), cwd: folder, gitBranch: 'fix/lexer', message: { role: 'assistant', content: [{ type: 'text', text }] } }, extra || {});
+    const f1 = put(name, S(1), [{ type: 'summary', summary: 'old' }, user(0, '<command-name>/clear</command-name> Fix the lexer for unicode escapes'), agent(1, 'Looking.'),
+      { type: 'ai-title', aiTitle: 'Unicode escapes in the lexer', sessionId: S(1) }, { type: 'custom-title', customTitle: `Lexer escapes ${marks.CROWN}`, sessionId: S(1) },
+      user(5, 'and the tests too'), agent(6, 'Done.'), user(7, [{ type: 'tool_result', content: 'ok' }], { toolUseResult: { ok: true } }),
+      agent(8, 'sub', { isSidechain: true }), agent(9, 'All tests pass.')]);
+    put(name, S(2), [user(10, [{ type: 'text', text: 'Where is the parser cache?' }]), agent(11, 'In src/cache.c.')]);
+    put(`${name}--claude-worktrees-wt1`, S(3), [user(12, 'In the worktree', { cwd: path.join(folder, '.claude', 'worktrees', 'wt1') }),
+      agent(13, 'Yes.', { cwd: path.join(folder, '.claude', 'worktrees', 'wt1') })]);
+    put(name, S(4), [user(14, 'a background run', { sessionKind: 'bg' }), agent(15, 'ran')]);
+    put(name, S(5), [user(16, 'daemon', { sessionKind: 'daemon' }), agent(17, 'x')]);
+    put(name, S(6), [{ type: 'cost-state', cost: 0 }], Date.now() - 60_000);
+    put(name, S(7), [user(18, 'claude -p', { entrypoint: 'sdk-cli' }), agent(19, 'answer')]);
+    put(name, S(8), [user(20, 'a long last reply'), agent(21, 'x'.repeat(300 * 1024))]);
+    put('-elsewhere', S(9), [user(22, 'another project'), agent(23, 'no')]);
+    put(name, 'not-a-session', [user(24, 'x')]);
+    const elsewhere = new Map([[S(2), { elsewhere: [{ kind: 'terminal', label: 'terminal pts/3', detail: ['Process 7'], running: false }], processes: 2 }]]);
+    const calls = [];
+    const deps = {
+      projects: () => projects,
+      state: (id) => (id === S(1) ? { activity: 'waiting', waitingFor: { kind: 'permission', tool: 'Bash' } } : id === S(2) ? { activity: 'working', waitingFor: { kind: 'question' } } : null),
+      elsewhere: () => elsewhere,
+      isSteward: (id) => id === S(2),
+      open: async (id, where) => { calls.push(['open', id, where]); if (id === S(3)) throw new Error('no panel'); },
+      create: async (where) => { calls.push(['create', where]); return S(30); },
+      rename: async (id, title) => { calls.push(['rename', id, title]); return id === S(2) ? { outcome: 'refused', reason: 'it runs in another process' } : { outcome: 'submitted' }; },
+      remove: async (ids) => ids.map((sessionId) => ({ sessionId, outcome: 'done', reason: '' })),
+      describe: async (ids) => ids.map((sessionId) => ({ sessionId, what: '1 transcript (2 KB)' })),
+      officialLists: () => ({ archived: [S(1), S(9), 'remote:x'], groups: [{ name: 'Lexer', sessionIds: [S(1), S(9)] }, { name: 'Other', sessionIds: [S(9)] }, { name: ' ', sessionIds: [S(2)] }] }),
+      pinned: () => [S(2), S(9)],
+      colors: () => ({ [S(1)]: 'red', [S(9)]: 'blue' }),
+      setUnread: (id, on) => calls.push(['unread', id, on]),
+      totals: (id) => (id === S(1) ? [{ label: 'Estimated cost', value: '$0.42' }] : []),
+      front: () => S(1),
+      titleOf: (id) => `Lexer escapes ${marks.CROWN}`,
+    };
+    const list = csl.create(deps);
+    const all = [];
+    let cursor = null, pages = 0;
+    do { const page = await list.listSessions({ folders: [folder, '/other'], cursor, limit: 3 }); all.push(...page.sessions); cursor = page.cursor; pages++; } while (cursor && pages < 10);
+    const by = new Map(all.map((x) => [x.sessionId, x]));
+    eq([...by.keys()].sort(), [S(1), S(2), S(3), S(4), S(6), S(7), S(8)],
+      'the rows are this window\'s first folder\'s conversations and its worktrees\', not another project\'s nor a daemon\'s, in pages that end with a null cursor');
+    const r1 = by.get(S(1)) || {};
+    eq([r1.title, r1.createdAt, r1.lastActiveAt, r1.lastReplyAt, r1.lastUserAt, r1.branch, r1.kind, r1.activity, r1.waitingFor, r1.running],
+      ['Lexer escapes', Date.parse(T(0)), Date.parse(T(9)), Date.parse(T(9)), Date.parse(T(5)), 'fix/lexer', 'user', 'waiting', { kind: 'permission', tool: 'Bash' }, true],
+      'a row has the title the user gave without its marks, when it started, its last message, the last reply and the user\'s last message (not a tool result nor a sub-agent\'s), its branch and its state');
+    const r2 = by.get(S(2)) || {};
+    eq([r2.title, r2.waitingFor, r2.activity, r2.elsewhere && r2.elsewhere[0].label, r2.processes, r2.steward],
+      ['Where is the parser cache?', undefined, 'working', 'terminal pts/3', 2, true],
+      'without a title the first prompt stands in; a reason to wait is given only while it waits; the places it is open elsewhere, its processes and a steward\'s mark are on the row');
+    const r3 = by.get(S(3)) || {}, r6 = by.get(S(6)) || {}, r8 = by.get(S(8)) || {};
+    eq([r3.worktree, r3.activity, r3.running, by.get(S(4)).kind, by.get(S(7)).kind, r6.kind, r8.lastActiveAt, r8.title],
+      ['wt1', 'stopped', false, 'background', 'background', 'empty', Date.parse(T(21)), 'a long last reply'],
+      'a worktree\'s conversation names it; a stopped one says so; claude --bg and claude -p runs are background ones, a transcript with no message an empty one, and a last record longer than the tail read is still found');
+    eq(await list.listSessions({ folders: [] }), { sessions: [], cursor: null }, 'with no folder there is nothing to list');
+    fs.appendFileSync(f1, line(user(30, 'one more')) + line(agent(31, 'ok')));
+    const again = (await list.listSessions({ folders: [folder] })).sessions.find((x) => x.sessionId === S(1)) || {};
+    eq([again.lastActiveAt, again.lastUserAt], [Date.parse(T(31)), Date.parse(T(30))], 'a transcript that changed is read again');
+
+    const run = async (...a) => (await list.runSessionAction(...a)).results.map((x) => [x.sessionId, x.outcome, x.reason]);
+    calls.length = 0;
+    eq([await run('open', [S(1), 'not-an-id', S(3)], { where: 'sidebar' }), await run('create', [], { where: 'tab' })],
+      [[[S(1), 'done', ''], [S(3), 'failed', 'no panel']], [[S(30), 'done', '']]],
+      'open and create answer for each conversation, a failure with its reason, and create with the new conversation\'s id');
+    eq([await run('rename', [S(1), S(2)], { title: `New name ${marks.ENVELOPE}` }), await run('rename', [S(1)], { title: `  ${marks.CROWN} ` }), await run('delete', [S(1)]), await run('archive', [S(1)])],
+      [[[S(1), 'done', ''], [S(2), 'refused', 'it runs in another process']], [[S(1), 'refused', 'a title needs at least one character']], [[S(1), 'done', '']],
+        [[S(1), 'refused', 'Claude Code Plus has no action archive']]],
+      'a rename goes out without marks and comes back refused when the agent refuses it; an empty title is refused; delete answers what it did; an unknown action is refused');
+    eq(calls.filter((c) => c[0] !== 'unread'), [['open', S(1), 'sidebar'], ['open', S(3), 'sidebar'], ['create', 'tab'], ['rename', S(1), 'New name'], ['rename', S(2), 'New name']],
+      'only the actions with conversation ids reach the agent, at the place asked for');
+    const failing = csl.create(Object.assign({}, deps, { remove: async () => { throw new Error('disk'); }, describe: async () => { throw new Error('disk'); } }));
+    eq([(await failing.runSessionAction('delete', [S(1)])).results, await failing.describeDeletion([S(1)]), await list.describeDeletion([S(1)])],
+      [[{ sessionId: S(1), outcome: 'failed', reason: 'disk' }], [], [{ sessionId: S(1), what: '1 transcript (2 KB)' }]],
+      'a delete that throws fails for each conversation, and a description that throws gives none');
+    eq(await list.importSessions({ folders: [folder] }),
+      { archived: [{ sessionId: S(1) }], groups: [{ name: 'Lexer', sessionIds: [S(1)] }], pinned: [S(2)], colors: { [S(1)]: 'red' } },
+      'the import keeps only this project\'s conversations, and drops a group left with none or with no name');
+    const unread = csl.create(Object.assign({}, deps, { officialLists: () => null }));
+    eq([await unread.importSessions({ folders: [folder] }), await list.importSessions({ folders: [] })], [null, null],
+      'while Claude Code\'s own lists cannot be read the import answers null, for the core to ask again');
+    eq([list.accountInfo({ sessionId: S(1) }), list.accountInfo({ sessionId: S(2) }), list.accountInfo({})],
+      [{ rows: [], bars: [], links: [], conversation: { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] } }, null,
+        { rows: [], bars: [], links: [], conversation: { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] } }],
+      'the Account & usage part is the figures of the conversation in front, and nothing for one with none');
+    calls.length = 0;
+    list.noteSeen([S(1), 'x', S(2)], true);
+    list.noteSeen([S(3)], false);
+    eq(calls, [['unread', S(1), false], ['unread', S(2), false], ['unread', S(3), true]], 'what the list records as seen or unread is written to Claude Code\'s own unread marks');
+    const closed = [];
+    const sub = list.onDidCloseSession((e) => closed.push(e));
+    list.closed(S(1), 'sidebar'); list.closed('x'); list.closed(S(2));
+    sub.dispose(); list.closed(S(3));
+    eq(closed, [{ sessionId: S(1), where: 'sidebar' }, { sessionId: S(2), where: 'tab' }], 'a closed conversation is told with where it was shown, until the listener goes');
+    let fired = 0;
+    list.onDidChangeSessions(() => fired++);
+    list.changed(); list.changed(); list.wantSessionDetail([S(1)]);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    eq(fired, 1, 'changes that come together are told once');
+    eq([csl.FEATURES, list.sessionActions], [['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose'],
+      { open: ['tab', 'sidebar'], create: ['tab', 'sidebar'], rename: true, delete: true, own: [] }], 'the features and the actions Claude Code can carry out');
+    list.dispose();
+
+    /* A rename of a conversation no process has open, written as Claude Code's own rename writes it. */
+    const cut = put(name, S(40), [user(40, 'cut')]);
+    fs.appendFileSync(cut, '{"type":"assistant","timest');
+    const whole = put(name, S(41), [user(41, 'whole')]);
+    const titled = [csl.appendTitle(cut, S(40), 'First'), csl.appendTitle(whole, S(41), 'Second'), csl.appendTitle(path.join(projects, 'none.jsonl'), S(42), 'x')];
+    const lastOf = (f) => fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).pop();
+    eq([titled, lastOf(cut), lastOf(whole), (await list.listSessions({ folders: [folder] })).sessions.find((x) => x.sessionId === S(41)).title],
+      [[true, true, false], JSON.stringify({ type: 'custom-title', customTitle: 'First', sessionId: S(40) }), JSON.stringify({ type: 'custom-title', customTitle: 'Second', sessionId: S(41) }), 'Second'],
+      'a rename outside a panel appends a custom-title record on a line of its own, which the list then reads as the title');
+    const gone = [];
+    const parts = new Map([[S(1), [{ path: 'a' }]], [S(2), [{ path: 'b' }]], [S(3), []], [S(4), [{ path: 'c' }]]]);
+    const del = (shown) => csl.deleteChecked([S(1), S(2), S(3), S(4), S(5), S(6), 'bad', S(1)], {
+      shown, running: new Set([S(5)]), elsewhere: new Map([[S(6), ['proj [SSH: box]']]]),
+      findAll: (want) => new Map(want.map((id) => [id, parts.get(id) || []])),
+      remove: (found) => (found[0].path === 'c' ? ['c: EACCES'] : []), forget: (id) => gone.push(id) });
+    eq([del([S(2)]).map((x) => [x.sessionId, x.outcome, x.reason]), gone],
+      [[[S(1), 'done', ''], [S(2), 'refused', 'it is open in this window'], [S(3), 'done', 'nothing of it was left on disk'],
+        [S(4), 'failed', '1 of its files could not be deleted: c: EACCES'], [S(5), 'refused', 'a Claude Code process has it open'],
+        [S(6), 'refused', 'the VS Code window "proj [SSH: box]" shows it']], [S(1), S(4)]],
+      'a delete checks once more that nothing has the conversation open here, in another window or in a process, and says what it could not remove');
+    eq(del(null).map((x) => x.outcome), ['refused', 'refused', 'refused', 'refused', 'refused', 'refused'],
+      'when this window cannot tell which conversations are open, nothing is deleted');
   }
 
   console.log('\nconversation links, what the extension sends the panels');

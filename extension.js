@@ -41,7 +41,7 @@ const conversationLinks = require('./src/conversation-links');
 const planBars = require('./src/plan-bar');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
-const { transcriptOf, projectsDir, writeAtomic } = require('./src/claude-files');
+const { transcriptOf, projectsDir, projectFolders, claudeDir, writeAtomic } = require('./src/claude-files');
 const planInjections = require('./src/plan-injections');
 const tokenMode = require('./src/token-mode');
 const waiting = require('./src/waiting');
@@ -72,6 +72,9 @@ const carryover = require('./src/carryover');
 const unsupported = require('./src/unsupported');
 const sentCheck = require('./src/sent-check');
 const officialList = require('./src/official-list');
+const claudeSessionList = require('./src/claude-session-list');
+const claudeElsewhere = require('./src/claude-elsewhere');
+const sessionTotalsOf = require('./src/session-totals');
 const PACKAGE = require('./package.json');
 
 /* <publisher>.<name>, which is also how the editor names this extension's folders. Read from the manifest rather than
@@ -811,8 +814,118 @@ function start(context, log, renamed, handing = false) {
   const AGENTS_FILE = 'agents.json', AGENTS_SHARE_MS = 20000;
   /* Session ids of the conversations whose page types an answer only after the host says go (src/page/91-answer.js). */
   const confirming = new Set();
+  /*
+   * Agent Plus's session list (its protocol, Session list): this window's first folder's conversations, read from their
+   * transcripts (src/claude-session-list.js), the places outside VS Code windows where each is open (src/claude-elsewhere.js),
+   * and the figures of the conversation in front, which the patched host hands over each time it keeps them
+   * (src/session-totals.js). Watching the transcripts starts once the list first asks for them.
+   */
+  let claimed = new Map();
+  const places = claudeElsewhere.create({ ownPid: process.pid, claimed: (id) => claimed.has(id) });
+  const sessionTotals = sessionTotalsOf.create({ changed: () => { sessionList.accountChanged(); } });
+  globalThis.__cceSessionTotalsHook = (id, totals) => { try { sessionTotals.note(id, totals); } catch (_) { /* the next report */ } };
+  const effortFiles = (id) => installs(webview, true).map((d) => path.join(d, 'webview', webview.EFFORT_PREFIX + id + '.css'));
+  const sessionList = claudeSessionList.create({
+    projects: () => projectsDir(),
+    started: () => { watchList(); askAboutOfficialList(); },
+    ready: () => claude.freshAgents(),
+    state: (id) => claude.stateOf(id),
+    elsewhere: () => {
+      try { claimed = deleteSession.shownElsewhere(planDir()); } catch (_) { claimed = new Map(); }
+      return places.scan();
+    },
+    isSteward: (id) => enabled() && !removed() && stewardMarks.stewardIds(stewardTable()).includes(String(id).toLowerCase()),
+    open: (id, where) => vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, undefined,
+      { programmatic: where === 'sidebar' ? 'cce-pin-to-sidebar' : 'pin-to-panel' }),
+    /* A new conversation has no id until its first message is sent, so the core is answered without one. */
+    create: async (where) => {
+      await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, undefined,
+        { programmatic: where === 'sidebar' ? 'cce-pin-to-sidebar' : 'pin-to-panel' });
+      return '';
+    },
+    /* Through the panel showing it, so its CLI hears of it too; otherwise in its transcript, which no process has open. */
+    rename: async (id, title) => {
+      if (claude.source.canDeliver(id)) {
+        const r = await renameConversation(id, title);
+        return r.outcome === 'submitted' ? { outcome: 'done' } : { outcome: r.outcome === 'refused' ? 'refused' : 'failed', reason: r.reason };
+      }
+      if (deleteSession.runningSessions().has(id)) return { outcome: 'refused', reason: 'a Claude Code process has it open and would write its old title back' };
+      const file = transcriptOf(id);
+      if (!file) return { outcome: 'refused', reason: 'Claude Code has no transcript of it on this machine' };
+      if (!claudeSessionList.appendTitle(file, id, title)) return { outcome: 'failed', reason: 'its transcript could not be written' };
+      try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the panels catch up */ }
+      sessionList.changed();
+      return { outcome: 'done' };
+    },
+    remove: async (ids) => {
+      let shown;
+      try { shown = typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown() : null; } catch (_) { shown = null; }
+      const results = claudeSessionList.deleteChecked(ids, {
+        shown, running: deleteSession.runningSessions(), elsewhere: deleteSession.shownElsewhere(planDir()),
+        findAll: (want) => deleteSession.findAll(want, { planDir: planDir(), extra: effortFiles }),
+        remove: (found) => deleteSession.remove(found),
+        forget: (id) => {
+          try { sessionPins.setPinned(pinsFile(), id, false); } catch (_) { /* not pinned */ }
+          try { sessionColors.setColor(colorsFile(), [id], null); } catch (_) { /* not coloured */ }
+        },
+      });
+      for (const r of results) log.appendLine(`session list: deleting ${r.sessionId}: ${r.outcome}${r.reason ? ` (${r.reason})` : ''}`);
+      try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the panels catch up */ }
+      sessionList.changed();
+      return results;
+    },
+    describe: async (ids) => [...deleteSession.findAll(ids, { planDir: planDir(), extra: effortFiles })]
+      .map(([sessionId, found]) => ({ sessionId, what: found.length ? deleteSession.describe(found) : 'nothing of it is left on disk' })),
+    officialLists: () => (typeof globalThis.__cceOfficialLists === 'function' ? globalThis.__cceOfficialLists() : null),
+    pinned: () => sessionPins.read(pinsFile()).pinned,
+    colors: () => sessionColors.read(colorsFile()),
+    setUnread: (id, on) => { if (typeof globalThis.__cceSetUnread === 'function') globalThis.__cceSetUnread(id, on === true); },
+    totals: (id) => sessionTotals.rows(id),
+    front: () => activeChat(),
+  });
+  /* The folders the list's rows come from, and Claude Code's session registry, watched for the list's changes. A project
+     folder that appears later, as one does with the first conversation in a folder, is picked up within a minute. */
+  const listWatches = new Map();
+  let listWatchTimer = 0;
+  const watchList = () => {
+    if (removed()) return;
+    const folder = ((vscode.workspace.workspaceFolders || [])[0] || { uri: { fsPath: '' } }).uri.fsPath;
+    const want = new Set([path.join(claudeDir(), 'sessions')]);
+    if (folder) for (const dir of projectFolders(projectsDir()) || []) if (claudeSessionList.projectOf(path.basename(dir), folder)) want.add(dir);
+    for (const [dir, w] of listWatches) if (!want.has(dir)) { try { w.close(); } catch (_) { /* closed */ } listWatches.delete(dir); }
+    for (const dir of want) {
+      if (listWatches.has(dir)) continue;
+      try {
+        const w = fs.watch(dir, { persistent: false }, () => { sessionList.changed(); });
+        w.on('error', () => { try { w.close(); } catch (_) { /* closed */ } listWatches.delete(dir); });
+        listWatches.set(dir, w);
+      } catch (_) { /* not there yet */ }
+    }
+    if (!listWatchTimer) {
+      listWatchTimer = setInterval(watchList, 60000);
+      if (listWatchTimer.unref) listWatchTimer.unref();
+    }
+  };
+  /* Asked once, the first time the list shows this window's conversations (src/official-list.js). */
+  const askAboutOfficialList = () => {
+    if (removed() || cfg().get(HIDE_OFFICIAL_LIST_SETTING, false) === true) return;
+    officialList.askOnce({
+      state: context.globalState,
+      ask: (q, ...buttons) => vscode.window.showInformationMessage(q, ...buttons),
+      hide: () => cfg().update(HIDE_OFFICIAL_LIST_SETTING, true, vscode.ConfigurationTarget.Global),
+      t: (text) => vscode.l10n.t(text),
+    }).then((r) => log.appendLine(`official session list question: ${r}`), (e) => log.appendLine('official session list question: ' + ((e && e.message) || e)));
+  };
+  context.subscriptions.push({ dispose: () => {
+    if (listWatchTimer) clearInterval(listWatchTimer);
+    for (const w of listWatches.values()) { try { w.close(); } catch (_) { /* closed */ } }
+    listWatches.clear();
+    sessionList.dispose();
+    if (globalThis.__cceSessionTotalsHook) delete globalThis.__cceSessionTotalsHook;
+  } });
   /* Created here because it reads globals the patched host sets in this process. */
   const claude = createClaudeSource({
+    sessionList,
     planDir,
     enabled: () => runs(WORK_PLAN_SETTING),
     brief: () => runs(BRIEF_SETTING),
@@ -1172,6 +1285,19 @@ function start(context, log, renamed, handing = false) {
    * into each panel's HTML as it is built, and the panels already open are told whenever it changes.
    */
   let agentCore = null, waitsLeft = false;
+  /* Claude Code's own Ctrl+Shift+T is left to the session list's while the list archives and deletes on its own in this
+     window (the host edit "reopen shortcut left to the session list"). Decided again with the waits below. */
+  let listManages = false;
+  globalThis.__cceListReopens = () => listManages;
+  const decideReopen = () => {
+    let next = false;
+    try { next = !removed() && !!agentCore && typeof agentCore.sessionListManages === 'function' && agentCore.sessionListManages() === true; } catch (_) { next = false; }
+    if (next === listManages) return;
+    listManages = next;
+    log.appendLine(next ? 'Ctrl+Shift+T is left to the session list' : 'Ctrl+Shift+T reopens Claude Code\'s own closed tabs');
+    try { if (typeof globalThis.__cceLastClosedAgain === 'function') globalThis.__cceLastClosedAgain(); } catch (_) { /* the next close works it out */ }
+  };
+  context.subscriptions.push({ dispose: () => { if (globalThis.__cceListReopens) delete globalThis.__cceListReopens; } });
   const decideWaits = () => {
     const next = waitingFor.leftToAgentPlus({ core: agentCore, on: enabled() && !removed(), announcesWaits: coreLink.announcesWaits });
     globalThis[host.WAITS_LEFT_ON] = next;
@@ -1190,9 +1316,10 @@ function start(context, log, renamed, handing = false) {
     log.appendLine(`registered with Agent Plus ${r.core.version || ''}`.trim());
     if (closing) { registration.dispose(); return; }
     context.subscriptions.push(registration);
-    context.subscriptions.push({ dispose: () => { agentCore = null; decideWaits(); steward.attachCore(null); } });
+    context.subscriptions.push({ dispose: () => { agentCore = null; decideWaits(); decideReopen(); steward.attachCore(null); } });
     agentCore = r.core;
     decideWaits();
+    decideReopen();
     claude.refocus();
     links.attach(r.core);
     planBar.attach(r.core);
@@ -1544,17 +1671,27 @@ function start(context, log, renamed, handing = false) {
    * few seconds later, so an old conversation pinned close to its age is not left waiting for the next one.
    */
   let keeping = false;
+  /* While Agent Plus has the session list, every conversation it will not delete before Claude Code's cleanup would is
+     kept the same way, so that Claude Code never deletes one the list still shows. */
+  const listKeeps = (days) => {
+    if (removed() || !agentCore || typeof agentCore.sessionDeletionDue !== 'function') return null;
+    let due = null;
+    try { if (Array.isArray(agentCore.features) && agentCore.features.includes('sessionList')) due = agentCore.sessionDeletionDue(claude.source.id); } catch (_) { due = null; }
+    return claudeSessionList.keepsFor(due, { soonMs: sessionPins.marginDays(days, pinMargin()) * sessionPins.DAY });
+  };
   const keepPinned = async () => {
-    if (keeping || !pinsOn()) return;
+    if (keeping) return;
+    const days = sessionPins.retentionDays(), keeps = listKeeps(days);
+    if (!pinsOn() && !keeps) return;
     keeping = true;
     try {
       const file = pinsFile();
-      const now = sessionPins.read(file);
-      const r = await sessionPins.keep({ ids: new Set(now.pinned), times: now.times, days: sessionPins.retentionDays(), margin: pinMargin() });
-      const changed = sessionPins.applyPass(file, r);
+      const now = pinsOn() ? sessionPins.read(file) : { pinned: [], times: {} };
+      const r = await sessionPins.keep({ ids: new Set(now.pinned), times: now.times, days, margin: pinMargin(), keeps });
+      const changed = pinsOn() && sessionPins.applyPass(file, r);
       if (r.touched || r.errors || r.gone.length) {
         log.appendLine(`pinned conversations: ${r.found} of ${r.pinned} found, ${r.touched} file(s) given a later `
-          + `modification time to stay ahead of the transcript cleanup, ${r.gone.length} no longer on disk, ${r.errors} error(s)`);
+          + `modification time to stay ahead of the transcript cleanup (${r.kept} for the session list), ${r.gone.length} no longer on disk, ${r.errors} error(s)`);
       }
       if (changed) writeLiveNow();
     } catch (e) {
@@ -1852,6 +1989,7 @@ function start(context, log, renamed, handing = false) {
    */
   let recentList = context.workspaceState.get(recentClosed.KEY, []);
   globalThis.__cceClosedHook = (id) => {
+    try { sessionList.closed(id, 'tab'); } catch (_) { /* the core finds it closed itself */ }
     try {
       recentList = recentClosed.record(recentList, id);
       Promise.resolve(context.workspaceState.update(recentClosed.KEY, recentList)).catch(() => {});
@@ -2043,6 +2181,7 @@ function start(context, log, renamed, handing = false) {
   const tick = setInterval(() => {
     claude.invalidate();
     decideWaits();
+    decideReopen();
     sweepPlans().catch((e) => log.appendLine('orphan work plans: ' + e.message));
     recover();
     if (removed() || !enabled() || uninstalling() || replaced()) {
@@ -2081,6 +2220,7 @@ function start(context, log, renamed, handing = false) {
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
     settings = null;
     if (e.affectsConfiguration('agentPlus.notifications') || e.affectsConfiguration(SETTING)) decideWaits();
+    if (e.affectsConfiguration('agentPlus.sessions') || e.affectsConfiguration(SETTING)) decideReopen();
     if (Object.values(HOOK_SETTINGS).some((k) => e.affectsConfiguration(k)) || e.affectsConfiguration(SETTING)
         || e.affectsConfiguration(PREFIX + 'show.replyImages')) writeHookSettings();
     if (e.affectsConfiguration(LATENCY_ON_SETTING)) loadWatchOff();

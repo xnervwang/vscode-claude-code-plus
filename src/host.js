@@ -218,6 +218,9 @@ const EDITS = [
    * does). For a steward
    * (src/relay.js): renaming a conversation through the panel showing it, which tells its CLI too (__cceRename), and a
    * message to every panel of this window (__cceToAllPanels), which a new tab with no conversation yet can answer.
+   * For Agent Plus's session list, read once when it starts for this project: Claude Code's list of archived conversations
+   * and its groups for this window's first folder (__cceOfficialLists), and a way to have the reopen shortcut's context key
+   * worked out again (__cceLastClosedAgain).
    */
   {
     name: 'tab record at start',
@@ -244,6 +247,9 @@ const EDITS = [
       + 'if(!cceC&&this.sidebarComms&&this.sidebarChatShows?.()===cceId)cceC=this.sidebarComms;'
       + 'if(!cceC||typeof cceC.renameSession!=="function")return null;return cceC.renameSession(cceId,cceTitle)},'
       + 'globalThis.__cceToAllPanels=(cceMsg)=>{let cceN=0;for(let cceC of this.allComms)try{cceC.send(cceMsg),cceN++}catch(e){}return cceN},'
+      + `globalThis.__cceOfficialLists=()=>{try{return{archived:[...(${settings}.getArchivedSessionIds?.()??[])],`
+      + `groups:(${settings}.getSessionGroups?.()??[]).map((cceG)=>({name:cceG.name,sessionIds:[...cceG.sessionIds]}))}}catch(e){return null}},`
+      + 'globalThis.__cceLastClosedAgain=()=>{try{this.updateLastClosedWasSessionContext()}catch(e){}},'
       + 'this.reconcileRememberedTabSessions()',
   },
   /*
@@ -347,6 +353,26 @@ const EDITS = [
     re: /prompt:"Rename session tab",value:([^,]*?\?\?[\w$]+\(await [\w$]+\.sessionTitleOnDisk\([\w$]+\)\?\?""\)),validateInput:/g,
     to: (m, value) => `prompt:"Rename session tab",value:((cceV)=>{try{let cceF=globalThis.__cceCleanTitle;`
       + `return typeof cceF==="function"?cceF(cceV):cceV}catch(cceE){return cceV}})(${value}),validateInput:`,
+  },
+  /*
+   * Ctrl/Cmd+Shift+T reopens the last closed Claude Code tab while the context key below is true. While Agent Plus's
+   * session list reopens the last closed conversation of every agent with that shortcut (__cceListReopens), the key stays
+   * false, so that only the list's binding applies.
+   */
+  {
+    name: 'reopen shortcut left to the session list',
+    re: /updateLastClosedWasSessionContext\(\)\{([\w$]+)\.commands\.executeCommand\("setContext","claude-vscode\.lastClosedWasSession",this\.recentlyClosedSessions\.length>0\)\}/g,
+    to: (m, api) => `updateLastClosedWasSessionContext(){${api}.commands.executeCommand("setContext","claude-vscode.lastClosedWasSession",`
+      + 'this.recentlyClosedSessions.length>0&&!(()=>{try{let cceF=globalThis.__cceListReopens;return typeof cceF==="function"&&cceF()===!0}catch(cceE){return!1}})())}',
+  },
+  /*
+   * The figures of a conversation running in this window, as the host keeps them each time its CLI reports them: at the
+   * start and after every turn. They reach this extension for the session list's Account & usage section.
+   */
+  {
+    name: 'session totals reach this extension',
+    re: /keepSessionTotals\(([\w$]+),([\w$]+)\)\{/g,
+    to: (m, id, totals) => `${m}try{globalThis.__cceSessionTotalsHook&&globalThis.__cceSessionTotalsHook(${id},${totals})}catch(cceE){}`,
   },
   /*
    * Pinned conversations are not archived for being inactive (src/sessionpins.js says how they are pinned).
