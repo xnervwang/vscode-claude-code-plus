@@ -346,8 +346,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
      window has the focus, to Agent Plus alone, through a global of that window's extension host: lib/window.js starts the
      windows with AGENT_PLUS_TEST_FOCUS=1, without which Agent Plus does not read it. null hands the window back to VS
      Code's own word. */
-  const testFocus = (on, folder) => call('if (arg === null) delete globalThis.__agentPlusTestFocused; else globalThis.__agentPlusTestFocused = arg; return true;',
-    on, 60000, folder);
+  const testFocus = (on, folder) => {
+    if (tracing) tracing.mark(['focus', folder ? path.basename(folder) : 'first window', on]);
+    return call('if (arg === null) delete globalThis.__agentPlusTestFocused; else globalThis.__agentPlusTestFocused = arg; return true;',
+      on, 60000, folder);
+  };
   /* What each window of Agent Plus wrote to the folder they share, for a failure's details: its items' activity and
      reason, and which of them it recorded as already told to the user. Also what a window's extension host makes of its
      focus. */
@@ -355,7 +358,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     const dir = path.join(profile.home, '.agent-work-plan', 'attention');
     try {
       return fs.readdirSync(dir).filter((n) => n.endsWith('.json')).map((n) => {
-        try { const d = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); return { n, age: Date.now() - d.at, items: (d.items || []).map((x) => [x.sessionId.slice(0, 8), x.activity, x.waitingFor]), front: d.front, settled: (d.settled || []).map((x) => [x[1].slice(0, 8), Date.now() - x[2]]) }; } catch (_) { return { n }; }
+        try { const d = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); return { n, age: Date.now() - d.at, items: (d.items || []).map((x) => [x.sessionId.slice(-4), x.activity, x.waitingFor]), front: d.front, settled: (d.settled || []).map((x) => [x[1].slice(-4), Date.now() - x[2]]) }; } catch (_) { return { n }; }
       });
     } catch (_) { return null; }
   };
@@ -374,6 +377,52 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     }, 200);
     return () => { clearInterval(timer); return seen; };
+  };
+  /* The trace attentionTrace is recording, if any: testFocus notes in it the focus it gives each window. */
+  let tracing = null;
+  /* Until stop(), records each change of each window's file in the folder Agent Plus's windows share, file by file: the
+     time the file says it was written, the entries of the conversations `ids` with all their fields (null where a
+     file has none), and the file's whole record of conversations it told the user about and of those it shows in front.
+     It also records each change in the notices on screen in the window of `page`, and, through mark(), the test's own
+     steps and the focus testFocus gives. Times are milliseconds from the start; ids are their last four characters, as
+     the made-up ids differ only there. Agent Plus can replay what one window read at each moment from it. */
+  const attentionTrace = (ids, page) => {
+    const dir = path.join(profile.home, '.agent-work-plan', 'attention'), t0 = Date.now(), seen = [], last = new Map();
+    const short = (id) => String(id).slice(-4);
+    let toasts = '', busy = false;
+    const look = async () => { try { await read(); } catch (e) { seen.push([Date.now() - t0, 'trace error', String(e && e.message || e)]); } };
+    const read = async () => {
+      let names = [];
+      try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.json')); } catch (_) { names = []; }
+      for (const n of names) {
+        let text = '';
+        try { text = fs.readFileSync(path.join(dir, n), 'utf8'); } catch (_) { continue; }
+        if (last.get(n) === text) continue;
+        last.set(n, text);
+        let d = null;
+        try { d = JSON.parse(text); } catch (_) { d = null; }
+        if (!d || typeof d !== 'object') { seen.push([Date.now() - t0, n, 'unreadable']); continue; }
+        const entry = (id) => {
+          const x = (d.items || []).find((it) => it.sessionId === id);
+          return x ? { activity: x.activity, unseen: x.unseen, here: x.here, waitingFor: x.waitingFor, lastActiveAt: x.lastActiveAt ? x.lastActiveAt - t0 : x.lastActiveAt } : null;
+        };
+        seen.push([Date.now() - t0, n, { at: d.at - t0, ...Object.fromEntries(ids.map((id) => [short(id), entry(id)])),
+          settled: (d.settled || []).map((x) => [short(x[1]), x[2] - t0]), front: (d.front || []).map((x) => short(x[1])) }]);
+      }
+      if (page && !busy) {
+        busy = true;
+        try {
+          const now = JSON.stringify((await notificationItems(page, '.notifications-toasts')).map((x) => x.text));
+          if (now !== toasts) { toasts = now; seen.push([Date.now() - t0, 'toasts', JSON.parse(now)]); }
+        } catch (_) { /* the page is busy; the next look reads it */ } finally { busy = false; }
+      }
+    };
+    const timer = setInterval(() => { look(); }, 250);
+    if (timer.unref) timer.unref();
+    const self = { mark: (what) => seen.push([Date.now() - t0, 'test', what]),
+      stop: async () => { clearInterval(timer); if (tracing === self) tracing = null; await look(); return seen; } };
+    tracing = self;
+    return self;
   };
   const focusOf = (folder) => call('return { env: process.env.AGENT_PLUS_TEST_FOCUS || null, said: globalThis.__agentPlusTestFocused === undefined ? null : globalThis.__agentPlusTestFocused, state: vscode.window.state.focused };',
     undefined, 60000, folder).catch((e) => String(e));
@@ -4653,61 +4702,80 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await exec('notifications.clearAll');
           await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
 
-          /* Both at once, while the first window has the focus. */
-          const settledOne = await quiet();
-          check(!!settledOne, 'the question answered, no window reports either conversation waiting', { files: attentionFiles() });
-          await sendAllBehind([[Z, zf, `Please ${ASK_TO_RUN} now.`], [Y, yf, `Please ${ASK_FOR_CHOICE} now.`]]);
-          const zNow = await askedBash(zf), yNow = await askedChoice(yf);
-          const pair = zNow && yNow && await until(async () => {
-            const n = await needNotices(), a = n.find((x) => x.text === zText), b = n.find((x) => x.text === yText);
-            return a && b ? [a, b] : null;
-          }, SEEN_MS, 300);
-          const pairHere = (await needNotices()).filter((x) => about(Z)(x) || about(Y)(x)), pairThere = (await needNotices(pageD)).filter((x) => about(Z)(x) || about(Y)(x));
-          check(!!pair && pair.every((n) => ['Open', 'Dismiss'].every((b) => n.buttons.includes(b))) && pairHere.length === 2 && !pairThere.length,
-            'two conversations of the second window that start to wait at once give two notices in the focused window, one per conversation with Open and Dismiss on each, and none in the second window',
-            { asked: [zNow, yNow], notices: pair, here: pairHere, there: pairThere, onScreen: pair ? undefined : await notificationItems(page, '.notifications-toasts'),
-              files: pair ? undefined : attentionFiles() });
-          await shot('wait-notices-two-at-once');
-          if (pair) {
-            await pressNotice(Z, 'Open');
-            const zFwd = await forward(Z, zf, ASK_TEXT);
-            check(!!zFwd.tab && (zFwd.ahead || '').includes(path.basename(folderD)),
-              'Open on the notice about the permission prompt brings the second window forward, with that conversation\'s tab in front and its prompt on screen', zFwd);
-            if (await noticeOf(Y)) {
-              await pressNotice(Y, 'Open');
-              const yFwd = await forward(Y, yf, /Which config should I change\?/);
-              check(!!yFwd.tab && (yFwd.ahead || '').includes(path.basename(folderD)),
-                'and Open on the notice about the question, still on screen, brings that conversation\'s tab to the front, with its question on screen', yFwd);
-            } else note('the notice about the question had left the screen before its Open could be pressed');
-          }
-          await refuseIn(Z, zf);
-          await answerChoice(yf);
-          await behindD();
-          await testFocus(true);
-          await exec('notifications.clearAll');
+          /* Both at once, while the first window has the focus. From here to the replay check below, the windows' files,
+             the focus and the first window's notices are recorded, for Agent Plus to replay if that check fails. */
+          const trace = attentionTrace([Z.id, Y.id], page);
+          let traced = null;
+          try {
+            const settledOne = await quiet();
+            check(!!settledOne, 'the question answered, no window reports either conversation waiting', { files: attentionFiles() });
+            await sendAllBehind([[Z, zf, `Please ${ASK_TO_RUN} now.`], [Y, yf, `Please ${ASK_FOR_CHOICE} now.`]]);
+            trace.mark('both asked to wait at once');
+            const zNow = await askedBash(zf), yNow = await askedChoice(yf);
+            const pair = zNow && yNow && await until(async () => {
+              const n = await needNotices(), a = n.find((x) => x.text === zText), b = n.find((x) => x.text === yText);
+              return a && b ? [a, b] : null;
+            }, SEEN_MS, 300);
+            const pairHere = (await needNotices()).filter((x) => about(Z)(x) || about(Y)(x)), pairThere = (await needNotices(pageD)).filter((x) => about(Z)(x) || about(Y)(x));
+            check(!!pair && pair.every((n) => ['Open', 'Dismiss'].every((b) => n.buttons.includes(b))) && pairHere.length === 2 && !pairThere.length,
+              'two conversations of the second window that start to wait at once give two notices in the focused window, one per conversation with Open and Dismiss on each, and none in the second window',
+              { asked: [zNow, yNow], notices: pair, here: pairHere, there: pairThere, onScreen: pair ? undefined : await notificationItems(page, '.notifications-toasts'),
+                files: pair ? undefined : attentionFiles() });
+            trace.mark(pair ? 'two notices on screen' : 'two notices not seen');
+            await shot('wait-notices-two-at-once');
+            if (pair) {
+              await pressNotice(Z, 'Open');
+              const zFwd = await forward(Z, zf, ASK_TEXT);
+              check(!!zFwd.tab && (zFwd.ahead || '').includes(path.basename(folderD)),
+                'Open on the notice about the permission prompt brings the second window forward, with that conversation\'s tab in front and its prompt on screen', zFwd);
+              if (await noticeOf(Y)) {
+                await pressNotice(Y, 'Open');
+                const yFwd = await forward(Y, yf, /Which config should I change\?/);
+                check(!!yFwd.tab && (yFwd.ahead || '').includes(path.basename(folderD)),
+                  'and Open on the notice about the question, still on screen, brings that conversation\'s tab to the front, with its question on screen', yFwd);
+              } else note('the notice about the question had left the screen before its Open could be pressed');
+            }
+            await refuseIn(Z, zf);
+            await answerChoice(yf);
+            trace.mark('both answered');
+            await behindD();
+            await testFocus(true);
+            await exec('notifications.clearAll');
 
-          const settledBoth = await quiet();
-          check(!!settledBoth, 'both answered, no window reports either waiting', { files: attentionFiles() });
-          await testFocus(false);
-          await testFocus(false, folderD);
-          const zAgain = await sendBehind(Z, zf, `Please ${ASK_TO_RUN} once more.`, ASK_TEXT);
-          const yAgain = await sendBehind(Y, yf, `Please ${ASK_FOR_CHOICE} again.`, /Which config should I change\?/);
-          const bothSeen = zAgain && yAgain && await until(() => { const a = attentionOf(Z.id), b = attentionOf(Y.id); return a && b && a.activity === 'waiting' && b.activity === 'waiting'; }, SEEN_MS, 300);
-          /* The notices are polled for as long as Agent Plus takes to show one after it has seen the wait, since what
-             it holds back meanwhile is not drawn anywhere. */
-          const awayNotices = await until(async () => { const n = [...await needNotices(), ...await needNotices(pageD)].filter((x) => about(Z)(x) || about(Y)(x)); return n.length ? n : null; },
-            noticeDelay.waiting + 2500, 250) || [];
-          check(!!bothSeen && !awayNotices.length, 'while no window has the focus, two conversations that start to wait give no notice', { seen: bothSeen, notices: awayNotices });
-          await testFocus(true);
-          const replay = await until(async () => {
-            const n = await needNotices(), a = n.find((x) => x.text === zText), b = n.find((x) => x.text === yText);
-            return a && b ? [a, b] : null;
-          }, 15000, 300);
-          const replays = (await needNotices()).filter((n) => about(Z)(n) || about(Y)(n));
-          check(!!replay && replays.length === 2 && replay.every((n) => n.buttons.includes('Open')),
-            'once the first window has the focus, it shows two notices, one for each conversation, each saying what it waits for, with Open',
-            { notices: replay, toasts: replays, onScreen: replay ? undefined : await notificationItems(page, '.notifications-toasts'), listed: replay ? undefined : await listedNotices(),
-              files: replay ? undefined : attentionFiles(), focus: [await focusOf(), await focusOf(folderD)] });
+            const settledBoth = await quiet();
+            trace.mark('quiet');
+            check(!!settledBoth, 'both answered, no window reports either waiting', { files: attentionFiles() });
+            await testFocus(false);
+            await testFocus(false, folderD);
+            trace.mark('no window has the focus');
+            const zAgain = await sendBehind(Z, zf, `Please ${ASK_TO_RUN} once more.`, ASK_TEXT);
+            trace.mark('Z waits again');
+            const yAgain = await sendBehind(Y, yf, `Please ${ASK_FOR_CHOICE} again.`, /Which config should I change\?/);
+            trace.mark('Y waits again');
+            const bothSeen = zAgain && yAgain && await until(() => { const a = attentionOf(Z.id), b = attentionOf(Y.id); return a && b && a.activity === 'waiting' && b.activity === 'waiting'; }, SEEN_MS, 300);
+            trace.mark('both seen waiting');
+            /* The notices are polled for as long as Agent Plus takes to show one after it has seen the wait, since what
+               it holds back meanwhile is not drawn anywhere. */
+            const awayNotices = await until(async () => { const n = [...await needNotices(), ...await needNotices(pageD)].filter((x) => about(Z)(x) || about(Y)(x)); return n.length ? n : null; },
+              noticeDelay.waiting + 2500, 250) || [];
+            check(!!bothSeen && !awayNotices.length, 'while no window has the focus, two conversations that start to wait give no notice', { seen: bothSeen, notices: awayNotices });
+            await testFocus(true);
+            trace.mark('the first window has the focus');
+            const replay = await until(async () => {
+              const n = await needNotices(), a = n.find((x) => x.text === zText), b = n.find((x) => x.text === yText);
+              return a && b ? [a, b] : null;
+            }, 15000, 300);
+            trace.mark('replay looked for');
+            traced = await trace.stop();
+            const replays = (await needNotices()).filter((n) => about(Z)(n) || about(Y)(n));
+            const replayed = !!replay && replays.length === 2 && replay.every((n) => n.buttons.includes('Open'));
+            const traceFile = path.join(out, 'wait-notices-trace.json');
+            if (!replayed) fs.writeFileSync(traceFile, JSON.stringify({ ids: { Z: Z.id.slice(-4), Y: Y.id.slice(-4) }, trace: traced }, null, 1) + '\n');
+            check(replayed,
+              'once the first window has the focus, it shows two notices, one for each conversation, each saying what it waits for, with Open',
+              { notices: replay, toasts: replays, onScreen: replay ? undefined : await notificationItems(page, '.notifications-toasts'), listed: replay ? undefined : await listedNotices(),
+                files: replay ? undefined : attentionFiles(), focus: [await focusOf(), await focusOf(folderD)], trace: replayed ? undefined : traceFile });
+          } finally { if (!traced) await trace.stop(); }
           await shot('wait-notices-replay');
           await testFocus(false);
           await testFocus(true, folderD);
