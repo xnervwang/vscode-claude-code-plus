@@ -3186,6 +3186,305 @@ const STEPS = [
       await d.sleep(1000);
     },
   },
+
+  /* The shared session list's own pictures. */
+  ...(() => {
+    /*
+     * Conversations of the demo folder that these steps write for themselves, with the records lib/fake-home.js writes:
+     * one turn, its AI title and its last prompt. Their reply is days old, from before Agent Plus began its record of the
+     * folder, so the list counts it as read. Each role has a session id of its own, derived from the run's root folder: a
+     * conversation once closed in this window keeps the light blue stripe of one closed here lately, so a role that must
+     * show no stripe is never opened. Every step takes away again what it wrote.
+     */
+    const idOf = (role) => {
+      const h = require('crypto').createHash('sha1').update(`ui-look list:${ROOT}:${role}`).digest('hex');
+      return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+    };
+    const made = (role, title, answer, days) => ({ role, id: idOf(role), title, days, turns: [[`${title}.`, answer]] });
+    const C = {
+      run: made('run', 'Draft the release notes for 2.4', 'Drafted them in docs/release-2.4.md.', 3),
+      perm: made('perm', 'Run the migration tests on staging', 'They passed on staging this morning.', 3),
+      ask: made('ask', 'Pick the cache size for the importer', 'The importer caches 500 rows by default.', 4),
+      unread: made('unread', 'Summarise the failed nightly jobs', 'Two jobs failed, both in the export step.', 4),
+      idle: made('idle', 'Rename the columns of the audit table', 'Renamed them in db/audit.sql.', 5),
+      term: made('term', 'Tidy the logging in the payment client', 'The client now logs one line per request.', 5),
+    };
+    const SCREEN = 'payments';
+
+    /* Writes the transcripts of `list` beside the fake conversations', with their version and branch. */
+    function addConvos(d, list) {
+      const like = transcriptFile(d, d.threads[0].id);
+      const first = JSON.parse(fs.readFileSync(like, 'utf8').split('\n')[0]);
+      const base = { isSidechain: false, userType: first.userType, entrypoint: first.entrypoint, cwd: d.profile.folder, version: first.version,
+        gitBranch: first.gitBranch };
+      for (const t of list) {
+        const at = Date.now() - t.days * 86400000;
+        const [ask, answer] = t.turns[0];
+        const u = `${t.id.slice(0, 24)}000000000001`, a = `${t.id.slice(0, 24)}000000000002`;
+        const records = [
+          { parentUuid: null, ...base, sessionId: t.id, type: 'user', message: { role: 'user', content: ask }, uuid: u,
+            timestamp: new Date(at - 40000).toISOString(), permissionMode: 'default', promptSource: 'user' },
+          { parentUuid: u, ...base, sessionId: t.id, type: 'assistant', uuid: a, timestamp: new Date(at).toISOString(), requestId: `req_look_${t.id.slice(-8)}`,
+            message: { id: `msg_look_${t.id.slice(-8)}`, type: 'message', role: 'assistant', model: require('./lib/fake-home').MODEL,
+              content: [{ type: 'text', text: answer }], stop_reason: 'end_turn', stop_sequence: null,
+              usage: { input_tokens: 1200, cache_creation_input_tokens: 0, cache_read_input_tokens: 18000, output_tokens: 120, service_tier: 'standard' } } },
+          { type: 'ai-title', aiTitle: t.title, sessionId: t.id },
+          { type: 'last-prompt', lastPrompt: ask, leafUuid: a, sessionId: t.id },
+        ];
+        const file = path.join(path.dirname(like), `${t.id}.jsonl`);
+        fs.writeFileSync(file, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+        fs.utimesSync(file, new Date(at), new Date(at));
+      }
+    }
+    /* Removes them, once no Claude Code process has one of them open: a process still running would write its
+       transcript again. Then waits for their rows to leave Agent Plus's list, so that the picture after the step does
+       not still show them. */
+    async function dropConvos(d, ts) {
+      await d.until(() => ts.every((t) => !liveOf(d, t.id).length), 15000, 500);
+      for (const t of ts) {
+        const file = transcriptFile(d, t.id);
+        if (file) fs.rmSync(file, { force: true });
+      }
+      const list = await agentList(d);
+      const left = async () => { const out = []; for (const t of ts) if (await rowOf(list, t.title)) out.push(t.title); return out; };
+      if (!await d.until(async () => !(await left()).length, 60000, 500)) d.log('undo', `Agent Plus's list still has ${JSON.stringify(await left())}`);
+    }
+
+    /* Agent Plus's list, with the question above it answered Keep It, as agent-plus-session-list answers it. */
+    async function listReady(d) {
+      const list = await agentList(d);
+      if (await listQuestion(list)) {
+        await list.locator('.sl-notice .sl-note-btn').filter({ hasText: 'Keep It' }).first().click();
+        await d.until(async () => !(await listQuestion(list)), 10000, 300);
+      }
+      return list;
+    }
+    /* What the row titled `title` shows, outside Recently closed: agentRowState's dot, stripe, dimming and envelopes, and
+       also the icon at its end for where else it is open and the section it is in. */
+    const rowOf = (list, title) => list.evaluate((t) => {
+      const r = [...document.querySelectorAll('.sl-section:not([data-key="closed"]) .sl-row')].find((x) => (x.querySelector('.sl-title') || {}).textContent === t);
+      if (!r) return null;
+      const away = r.querySelector('.sl-away');
+      return { dot: r.dataset.dot, stripe: r.dataset.stripe, dim: r.classList.contains('sl-elsewhere'), unread: r.querySelectorAll('.sl-unread svg').length,
+        away: away && !away.classList.contains('sl-hidden') ? away.dataset.away || '' : '', section: (r.closest('.sl-section') || { dataset: {} }).dataset.key || '' };
+    }, title).catch(() => null);
+    async function rowWhere(d, list, title, test, ms, fails) {
+      const hit = await d.until(async () => { const s = await rowOf(list, title); return s && test(s) && s; }, ms, 500);
+      if (!hit) throw new Error(`in Agent Plus's session list the row "${title}" ${fails} after ${ms / 1000} s: ${JSON.stringify(await rowOf(list, title))}`);
+      return hit;
+    }
+    const listed = async (d, list, ts) => { for (const t of ts) await rowWhere(d, list, t.title, () => true, 30000, 'is not listed'); };
+    /* The pointer moved off inside the list's page, so that the row it was on is not left looking hovered, and then out. */
+    const pointerOff = async (d, list) => { await rest(d, list, 'bottom'); await d.away(); };
+    const toDemo = async (d) => { await d.exec('claude-vscode.editor.open', d.sid); await d.sleep(1500); };
+
+    /* Closes the Claude Code tabs of the conversations titled `titles`; a tab's title can carry this extension's marks and
+       be cut short. */
+    async function closeTabs(d, titles) {
+      const tabs = await d.call(`return vscode.window.tabGroups.all.flatMap((g, gi) => g.tabs.map((x, ti) => ({ gi, ti, label: x.label,
+        panel: !!x.input && String(x.input.viewType || '').endsWith('claudeVSCodePanel') })));`, []);
+      const clean = (l) => String(l || '').replace(new RegExp(MARK_RE.source, 'gu'), '').replace(/[\uFE0E\uFE0F]/g, '').trim().replace(/\u2026$/, '');
+      const hit = tabs.filter((x) => x.panel && titles.some((t) => clean(x.label).length >= 12 && t.startsWith(clean(x.label))));
+      if (hit.length) {
+        await d.call('await vscode.window.tabGroups.close(arg.map(([g, t]) => vscode.window.tabGroups.all[g].tabs[t])); return true;', hit.map((x) => [x.gi, x.ti]));
+      }
+      await d.sleep(1000);
+    }
+    /* The box Claude Code draws in place of the message box for the fake model's question (lib/fake-model.js CHOICE). */
+    const choiceShown = (frame) => frame.evaluate((c) => {
+      let b = [...document.querySelectorAll('div, span, label')].find((e) => e.offsetParent && e.textContent.trim() === c.options[0]);
+      while (b && !(b.innerText.includes(c.question) && /\bSubmit\b/.test(b.innerText))) b = b.parentElement;
+      return !!b;
+    }, fakeModel.CHOICE).catch(() => false);
+    async function answerChoice(d, frame) {
+      if (!await choiceShown(frame)) return;
+      await frame.getByText(fakeModel.CHOICE.options[0], { exact: true }).last().click({ timeout: 5000 });
+      if (!await d.until(async () => !(await choiceShown(frame)), 2000, 300)) await frame.getByText(/Submit answers\s*$/).last().click({ timeout: 5000 });
+      await d.until(async () => !(await choiceShown(frame)), 10000, 300);
+    }
+
+    /* A terminal with conversation `t` open, as Claude Code's record of the process says, made as agent-plus-elsewhere
+       makes one. It is written before the conversation's transcript, whose arrival has the list read again at once. */
+    async function inTerminal(d, t) {
+      const sessions = path.join(d.profile.home, '.claude', 'sessions');
+      const child = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'],
+        { stdio: 'ignore', env: Object.assign({}, process.env, { STY: `4243.${SCREEN}` }) });
+      let procStart;
+      if (LINUX) {
+        for (let i = 0; i < 40 && procStart === undefined; i++) {
+          try { procStart = fs.readFileSync(`/proc/${child.pid}/stat`, 'utf8').replace(/^.*\) /s, '').split(' ')[19]; } catch (_) { await d.sleep(50); }
+        }
+      }
+      fs.mkdirSync(sessions, { recursive: true });
+      const record = path.join(sessions, `${child.pid}.json`);
+      fs.writeFileSync(record, JSON.stringify({ pid: child.pid, sessionId: t.id, cwd: d.profile.folder, startedAt: Date.now() - 125000,
+        procStart, entrypoint: 'cli', kind: 'interactive', status: 'idle' }));
+      return { child, record };
+    }
+    const leave = (x) => {
+      if (!x) return;
+      if (x.fresh) clearInterval(x.fresh);
+      try { x.child.kill(); } catch (_) { /* gone */ }
+      try { fs.rmSync(x.record, { force: true }); } catch (_) { /* gone */ }
+    };
+
+    /*
+     * One conversation in each state the list draws, beside the others: a turn running, a permission prompt, a question,
+     * a reply that landed while its tab was behind another, one open nowhere, one open in a terminal. The fake model
+     * holds every turn while it holds one, so the two that wait are asked first, then the one with the reply, and the
+     * running one last, held until the undo.
+     */
+    const SCENE = [C.run, C.perm, C.ask, C.unread, C.idle, C.term];
+    async function sceneUp(d) {
+      const list = await listReady(d);
+      /* With the focus, as when someone looks at the window, a notice Agent Plus gave of these waits would be on screen. */
+      if (!await d.front()) throw new Error('the window did not get the focus, which Agent Plus needs before it shows a notice');
+      const s = d.listScene = { terminal: await inTerminal(d, C.term), frames: {} };
+      addConvos(d, SCENE);
+      await listed(d, list, SCENE);
+      await rowWhere(d, list, C.term.title, (r) => r.stripe === 'elsewhere' && r.dim && r.away === 'terminal', 30000, 'is not shown open in a terminal');
+      s.frames.perm = await thread(d, C.perm);
+      await askPermission(d, s.frames.perm);
+      s.frames.ask = await thread(d, C.ask);
+      await send(d, s.frames.ask, `Please ${fakeModel.ASK_FOR_CHOICE}.`);
+      if (!await d.until(() => choiceShown(s.frames.ask), 30000, 500)) throw new Error(`"${C.ask.title}" shows no question to answer within 30 s`);
+      s.frames.unread = await thread(d, C.unread);
+      d.model.hold();
+      let turns = d.model.turns();
+      await send(d, s.frames.unread, 'List them by job.');
+      if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error(`the message to "${C.unread.title}" did not reach the model in 30 s`);
+      await toDemo(d);
+      d.model.release();
+      await rowWhere(d, list, C.unread.title, (r) => r.unread === 1 && r.dot === 'none', 30000, 'does not show an envelope without a dot');
+      s.frames.run = await thread(d, C.run);
+      d.model.hold();
+      turns = d.model.turns();
+      await send(d, s.frames.run, 'Add the migration notes too.');
+      if (!await d.until(() => d.model.turns() > turns, 30000, 300)) throw new Error(`the message to "${C.run.title}" did not reach the model in 30 s`);
+      await toDemo(d);
+      const here = (dot) => (r) => r.dot === dot && r.stripe === 'here' && !r.dim;
+      for (const [t, test, fails] of [
+        [C.run, here('green'), 'has no green dot and solid stripe'],
+        [C.perm, here('blue'), 'has no blue dot and solid stripe'],
+        [C.ask, here('blue'), 'has no blue dot and solid stripe'],
+        [C.unread, (r) => here('none')(r) && r.unread === 1, 'has no envelope and solid stripe without a dot'],
+        [C.idle, (r) => r.dot === 'none' && !r.unread && r.stripe === 'none' && !r.dim, 'is not shown open nowhere'],
+        [C.term, (r) => r.dot === 'none' && r.stripe === 'elsewhere' && r.dim && r.away === 'terminal', 'is not shown open in a terminal'],
+      ]) await rowWhere(d, list, t.title, test, 30000, fails);
+      await pointerOff(d, list);
+      return list;
+    }
+    async function sceneDown(d) {
+      const s = d.listScene;
+      d.listScene = null;
+      d.model.release();
+      if (!s) return;
+      if (s.frames.perm) {
+        await d.exec('claude-vscode.editor.open', C.perm.id);
+        await d.sleep(800);
+        if (await permissionAsked(s.frames.perm).catch(() => false)) await permissionButton(s.frames.perm, 'No').click({ timeout: 5000 }).catch(() => {});
+      }
+      if (s.frames.ask) {
+        await d.exec('claude-vscode.editor.open', C.ask.id);
+        await d.sleep(800);
+        await answerChoice(d, s.frames.ask).catch((e) => d.log('undo', `answering the question: ${e.message.split('\n')[0]}`));
+      }
+      const list = await agentList(d);
+      for (const t of [C.run, C.perm, C.ask]) {
+        await rowWhere(d, list, t.title, (r) => r.dot === 'none', 30000, 'still has a dot').catch((e) => d.log('undo', e.message));
+      }
+      /* Once its tab is closed, a conversation's state comes from this extension's shared list of the running ones
+         (agents.json in its plan folder), which can be 20 s old. A tab closed before that list is read again after the
+         answers brings the wait back, and Agent Plus gives a notice of a wait that no window shows. */
+      const answered = Date.now(), ids = [C.run, C.perm, C.ask].map((t) => t.id);
+      const agentsFile = path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'agents.json');
+      const idle = () => {
+        try { const a = JSON.parse(fs.readFileSync(agentsFile, 'utf8')); return a.at > answered && !(a.records || []).some((r) => ids.includes(r.sessionId) && r.status !== 'idle'); } catch (_) { return false; }
+      };
+      if (!await d.until(idle, 60000, 1000)) d.log('undo', 'the list of running conversations was not read again with the three idle within 60 s');
+      const busy = (id) => attentionHas(d, id, (x) => x.activity === 'working' || x.activity === 'waiting');
+      if (!await d.until(() => ![C.run, C.perm, C.ask].some((t) => busy(t.id)), SEEN_MS, 500)) {
+        d.log('undo', `Agent Plus still sees ${[C.run, C.perm, C.ask].filter((t) => busy(t.id)).map((t) => `"${t.title}"`).join(', ')} running or waiting`);
+      }
+      await closeTabs(d, SCENE.map((t) => t.title));
+      leave(s.terminal);
+      await dropConvos(d, SCENE);
+      await toDemo(d);
+    }
+    const sceneSaid = (look) => 'Agent Plus\'s session list in the side bar' + look + ' Among its rows are six conversations this step wrote into '
+      + 'the folder, each row starting with the Claude Code logo. "' + C.run.title + '": a turn is running, and a filled green dot sits on '
+      + 'the top right corner of its logo. "' + C.perm.title + '": it waits for you to allow a Bash command, with a filled blue dot on its '
+      + 'logo. "' + C.ask.title + '": it waits for you to answer a question, with the same filled blue dot. "' + C.unread.title + '": its '
+      + 'turn ended while its tab was behind another one; no dot, and an envelope icon right after its title, before the time. "'
+      + C.idle.title + '": nothing has it open; no dot, no envelope, and no stripe at the start of its row. "' + C.term.title + '": a '
+      + 'terminal has it open; its logo, title and time are greyed, about half as bright as the other rows, the stripe at its start is a '
+      + 'hollow outline, and a small terminal icon (a box with a prompt sign) comes before its time; no dot. The first four have a solid '
+      + 'stripe at their start: their tabs are open in this window, behind the demo conversation, which is in front. Each dot is round, '
+      + 'whole, the same size as the others, and touches neither the title nor the stripe. The rows of the demo conversation and its three '
+      + 'short conversations may show what earlier steps left on them. The status bar\'s Conversations entry counts these two among the '
+      + 'conversations that need you.';
+    /* An undo that also gives the side bar back its width, the pointer then taken off the edge it dragged. */
+    const sceneDownWide = async (d) => { await sceneDown(d); await d.widen(); await d.away(); };
+
+    return [
+      {
+        name: 'agent-plus-states', features: ['agent-plus-session-list', 'dot-working', 'dot-waiting', 'dot-stopped', 'unread-envelope', 'agent-plus-elsewhere'],
+        expect: sceneSaid(', in the dark theme.') + ' The four kinds of row are told apart by the dot, the envelope and the stripe alone; '
+          + 'the times line up at the right.',
+        unchanged: 'The editor holds the tabs it held before, and four more Claude Code tabs; the demo conversation is in front.',
+        act: async (d) => { await sceneUp(d); return d.sidebar(); },
+        undo: sceneDown,
+      },
+      {
+        name: 'agent-plus-states-light', features: ['agent-plus-session-list', 'light-theme', 'light-envelope', 'dot-working', 'dot-waiting', 'unread-envelope', 'agent-plus-elsewhere'],
+        expect: sceneSaid(', in a light theme: dark text on a light background, the section bands a little darker than the rows.')
+          + ' The green and blue dots keep their colours and stand out against the light background; the envelope and the terminal icon '
+          + 'are drawn dark like the text; the solid stripes are dark grey bars and the outlined one a dark outline; the greyed row is '
+          + 'paler than the others but still readable. Nothing is left in the dark theme\'s colours.',
+        unchanged: 'The demo conversation is in front in the editor, as before.',
+        act: async (d) => { await theme(d, 'Default Light Modern'); await d.sleep(2500); await sceneUp(d); return d.sidebar(); },
+        undo: async (d) => { await sceneDown(d); await theme(d, 'Default Dark Modern'); await d.sleep(2000); },
+      },
+      {
+        name: 'agent-plus-states-narrow', features: ['agent-plus-session-list', 'narrow-panel', 'long-title-envelope', 'dot-working', 'dot-waiting', 'unread-envelope', 'agent-plus-elsewhere'],
+        expect: sceneSaid(', narrowed to about 220 px, in the dark theme.') + ' In this width the titles are cut short with an '
+          + 'ellipsis, and each row is still one line: the logo with its dot whole and round, the stripe as tall and as wide as in a wide '
+          + 'side bar, and at the end of the row the envelope, the terminal icon and the time, none of them cut, squeezed or pushed past the '
+          + 'side bar\'s right edge. The New bar and the filter chips above the rows may squeeze or wrap, and the figures under ACCOUNT & '
+          + 'USAGE may wrap under their labels; all of it stays readable.',
+        unchanged: 'The demo conversation is in front in the editor, as before.',
+        act: async (d) => {
+          await sceneUp(d);
+          await d.sideTo(220);
+          await d.sleep(1000);
+          await d.away();
+          return d.sidebar();
+        },
+        undo: sceneDownWide,
+      },
+      {
+        name: 'agent-plus-elsewhere-alone', features: ['agent-plus-elsewhere'],
+        expect: 'Agent Plus\'s session list in the side bar, the pointer away from it and no hover box. Exactly one row is of a conversation '
+          + 'open somewhere other than this window: "' + C.term.title + '", which a terminal has open. That row alone shows three things '
+          + 'at once, so this picture tells which it is without anything else: its logo, title and time are greyed, about half as bright as '
+          + 'every other row; the stripe at its start is a hollow outline, where a row open in a tab here has a filled bar and a row open '
+          + 'nowhere has none; and a small terminal icon, a box with a prompt sign, sits before its time. "' + C.idle.title + '", which '
+          + 'nothing has open, has no stripe and is not greyed. No other row is greyed, has an outlined stripe or has a terminal icon.',
+        unchanged: 'The rows listed before are still there.',
+        act: async (d) => {
+          const list = await listReady(d);
+          d.listTerminal = await inTerminal(d, C.term);
+          addConvos(d, [C.idle, C.term]);
+          await listed(d, list, [C.idle, C.term]);
+          await rowWhere(d, list, C.term.title, (r) => r.stripe === 'elsewhere' && r.dim && r.away === 'terminal', 30000, 'is not shown open in a terminal');
+          await rowWhere(d, list, C.idle.title, (r) => r.stripe === 'none' && !r.dim, 30000, 'is not shown open nowhere');
+          await pointerOff(d, list);
+          return d.sidebar();
+        },
+        undo: async (d) => { leave(d.listTerminal); d.listTerminal = null; await dropConvos(d, [C.idle, C.term]); },
+      },
+    ];
+  })(),
   /* Last, as it closes every tab: with no Claude Code conversation running in the window, Account & usage keeps the Claude
      Code part and says so (src/claude-session-list.js accountInfo). */
   {
