@@ -14104,6 +14104,20 @@ console.log('\nClaude Code\'s source and closed panels');
         out.afterClose = [p1.subs.map((d) => d.disposed), c.source.sessionForTab(tab(1)), c.source.sessionForTab(tab(2))];
         c.dispose();
         out.afterDispose = [p2.subs.map((d) => d.disposed), c.source.sessionForTab(tab(2))];
+        let reads = 0;
+        const s = createClaudeSource({ planDir: () => '/plans', listAgents: async () => ({ records: [], error: '' }), folders: () => [],
+          readPlan: () => null, titles: () => ({ custom: '', ai: '' }), since: () => 0, live: () => new Map(), unread: () => new Set(),
+          activeChat: () => '', logo: () => null, canDeliver: () => false, hand: () => false, reveal: async () => false,
+          sessionList: { changed: () => { reads++; } } });
+        const q1 = panel(1), q2 = panel(1), q3 = panel(2);
+        out.reads = [];
+        s.track(q1, ''); out.reads.push(reads);
+        s.track(q1, 'Q1'); out.reads.push(reads);
+        s.track(q1, 'Q1'); out.reads.push(reads);
+        s.track(q2, 'Q2'); out.reads.push(reads);
+        s.track(q1, ''); out.reads.push(reads);
+        s.track(q3, undefined); out.reads.push(reads);
+        s.dispose();
         process.stdout.write(JSON.stringify(out));
       })().catch((e) => process.stdout.write(JSON.stringify({ threw: String(e && e.stack) })));`;
     const cr = cp.spawnSync(process.execPath, ['-e', cscript], { encoding: 'utf8', timeout: 30000 });
@@ -14112,6 +14126,9 @@ console.log('\nClaude Code\'s source and closed panels');
     if (JSON.stringify(co.afterClose) === JSON.stringify([[true, true], '', 'P2']) && JSON.stringify(co.afterDispose) === JSON.stringify([[true, true], ''])) {
       ok('panel subscriptions are disposed');
     } else bad(`panel subscriptions: ${JSON.stringify([co.afterClose, co.afterDispose, co.threw])}`);
+    if (JSON.stringify(co.reads) === JSON.stringify([0, 1, 1, 2, 3, 3])) {
+      ok('a panel getting, changing or losing its session has the session list read again; the same session reported again does not');
+    } else bad(`session list reads on a panel's session: ${JSON.stringify([co.reads, co.threw])}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
