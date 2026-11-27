@@ -2722,6 +2722,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }, 10000, 100);
         if (!answered) throw new Error(`the prompt or the tab's red dot did not go after No: ${JSON.stringify(await dotsOn(t.label))}`);
         const trace = attentionTrace([t1.id], page);
+        /* What this extension's activity for the conversation is made of, read before the close and as it goes on. */
+        const parts = () => call('return typeof globalThis.__cceActivityParts === "function" ? globalThis.__cceActivityParts(arg) : null;', t1.id).catch(() => null);
+        const partsSeen = [{ ms: -1, parts: await parts() }];
         closed = await closeIt();
         const closedAt = Date.now();
         trace.mark('closed');
@@ -2729,6 +2732,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         let told = null, counted = null;
         while (Date.now() - closedAt < 30000) {
           if (!told) told = await noticeOf(t1);
+          if (partsSeen.length < 12) partsSeen.push({ ms: Date.now() - closedAt, parts: await parts() });
           const n = await needCount();
           if (!counted && n && ((base ? n.n > base.n : true) || n.label.includes(t1.title))) {
             /* Which of the sources still has it waiting: the shared list, Agent Plus's record, or the list row. */
@@ -2741,7 +2745,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const seen = await trace.stop();
         check(!told && !listed.length, 'for 30 s after the tab closed, Agent Plus shows no notice of the conversation',
           { toast: told, listed, shared: sharedOf(t1.id), trace: seen });
-        check(!counted, 'and the conversation is not counted among those that need the user', { base, counted });
+        check(!counted, 'and the conversation is not counted among those that need the user', { base, counted, parts: counted ? partsSeen : undefined });
         await shot('closed-after-answer');
       } finally {
         if (!closed) await closeIt().catch(() => {});

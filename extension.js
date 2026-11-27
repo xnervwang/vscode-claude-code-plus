@@ -1604,6 +1604,15 @@ function start(context, log, renamed, handing = false) {
   const hostStates = () => gone.over(liveStates);
   const activityFor = (id, host = hostStates().get(id) || '') =>
     activity.activityOf({ host, turn: turns.get(id), bg: bgWorking.has(id), agent: agentOf(id) });
+  /* For the window test only: what a conversation's activity here is made of. */
+  if (process.env.CLAUDE_CODE_PLUS_UI_CONTROL) {
+    globalThis.__cceActivityParts = (id) => {
+      const a = claude.agentsNow(), agent = agentOf(id);
+      return { activity: activityFor(id), live: liveStates.get(id) || '', host: hostStates().get(id) || '', turn: turns.get(id),
+        bg: bgWorking.has(id), agent: agent && { busy: agent.busy, waitingFor: agent.waitingFor }, listAge: a.at > 0 ? Date.now() - a.at : null };
+    };
+    context.subscriptions.push({ dispose: () => { delete globalThis.__cceActivityParts; } });
+  }
   const lastUser = activity.lastUserReader();
   /* Kept while the plan, and the time of the user's last message, stay the same. */
   const questionSeen = new Map();
