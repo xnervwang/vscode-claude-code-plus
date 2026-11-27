@@ -7286,7 +7286,7 @@ console.log('\nwhat a tick and a change of setting cost');
     delete env.CLAUDE_CONFIG_DIR;
     try { r = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000, env })); }
     catch (e) { r = { threw: e.message }; }
-    if (!r.threw && r.listeners === 2 && JSON.stringify(r.timers) === JSON.stringify([1000, 5000, 5000, 10000, 15000, 30000, 1800000]) && r.closedHook === 'function') {
+    if (!r.threw && r.listeners === 2 && JSON.stringify(r.timers) === JSON.stringify([1000, 5000, 5000, 5000, 10000, 15000, 30000, 1800000]) && r.closedHook === 'function') {
       ok('activation, a change of setting, every timer, the hooks and deactivation run against a stand-in editor without throwing');
     } else bad(`against a stand-in editor: ${JSON.stringify(r).slice(0, 600)}`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
@@ -8368,6 +8368,72 @@ console.log('\na tab the person closes');
       } else bad(`with a throwing hook: threw ${JSON.stringify(lenv.threw)}, then ran ${JSON.stringify(lenv.after)}`);
     }
   }
+}
+
+console.log('\na conversation asking for a title of its own');
+{
+  const eq = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+  const rt = require('../src/retitle');
+  const marks = [rt.cleanTitle('  Port   the\n reader  '), rt.cleanTitle('Fix the import \u{1F451} \u{1F4E9}'), [...rt.cleanTitle('x'.repeat(30) + ' ' + 'y'.repeat(80))].length,
+    rt.cleanTitle(' \u{1F451} ')];
+  eq(marks, ['Port the reader', 'Fix the import', 80, ''],
+    'a requested title gets one space for each run of white space, loses the crown and the envelope, and is cut to 80 characters');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-retitle-'));
+  const NOW = Date.parse('2026-11-27T20:00:00Z');
+  const call = (id, command, at, extra) => JSON.stringify(Object.assign({ type: 'assistant', timestamp: new Date(at).toISOString(),
+    message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } }, extra || {}));
+  const cmd = (title) => `python3 /p/hooks/retitle.py <<'EOF'\n${title}\nEOF`;
+  const file = path.join(dir, 't.jsonl');
+  fs.writeFileSync(file, [call('old', cmd('Old ask'), NOW - 6 * 60000), call('side', cmd('Side'), NOW - 1000, { isSidechain: true }),
+    call('mine', cmd('Port the reader'), NOW - 2000), call('other', 'python3 /p/hooks/plan-row.py x set 1 done', NOW - 1000)].join('\n') + '\n');
+  eq([rt.ranRetitle(file, 'Port the reader', { now: NOW }), rt.ranRetitle(file, 'Old ask', { now: NOW }), rt.ranRetitle(file, 'Side', { now: NOW }),
+    rt.ranRetitle(file, 'Another title', { now: NOW }), rt.ranRetitle(file, 'Port the reader', { now: NOW, used: new Set(['mine']) })],
+  ['mine', '', '', '', ''],
+  'a request is matched to the conversation\'s own retitle.py call with that title in its command from the last 5 minutes, once, and not to an older call, a subagent\'s, or one with another title');
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  /* In a child process: the host answers asynchronously and this script ends synchronously. */
+  const script = `const fs = require('fs'), os = require('os'), path = require('path');
+    const rt = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'retitle.js'))});
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-retitle-host-'));
+    const folder = path.join(dir, rt.DIR); fs.mkdirSync(folder);
+    let t = Date.parse('2026-11-27T20:00:00Z');
+    const A = '5e000000-0000-4000-8000-00000000000a', B = '5e000000-0000-4000-8000-00000000000b', C = '5e000000-0000-4000-8000-00000000000c';
+    const tr = {};
+    const line = (id, title) => JSON.stringify({ type: 'assistant', timestamp: new Date(t - 1000).toISOString(),
+      message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: "python3 retitle.py <<'EOF'\\n" + title + "\\nEOF" } }] } });
+    for (const [id, title] of [[A, 'Port the reader \u{1F451}'], [B, 'Shown elsewhere']]) { tr[id] = path.join(dir, id + '.jsonl'); fs.writeFileSync(tr[id], line('call-' + id.slice(-1), title) + '\\n'); }
+    tr[C] = path.join(dir, C + '.jsonl'); fs.writeFileSync(tr[C], '{"type":"user"}\\n');
+    const req = (key, id, title) => fs.writeFileSync(path.join(folder, key + '.json'), JSON.stringify({ format: 1, key, agent: 'Claude Code', sessionId: id, title, at: t, via: 'command' }));
+    req('aaaaaaaaaaaa1', A, 'Port the reader \u{1F451}'); req('bbbbbbbbbbbb1', B, 'Shown elsewhere'); req('cccccccccccc1', C, 'Never asked');
+    fs.writeFileSync(path.join(folder, 'stale0000000.result.json'), '{}'); fs.utimesSync(path.join(folder, 'stale0000000.result.json'), new Date(t - 11 * 60000), new Date(t - 11 * 60000));
+    const renamed = [];
+    const host = rt.create({ dir, now: () => t, sleep: async () => {}, transcriptOf: (id) => tr[id],
+      shows: (id) => id === A || id === C, rename: async (id, title) => { renamed.push([id, title]); return { outcome: 'done' }; } });
+    const ls = () => fs.readdirSync(folder).sort();
+    const read = (k) => { try { const r = JSON.parse(fs.readFileSync(path.join(folder, k + '.result.json'), 'utf8')); return [r.outcome, r.title, r.reason]; } catch (_) { return null; } };
+    (async () => {
+      await host.scan();
+      const first = { files: ls(), a: read('aaaaaaaaaaaa1'), c: read('cccccccccccc1'), renamed: renamed.slice() };
+      t += 2500;
+      await host.scan();
+      console.log(JSON.stringify({ first, b: read('bbbbbbbbbbbb1'), renamed, files: ls() }));
+      fs.rmSync(dir, { recursive: true, force: true });
+    })();`;
+  const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' });
+  let got = null;
+  try { got = JSON.parse(r.stdout); } catch (_) { got = null; }
+  const A = '5e000000-0000-4000-8000-00000000000a', B = '5e000000-0000-4000-8000-00000000000b';
+  if (got && JSON.stringify(got.first.a) === JSON.stringify(['done', 'Port the reader', ''])
+      && got.first.c && got.first.c[0] === 'refused' && /no retitle\.py command with this title/.test(got.first.c[2])
+      && got.first.files.includes('bbbbbbbbbbbb1.json') && !got.first.files.some((n) => n.endsWith('.claimed')) && !got.first.files.includes('stale0000000.result.json')
+      && JSON.stringify(got.first.renamed) === JSON.stringify([[A, 'Port the reader']])
+      && JSON.stringify(got.b) === JSON.stringify(['done', 'Shown elsewhere', '']) && JSON.stringify(got.renamed) === JSON.stringify([[A, 'Port the reader'], [B, 'Shown elsewhere']])
+      && !got.files.some((n) => /\.(json|claimed)$/.test(n) && !n.endsWith('.result.json'))) {
+    ok('a window showing the conversation takes its retitle request at once, renames it with the cleaned title and answers done; one it cannot match to the conversation\'s own call is refused; '
+      + 'a request for a conversation this window does not show waits 2 seconds for the window that does, then this one takes it; an answer left over 10 minutes is removed');
+  } else bad(`retitle host: ${r.stdout || r.stderr}`);
 }
 
 console.log('\nconversation tabs opened by this extension');

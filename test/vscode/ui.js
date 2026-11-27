@@ -211,6 +211,10 @@ const LIST_THREADS = {
     turns: [['Check the backup job of the staging database.', 'It ran at 02:00 and wrote a dump of 3.2 GB.']] },
   reopened: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c5', title: 'List the cron jobs of the build machine', days: 0,
     turns: [['List the cron jobs of the build machine.', 'There are three: the nightly build, the cache prune and the log rotation.']] },
+  retitleClosed: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c6', title: 'Find why the nightly export is slow', days: 0,
+    turns: [['Find why the nightly export is slow.', 'The export waits on a lock held by the vacuum job that starts at 01:00.']] },
+  retitleOpen: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c7', title: 'Count the open tickets per team', days: 0,
+    turns: [['Count the open tickets per team.', 'Storage has 14, networking 9 and the console team 3.']] },
 };
 const WRAPPER_THREAD = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6d1', title: 'Size the importer cache for the nightly load', days: 0,
   turns: [['Size the importer cache for the nightly load.', 'Set `cacheSizeMb` in config/importer.yml to 512; the nightly load peaks at 430 MB.']] };
@@ -3066,6 +3070,84 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           check(closed && !!await until(async () => !(await shownTab()), 10000, 300), 'the tab this step opened is closed again', await claudeTabs());
         }
       }
+    });
+
+    /* A conversation asking for a title of its own, as the plugin's retitle.py asks: the command is in the
+       conversation's transcript, the script writes a request and waits, and this window renames the conversation and
+       answers. A request whose command is not in the transcript is refused. */
+    await step('a conversation renaming itself', async () => {
+      const { retitleClosed: shut, retitleOpen: shown } = LIST_THREADS;
+      fakeHome.writeThreads(profile.home, profile.folder, [shut, shown]);
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const script = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'retitle.py');
+      const customTitles = (t) => {
+        let text = '';
+        try { text = fs.readFileSync(transcriptOf(t), 'utf8'); } catch (_) { return []; }
+        return text.split('\n').map((l) => { try { return JSON.parse(l); } catch (_) { return null; } })
+          .filter((r) => r && r.type === 'custom-title').map((r) => r.customTitle);
+      };
+      let calls = 0;
+      /* Runs retitle.py as conversation `t` runs it, with its tool call in the transcript first unless `logged` is false. */
+      const ask = async (t, title, logged = true) => {
+        const n = String(++calls).padStart(3, '0');
+        const answered = logged ? fakeHome.appendToolCall(transcriptOf(t), { sessionId: t.id, cwd: profile.folder,
+          uuid: `${t.id.slice(0, 24)}000000000${n}`, toolId: `toolu_retitle_${n}`,
+          command: `python3 ${script} <<'EOF'\n${title}\nEOF`, description: 'Give this conversation a title' }) : null;
+        const said = await new Promise((resolve) => {
+          const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [script, dataDir],
+            { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: t.id }) });
+          let out = '';
+          kid.stdout.on('data', (d) => { out += d; });
+          kid.stderr.on('data', (d) => { out += d; });
+          kid.on('error', (e) => resolve('could not run the script: ' + e.message));
+          kid.on('exit', () => resolve(out.trim()));
+          kid.stdin.end(title);
+        });
+        if (answered) answered(said);
+        return said;
+      };
+      await showSl();
+      if (!await until(async () => { const r = await slRows().catch(() => null); return r && slFind(r, shut) && slFind(r, shown); }, 30000, 500)) {
+        throw new Error(`the conversations written for this step are not listed: ${JSON.stringify(await slRows().catch(() => null))}`);
+      }
+
+      const FORGED = 'Nightly export blocked by vacuum';
+      const forged = await ask(shut, FORGED, false);
+      check(/^Not renamed: .*transcript/.test(forged) && !customTitles(shut).includes(FORGED),
+        'a request for a conversation whose transcript does not have the command that asked is refused, and its title stays',
+        { said: forged, titles: customTitles(shut) });
+
+      const SHUT_TITLE = 'Nightly export waits on the vacuum lock';
+      const said = await ask(shut, SHUT_TITLE);
+      const relisted = await until(async () => { const r = await slRowsOf(shut.id); return r.length && r.every((x) => x.title === SHUT_TITLE) && r; }, 15000, 500);
+      check(/^Renamed: /.test(said) && customTitles(shut).includes(SHUT_TITLE) && !!relisted
+        && !(await claudeTabs()).some((x) => titled(x.label, shut.title) || titled(x.label, SHUT_TITLE)),
+        'a conversation no process has open asks for a title with retitle.py: the title is written into its transcript, its row shows it, the script says it was renamed, and nothing is opened',
+        { said, titles: customTitles(shut), rows: await slRowsOf(shut.id), tabs: await claudeTabs() });
+
+      const SHOWN_TITLE = 'Open tickets per team';
+      const shownTab = async () => (await claudeTabs()).find((x) => titled(x.label, shown.title) || titled(x.label, SHOWN_TITLE));
+      await openTab(shown.id);
+      try {
+        if (!await until(shownTab, 30000, 500)) throw new Error('the conversation to rename did not open in a tab');
+        if (!await conversation(shown, 60000)) throw new Error('the conversation to rename did not load in its tab');
+        const saidShown = await ask(shown, SHOWN_TITLE);
+        const relabeled = await until(async () => (await claudeTabs()).find((x) => titled(x.label, SHOWN_TITLE)), 20000, 500);
+        const recorded = await until(() => customTitles(shown).includes(SHOWN_TITLE), 20000, 300);
+        check(/^Renamed: /.test(saidShown) && !!relabeled && !!recorded,
+          'a conversation shown in a tab here asks for a title: the rename goes through its panel, so the tab takes the title and Claude Code records it in the transcript',
+          { said: saidShown, tabs: await claudeTabs(), titles: customTitles(shown) });
+        await shot('conversation-renamed-itself');
+      } finally {
+        /* The steps after this one count the tabs open here. */
+        if (await shownTab()) {
+          const closed = await closeTabTitled(SHOWN_TITLE) || await closeTabTitled(shown.title);
+          check(closed && !!await until(async () => !(await shownTab()), 10000, 300), 'the tab this step opened is closed again', await claudeTabs());
+        }
+      }
+      const left = (() => { try { return fs.readdirSync(path.join(dataDir, 'retitle')); } catch (_) { return []; } })();
+      check(!left.some((n) => n.endsWith('.json') && !n.endsWith('.result.json')) && !left.some((n) => n.endsWith('.claimed')),
+        'no request is left waiting or claimed once each has its answer', left);
     });
 
     /* Delete in Agent Plus's session list, carried through: the conversation archived, Delete... in its menu, and Delete in

@@ -64,6 +64,7 @@ const bgSessions = require('./src/bgsessions');
 const droppedTabs = require('./src/droppedtabs');
 const loadTabs = require('./src/load-tabs');
 const panelRebuild = require('./src/panel-rebuild');
+const retitleHost = require('./src/retitle');
 /* The fifth argument of claude-vscode.editor.open. Claude Code's own session list opens conversations as full editor
    tabs, without a title row of their own. */
 const AS_FULL_EDITOR = true;
@@ -846,6 +847,21 @@ function start(context, log, renamed, handing = false) {
   const sessionTotals = sessionTotalsOf.create({ changed: () => { sessionList.accountChanged(); } });
   globalThis.__cceSessionTotalsHook = (id, totals) => { try { sessionTotals.note(id, totals); } catch (_) { /* the next report */ } };
   const effortFiles = (id) => installs(webview, true).map((d) => path.join(d, 'webview', webview.EFFORT_PREFIX + id + '.css'));
+  /* Through the panel showing it, so its CLI hears of it too; otherwise in its transcript, which no process has open. */
+  const renameAnywhere = async (id, title) => {
+    if (claude.source.canDeliver(id)) {
+      renamedByOthers.add(id);
+      const r = await renameConversation(id, title);
+      return r.outcome === 'submitted' ? { outcome: 'done' } : { outcome: r.outcome === 'refused' ? 'refused' : 'failed', reason: r.reason };
+    }
+    if (deleteSession.runningSessions().has(id)) return { outcome: 'refused', reason: 'a Claude Code process has it open and would write its old title back' };
+    const file = transcriptOf(id);
+    if (!file) return { outcome: 'refused', reason: 'Claude Code has no transcript of it on this machine' };
+    if (!claudeSessionList.appendTitle(file, id, title)) return { outcome: 'failed', reason: 'its transcript could not be written' };
+    try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the panels catch up */ }
+    sessionList.changed();
+    return { outcome: 'done' };
+  };
   const sessionList = claudeSessionList.create({
     projects: () => projectsDir(),
     started: () => { watchList(); },
@@ -866,21 +882,7 @@ function start(context, log, renamed, handing = false) {
         { programmatic: where === 'sidebar' ? 'cce-pin-to-sidebar' : 'pin-to-panel' });
       return '';
     },
-    /* Through the panel showing it, so its CLI hears of it too; otherwise in its transcript, which no process has open. */
-    rename: async (id, title) => {
-      if (claude.source.canDeliver(id)) {
-        renamedByOthers.add(id);
-        const r = await renameConversation(id, title);
-        return r.outcome === 'submitted' ? { outcome: 'done' } : { outcome: r.outcome === 'refused' ? 'refused' : 'failed', reason: r.reason };
-      }
-      if (deleteSession.runningSessions().has(id)) return { outcome: 'refused', reason: 'a Claude Code process has it open and would write its old title back' };
-      const file = transcriptOf(id);
-      if (!file) return { outcome: 'refused', reason: 'Claude Code has no transcript of it on this machine' };
-      if (!claudeSessionList.appendTitle(file, id, title)) return { outcome: 'failed', reason: 'its transcript could not be written' };
-      try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the panels catch up */ }
-      sessionList.changed();
-      return { outcome: 'done' };
-    },
+    rename: (id, title) => renameAnywhere(id, title),
     remove: async (ids) => {
       let shown;
       try { shown = typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown() : null; } catch (_) { shown = null; }
@@ -1909,6 +1911,34 @@ function start(context, log, renamed, handing = false) {
   /* The patched host (src/host.js) passes on every report of a panel that failed to load; see src/panel-rebuild.js. */
   globalThis.__ccePanelFailedHook = panelRebuild.create({ log: (line) => log.appendLine(line) });
   context.subscriptions.push({ dispose: () => { if (globalThis.__ccePanelFailedHook) delete globalThis.__ccePanelFailedHook; } });
+  /* A conversation's request for a title of its own (src/retitle.js), taken at once by a window that shows it and by any
+     other after a moment. A window with this extension switched off leaves requests to the others. */
+  const retitle = retitleHost.create({
+    dir: planDir(),
+    transcriptOf: (id) => transcriptOf(id),
+    shows: (id) => { try { return claude.source.canDeliver(id); } catch (_) { return false; } },
+    rename: (id, title) => renameAnywhere(id, title),
+    log: (line) => log.appendLine(line),
+    later: (ms) => { setTimeout(() => { scanRetitles(); }, ms); },
+  });
+  const scanRetitles = () => { if (enabled() && !removed()) retitle.scan().catch((e) => log.appendLine('retitle: ' + e.message)); };
+  let retitleWatch = null;
+  const watchRetitles = () => {
+    if (retitleWatch) return;
+    try { fs.mkdirSync(retitle.folder, { recursive: true }); } catch (_) { /* the watch below fails too */ }
+    try {
+      retitleWatch = fs.watch(retitle.folder, { persistent: false }, () => { scanRetitles(); });
+      retitleWatch.on('error', () => { try { retitleWatch.close(); } catch (_) { /* closed */ } retitleWatch = null; });
+    } catch (_) { retitleWatch = null; }
+  };
+  /* A watch can miss an event, and a folder made after the window started is watched from the next tick. */
+  const retitleTick = setInterval(() => { watchRetitles(); scanRetitles(); }, 5000);
+  context.subscriptions.push({ dispose: () => {
+    clearInterval(retitleTick);
+    if (retitleWatch) { try { retitleWatch.close(); } catch (_) { /* closed */ } retitleWatch = null; }
+  } });
+  watchRetitles();
+  scanRetitles();
   claude.followChat();
   sweepPlans().catch((e) => log.appendLine('orphan work plans: ' + e.message));
   watchEffort();

@@ -1,5 +1,5 @@
 {
-  "core": "3877baab516a45a9ebce5835f81620c91f61a575",
+  "core": "543254048786c6094bbdf1174002f8b853026e41",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -79,12 +79,17 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_common.py",
       "from": "shared/plugin/hooks/plan_common.py",
-      "sha256": "a72cfed9fe39654d1034903545317fb5fa4050282c8992854cf6b9216f310099"
+      "sha256": "15cc36ad5e918b7daee0f9ce4443ef92f02f1894ce1d7903ebb5455975db8bef"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan-row.py",
       "from": "shared/plugin/hooks/plan-row.py",
       "sha256": "8f7b143dfa37139cda493297a478c244f7ef29d561840cd367d04f6e6c99c035"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/hooks/retitle.py",
+      "from": "shared/plugin/hooks/retitle.py",
+      "sha256": "9128809d90f94da868dd57797f436c21b9981d60975ad0f3f34613bae4b08a94"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/changes.py",
@@ -124,13 +129,19 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_agent.py",
       "from": "shared/plugin/claude/plan_agent.py",
-      "sha256": "0aa7485577af7a19a30aeee14d43840d8835c11707327d16c092a0a1bf987dc5"
+      "sha256": "e5ac22ab4623652aeba2e39a0a4a399bb66f64d9192b6531830b1dd8efb6eaa6"
     },
     {
       "path": "claude-plugin/agent-work-plan/skills/maintain/SKILL.md",
       "from": "shared/plugin/skills/maintain/SKILL.md",
       "fill": "shared/plugin/claude/maintain-skill.txt",
       "sha256": "b57ce37692b91d990459b39b8a6a185f94a9149d9f1b38239c0c51b1502afd8f"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/skills/retitle/SKILL.md",
+      "from": "shared/plugin/skills/retitle/SKILL.md",
+      "fill": "shared/plugin/claude/retitle-skill.txt",
+      "sha256": "477e9f25fc1172a85c6d4f6b3ab269191946182a2b5ed4746981c8e4d510c8ec"
     },
     {
       "path": "src/python-runtime.js",
