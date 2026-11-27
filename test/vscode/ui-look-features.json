@@ -11,7 +11,7 @@
     { "id": "user-messages", "what": "Your own messages: a bar down their left edge, and a text color when one is set.",
       "settings": ["claudeCodePlus.userMessageEdge", "claudeCodePlus.userMessageColor"] },
     { "id": "sub-agent-tags", "what": "Rows that came from a sub-agent carry a tag with its task.",
-      "settings": ["claudeCodePlus.show.subAgentTags"] },
+      "settings": ["claudeCodePlus.show.subAgentTags"], "notShown": "the fake model starts its helper only in the background, and the Claude Code build this test installs draws none of a background helper's own messages in the conversation, so no row carries a tag" },
     { "id": "view-filter", "what": "A footer control that shows all rows, only the main thread, or only one sub-agent.",
       "settings": ["claudeCodePlus.show.footerViewFilter"] },
     { "id": "navigation", "what": "The rail on the panel's right edge (to the top, previous, the list, next, to the bottom) and the list of your messages behind it, with times, a filter box and a highlighted row on hover.",

@@ -2222,7 +2222,7 @@ const STEPS = [
     },
   },
   {
-    name: 'live-helper', features: ['sub-agent-tags', 'view-filter', 'agent-map'],
+    name: 'live-helper', features: ['view-filter', 'agent-map'],
     expect: 'The conversation started a helper (a sub-agent) in the background, which has finished: an Agent row "Look through the '
       + 'notes" with the helper\'s prompt in a box and "Finished" under it, then the replies that followed. Claude Code keeps a '
       + 'background helper\'s own messages in a transcript of their own and draws none of them in the conversation, so no row '
@@ -2262,7 +2262,7 @@ const STEPS = [
     },
   },
   {
-    name: 'view-filter-helper', features: ['view-filter', 'sub-agent-tags'],
+    name: 'view-filter-helper', features: ['view-filter'],
     expect: 'The helper was picked in the filter: the control names it by the start of its task, and as none of the helper\'s '
       + 'messages are drawn in this conversation (see the step that started it), a note near the top says "No messages loaded for '
       + 'this agent." and why. The main thread\'s messages are hidden.',
@@ -2289,13 +2289,6 @@ const STEPS = [
       await frame.locator('#cce-view-menu').getByText('All', { exact: true }).first().click({ timeout: 5000 }).catch(() => {});
       await d.sleep(800);
     },
-  },
-  {
-    name: 'off-sub-agent-tags', features: ['sub-agent-tags'], ...off('claudeCodePlus.show.subAgentTags'),
-    expect: 'With the tags switched off, all rows show again, as before the filter was used. No row carries the tag with the '
-      + 'helper\'s task, as none did before (see the step that started the helper); nothing else changed.',
-    unchanged: 'The same rows as before the filter, in the same place.',
-    area: async (d) => { const frame = await live(d); await toBottom(frame); await d.sleep(600); return d.editor(); },
   },
   {
     name: 'off-view-filter', features: ['view-filter'], ...off('claudeCodePlus.show.footerViewFilter'),
