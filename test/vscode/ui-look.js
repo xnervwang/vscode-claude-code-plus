@@ -690,11 +690,15 @@ function stopMapWork(d, ids) {
       try { if (fs.readFileSync(`/proc/${p}/environ`, 'utf8').split('\0').some((v) => marks.includes(v)) && ours(p)) process.kill(Number(p), 'SIGTERM'); } catch (_) { /* gone */ }
     }
   }
+  /* A record's pid may since have gone to another process, so on Linux the process must still have the demo's home as its
+     HOME; elsewhere another process's environment cannot be read, and the records are minutes old. */
+  const home = `HOME=${d.profile.home}`;
+  const stillOurs = (pid) => { if (process.platform !== 'linux') return true; try { return fs.readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').includes(home); } catch (_) { return false; } };
   const dir = path.join(d.profile.home, '.claude', 'sessions');
   let names = [];
   try { names = fs.readdirSync(dir); } catch (_) { return; }
   for (const n of names) {
-    try { const r = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); if (r.kind === 'bg' || r.sessionId === MAP_WORKER) process.kill(r.pid, 'SIGTERM'); } catch (_) { /* gone */ }
+    try { const r = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); if ((r.kind === 'bg' || r.sessionId === MAP_WORKER) && stillOurs(r.pid)) process.kill(r.pid, 'SIGTERM'); } catch (_) { /* gone */ }
   }
 }
 
