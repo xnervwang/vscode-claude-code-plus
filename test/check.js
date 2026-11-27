@@ -9113,7 +9113,7 @@ console.log('\nthe Supervisor panel');
     const text = st.noticeText(ch, { [S(2)]: 'Two' }, { [S(3)]: { state: 'waiting for the user', doing: ['Port the reader'], asks: ['Which one?'] } });
     if (text.startsWith('Supervisor notice from Claude Code Plus, not a message from the user.') && text.includes(`"Two" (${S(2)}) finished its turn`)
         && text.includes(`a conversation (${S(3)}) is waiting for the user.\n  Now: waiting for the user; doing: Port the reader\n  Question for the user: Which one?`)
-        && text.includes('steward-peek.py from the agent-work-plan:steward skill only if you need its latest reply') && !/\bSteward\b/.test(text)) {
+        && text.includes('the supervisor skill\'s steward-peek.py only if you need its latest reply') && !/\bSteward\b/.test(text)) {
       ok('the notice starts with "Supervisor notice", says it is not from the user and gives each conversation\'s name, state, rows in progress and questions');
     } else bad(`the notice read ${JSON.stringify(text)}`);
     /* Titles as stored: an older build put a bell, with or without the emoji variation selector, after a supervisor's

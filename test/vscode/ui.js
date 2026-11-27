@@ -3218,7 +3218,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!frame, 'the Supervisor panel opens at the bottom of the window for the conversation in front', text);
       /* What the user reads of the Supervisor panel: the tabs of the bottom panel, the view's title, the panel's text with
          every hover text and label in it, and this extension's notifications on screen. None of it names the role
-         "steward"; a file or skill name such as steward-relay.py or agent-work-plan:steward is not the role. */
+         "steward"; a file name such as steward-relay.py or steward-peek.py is not the role. */
       const ROLE_WORD = /(?<![\w\-./:])steward(?![\w\-./])/i;
       const panelWords = async () => {
         const chrome = await page.evaluate(() => {

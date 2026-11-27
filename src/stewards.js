@@ -368,7 +368,7 @@ function noticeText(list, names, details = {}) {
   };
   return NOTICE_HEAD + ', not a message from the user. Conversations you manage changed:\n'
     + list.map(line).join('\n')
-    + '\nRead one with steward-peek.py from the agent-work-plan:steward skill only if you need its latest reply. If none of it needs the'
+    + '\nRead one with the supervisor skill\'s steward-peek.py only if you need its latest reply. If none of it needs the'
     + ' user, reply with exactly [[quiet]] or a single dash.';
 }
 

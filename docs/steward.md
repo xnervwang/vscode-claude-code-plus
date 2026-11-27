@@ -26,7 +26,7 @@ A supervisor keeps its own title in its tab and session list row, with one crown
 
 ## Messages and notices
 
-Each message you send the supervisor comes with what each of the conversations it manages is doing. When an update of Claude Code Plus changes the skill a supervisor follows (`agent-work-plan:steward`), the next such message also tells a supervisor that is already running to load the skill again.
+Each message you send the supervisor comes with what each of the conversations it manages is doing. When an update of Claude Code Plus changes the supervisor skill (the instructions a supervisor follows), the next such message also tells a supervisor that is already running to load the skill again.
 
 ### Sending messages to a conversation
 
