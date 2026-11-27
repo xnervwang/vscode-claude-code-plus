@@ -656,11 +656,15 @@ function createClaudeSource(deps) {
     track(panel, sessionId) {
       if (!panel || typeof panel !== 'object') return;
       const id = typeof sessionId === 'string' ? sessionId : '';
+      /* Agent Plus's session list asks sessionForTab only when it reads the list again, and a panel's session can arrive
+         after the read its tab's opening caused, so each change of a panel's session makes the list read again. */
+      const moved = () => { if (list) list.changed(); };
       const known = panels.get(panel);
       if (known) {
         if (known.sessionId === id) return;
         known.sessionId = id;
         if (id && panel.active) say(id, 'panel');
+        moved();
         return;
       }
       const entry = { sessionId: id, subs: [] };
@@ -680,6 +684,7 @@ function createClaudeSource(deps) {
         }
       } catch (_) { /* focus then comes from the other signals */ }
       if (id && panel.active) say(id, 'panel');
+      if (id) moved();
     },
     /* The tab showing the conversation, or null when it is in the sidebar or not shown here. */
     panelFor(sessionId) {
