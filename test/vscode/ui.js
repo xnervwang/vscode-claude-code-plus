@@ -1371,6 +1371,56 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await openList();
     });
 
+    /* Two conversations in tabs of one group, the second in front. Agent Plus learns which conversation each tab holds
+       from sessionForTab (src/claude-source.js), and takes one that it finds only through shows() to be in the sidebar,
+       so the tab behind has to answer with its own conversation even though its panel is not on screen. */
+    await step('a conversation tab behind another in its group', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t1 = threads[1];
+      const tabOf = async (t) => (await claudeTabs()).find((x) => titled(x.label.replace(TRAILING_MARKS, ''), t.title));
+      const focusNow = () => call('return typeof globalThis.__cceFocusState === "function" ? globalThis.__cceFocusState() : null;').catch(() => null);
+      await exec('claude-vscode.editor.open', tab0.id);
+      await exec('claude-vscode.editor.open', t1.id);
+      try {
+        const placed = await until(async () => {
+          const a = await tabOf(tab0), b = await tabOf(t1);
+          return a && b && a.column === b.column && b.active && !a.active && { behind: a, front: b };
+        }, 30000, 500);
+        if (!placed) throw new Error(`the two conversations are not in one group with the second in front: ${JSON.stringify(await tabs())}`);
+        if (!await conversation(t1, 60000)) throw new Error('the second conversation did not draw in its tab');
+        await showSl();
+        const both = await until(async () => {
+          const rs = await slRows().catch(() => null), a = slFind(rs, tab0), b = slFind(rs, t1);
+          return a && b && a.stripe === 'here' && b.stripe === 'here' && { behind: a, front: b };
+        }, 15000, 500);
+        const rs = await slRows().catch(() => null);
+        check(!!both, 'with two conversations in tabs of one group, both rows in Agent Plus\'s session list have the solid stripe of one open in this window',
+          { behind: slFind(rs, tab0), front: slFind(rs, t1) });
+        /* The list keeps the hover box it shows while the pointer stays on a row, so the other row is hovered first. */
+        const hoverOf = async (t, other) => {
+          await page.mouse.move(5, 5);
+          await slRowAt(other).hover();
+          await sleep(800);
+          await slRowAt(t).hover();
+          const said = await until(async () => { const x = await slHoverText(); return x.includes(t.id) && /Open in this window/.test(x) && x; }, 5000, 200);
+          const text = said || await slHoverText();
+          await page.mouse.move(5, 5);
+          return text;
+        };
+        const behind = await hoverOf(tab0, t1), front = await hoverOf(t1, tab0);
+        check(behind.includes(tab0.id) && /Open in this window/.test(behind) && !/in the sidebar/.test(behind),
+          'the hover of the row whose tab is behind says it is open in this window, and not that it is in the sidebar', { hover: behind, host: await focusNow() });
+        check(front.includes(t1.id) && /Open in this window/.test(front) && !/in the sidebar/.test(front),
+          'and the hover of the row whose tab is in front says the same', front);
+        await shot('tab-behind-in-group');
+      } finally {
+        await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)} && x.label.startsWith(arg));
+          if (t) await vscode.window.tabGroups.close(t); return true;`, t1.title.slice(0, 12));
+        await exec('claude-vscode.editor.open', tab0.id);
+        conv = await conversation(tab0, 30000) || conv;
+      }
+    });
+
     /* A command the conversation put in the background keeps its dot green after the turn is over: found in /proc on
        Linux, and on macOS and Windows from what Claude Code's Stop hook tells the work plan plugin. */
     /* The agent map's layout on every platform, for a conversation that has had no background work yet: first with

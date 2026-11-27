@@ -459,15 +459,26 @@ function createClaudeSource(deps) {
       return first ? { sourceId: ID, sessionId: first.sessionId } : null;
     },
 
-    /* The session of the visible panel in the tab's group; '' for a Claude Code tab with no conversation yet, or whose
-       panel has not been reported yet; null for any other tab. As a tab comes to the front, the panel it covers can
-       still count as visible and active for a moment, so when panels of the group carry the tab's label as their
-       title, only those are the tab's own. */
+    /* The session of the tab's panel; '' for a Claude Code tab with no conversation yet, or whose panel has not been
+       reported yet; null for any other tab. A tab in front is the visible panel of its group. As a tab comes to the
+       front, the panel it covers can still count as visible and active for a moment, so when panels of the group carry
+       the tab's label as their title, only those are the tab's own. A tab behind another in its group has a panel that
+       is not visible, and only a panel of the group with the tab's label as its title can be it: the visible one there
+       belongs to the tab in front. */
     sessionForTab(tab) {
       if (!isPanelTab(tab)) return null;
       const column = tab.group && tab.group.viewColumn;
+      const label = typeof tab.label === 'string' ? tab.label : '';
+      if (tab.isActive === false) {
+        let own = '';
+        for (const [panel, { sessionId }] of panels) {
+          if (!sessionId || !label || panel.viewColumn !== column || panel.title !== label) continue;
+          if (!own || !panel.visible) own = sessionId;
+        }
+        return own;
+      }
       const inGroup = [...panels].filter(([panel]) => panel.visible && panel.viewColumn === column);
-      const named = typeof tab.label === 'string' && tab.label ? inGroup.filter(([panel]) => panel.title === tab.label) : [];
+      const named = label ? inGroup.filter(([panel]) => panel.title === label) : [];
       let best = '';
       for (const [panel, { sessionId }] of named.length ? named : inGroup) {
         if (!sessionId) continue;

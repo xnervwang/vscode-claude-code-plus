@@ -12960,6 +12960,16 @@ console.log('\nClaude Code\'s own source');
       c.track(coming, 'NEW');
       out.coming.push(c.source.sessionForTab(labelled(coming.title)), c.source.sessionForTab(labelled('A title no panel has')));
       covered.d.forEach((f) => f()); coming.d.forEach((f) => f());
+      /* Two tabs of one group with the second in front, whose panel alone is visible; then two tabs of one label. */
+      const front = panel(6, true, false), back = panel(6, false, false), twin = panel(6, false, false);
+      front.title = 'Why does the nightly exp\u2026'; back.title = 'Find where the retry del\u2026'; twin.title = front.title;
+      c.track(back, 'BACK'); c.track(front, 'FRONT');
+      const inSix = (label, isActive) => ({ input: new vs.TabInputWebview('mainThreadWebview-claudeVSCodePanel'), group: { viewColumn: 6 }, label, isActive });
+      out.behind = [c.source.sessionForTab(inSix(back.title, false)), c.source.sessionForTab(inSix(front.title, true)),
+        c.source.sessionForTab(inSix('A title no panel has', false)), c.source.sessionForTab(inSix(back.title, true))];
+      c.track(twin, 'TWIN');
+      out.behind.push(c.source.sessionForTab(inSix(front.title, false)), c.source.sessionForTab(inSix(front.title, true)));
+      front.d.forEach((f) => f()); back.d.forEach((f) => f()); twin.d.forEach((f) => f());
       out.listeners = p1.l.length;
       p1.active = true; p1.l.forEach((f) => f({})); p2.l.forEach((f) => f({}));
       c.track(p1, 'A2');
@@ -13100,6 +13110,9 @@ console.log('\nClaude Code\'s own source');
     if (JSON.stringify(o.coming) === JSON.stringify(['', 'OLD', 'NEW', 'NEW'])) {
       ok('a tab brought to the front over another is not taken for the one it covers while its own panel has no session yet');
     } else bad(`a tab coming to the front: ${JSON.stringify(o.coming)}`);
+    if (JSON.stringify(o.behind) === JSON.stringify(['BACK', 'FRONT', '', 'FRONT', 'TWIN', 'FRONT'])) {
+      ok('a tab behind another in its group is its own conversation, from the panel with its label, which is not visible; never the visible panel of another title');
+    } else bad(`a tab behind another: ${JSON.stringify(o.behind)}`);
     if (JSON.stringify(o.heard) === JSON.stringify(['C', 'OLD', 'NEW', 'A', 'A2', 'X', '', 'Y', 'Y', 'Y', 'Y']) && JSON.stringify(o.follow) === '[true,false,true]') {
       ok('every Claude Code focus signal fires onDidFocus, including a front panel getting its session id');
     } else bad(`focus heard ${JSON.stringify([o.heard, o.follow])}`);
