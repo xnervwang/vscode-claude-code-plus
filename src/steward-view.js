@@ -859,6 +859,41 @@ function create(vscode, deps) {
     return { why: `${hits.length} conversations have the title "${g}" (${hits.join(', ')}); give the session id of the one meant` };
   };
   /*
+   * Archives conversations for a supervisor whose user asked for it in that supervisor conversation (src/relay.js checks
+   * that). Of `ids`, those the supervisor manages that are not working, waiting for the user or running background work go
+   * to Agent Plus's archive() (stewardCore.archiveIn); each of the others gets the reason it was not archived. A
+   * conversation the panel does not list is checked in `claude agents --json`: one a process or a working claude --bg
+   * job holds is left alone, since its state is not known here.
+   */
+  const BUSY_NOW = { working: 'it is working', prompt: 'it is waiting for the user', background: 'it is running background work' };
+  const archiveFor = async (steward, ids) => {
+    const table = stewards.read(deps.dir);
+    let records = null;
+    try { const got = await deps.freshAgents(); records = got && Array.isArray(got.records) ? got.records : null; } catch (_) { records = null; }
+    const results = [], go = [];
+    for (const id of ids) {
+      const c = last.get(id), title = nameOf(id);
+      const no = (reason) => results.push({ sessionId: id, title: title !== id ? title : '', outcome: 'refused', reason });
+      if (!stewards.manages(table, steward, id)) { no('it is not a conversation this supervisor manages'); continue; }
+      if (c && BUSY_NOW[c.state]) { no(`${BUSY_NOW[c.state]}; archive it once it has stopped`); continue; }
+      if (!c && !records) { no('it could not be checked that nothing runs it, since `claude agents --json` gave no list'); continue; }
+      const held = c ? '' : relay.heldBy(records, id, deps.alive);
+      if (held) { no(`${held}, and whether it is working is not known here`); continue; }
+      go.push(id);
+      results.push({ sessionId: id, title: title !== id ? title : '', outcome: '' });
+    }
+    const got = go.length ? await stewardCore.archiveIn(core(), go) : [];
+    for (const r of results) {
+      if (r.outcome) continue;
+      const g = got.find((x) => x.sessionId === r.sessionId) || { outcome: 'refused', reason: 'Agent Plus gave no answer for it' };
+      r.outcome = g.outcome;
+      r.reason = g.outcome === 'notListed' ? 'no session list in an open VS Code window shows it' : g.reason;
+    }
+    if (go.length) render(true);
+    return { outcome: 'submitted', reason: '', results };
+  };
+
+  /*
    * Carries out a supervisor's request to change its own list: `take` or `drop` one conversation, or turn `all` or `new`
    * on or off. The user made the request in that supervisor conversation, which src/relay.js checks.
    */
@@ -926,6 +961,7 @@ function create(vscode, deps) {
           return !!(after[steward] && after[steward].manages.includes(id));
         },
         list: listChange,
+        archive: archiveFor,
         pid: process.pid })) {
         deps.log(`supervisor ${r.action === 'send' ? 'relay' : r.action} to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`);
       }
@@ -1077,7 +1113,7 @@ function create(vscode, deps) {
     /* The title the panel uses for a conversation. */
     titleOf: (id) => nameOf(id),
     _gather: gather, _model: model, _notify: notify, _pass: pass, _onMessage: onMessage, _takeRequest: takeRequest, _syncEvery: syncEvery,
-    _takeRelays: takeRelays, _writes: writes, _last: () => last, _listening: () => link.listening(), _listChange: listChange,
+    _takeRelays: takeRelays, _archive: archiveFor, _writes: writes, _last: () => last, _listening: () => link.listening(), _listChange: listChange,
   };
 }
 

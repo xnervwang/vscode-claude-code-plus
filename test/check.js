@@ -9836,6 +9836,163 @@ console.log('\nthe Supervisor panel');
       } else bad(`the supervisor was waiting on ${JSON.stringify(got)}`);
     }
 
+    /* A supervisor archiving conversations (src/relay.js, src/steward-view.js archiveFor, src/steward-core.js archiveIn):
+       only when the user asked for it in the supervisor conversation itself, only conversations the supervisor manages that
+       have stopped, and nothing ever deleted. */
+    {
+      const relay = require('../src/relay');
+      const adir = path.join(root, 'archive-relay'), atdir = path.join(root, 'archive-transcripts');
+      fs.mkdirSync(path.join(adir, relay.RELAY_DIR), { recursive: true });
+      fs.mkdirSync(atdir, { recursive: true });
+      const now = Date.now(), iso = (ms) => new Date(ms).toISOString(), py = 'python3 /p/hooks/steward-relay.py';
+      let n = 0;
+      const said = (text, kind = 'human') => ({ type: 'user', uuid: 'u' + (++n), timestamp: iso(now - 50000 + n * 100), isSidechain: false,
+        origin: { kind }, message: { role: 'user', content: text } });
+      const call = (id, command, extra = {}) => Object.assign({ type: 'assistant', uuid: 'a' + (++n), timestamp: iso(now - 50000 + n * 100), isSidechain: false,
+        message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } }, extra);
+      fs.writeFileSync(path.join(atdir, S(1) + '.jsonl'), [
+        said(`Archive ${S(2)} and ${S(3)}.`), call('toolu_ar1', `${py} --archive ${S(2)} ${S(3)}`),
+        said(`Archive ${S(4)} too.`), call('toolu_ar2', `${py} --archive <<'EOF'\n${S(4)}\nEOF`),
+        said('Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:'), call('toolu_ar3', `${py} --archive ${S(5)}`),
+        said('Clean up the list.'), call('toolu_ar4', `${py} --archive ${S(2)}`),
+        said('Archive it in a subagent.'), call('toolu_ar5', `${py} --archive ${S(6)}`, { isSidechain: true }),
+      ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const A = (k) => `abababab-0000-4000-8000-0000000000${k}`;
+      const archived = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const fs = require('fs'), path = require('path');
+        const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
+        const dir = ${JSON.stringify(adir)}, S = (n) => '5e5e5e5e-0000-4000-8000-00000000000' + n, now = ${now};
+        const A = (k) => 'abababab-0000-4000-8000-0000000000' + k;
+        const table = { [S(1)]: { manages: [S(2), S(3), S(4), S(5), S(6)], ticked: [], names: {}, at: 0, all: false } };
+        const put = (id, req) => fs.writeFileSync(path.join(dir, relay.RELAY_DIR, id + '.json'), JSON.stringify(Object.assign({ id, steward: S(1), at: now, text: '', action: 'archive' }, req)));
+        put(A('01'), { to: S(2), ids: [S(2), S(3)] });
+        put(A('02'), { to: S(4), ids: [S(4)] });
+        put(A('03'), { to: S(5), ids: [S(5)] });
+        put(A('04'), { to: S(2), ids: [S(2), S(7)] });
+        put(A('05'), { to: S(6), ids: [S(6)] });
+        put(A('06'), { to: S(2), ids: [S(2)], steward: S(9) });
+        put(A('07'), { to: S(2), ids: [S(2)].concat(Array.from({ length: 50 }, (_, i) => '5e5e5e5e-0000-4000-8000-0000000007' + String(i).padStart(2, '0'))) });
+        put(A('08'), { to: S(2), ids: [] });
+        const did = [];
+        const T = (id) => path.join(${JSON.stringify(atdir)}, id + '.jsonl');
+        const deps = { shownHere: () => true, stewards: () => table, pid: 84, now: () => now, sleep: async () => {},
+          transcriptOf: (id) => (fs.existsSync(T(id)) ? T(id) : ''),
+          archive: async (steward, ids) => { did.push([steward, ids]);
+            return { outcome: 'submitted', reason: '', results: ids.map((sessionId) => ({ sessionId, title: '', outcome: 'archived', reason: '' })) }; } };
+        (async () => {
+          const results = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, r]));
+          process.stdout.write(JSON.stringify({ results, did }));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
+      const ar = archived.results || {}, why = (k) => (ar[A(k)] ? ar[A(k)].outcome + ': ' + ar[A(k)].reason : 'not taken');
+      if (JSON.stringify((archived.did || []).slice().sort()) === JSON.stringify([[S(1), [S(2), S(3)]], [S(1), [S(4)]]])
+          && why('01') === 'submitted: ' && (ar[A('01')].results || []).length === 2 && why('02') === 'submitted: '
+          && /^refused: conversations are archived only when the user asks for it, typing in this supervisor conversation\. The message before the call does not count: it is a supervisor notice/.test(why('03'))
+          && /^refused: the supervisor conversation has not run steward-relay\.py --archive for that conversation in its command/.test(why('04'))
+          && why('05') === 'refused: a subagent ran it; only the supervisor conversation itself, at the user\'s request, archives conversations'
+          && why('06') === 'refused: the one asking is not a supervisor'
+          && why('07') === `refused: it names 51 conversations; at most ${relay.ARCHIVE_MAX} go in one request`
+          && why('08') === 'refused: the request names no Claude Code conversations') {
+        ok('a window archives conversations for a supervisor that ran --archive after a message the user typed in it, with the ids on the command line or in a here-document, '
+          + 'and passes on each conversation\'s result; it refuses a call made after a notice, one whose command does not name every conversation, a subagent\'s, one from a '
+          + 'conversation that is not a supervisor, more than 50 at once and none at all');
+      } else bad(`archive requests gave ${JSON.stringify(archived)}`);
+
+      /* The panel's side: which of them go to Agent Plus, and why the others do not. */
+      const vdir = path.join(root, 'archive-panel');
+      fs.mkdirSync(vdir, { recursive: true });
+      const C = (k) => `5e5e5e5e-0000-4000-8000-0000000006${k}`;
+      const panel = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const sv = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'steward-view.js'))});
+        const st = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'stewards.js'))});
+        const C = (k) => '5e5e5e5e-0000-4000-8000-0000000006' + k, dir = ${JSON.stringify(vdir)};
+        const names = { '01': 'Front', '02': 'Idle one', '03': 'Busy one', '04': 'Asking one', '05': 'Not mine', '06': 'Backgrounded' };
+        const records = Object.keys(names).map((k) => ({ sessionId: C(k), kind: 'interactive', cwd: '/w/' + k, name: names[k], status: 'idle' }));
+        // C(07) is in no window: a claude --bg job is working on it. C(08) is in none either, and nothing runs it.
+        const agents = records.concat([{ sessionId: C('07'), kind: 'background', id: 'job00007', state: 'working' }]);
+        st.setManaged(C('01'), [C('02'), C('03'), C('04'), C('06'), C('07'), C('08'), C('09')], {}, { dir });
+        const acts = { [C('03')]: 'working', [C('04')]: 'waiting', [C('06')]: 'background' };
+        const calls = [];
+        let core = { features: ['archive'], archive: async (a) => { calls.push(a);
+          return a.sessionIds.map((sessionId) => ({ sessionId, outcome: sessionId === C('09') ? 'notListed' : 'archived', reason: '' })); } };
+        const v = sv.create({ window: { registerWebviewViewProvider: () => ({ dispose() {} }), showInformationMessage() {} } }, {
+          activeChat: () => C('01'), freshAgents: async () => ({ records: agents }), readPlan: () => null, titles: () => ({ custom: '', ai: '' }),
+          since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true, shownHere: (id) => id === C('01'),
+          activity: (id) => acts[id] || 'stopped', canWrite: () => true, canShare: () => true, enabled: () => true, log: () => {}, home: '/', dir, records: () => [],
+          post: async () => true, windowName: () => 'here', windowFolders: () => [], shownList: () => records.map((r) => r.sessionId), alive: () => true });
+        v.attachCore(core);
+        (async () => {
+          await v._pass();
+          const out = {};
+          out.mixed = await v._archive(C('01'), [C('02'), C('03'), C('04'), C('05'), C('06'), C('07'), C('08'), C('09')]);
+          out.calls = calls;
+          v.attachCore({ features: [] });
+          out.old = await v._archive(C('01'), [C('02')]);
+          process.stdout.write(JSON.stringify(out));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`], { encoding: 'utf8', timeout: 30000 }));
+      const got = Object.fromEntries(((panel.mixed && panel.mixed.results) || []).map((r) => [r.sessionId, r.outcome + ': ' + r.reason]));
+      const stcore = require('../src/steward-core');
+      if (JSON.stringify(panel.calls) === JSON.stringify([{ sourceId: 'claude-code', sessionIds: [C('02'), C('08'), C('09')] }])
+          && got[C('02')] === 'archived: ' && got[C('08')] === 'archived: '
+          && got[C('03')] === 'refused: it is working; archive it once it has stopped'
+          && got[C('04')] === 'refused: it is waiting for the user; archive it once it has stopped'
+          && got[C('06')] === 'refused: it is running background work; archive it once it has stopped'
+          && got[C('05')] === 'refused: it is not a conversation this supervisor manages'
+          && got[C('07')] === 'refused: the claude --bg job job00007 holds it (working), and whether it is working is not known here'
+          && got[C('09')] === 'notListed: no session list in an open VS Code window shows it'
+          && panel.old && panel.old.results && panel.old.results[0].outcome === 'refused' && panel.old.results[0].reason === stcore.ARCHIVE_UPDATE) {
+        ok('of the conversations a supervisor asks to archive, only those it manages that are not working, waiting for the user, running background work or held by a '
+          + 'claude --bg job go to Agent Plus\'s archive(), for Claude Code; each of the others gets its reason, one no open session list shows says so, and an Agent Plus '
+          + 'without archive() archives nothing and says to update it');
+      } else bad(`archiving in the panel gave ${JSON.stringify(panel).slice(0, 2500)}`);
+
+      /* The script: what it asks the window for, and how it prints the window's answer. */
+      const script = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
+      const sdata = path.join(root, 'archive-script');
+      fs.mkdirSync(path.join(sdata, 'relay'), { recursive: true });
+      const run = (args, input) => {
+        const r = cp.spawnSync(process.execPath, ['-e', `
+          const fs = require('fs'), path = require('path'), cp = require('child_process');
+          const dir = path.join(${JSON.stringify(sdata)}, 'relay'), asked = [];
+          const kid = cp.spawn('python3', [${JSON.stringify(script)}, ...${JSON.stringify(args)}, ${JSON.stringify(sdata)}],
+            { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: ${JSON.stringify(S(1))} }) });
+          let out = '';
+          kid.stdout.on('data', (d) => { out += d; });
+          kid.stdin.end(${JSON.stringify(input || '')});
+          const t = setInterval(() => {
+            for (const n of fs.readdirSync(dir)) {
+              const m = /^([0-9a-f-]{36})\\.json$/.exec(n);
+              if (!m) continue;
+              const req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
+              fs.unlinkSync(path.join(dir, n));
+              asked.push(req);
+              const results = (req.ids || []).map((sessionId, i) => (i === 1
+                ? { sessionId, title: '', outcome: 'refused', reason: 'it is working; archive it once it has stopped' }
+                : { sessionId, title: i ? '' : 'Idle one', outcome: 'archived', reason: '' }));
+              fs.writeFileSync(path.join(dir, m[1] + '.result.json'), JSON.stringify({ outcome: 'submitted', reason: '', results }));
+            }
+          }, 100);
+          kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, asked })); });`], { encoding: 'utf8', timeout: 60000 });
+        try { return JSON.parse(r.stdout); } catch (_) { return { error: r.stdout + r.stderr }; }
+      };
+      const two = run(['--archive', S(2), S(3).toUpperCase()], '');
+      const heredoc = run(['--archive'], `${S(4)}\n${S(4)}\n`);
+      const other = run(['--archive', 'opencode-plus:ses_1'], '');
+      const many = run(['--archive', ...Array.from({ length: 51 }, (_, i) => '5e5e5e5e-0000-4000-8000-0000000007' + String(i).padStart(2, '0'))], '');
+      const odd = run(['--archive', '--confirmed', S(2)], '');
+      const none = run(['--archive'], '');
+      const lines = (r) => (r.out || '').trim().split(/\r?\n/);
+      const asked = (r) => (r.asked && r.asked[0] ? [r.asked[0].action, r.asked[0].to, r.asked[0].ids, r.asked[0].steward] : null);
+      if (two.code === 1 && JSON.stringify(asked(two)) === JSON.stringify(['archive', S(2), [S(2), S(3)], S(1)])
+          && JSON.stringify(lines(two)) === JSON.stringify([`Archived: "Idle one" (${S(2)}).`, `Not archived: ${S(3)}: it is working; archive it once it has stopped.`])
+          && heredoc.code === 0 && JSON.stringify(asked(heredoc)) === JSON.stringify(['archive', S(4), [S(4)], S(1)])
+          && other.code === 1 && !other.asked.length && /^Not done: opencode-plus:ses_1 is not a Claude Code session id/.test(other.out)
+          && many.code === 1 && !many.asked.length && /^Not done: 51 conversations were named; give at most 50 at a time\./.test(many.out)
+          && odd.code === 2 && /^usage: /.test(odd.out) && none.code === 1 && /^Not done: no conversation was named\./.test(none.out)) {
+        ok('steward-relay.py --archive asks the window to archive the Claude Code conversations named on the command line or in a here-document, once each, and prints a '
+          + 'line for each: archived, or not archived with the reason; it refuses another agent\'s key, more than 50, an option of another action and no conversation');
+      } else bad(`--archive from the script gave ${JSON.stringify({ two, heredoc, other, many: many.out, odd: odd.out, none: none.out })}`);
+    }
+
     /* A supervisor changing its own list (src/relay.js typedBefore, src/steward-view.js listChange): only after a message the
        user typed in the supervisor conversation itself, and never from a subagent's call. */
     {

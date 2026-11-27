@@ -1709,6 +1709,37 @@ const STEPS = [
     undo: async (d) => { try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ } await d.sleep(1500); },
   },
   {
+    name: 'steward-archived', features: ['steward-archive'],
+    expect: 'Agent Plus\'s session list in the side bar, after you asked the demo conversation, which supervises "Add a dry-run flag to the cleanup '
+      + 'script", to archive that conversation. The row of "Add a dry-run flag to the cleanup script" is in the list\'s Archived section, which is '
+      + 'open, and is not among the rows above it.',
+    unchanged: null,
+    act: async (d) => {
+      const [t1] = d.threads.slice(1);
+      await stewardOf(d, [t1.id]);
+      typed(d, d.sid, `Archive "${t1.title}".`);
+      const said = await relay(d, d.sid, ['--archive', t1.id]);
+      if (!/^Archived: /.test(said)) throw new Error(`the supervisor did not archive it: ${said}`);
+      const list = await agentList(d);
+      const head = list.locator('.sl-section[data-key="archived"] .sl-head').first();
+      if (!await d.until(() => head.isVisible().catch(() => false), 20000, 500)) throw new Error('the list has no Archived section');
+      if (!await head.evaluate((e) => e.parentElement.classList.contains('sl-open')).catch(() => true)) await head.click();
+      if (!await d.until(() => list.evaluate((t) => [...document.querySelectorAll('.sl-section[data-key="archived"] .sl-title')].some((e) => e.textContent === t), t1.title), 20000, 500)) {
+        throw new Error('the row did not move to Archived');
+      }
+      await d.away();
+      await d.sleep(500);
+      return d.sidebar();
+    },
+    undo: async (d) => {
+      const [t1] = d.threads.slice(1);
+      const list = await agentList(d);
+      await agentMenuPick(d, list, t1.title, 'Unarchive');
+      try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ }
+      await d.sleep(1500);
+    },
+  },
+  {
     name: 'steward-recent-held', features: ['steward-recent-send'],
     expect: 'The conversation "Add a dry-run flag to the cleanup script" is in front. Two supervisors manage it, and the second one\'s message was held '
       + 'back once, as the first had just sent one, then sent with --anyway. The last message from you in it starts with the line "Sent by the '

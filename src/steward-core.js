@@ -83,4 +83,25 @@ function link({ changed = () => {}, log = () => {} } = {}) {
   };
 }
 
-module.exports = { ready, others, planPathOf, deliverTo, link, FEATURES, UPDATE };
+/*
+ * Archives Claude Code conversations in Agent Plus's session list (its archive(), at most ARCHIVE_MAX ids), as Archive
+ * on a row does. Resolves to [{ sessionId, outcome, reason }] in the order of `ids`, outcome "archived", "notListed"
+ * (no list in an open window shows it) or "refused"; an Agent Plus without archive() refuses each, saying to update it.
+ * Whether a conversation may be archived is decided before this.
+ */
+const ARCHIVE_MAX = 50;
+const ARCHIVE_UPDATE = 'the Agent Plus in this window cannot archive conversations; update it';
+function archiveIn(core, ids) {
+  const each = (outcome, reason) => ids.map((sessionId) => ({ sessionId, outcome, reason }));
+  if (!(core && Array.isArray(core.features) && core.features.includes('archive') && typeof core.archive === 'function')) {
+    return Promise.resolve(each('refused', ARCHIVE_UPDATE));
+  }
+  return Promise.resolve().then(() => core.archive({ sourceId: keys.CLAUDE, sessionIds: ids.slice(0, ARCHIVE_MAX) }))
+    .then((list) => ids.map((sessionId) => {
+      const e = (Array.isArray(list) ? list : []).find((x) => x && String(x.sessionId || '').toLowerCase() === sessionId);
+      return e ? { sessionId, outcome: String(e.outcome || 'refused'), reason: String(e.reason || '') }
+        : { sessionId, outcome: 'refused', reason: 'Agent Plus gave no answer for it' };
+    }), (e) => each('refused', String((e && e.message) || e).slice(0, 200)));
+}
+
+module.exports = { ready, others, planPathOf, deliverTo, archiveIn, link, FEATURES, UPDATE, ARCHIVE_MAX, ARCHIVE_UPDATE };

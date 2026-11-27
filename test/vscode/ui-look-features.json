@@ -1,6 +1,6 @@
 {
   "comment": "The features ui-look.js shows, one entry each: what it is, and the settings, commands and views of package.json that belong to it. Every step of ui-look.js names the features it shows. A feature that cannot be shown in a window says why in notShown and needs no step. A feature that works through Agent Plus also names, under agentPlus, the settings, commands and views of Agent Plus's package.json it uses; agentPlusOther lists the rest of Agent Plus's, with why they are not this extension's. window names the steps of ui.js, the window test CI runs, that assert a feature in code; relay names the options of the supervisor's script (claude-plugin/agent-work-plan/hooks/steward-relay.py, send being the message with no option) that belong to a feature. stewardActions lists the features that describe what a supervisor does or what it is told. test/check.js checks that every setting, command and view is listed here exactly once, those of Agent Plus against the Agent Plus it can find, that every other feature has a step, that every option of the supervisor's script belongs to exactly one feature, that every supervisor action has a ui-look.js step and a ui.js step, and that every window step named exists in ui.js.",
-  "stewardActions": ["steward-send", "steward-recent-send", "steward-renames-managed", "steward-close", "steward-open", "steward-resume", "steward-handoff", "steward-notices", "steward-links", "steward-list-change"],
+  "stewardActions": ["steward-send", "steward-recent-send", "steward-renames-managed", "steward-close", "steward-open", "steward-resume", "steward-handoff", "steward-notices", "steward-links", "steward-list-change", "steward-archive"],
   "features": [
     { "id": "timestamps", "what": "A time on each of your messages and on every block of a reply, start->end on a tool call; Claude Code's own message times are hidden while these show.",
       "settings": ["claudeCodePlus.show.timestamps"] },
@@ -93,6 +93,8 @@
       "relay": ["--handoff", "--to"], "window": ["the steward panel", "several stewards for one conversation"] },
     { "id": "steward-list-change", "what": "A supervisor changes its own list or switches when you ask for it in the supervisor conversation; when the request comes from a notice, a handoff or another conversation's message, it changes nothing and says why.",
       "relay": ["--take", "--drop", "--all", "--new"], "window": ["several stewards for one conversation"] },
+    { "id": "steward-archive", "what": "A supervisor archives conversations it manages in Agent Plus's session list when you ask in the supervisor conversation; one that is working, waiting for you or running background work is not archived, and no agent can delete a conversation.",
+      "relay": ["--archive"], "window": ["a supervisor archiving conversations"] },
     { "id": "steward-notices", "what": "Claude Code Plus sends a supervisor a notice when a conversation it manages starts waiting for the user; not on native Windows.",
       "window": ["the steward panel"] },
     { "id": "steward-links", "what": "A supervisor's link to a conversation, in a reply or on a Supervisor panel row, brings that conversation's tab to the front in whichever window shows it; a link to one open nowhere says so.",

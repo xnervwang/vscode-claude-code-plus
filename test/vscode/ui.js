@@ -215,6 +215,12 @@ const LIST_THREADS = {
     turns: [['Find why the nightly export is slow.', 'The export waits on a lock held by the vacuum job that starts at 01:00.']] },
   retitleOpen: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c7', title: 'Count the open tickets per team', days: 0,
     turns: [['Count the open tickets per team.', 'Storage has 14, networking 9 and the console team 3.']] },
+  archiveBy: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c8', title: 'Tidy up the old conversations', days: 0,
+    turns: [['Keep an eye on the reports work.', 'I will watch it and tell you when it needs you.']] },
+  archiveDone: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c9', title: 'Rotate the staging certificates', days: 2,
+    turns: [['Rotate the staging certificates.', 'Rotated both; they expire next November.']] },
+  archiveKept: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6ca', title: 'Count the slow queries of last week', days: 2,
+    turns: [['Count the slow queries of last week.', 'There were 212, most of them on the orders table.']] },
 };
 const WRAPPER_THREAD = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6d1', title: 'Size the importer cache for the nightly load', days: 0,
   turns: [['Size the importer cache for the nightly load.', 'Set `cacheSizeMb` in config/importer.yml to 512; the nightly load peaks at 430 MB.']] };
@@ -3148,6 +3154,72 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const left = (() => { try { return fs.readdirSync(path.join(dataDir, 'retitle')); } catch (_) { return []; } })();
       check(!left.some((n) => n.endsWith('.json') && !n.endsWith('.result.json')) && !left.some((n) => n.endsWith('.claimed')),
         'no request is left waiting or claimed once each has its answer', left);
+    });
+
+    /* A supervisor archiving conversations it manages (steward-relay.py --archive): carried out after the user asked for
+       it in the supervisor conversation, so the row moves to Archived in Agent Plus's session list, and refused after a
+       notice, so the other row stays where it is. */
+    await step('a supervisor archiving conversations', async () => {
+      const { archiveBy: sup, archiveDone: done, archiveKept: kept } = LIST_THREADS;
+      fakeHome.writeThreads(profile.home, profile.folder, [sup, done, kept]);
+      const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
+      const st = require('../../src/stewards');
+      st.setManaged(sup.id, [done.id, kept.id], { [done.id]: done.title, [kept.id]: kept.title }, { dir: dataDir, title: sup.title });
+      const script = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
+      let n = 0;
+      const lastUuid = (t) => {
+        for (const l of fs.readFileSync(transcriptOf(t), 'utf8').split('\n').reverse()) {
+          try { const r = JSON.parse(l); if ((r.type === 'user' || r.type === 'assistant') && r.uuid) return r.uuid; } catch (_) { /* not an entry */ }
+        }
+        return null;
+      };
+      /* A message in the supervisor conversation, typed by the user or, with `from`, arrived some other way. */
+      const says = (text, from) => fs.appendFileSync(transcriptOf(sup), JSON.stringify({ parentUuid: lastUuid(sup), sessionId: sup.id, cwd: profile.folder,
+        isSidechain: false, type: 'user', uuid: `${sup.id.slice(0, 24)}${String(880000 + ++n).padStart(12, '0')}`, timestamp: new Date().toISOString(),
+        permissionMode: 'default', promptSource: from ? 'system' : 'user', origin: { kind: from || 'human' }, message: { role: 'user', content: text } }) + '\n');
+      const archiveAs = (ids) => {
+        const answered = fakeHome.appendToolCall(transcriptOf(sup), { sessionId: sup.id, cwd: profile.folder,
+          uuid: `${sup.id.slice(0, 24)}${String(890000 + ++n).padStart(12, '0')}`, toolId: `toolu_archive_${n}`,
+          command: `python3 ${script} --archive ${ids.join(' ')}`, description: 'Archive for the user' });
+        return new Promise((resolve) => {
+          const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [script, '--archive', ...ids, dataDir],
+            { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: sup.id }) });
+          let out = '';
+          kid.stdout.on('data', (d) => { out += d; });
+          kid.stderr.on('data', (d) => { out += d; });
+          kid.on('error', (e) => resolve('could not run the script: ' + e.message));
+          kid.on('exit', () => resolve(out.trim()));
+          kid.stdin.end('');
+        }).then((said) => { answered(said); return said; });
+      };
+      const archivedRow = async (t) => (await slRowsOf(t.id)).some((x) => x.section === 'archived');
+      const supTab = async () => (await claudeTabs()).find((x) => titled(x.label, sup.title));
+      await showSl();
+      if (!await until(async () => { const r = await slRows().catch(() => null); return r && slFind(r, done) && slFind(r, kept); }, 30000, 500)) {
+        throw new Error(`the conversations written for this step are not listed: ${JSON.stringify(await slRows().catch(() => null))}`);
+      }
+      await openTab(sup.id);
+      try {
+        if (!await until(supTab, 30000, 500)) throw new Error('the supervisor conversation did not open in a tab');
+        if (!await conversation(sup, 60000)) throw new Error('the supervisor conversation did not load in its tab');
+        says(`Please archive ${done.title}.`);
+        const said = await archiveAs([done.id]);
+        const moved = /^Archived: .*\(7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c9\)\.$/.test(said) && await until(() => archivedRow(done), 20000, 500);
+        check(!!moved, 'asked by the user in the supervisor conversation, the supervisor archives a conversation it manages: the script says so and the row moves to Archived in Agent Plus\'s session list',
+          { said, rows: await slRowsOf(done.id) });
+        says('Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:', 'cross-session');
+        const refused = await archiveAs([kept.id]);
+        check(/^Not done: conversations are archived only when the user asks for it/.test(refused) && !await archivedRow(kept),
+          'after a notice, with no request from the user, the supervisor\'s --archive is refused and the conversation stays where it is', { refused, rows: await slRowsOf(kept.id) });
+        await shot('supervisor-archived');
+      } finally {
+        st.setManaged(sup.id, [], {}, { dir: dataDir });
+        /* The steps after this one count the tabs open here. */
+        if (await supTab()) {
+          const closed = await closeTabTitled(sup.title);
+          check(closed && !!await until(async () => !(await supTab()), 10000, 300), 'the tab this step opened is closed again', await claudeTabs());
+        }
+      }
     });
 
     /* Delete in Agent Plus's session list, carried through: the conversation archived, Delete... in its menu, and Delete in

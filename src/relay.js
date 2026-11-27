@@ -26,6 +26,11 @@
  * sends one records it in SENDS_FILE, where steward-relay.py looks for another supervisor's recent message to the same
  * conversation before it sends.
  *
+ * `archive` archives the Claude Code conversations in `ids` (`to` is the first) in Agent Plus's session list, those the
+ * supervisor manages that are not working, waiting for the user or running background work (deps.archive decides and
+ * says why for each), and only when the user asked for it, as for the list actions below. No request deletes a
+ * conversation: only the user does that, by hand, in the session list.
+ *
  * `take`, `drop`, `all` and `new` change the asking supervisor's own list: they tick or untick one conversation, or turn
  * "All, including new ones" or "New conversations" on or off (`to` is the conversation, or "on" or "off"). Only the
  * user may ask for that, in the supervisor conversation itself: the window that shows the supervisor carries one out only
@@ -36,7 +41,8 @@
  * Any process can write a request file. A window carries one out only if the conversation is one the supervisor manages
  * (for `open`, `resume` and the list actions, only if the one asking is a supervisor; for `handoff`, only if a supervisor
  * manages the one asking), and the asker's own transcript has the tool call that ran steward-relay.py for it in the
- * last RAN_MS (ranBy), with the action's flag, and at most once per call.
+ * last RAN_MS (ranBy), with the action's flag, and at most once per call; the call of an archive names every
+ * conversation it archives.
  *
  * Another agent's conversation takes only a plain send; its `to` is a key `<source id>:<session id>`
  * (src/steward-keys.js), and Agent Plus's deliver() passes the text on to the window that can type into it
@@ -79,9 +85,13 @@ const MAX_TEXT = 4000;
 const MAX_TITLE = 200;
 /* The flag each action is run with; a plain message has none. */
 const FLAGS = { rename: '--rename', close: '--close', open: '--open', resume: '--resume', handoff: '--handoff',
-  take: '--take', drop: '--drop', all: '--all', new: '--new' };
+  take: '--take', drop: '--drop', all: '--all', new: '--new', archive: '--archive' };
 const ACTIONS = ['send', ...Object.keys(FLAGS)];
 const LIST = ['take', 'drop', 'all', 'new'];
+/* Carried out only when the user asked for it in the supervisor conversation itself (typedBefore). */
+const USER_ONLY = [...LIST, 'archive'];
+/* Agent Plus archives at most this many in one call (src/steward-core.js). */
+const ARCHIVE_MAX = 50;
 const SWITCHES = ['all', 'new'];
 const CONFIRMED = '--confirmed';
 const SENT_FILE = 'sent.json';
@@ -108,12 +118,12 @@ const RESUME_RETRY_MS = 1000;
  * The tool call in the asker's transcript that ran steward-relay.py for this request, as { id, at }, or null: the
  * supervisor's, or for a handoff that of the conversation handing off. It must be the asker's own, not a subagent's, at
  * most RAN_MS old, and its command must contain `to` (a session id; for `open`, the folder; for `take` and `drop`, what
- * the supervisor named) and the text; the line that runs the script must carry the flag of `action` and none of the
+ * the supervisor named), the text and each of `also`; the line that runs the script must carry the flag of `action` and none of the
  * others, with --confirmed when `confirmed` is set and, for a switch, the value right after the flag. A subagent's call
  * that would otherwise match sets found.sidechain. Claude Code writes a tool call to the transcript before running it,
  * so the call is already there while the script waits for an answer.
  */
-function ranBy(file, to, text, now = Date.now(), action = 'send', confirmed = false, found = {}) {
+function ranBy(file, to, text, now = Date.now(), action = 'send', confirmed = false, found = {}, also = []) {
   let tail = '';
   let fd;
   try {
@@ -136,6 +146,7 @@ function ranBy(file, to, text, now = Date.now(), action = 'send', confirmed = fa
     for (const b of r.message.content) {
       const c = b && b.type === 'tool_use' && b.input && typeof b.input.command === 'string' ? b.input.command.replace(/\r\n/g, '\n') : '';
       if (!c.includes(SCRIPT) || !c.toLowerCase().includes(to.toLowerCase()) || !c.includes(text)) continue;
+      if (also.some((x) => !c.toLowerCase().includes(x))) continue;
       // Flags are read from the line that runs the script, not from the text after it.
       const line = c.slice(c.lastIndexOf('\n', c.indexOf(SCRIPT)) + 1).split('\n')[0];
       if (Object.entries(FLAGS).some(([a, flag]) => new RegExp(`(^|\\s)${flag}(\\s|$)`).test(line) !== (a === action))) continue;
@@ -284,7 +295,7 @@ function takesHere(action, to, deps, req) {
     const theirs = stewardTable.stewardsOf(deps.stewards() || {}, String(req.from || '').toLowerCase());
     return to ? theirs.includes(to) && deps.shownHere(to) : theirs.some((s) => deps.shownHere(s));
   }
-  if (LIST.includes(action)) return deps.shownHere(String(req.steward || '').toLowerCase());
+  if (USER_ONLY.includes(action)) return deps.shownHere(String(req.steward || '').toLowerCase());
   if (keys.isOther(to)) return deps.shownHere(String(req.steward || '').toLowerCase());
   if (!SESSION.test(to)) return false;
   if (action === 'resume') return !!deps.folders && opensHere(to, deps.folders(), deps.transcriptOf);
@@ -521,12 +532,17 @@ async function carryOut(req, action, to, dir, deps, now) {
   }
   const table = deps.stewards() || {}, t = table[asker];
   const theirs = handoff ? stewardTable.stewardsOf(table, asker) : [];
-  const listing = LIST.includes(action);
+  const listing = LIST.includes(action), archiving = action === 'archive';
+  const ids = archiving && Array.isArray(req.ids) ? [...new Set(req.ids.map((x) => String(x).toLowerCase()))] : [];
   if (handoff) {
     if (!theirs.length) return { outcome: 'refused', reason: 'no supervisor manages the conversation asking' };
     if (to && !theirs.includes(to)) return { outcome: 'refused', reason: `${to} is not a supervisor of the conversation asking` };
   } else if (action === 'open' || action === 'resume') {
     if (!t) return { outcome: 'refused', reason: 'the one asking is not a supervisor' };
+  } else if (archiving) {
+    if (!t) return { outcome: 'refused', reason: 'the one asking is not a supervisor' };
+    if (!ids.length || ids.some((x) => !SESSION.test(x)) || ids[0] !== to) return { outcome: 'refused', reason: 'the request names no Claude Code conversations' };
+    if (ids.length > ARCHIVE_MAX) return { outcome: 'refused', reason: `it names ${ids.length} conversations; at most ${ARCHIVE_MAX} go in one request` };
   } else if (listing) {
     if (!t) {
       return { outcome: 'refused', reason: stewardTable.stewardsOf(table, asker).length
@@ -545,20 +561,21 @@ async function carryOut(req, action, to, dir, deps, now) {
       return { outcome: 'refused', reason: `${label} conversations take only a plain message; the user renames, closes or reopens one in ${label}` };
     }
   }
-  const { text, why } = listing ? { text: '' } : textFor(action, req.text);
+  const { text, why } = listing || archiving ? { text: '' } : textFor(action, req.text);
   if (why) return { outcome: 'refused', reason: why };
   const confirmed = action === 'close' && req.confirmed === true;
   const file = deps.transcriptOf(asker);
   const seen = {};
   const needle = action === 'rename' ? String(req.text || '').trim() : text;
-  let call = file ? ranBy(file, to, needle, now, action, confirmed, seen) : null;
+  let call = file ? ranBy(file, to, needle, now, action, confirmed, seen, ids) : null;
   const sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   for (let i = 0; file && !call && i < RAN_WAITS_MS.length; i++) {
     await sleep(RAN_WAITS_MS[i]);
-    call = ranBy(file, to, needle, deps.now ? deps.now() : Date.now(), action, confirmed, seen);
+    call = ranBy(file, to, needle, deps.now ? deps.now() : Date.now(), action, confirmed, seen, ids);
   }
-  if (!call && listing && seen.sidechain) {
-    return { outcome: 'refused', reason: 'a subagent ran it; only the supervisor conversation itself, at the user\'s request, changes its list' };
+  if (!call && (listing || archiving) && seen.sidechain) {
+    return { outcome: 'refused', reason: archiving ? 'a subagent ran it; only the supervisor conversation itself, at the user\'s request, archives conversations'
+      : 'a subagent ran it; only the supervisor conversation itself, at the user\'s request, changes its list' };
   }
   if (!call) {
     const what = action === 'open' ? ' for that folder' : handoff || SWITCHES.includes(action) ? '' : ' for that conversation';
@@ -566,9 +583,13 @@ async function carryOut(req, action, to, dir, deps, now) {
       + `${SCRIPT}${FLAGS[action] ? ' ' + FLAGS[action] : ''}${SWITCHES.includes(action) ? ' ' + to : ''}${what}${text ? ' with this text' : ''} `
       + 'in its command in the last 5 minutes; put the text in a here-document inside that command' };
   }
-  if (listing) {
+  if (listing || archiving) {
     const not = typedBefore(file, call.id, path.dirname(dir), deps.now ? deps.now() : Date.now());
-    if (not) return { outcome: 'refused', reason: `only the user, typing in this supervisor conversation, can change its list. The message before the call does not count: ${not}` };
+    if (not) {
+      return { outcome: 'refused', reason: archiving
+        ? `conversations are archived only when the user asks for it, typing in this supervisor conversation. The message before the call does not count: ${not}`
+        : `only the user, typing in this supervisor conversation, can change its list. The message before the call does not count: ${not}` };
+    }
   }
   const key = [asker, to, call.id, action].join(' ');
   if (readSent(dir, now)[key] || carrying.has(key)) return { outcome: 'refused', reason: 'that call has already been carried out' };
@@ -589,6 +610,7 @@ async function carryOut(req, action, to, dir, deps, now) {
           : action === 'resume' ? (deps.resume ? await deps.resume(to, signed) : missing)
             : handoff ? await handOff(theirs, asker, text, table, deps, to)
               : listing ? (deps.list ? await deps.list(asker, action, to) : missing)
+                : archiving ? (deps.archive ? await deps.archive(asker, ids) : missing)
                 : (deps.open ? await deps.open(to, signed) : missing);
     if (r && r.outcome === 'submitted' && text && (action === 'send' || action === 'resume')) noteSend(dir, to, asker, title, text, now);
   } finally { carrying.delete(key); }
@@ -610,6 +632,7 @@ async function carryOut(req, action, to, dir, deps, now) {
   if (r && typeof r.sessionId === 'string' && r.sessionId) out.sessionId = r.sessionId;
   if (r && r.opened === true) out.opened = true;
   if (ticked) out.ticked = true;
+  if (r && Array.isArray(r.results)) out.results = r.results;
   if (r && typeof r.steward === 'string' && r.steward) { out.steward = r.steward; out.stewardTitle = r.stewardTitle || ''; }
   return out;
 }
@@ -633,4 +656,4 @@ async function handOff(stewards, from, text, table, deps, to = '') {
 
 module.exports = { take, settled, ranBy, resume, heldBy, opensHere, handoffText, lastUserAt, lastUserCache, turnStart, turnStarter,
   typedBefore, noteTyped, typedForOthers, RELAY_DIR, MAX_AGE_MS, RAN_MS, RAN_WAITS_MS, SENT_FILE, SENDS_FILE, SENDS_KEEP_MS, TYPED_DIR,
-  TYPED_KEEP_MS, FLAGS, LIST, RESUME_LOAD_MS, MAX_TITLE, RESUME_SHOW_MS, RESUME_SEND_MS };
+  TYPED_KEEP_MS, FLAGS, LIST, USER_ONLY, ARCHIVE_MAX, RESUME_LOAD_MS, MAX_TITLE, RESUME_SHOW_MS, RESUME_SEND_MS };
