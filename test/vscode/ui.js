@@ -5561,9 +5561,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
           await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', c.id);
           await sleep(800);
-          return refuse(await frameOf(c) || frame).catch(async (e) => {
+          /* The page the tab shows after it is opened again draws the prompt a moment later. */
+          const f = await frameOf(c) || frame;
+          await askedBash(f).catch(() => false);
+          return refuse(f).catch(async (e) => {
             const pages = (await pagesOf(c)).map((p) => p.paints);
-            throw new Error(`${String(e.message).split('\n')[0]}; pages showing the conversation: ${JSON.stringify(pages)}`);
+            const tail = await f.evaluate(() => document.body.innerText.slice(-400)).catch(() => '');
+            throw new Error(`${String(e.message).split('\n')[0]}; pages showing the conversation: ${JSON.stringify(pages)}; the end of its text: ${JSON.stringify(tail)}`);
           });
         };
         /* After Open on a notice about `c`: once the second window's tab in front is `c`'s and `frame` shows text
