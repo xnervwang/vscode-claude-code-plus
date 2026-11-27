@@ -43,7 +43,6 @@ function method({ env = {}, settings = {}, config = {} } = {}) {
 
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return {}; } };
 
-/* Parses a NUL-separated environment block, the format of /proc/<pid>/environ, into an object. */
 function parseEnviron(block) {
   const out = {};
   for (const line of String(block || '').split('\0')) {
