@@ -4,9 +4,9 @@
 
 'use strict';
 /*
- * The last state a panel here had for each conversation whose panel went away, which stands in for the panel until
+ * For each conversation whose panel here went away, the last state that panel had. It stands in for the panel until
  * `claude agents` can speak for the conversation again. Closing a tab ends the panel's claude process a moment later,
- * and a list read in that moment still has that process, with the state it last wrote: that can be a wait the user
+ * and a list read before then still shows the process with the last state it wrote, which can be a wait the user
  * answered just before closing. So a gone state is kept until a list read after the panel went has none of the
  * processes the conversation had then. It is kept for at most `trustMs`. A process that was not there then, such as the
  * conversation resumed in a terminal, speaks for it at once. With no list held when the panel went, the first list read
