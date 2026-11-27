@@ -4,7 +4,7 @@
 
 'use strict';
 /*
- * The Steward panel and its notices learn what other agents' conversations are doing from the attention files every
+ * The Supervisor panel and its notices learn what other agents' conversations are doing from the attention files every
  * window with Agent Plus writes in the shared folder (its docs/protocol.md, "Notifications"; each item is checked as
  * readAll in its src/attention.js checks it). hooks/agent_states.py reads them the same way.
  *

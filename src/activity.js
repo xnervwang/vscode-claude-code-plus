@@ -4,7 +4,7 @@
 
 'use strict';
 /*
- * What a conversation is doing, for its dot (src/tabdot.js, the session list, the Steward panel) and for Agent Plus
+ * What a conversation is doing, for its dot (src/tabdot.js, the session list, the Supervisor panel) and for Agent Plus
  * (src/claude-source.js):
  *
  *   working     a turn runs: the panel's busy, or `claude agents` reporting the conversation busy

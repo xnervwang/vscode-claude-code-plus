@@ -347,7 +347,7 @@ const WAIT_OF = (s) => `(()=>{try{let cceR=${s}.permissionRequests.value[0];if(c
    (95-wait-notices.js). Without the page's function the notice is shown as in Claude Code. */
 const WAITS_LEFT = '(typeof window.__cceWaitsAnnounced==="function"&&window.__cceWaitsAnnounced()===!0)';
 
-/* Regex source for a steward link; 93-steward-links.js accepts the same form. */
+/* Regex source for a supervisor link; 93-steward-links.js accepts the same form. */
 const STEWARD_HREF = String.raw`/^vscode:\/\/xnervwang\.claude-code-plus\/open\?session=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:&|$)/i`;
 
 const EDITS = [
@@ -555,9 +555,9 @@ const EDITS = [
   },
   {
     /* react-markdown's default urlTransform keeps only http, https, irc, ircs, mailto and xmpp URLs and returns ""
-       for the rest, so a steward's vscode://xnervwang.claude-code-plus/open?session=<id> link ended up with href=""
+       for the rest, so a supervisor's vscode://xnervwang.claude-code-plus/open?session=<id> link ended up with href=""
        and clicking it did nothing. This lets that one form through. */
-    name: 'steward links pass the link check',
+    name: 'supervisor links pass the link check',
     re: /function ([\w$]+)\(([\w$]+)\)\{(let [\w$]+=\2\.indexOf\(":"\),[\w$]+=\2\.indexOf\("\?"\),[\w$]+=\2\.indexOf\("#"\),[\w$]+=\2\.indexOf\("\/"\);)/g,
     to: (m, fn, url, rest) => `function ${fn}(${url},cceKey){if(typeof ${url}==="string"&&${STEWARD_HREF}.test(${url}))return ${url};`
       + `if(cceKey==="src"&&typeof window.__cceImageSrc==="function"&&window.__cceImageSrc(${url}))return ${url};${rest}`,

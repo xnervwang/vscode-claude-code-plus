@@ -10,7 +10,7 @@
    * conversation-links.js). Claude Code renders a reply's markdown through react-markdown, and the panel's own rehype
    * plugins get one more here (the edit "conversation links in replies", src/webview.js): it puts a link where the tree
    * names a conversation (agentPlusKit.linkMentionsTree), so the link is drawn by Claude Code's own link component and
-   * nothing is written into the panel's nodes. The link's address is the steward's form with the agent's id after it;
+   * nothing is written into the panel's nodes. The link's address is the supervisor's form with the agent's id after it;
    * a click on it is caught in 93-steward-links.js. A reply's blocks are kept from one render to the next, so when the
    * list, this panel's conversation or the switch changes, a signal the reply reads (__cceMentionsRev) is bumped and
    * each of its blocks is rendered again.

@@ -4,7 +4,7 @@
 
 'use strict';
 /*
- * How the stewards table (src/stewards.js) and the relay (src/relay.js) name a conversation. A Claude Code conversation
+ * How the supervisors table (src/stewards.js) and the relay (src/relay.js) name a conversation. A Claude Code conversation
  * is its session id in lower case, as every build has written it; a conversation of another agent that registers with
  * Agent Plus is `<source id>:<session id>`, the session id unchanged, since OpenCode's ids are case sensitive.
  * hooks/steward_table.py checks keys with the same pattern.

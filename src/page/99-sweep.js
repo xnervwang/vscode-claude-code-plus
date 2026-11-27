@@ -143,7 +143,7 @@
       if (promptTs.length && pts < promptTs[promptTs.length - 1]) ordered = false;
       promptTs.push(pts);
     }
-    /* A message that came through the inbox starts a turn as well: a steward's notice, a handoff or another session's
+    /* A message that came through the inbox starts a turn as well: a supervisor's notice, a handoff or another session's
        message. Claude Code draws no user box for such a message, and draws nothing at all when a script posted it.
        Without its time a reply to it was timed from the last message typed, hours or days before. One folded into a
        turn already running starts no new turn. */
@@ -432,7 +432,7 @@
     for (var d = 0; d < rec.removedNodes.length; d++) if (!ours(rec.removedNodes[d])) return false;
     return true;
   };
-  /* Replies that are empty, a single dash, or [[quiet]] (what a steward writes for a notice that needed nothing from
+  /* Replies that are empty, a single dash, or [[quiet]] (what a supervisor writes for a notice that needed nothing from
      the user) are hidden. Rows are checked again on every sweep, so a reply still streaming shows once it has text. */
   var ALIVE_MS = 60000;
   var QUIET_REPLY = /^\s*(?:[-\u2013\u2014\u00b7\u2022]|\[\[quiet\]\])?\s*$/;

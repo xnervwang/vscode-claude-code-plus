@@ -199,7 +199,7 @@ const EDITS = [
    * mark a conversation as having a reply not read yet, which its session list and its clearing on view then treat
    * like its own marks (__cceSetUnread), and whether a tab or the sidebar shows a conversation on screen now
    * (__cceShownVisibly), the test Claude Code makes before it marks one (src/activity.js says when this extension
-   * does). For a steward
+   * does). For a supervisor
    * (src/relay.js): renaming a conversation through the panel showing it, which tells its CLI too (__cceRename), and a
    * message to every panel of this window (__cceToAllPanels), which a new tab with no conversation yet can answer.
    * For Agent Plus's session list, read once when it starts for this project: Claude Code's list of archived conversations
@@ -311,7 +311,7 @@ const EDITS = [
   /*
    * The marks this extension shows with a title (src/title-marks.js) are never stored. Every rename Claude Code stores
    * goes through one method of the panel's connection - the session list's rename box, the tab's Rename Session Tab
-   * command, a steward's rename (src/relay.js) - so the name is stripped of them there, and one that is left empty is
+   * command, a supervisor's rename (src/relay.js) - so the name is stripped of them there, and one that is left empty is
    * not stored. The tab command's box is filled with the conversation's title, which is stripped too, so the person
    * renaming does not see a mark to keep.
    */

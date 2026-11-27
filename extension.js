@@ -255,7 +255,7 @@ function carryOver(context, log) {
 const TOLD_KEY = PREFIX + 'toldEarlierBuild';
 /* How long the first start waits for export.json from the old id's last version. */
 const EXPORT_WAIT_MS = 20000;
-/* How often the stewards' order and titles are looked at for Agent Plus (stewardsOfKey). */
+/* How often the supervisors' order and titles are looked at for Agent Plus (stewardsOfKey). */
 const STEWARD_ORDER_MS = 5000;
 function standAside(context, log, version) {
   log.appendLine(`Work Plan for Claude Code ${version} (${carryover.LEGACY_ID}) is still installed and patches Claude Code itself; `
@@ -382,7 +382,7 @@ function start(context, log, renamed, handing = false) {
   /* Whether this window keeps the state all windows share about running work: which conversation started which
      background session, what runs now, and the ends of detached commands and background sessions with their notices. A
      window running the installed build keeps it. So does a window whose build an install has replaced, as long as no
-     window runs the installed build; the stewards table follows the same rule (src/steward-view.js writesTable).
+     window runs the installed build; the supervisors table follows the same rule (src/steward-view.js writesTable).
      Otherwise, while every window runs an earlier build, a conversation is told that its work ended only once a window
      is reloaded, which can be hours later. */
   let keepsShared = () => false;
@@ -736,7 +736,7 @@ function start(context, log, renamed, handing = false) {
   /* The host's last state of each conversation whose panel here went away (src/gone-states.js, hostStates). */
   const gone = goneStates({ agentsNow: () => claude.agentsNow(), pidsOf: waiting.pidsOf, trustMs: () => AGENTS_TRUST_MS });
   const readTitles = waiting.reader();
-  /* Conversations renamed from the session list or by a steward, whose new conversation is then not named after its
+  /* Conversations renamed from the session list or by a supervisor, whose new conversation is then not named after its
      first message (nameOpened). */
   const renamedByOthers = new Set();
   /* Account & usage is asked again when the conversation in front or the ones running here change, not only when the
@@ -823,7 +823,7 @@ function start(context, log, renamed, handing = false) {
   /* Conversations with a panel or tab in this window, except those the host sees running in another window. */
   const panelList = (name) => { try { const f = globalThis[name]; return typeof f === 'function' ? f() || [] : []; } catch (_) { return []; } };
   const shownList = () => { const elsewhere = panelList('__cceSessionsElsewhere'); return panelList('__cceSessionsShown').filter((id) => !elsewhere.includes(id)); };
-  /* Assigned after the Steward panel is created below, which itself needs the source. */
+  /* Assigned after the Supervisor panel is created below, which itself needs the source. */
   let openAnywhere = null;
   /* The list of running conversations, shared between windows (listAgents in src/waiting.js). A shared list is at most
      20 seconds old when a window takes it, and src/claude-source.js caches it for that window like any other. */
@@ -994,7 +994,7 @@ function start(context, log, renamed, handing = false) {
     shown: () => shownList(),
     open: (sessionId) => (openAnywhere ? openAnywhere(sessionId) : 'nowhere'),
     /* Agent Plus's pen on a Work plan row (prefill in src/claude-source.js). When no panel here shows the conversation,
-       it opens in a tab the way a steward's --resume opens it (resumeConversation below), and its text waits for that
+       it opens in a tab the way a supervisor's --resume opens it (resumeConversation below), and its text waits for that
        tab's page. */
     prefillTo: (sessionId, text, key) => typeof globalThis.__cceToPanel === 'function'
       && globalThis.__cceToPanel(sessionId, { type: 'cce_prefill', sessionId, text, id: key }) === true,
@@ -1030,7 +1030,7 @@ function start(context, log, renamed, handing = false) {
     }
   }
 
-  /* The Steward panel, and the notices it sends a steward when a conversation it manages stops (src/steward-view.js). */
+  /* The Supervisor panel, and the notices it sends a supervisor when a conversation it manages stops (src/steward-view.js). */
   const shownHere = (sessionId) => shownList().includes(sessionId);
   globalThis.__cceAliveHook = () => { pageAt = Date.now(); };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceAliveHook) delete globalThis.__cceAliveHook; } });
@@ -1041,9 +1041,9 @@ function start(context, log, renamed, handing = false) {
     return p && stopProcess(sessionId, p, 'button') ? p : null;
   };
   /*
-   * Rename, close and open requests from a steward (src/relay.js). A rename goes through the panel showing the
+   * Rename, close and open requests from a supervisor (src/relay.js). A rename goes through the panel showing the
    * conversation, so its CLI hears of it too. A conversation that is working, waiting for an answer or running
-   * background work is closed only when the steward says the user confirmed it. How a new conversation gets its first
+   * background work is closed only when the supervisor says the user confirmed it. How a new conversation gets its first
    * message is in src/page/91-answer.js.
    */
   const renameConversation = async (sessionId, title) => {
@@ -1083,7 +1083,7 @@ function start(context, log, renamed, handing = false) {
     opening.clear();
   } });
   /* Claude Code titles a new conversation with its first message until it has a title of its own, and the first message
-     of one a steward started is the steward's line. Once that message is sent, the conversation is named after the
+     of one a supervisor started is the supervisor's line. Once that message is sent, the conversation is named after the
      user's words instead, unless something named it first. Naming is retried each second while Claude Code has no
      transcript to write the title into. */
   const nameOpened = async (sessionId, text) => {
@@ -1131,7 +1131,7 @@ function start(context, log, renamed, handing = false) {
   };
   /* The conversations whose page has said it listens for answers, by session id (src/page/91-answer.js). */
   const ANSWERS_READY = 'cce-answers-ready', answersReady = new Set();
-  /* A stored conversation a steward asked for, in an editor tab here (src/relay.js). Without `programmatic`, Claude Code
+  /* A stored conversation a supervisor asked for, in an editor tab here (src/relay.js). Without `programmatic`, Claude Code
      would also make the editor the user's preferred place to open conversations. The text waits until the new tab's
      page says it listens for that conversation (src/page/91-answer.js); an answer handed over earlier is lost. */
   const resumeConversation = (sessionId, text) => relay.resume(sessionId, text, {
@@ -1180,7 +1180,7 @@ function start(context, log, renamed, handing = false) {
     const remote = path.join(vscode.env.appRoot, 'bin', 'remote-cli', name);
     const cli = [remote, path.join(vscode.env.appRoot, 'bin', name), path.join(vscode.env.appRoot, '..', '..', 'bin', name)]
       .find((p) => { try { return fs.statSync(p).isFile(); } catch (_) { return false; } });
-    if (!cli) { log.appendLine('steward panel: no command line found to bring this window to the front'); return; }
+    if (!cli) { log.appendLine('supervisor panel: no command line found to bring this window to the front'); return; }
     /* The desktop CLI finds the running VS Code by its user data folder, which is not the default one when VS Code was
        started with --user-data-dir; it would then start another VS Code. That folder holds User/globalStorage. */
     const args = [target.fsPath];
@@ -1190,19 +1190,19 @@ function start(context, log, renamed, handing = false) {
       if (path.basename(dir) === 'User') args.unshift('--user-data-dir', path.dirname(dir));
     }
     cp.execFile(cli, args, { timeout: 15000, shell: process.platform === 'win32', windowsHide: true },
-      (e) => { if (e) log.appendLine('steward panel: bringing this window to the front: ' + e.message); });
+      (e) => { if (e) log.appendLine('supervisor panel: bringing this window to the front: ' + e.message); });
   };
   /* The same link clicked in a Claude Code panel, which the page hands here directly (src/page/93-steward-links.js). */
   globalThis.__cceOpenSessionHook = (id) => {
     steward.open(id).then((r) => {
       if (r === 'nowhere') noticeTime.info(vscode, 'That conversation is not open in any VS Code window on this machine.');
-    }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
+    }, (e) => log.appendLine('supervisor panel: ' + ((e && e.message) || e)));
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceOpenSessionHook) delete globalThis.__cceOpenSessionHook; } });
   /* Other conversations named in replies, drawn as links by the panels' page (src/conversation-links.js). */
   const openOwnConversation = (id) => steward.open(id).then((r) => {
     if (r === 'nowhere') noticeTime.info(vscode, 'That conversation is not open in any VS Code window on this machine.');
-  }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
+  }, (e) => log.appendLine('supervisor panel: ' + ((e && e.message) || e)));
   const links = conversationLinks.create({
     on: () => !removed() && !uninstalling() && !switchedOff().includes('conversationLinks'),
     own: async () => {
@@ -1253,7 +1253,7 @@ function start(context, log, renamed, handing = false) {
   globalThis.__ccePlanAskHook = (id) => { planBar.ask(id); };
   globalThis.__ccePlanOpenHook = (id, part) => { planBar.open(id, part).catch((e) => log.appendLine('plan bar: ' + ((e && e.message) || e))); };
   context.subscriptions.push({ dispose: () => { delete globalThis.__ccePlanAskHook; delete globalThis.__ccePlanOpenHook; } });
-  /* vscode://xnervwang.claude-code-plus/open?session=<id>, the link a steward gives for a conversation it names; a link
+  /* vscode://xnervwang.claude-code-plus/open?session=<id>, the link a supervisor gives for a conversation it names; a link
      the page made for another agent's conversation also says which (&source=). */
   context.subscriptions.push(vscode.window.registerUriHandler({
     handleUri(uri) {
@@ -1272,7 +1272,7 @@ function start(context, log, renamed, handing = false) {
     try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
   };
-  /* The stewards of conversation `key`, as Agent Plus asks for them: ordered by when the user last typed to each, most
+  /* The supervisors of conversation `key`, as Agent Plus asks for them: ordered by when the user last typed to each, most
      recent first, which is the order handoffs fall back on (src/relay.js). */
   const userAtOf = relay.lastUserCache();
   const stewardTitleOf = (id, table) => (table[id] && table[id].title) || steward.titleOf(id);
@@ -1280,7 +1280,7 @@ function start(context, log, renamed, handing = false) {
     const table = stewardTable();
     return stewards.byUser(stewards.stewardsOf(table, key), (s) => userAtOf(transcriptOf(s))).map((s) => ({ sessionId: s, title: stewardTitleOf(s, table) }));
   };
-  /* Their order and titles change without the table changing: a steward's newest message from the user, a rename. */
+  /* Their order and titles change without the table changing: a supervisor's newest message from the user, a rename. */
   let stewardOrder = '';
   const stewardOrderTimer = setInterval(() => {
     try {
@@ -1288,7 +1288,7 @@ function start(context, log, renamed, handing = false) {
       const table = stewardTable();
       const now = JSON.stringify(stewards.byUser(Object.keys(table), (s) => userAtOf(transcriptOf(s))).map((s) => [s, stewardTitleOf(s, table)]));
       if (now !== stewardOrder) { const first = !stewardOrder; stewardOrder = now; if (!first) claude.stewardsChanged(); }
-    } catch (e) { log.appendLine('steward order: ' + ((e && e.message) || e)); }
+    } catch (e) { log.appendLine('supervisor order: ' + ((e && e.message) || e)); }
   }, STEWARD_ORDER_MS);
   context.subscriptions.push({ dispose: () => clearInterval(stewardOrderTimer) });
   let stewardWatch = null, stewardSettle = 0;
@@ -1496,7 +1496,7 @@ function start(context, log, renamed, handing = false) {
       }
     } catch (e) { log.appendLine('conversations run twice: ' + ((e && e.message) || e)); }
   };
-  /* The steward hook (hooks/steward.py) cannot ask the editor, so the set is written to a file for it. Every window
+  /* The supervisor hook (hooks/steward.py) cannot ask the editor, so the set is written to a file for it. Every window
      finds the same set, so a window writes the file only when it holds a different set or its writer has exited. */
   const WORKING_FILE = 'working.json';
   const shareWorking = (set) => {

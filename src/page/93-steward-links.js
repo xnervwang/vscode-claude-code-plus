@@ -2,11 +2,11 @@
 // Copyright (c) 2026, Xnerv Wang
 // All rights reserved.
 
-// Steward reply links: clicking a conversation's name opens that conversation, by the same route as the Steward panel.
+// Supervisor reply links: clicking a conversation's name opens that conversation, by the same route as the Supervisor panel.
 // Fragment of the in-page script - see README.md in this folder.
 
   /*
-   * A steward writes a conversation's name as a link to vscode://xnervwang.claude-code-plus/open?session=<id>. Left to
+   * A supervisor writes a conversation's name as a link to vscode://xnervwang.claude-code-plus/open?session=<id>. Left to
    * VS Code, such a link goes through the system's URL handler, and from a Mac it has been seen to reach no window at
    * all. This listener cancels the click and posts the session id to the extension instead (steward.open in
    * src/steward-view.js), which shows the conversation in whichever window has it. A link that 95-conversation-links.js

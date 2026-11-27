@@ -4,11 +4,11 @@
 
 'use strict';
 /*
- * Titles for a steward's tab (stewards are in src/stewards.js): its own title, the name the user gave it or else the
- * one Claude Code shows, with the steward crown after it; a tab whose conversation has a reply not read yet ends in
+ * Titles for a supervisor's tab (supervisors are in src/stewards.js): its own title, the name the user gave it or else the
+ * one Claude Code shows, with the supervisor crown after it; a tab whose conversation has a reply not read yet ends in
  * an envelope, after the crown. The session list draws both apart from the title (src/page/84-row-marks.js), so the list's titles, and
- * the text Claude Code puts in its rename boxes, carry neither. How many conversations a steward manages is in the
- * Steward panel. Which marks there are and how they are taken off a title is src/title-marks.js.
+ * the text Claude Code puts in its rename boxes, carry neither. How many conversations a supervisor manages is in the
+ * Supervisor panel. Which marks there are and how they are taken off a title is src/title-marks.js.
  *
  * Nothing is written to the transcript; a name typed with marks in it is stored without them (the rename edit in
  * src/host.js). When a conversation stops managing any, the crown goes.
@@ -18,7 +18,7 @@ const path = require('path');
 const stewards = require('./stewards');
 const marks = require('./title-marks');
 
-/* The steward mark. */
+/* The supervisor mark. */
 const MARK = marks.CROWN;
 const { ENVELOPE, withoutMarks } = marks;
 
@@ -27,7 +27,7 @@ function stewardTitle(own) {
   return marks.withMarks(own, { steward: true });
 }
 
-/* What a table entry manages: 'all', or how many; tabTitle() treats 0 as not a steward. */
+/* What a table entry manages: 'all', or how many; tabTitle() treats 0 as not a supervisor. */
 const size = (t) => (t.all ? 'all' : t.manages.length);
 
 /*
@@ -57,12 +57,12 @@ function tableReader(dir) {
   };
 }
 
-/* The session ids of the stewards in `table`, in lower case. */
+/* The session ids of the supervisors in `table`, in lower case. */
 const stewardIds = (table) => Object.keys(table || {}).filter((id) => table[id] && size(table[id])).map((id) => id.toLowerCase());
 
 /*
  * Computes a tab's title. current: the title shown now. kept: what this function last set ({ original, shown }), or
- * null. custom: the user's name for the conversation. n: what size() gives, 0 if it is not a steward. own: the
+ * null. custom: the user's name for the conversation. n: what size() gives, 0 if it is not a supervisor. own: the
  * conversation's own title. unseen: whether it has a reply not read yet, and envelope the form to draw it in
  * (src/envelope.js). Returns { title, kept }. A current title other than the one last set came from Claude Code and
  * becomes the one to restore, without the marks it may carry.

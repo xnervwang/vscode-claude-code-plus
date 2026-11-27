@@ -4,11 +4,11 @@
 
 'use strict';
 /*
- * Extra lines for a steward's notices (src/steward-view.js): the tool call that keeps a conversation waiting for the
+ * Extra lines for a supervisor's notices (src/steward-view.js): the tool call that keeps a conversation waiting for the
  * user, and the background sessions and `claude -p` workers it started that ended without finishing. Also, per
- * steward, what it has been told, in NOTICES_DIR of the plan directory, so that a reload does not repeat it. One file
- * for all stewards (GIVEN_FILE) records which steward was given each question or wait of a conversation, so that the
- * user is asked each one once even when the conversation has several stewards.
+ * supervisor, what it has been told, in NOTICES_DIR of the plan directory, so that a reload does not repeat it. One file
+ * for all supervisors (GIVEN_FILE) records which supervisor was given each question or wait of a conversation, so that the
+ * user is asked each one once even when the conversation has several supervisors.
  */
 const fs = require('fs');
 const path = require('path');
@@ -160,7 +160,7 @@ function howEnded(key, session, deps, last = '') {
 }
 
 /*
- * What this steward has been told: { running: { <session>: { <key>: <state at the last look> } }, asked: { <session>:
+ * What this supervisor has been told: { running: { <session>: { <key>: <state at the last look> } }, asked: { <session>:
  * [questions] }, twice: { <session>: <pids of the processes running it> }, stoppedAt: <time of the last stop told> }.
  * A file from the build before states were kept lists the keys alone.
  */

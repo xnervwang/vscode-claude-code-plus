@@ -7,7 +7,7 @@
  * The dot on the Claude logo of a Claude Code tab, which says what the conversation is doing (src/activity.js works it
  * out): green while a turn runs, a green ring once the turn has ended and only background work still runs, red while it
  * waits for you, and none once it has stopped. A reply not read yet is an envelope after the tab's title
- * (src/steward-marks.js), not on the icon. The session list and the Steward panel draw the same dots.
+ * (src/steward-marks.js), not on the icon. The session list and the Supervisor panel draw the same dots.
  *
  * The icons are Claude Code's waiting icon from the running build with its blue dot redrawn in each style, so this
  * extension ships no copy of the logo. A stopped conversation gets Claude Code's plain logo.

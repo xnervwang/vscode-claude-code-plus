@@ -4,11 +4,11 @@
 
 'use strict';
 /*
- * The Steward panel, in VS Code's bottom panel. It is about the conversation in the active Claude Code panel: it lists
+ * The Supervisor panel, in VS Code's bottom panel. It is about the conversation in the active Claude Code panel: it lists
  * every other Claude Code conversation open in a VS Code window on this machine, grouped by window, then the open
- * conversations of the other agents the steward manages (keys.OTHER_SOURCES), one group per agent, and the ticked rows
+ * conversations of the other agents the supervisor manages (keys.OTHER_SOURCES), one group per agent, and the ticked rows
  * are what that conversation manages (src/stewards.js). A conversation open in no window is not listed, since a
- * steward has no way to reach it; ticked ones among them are counted, with a button to untick them.
+ * supervisor has no way to reach it; ticked ones among them are counted, with a button to untick them.
  *
  * The Claude Code candidates are the conversations `claude agents --json` reports, less `claude --bg` sessions and
  * `claude -p` workers, which belong to the conversation that started them; and the stopped conversations whose plans
@@ -17,8 +17,8 @@
  * Agent Plus's attention files (src/agent-states.js). The managed ones come first, with what each is doing, how
  * many questions it has for the user, and when it was last active.
  *
- * The same pass tells a steward when one of its conversations stops (src/stewards.js changes), by a line posted to the
- * steward's inbox socket. Only the window that has the steward conversation open sends it.
+ * The same pass tells a supervisor when one of its conversations stops (src/stewards.js changes), by a line posted to the
+ * supervisor's inbox socket. Only the window that has the supervisor conversation open sends it.
  */
 const fs = require('fs');
 const path = require('path');
@@ -56,7 +56,7 @@ const GONE_MS = 10 * 60000;
 const STATE_KINDS = new Set(['done', 'waiting']);
 const replaces = (x, c) => x.id === c.id && (STATE_KINDS.has(c.what) ? STATE_KINDS.has(x.what)
   : x.what === c.what && (c.what === 'twice' || (c.what === 'ended' ? x.why === c.why : x.stop.pid === c.stop.pid)));
-/* How often the background work of the conversations a steward manages is looked at. */
+/* How often the background work of the conversations a supervisor manages is looked at. */
 const WORK_CHECK_MS = 15000;
 /* <plan dir>/windows/<pid>.json: what each window shows (src/window-entries.js). */
 const WINDOWS_DIR = windowEntries.WINDOWS_DIR;
@@ -162,7 +162,7 @@ const stopText = (p) => `Stops ${duplicates.describe(p)}. The conversation stays
 
 const STATE_TEXT = { working: 'working', background: 'running background work', prompt: 'waiting for you',
   unread: 'finished, not read yet', idle: 'idle' };
-/* STATE_TEXT for the steward's notices, which speak of the user in the third person. */
+/* STATE_TEXT for the supervisor's notices, which speak of the user in the third person. */
 const NOTICE_STATE = { working: 'working', background: 'running background work', prompt: 'waiting for the user',
   unread: 'finished, not read by the user', idle: 'idle' };
 const DOT_TEXT = { working: 'working', background: 'turn ended; background work still running', waiting: 'waiting for you' };
@@ -174,7 +174,7 @@ const ENVELOPE_TEXT = 'Reply not read yet';
 const EYE = '<svg viewBox="0 0 16 16" width="1.1em" height="1.1em" aria-hidden="true"><path fill="none" stroke="currentColor" '
   + 'stroke-width="1.3" d="M1.5 8C3.2 5 5.4 3.5 8 3.5S12.8 5 14.5 8C12.8 11 10.6 12.5 8 12.5S3.2 11 1.5 8Z"/>'
   + '<circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg>';
-const eyesText = (n) => `Also managed by ${n} other steward${n === 1 ? '' : 's'}`;
+const eyesText = (n) => `Also managed by ${n} other supervisor${n === 1 ? '' : 's'}`;
 
 function ago(ms, now) {
   if (!ms) return '';
@@ -185,7 +185,7 @@ function ago(ms, now) {
   return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
 }
 
-/* Returns the managed conversations named in an open row of the steward's plan, by title, session id, or for a Claude
+/* Returns the managed conversations named in an open row of the supervisor's plan, by title, session id, or for a Claude
    Code conversation the id's first eight characters. Every key of another agent starts with its source's name.
    names: key -> title. */
 function waitedOn(plan, ids, names) {
@@ -219,9 +219,9 @@ function alive(pid) {
 }
 
 /*
- * Whether this window writes the stewards table. A window running the installed build does, as it writes every shared
+ * Whether this window writes the supervisors table. A window running the installed build does, as it writes every shared
  * file. A window whose build was replaced by a later install (mine.replaced) leaves shared files to the windows running
- * the installed build, but until one of them is open nobody else keeps the table: a steward set to All would gain
+ * the installed build, but until one of them is open nobody else keeps the table: a supervisor set to All would gain
  * nothing and no tick would be saved. So it writes the table while no live window's entry (`others`,
  * src/window-entries.js) says it runs the installed build. An entry that names this window's own build (mine.build) is
  * ignored: that build is no longer the installed one, and an entry says so only at its window's next pass after an
@@ -288,32 +288,32 @@ function body(model) {
     const on = g.rows.filter((c) => c.managed).length, free = g.rows.filter((c) => !c.lock).length;
     return `
     <div class="group">
-      <label class="ghead" ${free ? '' : 'data-why="Every conversation here is a steward"'}><input type="checkbox" data-group="${esc(g.key)}"
+      <label class="ghead" ${free ? '' : 'data-why="Every conversation here is a supervisor"'}><input type="checkbox" data-group="${esc(g.key)}"
         ${on && on === free ? 'checked' : ''} ${model.every || !free ? 'disabled' : ''} ${on && on < free ? 'data-mixed="1"' : ''}
-        ${free ? `title="Every conversation in ${esc(g.name)} that is not a steward"` : ''}>
+        ${free ? `title="Every conversation in ${esc(g.name)} that is not a supervisor"` : ''}>
         <span class="gname">${esc(g.name)}</span><span class="count">${on}/${g.rows.length}</span></label>
       <ul>${g.rows.map(row).join('')}</ul>
     </div>`;
   };
   const stale = model.stale ? `<p class="stale">This window runs an earlier build of Claude Code Plus than the one now installed, so
-      ticks made here are not saved${model.every ? ' and new conversations are not added to this steward' : ''}.
+      ticks made here are not saved${model.every ? ' and new conversations are not added to this supervisor' : ''}.
       <button data-act="reload">Reload Window</button></p>` : '';
   const away = model.hidden ? `<p class="away">${model.hidden} ticked conversation${model.hidden === 1 ? ' is' : 's are'} not open in any
-      VS Code window, so the steward cannot send ${model.hidden === 1 ? 'it' : 'them'} anything; not listed.
+      VS Code window, so the supervisor cannot send ${model.hidden === 1 ? 'it' : 'them'} anything; not listed.
       <button data-act="drop-hidden">Untick ${model.hidden === 1 ? 'it' : 'them'}</button></p>` : '';
   if (model.other) {
     const name = model.other.title ? `"${esc(model.other.title)}"` : 'The tab in front';
     return model.other.manageable
-      ? `<p class="empty">${name} is an ${esc(model.other.agent)} conversation, which cannot be a steward. To have it managed, bring a Claude Code conversation to the front and tick it there.</p>`
-      : `<p class="empty">${name} is a ${esc(model.other.agent)} conversation, which can neither be a steward nor be managed.</p>`;
+      ? `<p class="empty">${name} is an ${esc(model.other.agent)} conversation, which cannot be a supervisor. To have it managed, bring a Claude Code conversation to the front and tick it there.</p>`
+      : `<p class="empty">${name} is a ${esc(model.other.agent)} conversation, which can neither be a supervisor nor be managed.</p>`;
   }
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
     : `<div class="head"><span class="who"><span>Managed by </span><b><span class="t">${esc(titleMarks.withoutMarks(model.front.title))}</span>${
         model.managed || model.every || model.later ? `<span class="crown"> ${titleMarks.CROWN}</span>` : ''}</b><span>: ${model.managed}</span></span>
-         <label class="every" title="Ticks every conversation listed and every one opened later. Stewards are never ticked.">
+         <label class="every" title="Ticks every conversation listed and every one opened later. Supervisors are never ticked.">
            <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''}> All, including new ones</label>
-         <label class="every" title="Ticks every conversation that starts from now on, except stewards. Conversations open now keep their ticks.">
+         <label class="every" title="Ticks every conversation that starts from now on, except supervisors. Conversations open now keep their ticks.">
            <input type="checkbox" data-later="1" ${model.later ? 'checked' : ''}> New conversations</label>
          <span class="acts"><button data-act="all" ${model.every ? 'disabled' : ''}>Select all</button><button data-act="none" ${model.every ? 'disabled' : ''}>Clear</button></span></div>${stale}${away}
        ${model.groups.length ? model.groups.map(group).join('') : '<p class="empty">No other conversation is open in a VS Code window.</p>'}`;
@@ -329,7 +329,7 @@ function shell(list, nonce) {
 <style nonce="${nonce}">
   body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); padding: 4px 8px; }
   .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 6px; }
-  /* One line however narrow the panel: the steward's title gives way, its crown and the count stay. */
+  /* One line however narrow the panel: the supervisor's title gives way, its crown and the count stay. */
   .who { display: flex; align-items: baseline; flex: 1 1 14em; min-width: 0; white-space: nowrap; opacity: 0.85; }
   .who > span:first-child, .who .crown { white-space: pre; }
   .who b { display: inline-flex; min-width: 0; }
@@ -433,10 +433,10 @@ function shell(list, nonce) {
  * do with a Reload Window button, reload(), enabled(), log(message), home, dir (the plan directory), windowName(),
  * windowFolders() and shownList() for this window's name, folders and the conversations it shows, and optionally
  * isBackground(id, cwd), records() -> the live session records, alive(pid), post(address, text) in place of
- * stewards.post, changed(), which runs once this window has rewritten the stewards table, focusWindow(), which brings
+ * stewards.post, changed(), which runs once this window has rewritten the supervisors table, focusWindow(), which brings
  * this window to the front, transcriptOf(id), and deliver(id, text), which types text into the conversation's message
  * input here (src/relay.js), rename(id, title), close(id, confirmed), open(folder, text) and resume(id, text) for a
- * steward's other requests (src/relay.js), with agentsFresh() -> Promise<{ records, error }> from a fresh
+ * supervisor's other requests (src/relay.js), with agentsFresh() -> Promise<{ records, error }> from a fresh
  * `claude agents --json` before a resume, readState(id) for a `claude --bg` session's state (src/background.js),
  * duplicates() for the conversations run by several processes, rereadDuplicates() to read them again and
  * stopDuplicate(id) to stop the old one (src/duplicates.js), pageAt() for the time of a page's last heartbeat, otherFront() -> { agent, title, manageable }
@@ -456,7 +456,7 @@ function create(vscode, deps) {
   const states = new Map();
   const link = stewardCore.link({ changed: () => { pass(); }, log: deps.log });
   const core = () => link.core();
-  /* Plan paths the stewards table records for other agents' conversations, read once per pass. */
+  /* Plan paths the supervisors table records for other agents' conversations, read once per pass. */
   let recorded = {};
   const recordedPaths = () => {
     const out = {};
@@ -512,8 +512,8 @@ function create(vscode, deps) {
   /* The title the panel uses when its text names a conversation. */
   const nameOf = (id, all = last) => (all.get(id) && all.get(id).title)
     || titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: id, name: '', cwd: '' }, deps.titles({ sessionId: id }), () => deps.readPlan(id))) || id;
-  /* Only the box of a steward is locked, since stewards are never managed. */
-  const lockOf = (table, id) => (table[id] ? { lock: true, why: 'This conversation is a steward, and a steward is not managed by another', by: 'a steward' }
+  /* Only the box of a supervisor is locked, since supervisors are never managed. */
+  const lockOf = (table, id) => (table[id] ? { lock: true, why: 'This conversation is a supervisor, and a supervisor is not managed by another', by: 'a supervisor' }
     : { lock: false, why: '', by: '' });
 
   /* This window's entry in the windows folder, written when what it shows changes and once a minute besides. */
@@ -526,7 +526,7 @@ function create(vscode, deps) {
     const b = deps.build();
     if (b) { entry.build = b.code || ''; entry.installed = b.installed === true; }
     return entry;
-  }, { log: (m) => deps.log('steward panel: ' + m) });
+  }, { log: (m) => deps.log('supervisor panel: ' + m) });
   const publish = (now = Date.now()) => {
     if (deps.canShare() && writeEntry(now)) published = true;
   };
@@ -542,11 +542,11 @@ function create(vscode, deps) {
     if (toldStale) return;
     toldStale = true;
     deps.offerReload('The tick is not saved: this window is running an earlier build of Claude Code Plus than the one now '
-      + 'installed, and a window running that one keeps the stewards list. Reload the window to change what a steward manages.');
+      + 'installed, and a window running that one keeps the supervisors list. Reload the window to change what a supervisor manages.');
   };
 
-  /* The list for a steward with "all" set: every conversation open in a window, another agent's included, except
-     itself and other stewards. */
+  /* The list for a supervisor with "all" set: every conversation open in a window, another agent's included, except
+     itself and other supervisors. */
   const everyIds = (steward, table) => {
     const wins = windows();
     return [...last.keys()].filter((id) => id !== steward && !table[id]
@@ -570,7 +570,7 @@ function create(vscode, deps) {
   };
   /* The other agents' conversations listed now, which "New conversations" leaves alone when it is turned on. */
   const otherKeys = () => [...last.keys()].filter((id) => keys.isOther(id));
-  /* Conversations that started after steward `t` turned "New conversations" on and are not on its list yet. */
+  /* Conversations that started after supervisor `t` turned "New conversations" on and are not on its list yet. */
   const newIds = (steward, t, table) => {
     const wins = windows();
     return [...last.keys()].filter((id) => id !== steward && !table[id] && !t.manages.includes(id) && !t.newSkip.includes(id)
@@ -583,9 +583,9 @@ function create(vscode, deps) {
     return names;
   };
   /*
-   * For each steward with "all" set whose conversation is open in this window, adds the conversations everyIds finds
+   * For each supervisor with "all" set whose conversation is open in this window, adds the conversations everyIds finds
    * to its list. A conversation is removed only after GONE_MS outside every window. A window that has just woken up
-   * or reconnected publishes its list a little late, and removing its conversations at once made the steward's
+   * or reconnected publishes its list a little late, and removing its conversations at once made the supervisor's
    * messages to them fail meanwhile.
    */
   const absentSince = new Map();
@@ -636,13 +636,13 @@ function create(vscode, deps) {
   };
 
   /*
-   * Notices for the stewards whose panel this window shows. A notice starts a turn in an idle steward, so it is sent
+   * Notices for the supervisors whose panel this window shows. A notice starts a turn in an idle supervisor, so it is sent
    * only if a conversation began waiting for the user, has more questions for the user than at the last pass, ended a
-   * turn that this steward's message started or while the steward's plan names it, or has background work that ended
-   * without finishing. A wait or a new question wakes only one of the conversation's stewards: of those some window
-   * shows, the one the user typed to most recently (ownerOf). The record of which steward was given each one
-   * (src/steward-watch.js given) keeps the others from putting it to the user again. A steward gets at most one notice
-   * per NOTICE_GAP_MS; conversations often stop within a minute of each other. What a steward has been told is read
+   * turn that this supervisor's message started or while the supervisor's plan names it, or has background work that ended
+   * without finishing. A wait or a new question wakes only one of the conversation's supervisors: of those some window
+   * shows, the one the user typed to most recently (ownerOf). The record of which supervisor was given each one
+   * (src/steward-watch.js given) keeps the others from putting it to the user again. A supervisor gets at most one notice
+   * per NOTICE_GAP_MS; conversations often stop within a minute of each other. What a supervisor has been told is read
    * from its file once and written back as it changes.
    */
   const pending = new Map(), sentAt = new Map(), asked = new Map(), told = new Map(), workAt = new Map();
@@ -667,7 +667,7 @@ function create(vscode, deps) {
     return after;
   };
   const userAt = relay.lastUserCache();
-  /* For another agent's conversation, the steward whose message it got last, read from the file beside its plan that
+  /* For another agent's conversation, the supervisor whose message it got last, read from the file beside its plan that
      its agent writes at the end of each turn (hooks/steward-peek.py reads the same file). */
   const otherStarter = (id) => {
     const file = planFile(id);
@@ -750,13 +750,13 @@ function create(vscode, deps) {
       const rec = live().find((r) => r && r.sessionId === steward && typeof r.messagingSocketPath === 'string');
       const t = toldOf(steward), names = Object.assign({}, table[steward].names), details = {}, asks = {};
       const given = watch.loadGiven(deps.dir), giving = [];
-      // Another steward of the conversation that was given it, or ''.
+      // Another supervisor of the conversation that was given it, or ''.
       const holder = (id, k) => { const g = given[id] && given[id][k]; return g && g.steward !== steward && stewards.manages(table, g.steward, id) ? g.steward : ''; };
       for (const c of list) {
         const now = last.get(c.id);
         if (!now || details[c.id]) continue;
         names[c.id] = now.title;
-        // Skip the questions this steward was given or told of before, and those given to another steward.
+        // Skip the questions this supervisor was given or told of before, and those given to another supervisor.
         const before = t.asked[c.id] || [], qs = now.asks || [], rows = now.askRows || [], mine = [], held = [];
         asks[c.id] = qs.slice();
         qs.forEach((q, i) => {
@@ -786,7 +786,7 @@ function create(vscode, deps) {
           watch.saveGiven(deps.dir, fresh, { now, current: (id) => (last.get(id) ? last.get(id).askRows || [] : null) });
         }
       }
-      deps.log(`steward ${steward}: ${list.length} change(s) ${sent ? 'sent' : 'not sent, no inbox reached'}`);
+      deps.log(`supervisor ${steward}: ${list.length} change(s) ${sent ? 'sent' : 'not sent, no inbox reached'}`);
     }
   };
 
@@ -797,7 +797,7 @@ function create(vscode, deps) {
     if (keys.isOther(id)) {
       const p = keys.parse(id), c = last.get(id);
       try { await deps.openOther({ sourceId: p.sourceId, sessionId: p.sessionId, title: c ? c.title : '', cwd: c ? c.cwd : '' }); return 'sent'; }
-      catch (e) { deps.log('steward panel: ' + ((e && e.message) || e)); return 'nowhere'; }
+      catch (e) { deps.log('supervisor panel: ' + ((e && e.message) || e)); return 'nowhere'; }
     }
     if (typeof id !== 'string' || !SESSION.test(id)) return 'nowhere';
     if (deps.shownHere(id) && await deps.reveal(id)) return 'here';
@@ -807,7 +807,7 @@ function create(vscode, deps) {
       writeAtomic(path.join(deps.dir, WINDOWS_DIR, w.pid + OPEN_SUFFIX), JSON.stringify({ session: id, at: Date.now() }) + '\n');
       return 'sent';
     } catch (e) {
-      deps.log('steward panel: ' + ((e && e.message) || e));
+      deps.log('supervisor panel: ' + ((e && e.message) || e));
       return 'nowhere';
     }
   };
@@ -829,13 +829,13 @@ function create(vscode, deps) {
     try {
       requestWatch = fs.watch(path.join(deps.dir, WINDOWS_DIR), { persistent: false }, (event, name) => {
         if (name && name !== process.pid + OPEN_SUFFIX) return;
-        takeRequest().catch((e) => deps.log('steward panel: ' + ((e && e.message) || e)));
+        takeRequest().catch((e) => deps.log('supervisor panel: ' + ((e && e.message) || e)));
       });
       requestWatch.on('error', () => { try { requestWatch.close(); } catch (_) { /* closed */ } requestWatch = null; });
     } catch (_) { requestWatch = null; }
   };
 
-  /* Turns a steward's "All, including new ones" (`which` 'all') or "New conversations" ('new') on or off. */
+  /* Turns a supervisor's "All, including new ones" (`which` 'all') or "New conversations" ('new') on or off. */
   const setSwitch = (steward, which, on) => {
     const t = stewards.read(deps.dir)[steward];
     const mine = t ? t.manages : [];
@@ -854,18 +854,18 @@ function create(vscode, deps) {
     const pool = onList ? t.manages : [...new Set([...last.keys()].concat(t.manages))];
     const hits = pool.filter((id) => titleOf(id) === g);
     if (hits.length === 1) return { key: hits[0] };
-    if (!hits.length) return { why: `no conversation${onList ? ' on this steward\'s list' : ' open in a VS Code window'} has the title "${g}"; give its session id` };
+    if (!hits.length) return { why: `no conversation${onList ? ' on this supervisor\'s list' : ' open in a VS Code window'} has the title "${g}"; give its session id` };
     return { why: `${hits.length} conversations have the title "${g}" (${hits.join(', ')}); give the session id of the one meant` };
   };
   /*
-   * Carries out a steward's request to change its own list: `take` or `drop` one conversation, or turn `all` or `new`
-   * on or off. The user made the request in that steward conversation, which src/relay.js checks.
+   * Carries out a supervisor's request to change its own list: `take` or `drop` one conversation, or turn `all` or `new`
+   * on or off. The user made the request in that supervisor conversation, which src/relay.js checks.
    */
   const listChange = (steward, action, target) => {
     const refuse = (reason) => ({ outcome: 'refused', reason });
     if (!writes()) return refuse('this window runs an earlier build of Claude Code Plus than the one now installed, so it does not save the list; reload the window');
     const table = stewards.read(deps.dir);
-    if (!table[steward]) return refuse(stewards.stewardsOf(table, steward).length ? 'a steward manages this conversation' : 'this conversation is not a steward');
+    if (!table[steward]) return refuse(stewards.stewardsOf(table, steward).length ? 'a supervisor manages this conversation' : 'this conversation is not a supervisor');
     const t = table[steward];
     const done = (reason) => { deps.changed(); render(true); return { outcome: 'submitted', reason }; };
     if (action === 'all' || action === 'new') {
@@ -873,29 +873,29 @@ function create(vscode, deps) {
       const was = action === 'all' ? t.all : !!t.newSince;
       if (was === on) return { outcome: 'submitted', reason: `${name} was already ${target}` };
       setSwitch(steward, action, on);
-      return done(`${name} is now ${target} for this steward in the Steward panel`);
+      return done(`${name} is now ${target} for this supervisor in the Supervisor panel`);
     }
     const n = named(target, steward, table, action === 'drop');
     if (n.why) return refuse(n.why);
     const id = n.key, label = `"${nameOf(id)}" (${id})`;
     if (action === 'take') {
-      if (id === steward) return refuse('a steward does not manage itself');
-      if (table[id]) return refuse(`${label} is a steward, so no steward can manage it`);
-      if (!keys.isClaude(id) && !keys.allowed(id)) return refuse(`a steward cannot manage ${keys.labelOf(id)} conversations`);
-      if (t.manages.includes(id)) return { outcome: 'submitted', reason: `${label} was already ticked for this steward` };
-      if (t.all) return { outcome: 'submitted', reason: `All, including new ones, is on, so this steward manages ${label} already` };
+      if (id === steward) return refuse('a supervisor does not manage itself');
+      if (table[id]) return refuse(`${label} is a supervisor, so no supervisor can manage it`);
+      if (!keys.isClaude(id) && !keys.allowed(id)) return refuse(`a supervisor cannot manage ${keys.labelOf(id)} conversations`);
+      if (t.manages.includes(id)) return { outcome: 'submitted', reason: `${label} was already ticked for this supervisor` };
+      if (t.all) return { outcome: 'submitted', reason: `All, including new ones, is on, so this supervisor manages ${label} already` };
       stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: nameOf(id) }),
         { dir: deps.dir, ticked: t.ticked.concat(id), paths: plansOf([id]), title: nameOf(steward) });
-      return done(`${label} is now ticked for this steward in the Steward panel`);
+      return done(`${label} is now ticked for this supervisor in the Supervisor panel`);
     }
-    if (t.all) return refuse('All, including new ones, is on, so this steward manages every conversation; turn it off first with --all off');
-    if (!t.manages.includes(id)) return refuse(`${label} is not on this steward's list`);
+    if (t.all) return refuse('All, including new ones, is on, so this supervisor manages every conversation; turn it off first with --all off');
+    if (!t.manages.includes(id)) return refuse(`${label} is not on this supervisor's list`);
     stewards.setManaged(steward, t.manages.filter((x) => x !== id), titlesOf(t.manages), { dir: deps.dir, paths: plansOf(t.manages), title: nameOf(steward) });
-    return done(`${label} is no longer ticked for this steward in the Steward panel`);
+    return done(`${label} is no longer ticked for this supervisor in the Supervisor panel`);
   };
 
-  /* A steward's requests for a conversation this window shows, for a new one in a folder it has open, or to open one
-     started in such a folder, and handoffs to a steward this window shows (src/relay.js).
+  /* A supervisor's requests for a conversation this window shows, for a new one in a folder it has open, or to open one
+     started in such a folder, and handoffs to a supervisor this window shows (src/relay.js).
      The folder is watched, and each pass also looks, in case the watch missed one or the folder did not exist yet when
      the watch was set. */
   let relayWatch = null, relaying = false;
@@ -913,7 +913,7 @@ function create(vscode, deps) {
         transcriptOf: deps.transcriptOf, deliver: deps.deliver, rename: deps.rename, close: deps.close, open: deps.open,
         resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsFresh || deps.freshAgents,
         records: deps.records, post: deps.post, titleOf, deliverOther: (key, text) => stewardCore.deliverTo(core(), key, text),
-        later: (r) => deps.log(`steward relay to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`),
+        later: (r) => deps.log(`supervisor relay to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`),
         manage: (steward, id) => {
           if (!writes()) return false;
           const t = stewards.read(deps.dir)[steward];
@@ -926,9 +926,9 @@ function create(vscode, deps) {
         },
         list: listChange,
         pid: process.pid })) {
-        deps.log(`steward ${r.action === 'send' ? 'relay' : r.action} to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`);
+        deps.log(`supervisor ${r.action === 'send' ? 'relay' : r.action} to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`);
       }
-    } catch (e) { deps.log('steward relay: ' + ((e && e.message) || e)); } finally { relaying = false; }
+    } catch (e) { deps.log('supervisor relay: ' + ((e && e.message) || e)); } finally { relaying = false; }
   };
   const watchRelays = () => {
     if (relayWatch) return;
@@ -941,7 +941,7 @@ function create(vscode, deps) {
     } catch (_) { relayWatch = null; }
   };
 
-  /* Skipped while the panel is hidden and no steward here needs notices: a pass reads every plan and transcript end. */
+  /* Skipped while the panel is hidden and no supervisor here needs notices: a pass reads every plan and transcript end. */
   /* Said once per window. */
   let toldNewer = false;
   const pass = async () => {
@@ -967,9 +967,9 @@ function create(vscode, deps) {
         const v = stewards.newer(deps.dir);
         if (v && !toldNewer) {
           toldNewer = true;
-          deps.log(`steward panel: stewards.json is version ${v}, from a later build of Claude Code Plus; this window reads it and does not write it`);
+          deps.log(`supervisor panel: stewards.json is version ${v}, from a later build of Claude Code Plus; this window reads it and does not write it`);
         }
-        if (stewards.migrate(deps.dir)) deps.log('steward panel: rewrote stewards.json so that no steward is on a list');
+        if (stewards.migrate(deps.dir)) deps.log('supervisor panel: rewrote stewards.json so that no supervisor is on a list');
         const names = {};
         for (const [id, c] of last) names[id] = c.title;
         stewards.rename(names, { dir: deps.dir });
@@ -978,7 +978,7 @@ function create(vscode, deps) {
       render();
       await notify();
     } catch (e) {
-      deps.log('steward panel: ' + ((e && e.message) || e));
+      deps.log('supervisor panel: ' + ((e && e.message) || e));
     } finally { busy = false; }
   };
 
@@ -1042,7 +1042,7 @@ function create(vscode, deps) {
     resolveWebviewView(v) {
       view = v;
       v.webview.options = { enableScripts: true };
-      v.webview.onDidReceiveMessage((m) => { onMessage(m).catch((e) => deps.log('steward panel: ' + ((e && e.message) || e))); });
+      v.webview.onDidReceiveMessage((m) => { onMessage(m).catch((e) => deps.log('supervisor panel: ' + ((e && e.message) || e))); });
       v.onDidChangeVisibility(() => { shown = null; render(); });
       v.onDidDispose(() => { if (view === v) view = null; });
       shown = null;

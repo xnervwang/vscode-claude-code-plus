@@ -4,13 +4,13 @@
 
 'use strict';
 /*
- * What the steward needs of Agent Plus to manage another agent's conversations (its docs/protocol.md, "The interface"):
- * allConversations(), planPathOf() and deliver(). Without all three, the Steward panel lists Claude Code conversations
+ * What the supervisor needs of Agent Plus to manage another agent's conversations (its docs/protocol.md, "The interface"):
+ * allConversations(), planPathOf() and deliver(). Without all three, the Supervisor panel lists Claude Code conversations
  * only.
  *
  * allConversations() is kept current only while something listens to onDidChangeAllConversations. An Agent Plus window
  * writes its attention files, which src/agent-states.js reads for what each conversation is doing, only while its
- * notifications are on or something listens. So the steward subscribes, while link().want(true) says it has a use for
+ * notifications are on or something listens. So the supervisor subscribes, while link().want(true) says it has a use for
  * them, and a change only redraws the panel.
  */
 const keys = require('./steward-keys');
@@ -72,7 +72,7 @@ function link({ changed = () => {}, log = () => {} } = {}) {
   const follow = () => {
     if (closed || !wanted || !ready(core)) { unhook(); return; }
     if (sub) return;
-    try { sub = core.onDidChangeAllConversations(() => { if (!closed) changed(); }); } catch (e) { sub = null; log(`steward panel: ${(e && e.message) || e}`); }
+    try { sub = core.onDidChangeAllConversations(() => { if (!closed) changed(); }); } catch (e) { sub = null; log(`supervisor panel: ${(e && e.message) || e}`); }
   };
   return {
     attach(next) { unhook(); core = next || null; follow(); },

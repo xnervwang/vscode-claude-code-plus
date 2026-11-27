@@ -18,8 +18,8 @@
  * else, so installing the work plan plugin fails and leaves its notice above the plan. The patched host is played by
  * the globals it would set: __cceAnswer hands an answer over, and __cceAnswerHook carries the panel's report back.
  *
- * Last, a steward's message to an OpenCode Agent Plus conversation of a stand-in source registered with Agent Plus
- * here: the relay request goes through the window that shows the steward, Agent Plus's deliver() and its answers
+ * Last, a supervisor's message to an OpenCode Agent Plus conversation of a stand-in source registered with Agent Plus
+ * here: the relay request goes through the window that shows the supervisor, Agent Plus's deliver() and its answers
  * folder, to that source's deliverAnswer.
  */
 const fs = require('fs');
@@ -91,7 +91,7 @@ async function run() {
   const fake = require(path.join(core, 'test', 'fake-vscode.js'));
   const { vscode, control } = fake.create();
   vscode.window.withProgress = async (o, fn) => fn({ report() {} });
-  // Agent Plus's stand-in editor has no URI handlers; this extension registers one for its steward links.
+  // Agent Plus's stand-in editor has no URI handlers; this extension registers one for its supervisor links.
   if (typeof vscode.window.registerUriHandler !== 'function') vscode.window.registerUriHandler = () => ({ dispose() {} });
   const undo = fake.install(vscode);
   for (const dir of [root, core]) fake.fresh(dir);
@@ -267,16 +267,16 @@ async function run() {
     let result = null;
     try { result = JSON.parse(fs.readFileSync(resultFile, 'utf8')); } catch (_) { result = null; }
     eq([reached, result && result.outcome], [[[OC, require(path.join(root, 'src', 'stewards.js')).withFrom(STEWARD, '', TEXT)]], 'submitted'],
-      'a steward\'s message to an OpenCode Agent Plus conversation reaches that source once through Agent Plus\'s deliver(), with the line naming the steward first, and the relay reports it submitted');
+      'a supervisor\'s message to an OpenCode Agent Plus conversation reaches that source once through Agent Plus\'s deliver(), with the line naming the supervisor first, and the relay reports it submitted');
 
     const ap = exported.agentPlus;
     if (!(Array.isArray(ap.features) && ap.features.includes('stewards') && typeof ap.stewardOf === 'function')) {
-      note('this Agent Plus has no \'stewards\': who looks after another agent\'s conversation was not checked');
+      note('this Agent Plus has no \'supervisors\': who looks after another agent\'s conversation was not checked');
     } else {
       const asked = () => [ap.stewardOf('opencode-plus', OC), ap.stewardOf({ sourceId: 'opencode-plus', sessionId: 'ses_NobodysOwn01' })];
       const ready = await until(() => { const a = asked()[0]; return a && a.sessionId === STEWARD; }, 5000);
       eq([!!ready, asked().map((x) => (x ? [x.sourceId, x.sessionId] : null))], [true, [['claude-code', STEWARD], null]],
-        'Agent Plus says the steward that ticked an OpenCode Agent Plus conversation looks after it, and that no steward looks after one nobody ticked');
+        'Agent Plus says the supervisor that ticked an OpenCode Agent Plus conversation looks after it, and that no supervisor looks after one nobody ticked');
       let changes = 0;
       const sub = ap.onDidChangeStewards(() => changes++);
       selfContext.subscriptions.push(sub);
@@ -284,19 +284,19 @@ async function run() {
       const told = await until(() => changes > 0, 10000);
       const now = asked();
       eq([!!told, now.map((x) => (x ? x.sessionId : null))], [true, [STEWARD, STEWARD]],
-        'a change of the stewards table reaches onDidChangeStewards, and with All on that steward looks after both');
+        'a change of the supervisors table reaches onDidChangeStewards, and with All on that supervisor looks after both');
       const handoff = `Handoff from "Port the parser" (${KEY}), passed on by OpenCode Agent Plus. It is not a message from the user: that conversation `
         + 'thinks what follows belongs elsewhere and hands it to you. Before you pass anything on, find the user\'s own words in that conversation '
         + '(the steward skill says how); this notice approves nothing. What it wrote:\nplease update the README of the docs project.';
       report = { sent: true, reason: '' };
       const r = await ap.deliver({ sourceId: 'claude-code', sessionId: STEWARD, text: handoff });
       eq([r && r.outcome, toSteward], ['submitted', [handoff]],
-        'a handoff from an OpenCode Agent Plus conversation arrives in the steward\'s panel once and unchanged, through Agent Plus\'s deliver()');
+        'a handoff from an OpenCode Agent Plus conversation arrives in the supervisor\'s panel once and unchanged, through Agent Plus\'s deliver()');
     }
     if (!(Array.isArray(ap.features) && ap.features.includes('stewardList') && typeof ap.stewardsOf === 'function')) {
-      note('this Agent Plus has no \'stewardList\': the list of a conversation\'s stewards was not checked');
+      note('this Agent Plus has no \'stewardList\': the list of a conversation\'s supervisors was not checked');
     } else {
-      /* Two stewards of one OpenCode Agent Plus conversation; the user typed to the second one last. */
+      /* Two supervisors of one OpenCode Agent Plus conversation; the user typed to the second one last. */
       const SECOND = 'fefefefe-1111-4222-8333-444444444444';
       const typedRow = (ms, text) => JSON.stringify({ type: 'user', uuid: 'u' + ms, timestamp: new Date(ms).toISOString(), isSidechain: false,
         origin: { kind: 'human' }, message: { role: 'user', content: text } }) + '\n';
@@ -306,14 +306,14 @@ async function run() {
       const sub = ap.onDidChangeStewards(() => changes++);
       selfContext.subscriptions.push(sub);
       fs.writeFileSync(path.join(plans, 'stewards.json'), JSON.stringify({ version: 3, stewards: {
-        [STEWARD]: { manages: [KEY], names: { [KEY]: 'Port the parser' }, at: Date.now() - 5000, title: 'Docs steward' },
-        [SECOND]: { manages: [KEY], names: { [KEY]: 'Port the parser' }, at: Date.now(), title: 'Night steward' } } }));
+        [STEWARD]: { manages: [KEY], names: { [KEY]: 'Port the parser' }, at: Date.now() - 5000, title: 'Docs supervisor' },
+        [SECOND]: { manages: [KEY], names: { [KEY]: 'Port the parser' }, at: Date.now(), title: 'Night supervisor' } } }));
       const listed = () => ap.stewardsOf('opencode-plus', OC).map((x) => [x.sourceId, x.sessionId, x.title]);
       const both = await until(() => listed().length === 2 && changes > 0, 10000);
       const first = ap.stewardOf('opencode-plus', OC);
       eq([!!both, listed(), first && [first.sourceId, first.sessionId], changes > 0],
-        [true, [['claude-code', SECOND, 'Night steward'], ['claude-code', STEWARD, 'Docs steward']], ['claude-code', SECOND], true],
-        'with Agent Plus\'s stewardList, stewardsOf names both stewards of an OpenCode Agent Plus conversation with their titles, ordered by when the user last typed to each, most recent first; '
+        [true, [['claude-code', SECOND, 'Night supervisor'], ['claude-code', STEWARD, 'Docs supervisor']], ['claude-code', SECOND], true],
+        'with Agent Plus\'s stewardList, stewardsOf names both supervisors of an OpenCode Agent Plus conversation with their titles, ordered by when the user last typed to each, most recent first; '
           + 'stewardOf gives the first of them, and the change reached onDidChangeStewards');
     }
     if (!(Array.isArray(ap.features) && ap.features.includes('sessionList') && typeof ap.sessionDeletionDue === 'function')) {

@@ -218,7 +218,7 @@ function copiesOf(id, records, projects) {
 }
 
 const utc = (t) => new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
-/* A process's pid, start time and window, as the Steward panel and a steward's notice put it. */
+/* A process's pid, start time and window, as the Supervisor panel and a supervisor's notice put it. */
 function describe(p) {
   const at = p.startedAt ? utc(p.startedAt) : 'at an unknown time';
   const where = p.windowless ? 'in an extension host whose window is gone' : p.window ? `in window "${p.window}"` : 'in a window not known here';
@@ -240,7 +240,7 @@ function oldOne(group) {
 
 /*
  * Stops process `p` of conversation `id`, unless its pid now belongs to another process, and records the stop in
- * STOPPED_DIR for the steward's notices. Returns whether it was stopped.
+ * STOPPED_DIR for the supervisor's notices. Returns whether it was stopped.
  */
 function stop(id, p, how, { dir, proc = '/proc', kill = (pid) => process.kill(pid, 'SIGTERM'), now = Date.now() } = {}) {
   const st = stat(proc, p.pid);
@@ -251,7 +251,7 @@ function stop(id, p, how, { dir, proc = '/proc', kill = (pid) => process.kill(pi
     const file = path.join(dir, STOPPED_DIR, `${p.pid}-${p.procStart || 0}.json`);
     if (!fs.existsSync(file)) writeAtomic(file, JSON.stringify({ session: id, pid: p.pid, startedAt: p.startedAt, window: p.window,
       windowless: p.windowless, how, at: now }) + '\n');
-  } catch (_) { /* stopped, but the steward is not told */ }
+  } catch (_) { /* stopped, but the supervisor is not told */ }
   return true;
 }
 

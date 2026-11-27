@@ -160,8 +160,8 @@ const isPanelTab = (tab) => !!tab && tab.input instanceof vscode.TabInputWebview
  *   open(sessionId)                 optional: Promise of 'here', 'sent' or 'nowhere'
  *   logo()                          { light, dark } Uris, or null
  *   timeZone()                      the zone a panel reported, or ''
- *   isSteward(sessionId)            optional: whether the conversation is a steward, which gets the crown
- *   stewardsOf(sourceId, sessionId) optional: the stewards that look after that conversation, as [{ sessionId, title }],
+ *   isSteward(sessionId)            optional: whether the conversation is a supervisor, which gets the crown
+ *   stewardsOf(sourceId, sessionId) optional: the supervisors that look after that conversation, as [{ sessionId, title }],
  *                                   ordered by when the user last typed to each, most recent first
  *   prefillTo(sessionId, text, key) optional, with go(): gives a prefill to the panel showing the conversation, which
  *                                   says when it is ready, through answered(), and types it on go(key); false if no
@@ -225,7 +225,7 @@ function createClaudeSource(deps) {
     return waitingFor.fromPanel(raw) || waitingFor.fromAgents(s.waitingFor);
   };
   /* The title as every view shows it: without the marks an older build or a rename box left in the stored name, and
-     with the crown first for a steward (src/title-marks.js). A view that draws the crown itself reads `steward`. */
+     with the crown first for a supervisor (src/title-marks.js). A view that draws the crown itself reads `steward`. */
   const listed = (s, on, live, unread) => {
     const steward = isSteward(s.sessionId);
     const out = {
@@ -266,7 +266,7 @@ function createClaudeSource(deps) {
   const refused = (reason, detail) => {
     const r = outcomeOf(false, reason);
     if (reason === 'draft' && detail && yes('typedFor', detail)) {
-      r.reason = 'the message input already had text in it, which Claude Code Plus typed into a panel for a steward or for Agent Plus in the last day; check whether the conversation received it, and the user can clear the input there';
+      r.reason = 'the message input already had text in it, which Claude Code Plus typed into a panel for a supervisor or for Agent Plus in the last day; check whether the conversation received it, and the user can clear the input there';
     }
     return r;
   };
@@ -274,7 +274,7 @@ function createClaudeSource(deps) {
     const key = 'cc-' + Date.now().toString(36) + '-' + (++keys);
     const since = Date.now();
     let handed = false;
-    try { if (typeof deps.typed === 'function') deps.typed(text); } catch (_) { /* a steward's list check then lets it through */ }
+    try { if (typeof deps.typed === 'function') deps.typed(text); } catch (_) { /* a supervisor's list check then lets it through */ }
     const confirm = yes('confirms', sessionId);
     try { handed = deps.hand(sessionId, text, key, confirm) === true; } catch (_) { handed = false; }
     if (!handed) return Promise.resolve({ outcome: 'notReceived', reason: 'no Claude Code panel in this window shows the conversation' });
@@ -356,7 +356,7 @@ function createClaudeSource(deps) {
    * Agent Plus's pen on a Work plan row (its docs/protocol.md, Writing about a row): the conversation comes to the
    * front in this window and `text` goes into its message input after whatever is there, unsent, with the focus in the
    * input. A panel here that shows it is brought to the front and given the text at once. A conversation that no panel
-   * here shows is opened in an editor tab the way a steward's --resume opens one (src/relay.js), and the text waits
+   * here shows is opened in an editor tab the way a supervisor's --resume opens one (src/relay.js), and the text waits
    * until that tab's page says it listens. The text is not noted as typed for someone else (deps.typed): the user sends
    * it, with words of their own.
    */
@@ -440,8 +440,8 @@ function createClaudeSource(deps) {
     onDidChangePlanNotice: noticeChanged.event,
     onDidChangeStewards: stewardsChanged.event,
 
-    /* Agent Plus asks these so that another agent's conversation is told which stewards watch it and can hand one of
-       them messages: every steward of the conversation, and the first of them. */
+    /* Agent Plus asks these so that another agent's conversation is told which supervisors watch it and can hand one of
+       them messages: every supervisor of the conversation, and the first of them. */
     stewardsOf(sourceId, sessionId) {
       if (!enabled() || typeof deps.stewardsOf !== 'function') return [];
       let list = [];

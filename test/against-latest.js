@@ -16,7 +16,7 @@
  *
  * Exits 1 when an edit does not match exactly once, when test/reply-shape.js finds a new child in a reply element, when
  * test/todo-gate.js finds the built-in to-do tools on for current models, when test/inbox-shape.js finds the CLI no
- * longer reads a steward notice, or when test/shell-snapshot-shape.js finds a Bash command no longer starts with a
+ * longer reads a supervisor notice, or when test/shell-snapshot-shape.js finds a Bash command no longer starts with a
  * shell snapshot; the workflow opens an issue for any of them.
  */
 const fs = require('fs');

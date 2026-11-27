@@ -220,7 +220,7 @@
     answerResult(m.id, false, 'drafted');
   };
 
-  /* A steward's new conversation (src/relay.js). The host opened this tab with the first message already in its input,
+  /* A supervisor's new conversation (src/relay.js). The host opened this tab with the first message already in its input,
      and asks every panel of the window to send it. Only a panel with no conversation yet whose input holds exactly that
      text sends it, once per id, and it answers when its conversation has a session id. */
   var submittedNew = {};
@@ -248,7 +248,7 @@
       look();
     });
   };
-  /* An answer handed over before this page listens is lost, and a tab a steward has just opened on a stored conversation
+  /* An answer handed over before this page listens is lost, and a tab a supervisor has just opened on a stored conversation
      (src/relay.js) is sent its text at once. So the page says, through the answers' own reply, when it listens for its
      conversation: as it starts listening, and when it finds which conversation it shows. */
   var ANSWERS_READY = 'cce-answers-ready';
@@ -258,7 +258,7 @@
     if (!answersOn || typeof sid !== 'string' || !sid) return;
     /* With reason 'confirms' the host learns to send this page a go before it types (waitForGo above). */
     try { acquireVsCodeApi().postMessage({ type: 'cce_answer_result', id: ANSWERS_READY, sent: false, reason: 'confirms', detail: sid }); }
-    catch (e) { /* the steward's text then waits until its wait runs out */ }
+    catch (e) { /* the supervisor's text then waits until its wait runs out */ }
   };
   var listenForAnswers = function(){
     window.addEventListener('message', function(ev){

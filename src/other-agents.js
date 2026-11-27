@@ -6,12 +6,12 @@
 /*
  * Editor tabs of other agents' conversations. Codex's conversation tabs are a custom editor whose view type ends in
  * chatgpt.conversationEditor; a tab restored before Codex's editor provider registered can come back as a text editor
- * on an openai-codex: URI. Codex Plus checks its own tabs the same way (its src/codex-tabs.js). The Steward panel cannot
+ * on an openai-codex: URI. Codex Plus checks its own tabs the same way (its src/codex-tabs.js). The Supervisor panel cannot
  * manage a Codex conversation.
  *
  * An OpenCode Agent Plus chat tab is a custom editor of view type opencodeAgentPlus.chat (isChatTab in its
- * src/host/agentplus-source.js). A steward can manage such a conversation, ticked from a Claude Code one; it cannot be
- * a steward itself.
+ * src/host/agentplus-source.js). A supervisor can manage such a conversation, ticked from a Claude Code one; it cannot be
+ * a supervisor itself.
  */
 const CODEX_VIEW_TYPE = 'chatgpt.conversationEditor';
 const CODEX_SCHEME = 'openai-codex';

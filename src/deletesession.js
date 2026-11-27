@@ -115,7 +115,7 @@ function runningSessions(root = claudeDir(), alive = (pid) => { try { process.ki
 const WINDOW_STALE_MS = windowEntries.STALE_MS;
 
 /*
- * Session id -> the names of the other windows that show that conversation. Each window's Steward view writes an entry
+ * Session id -> the names of the other windows that show that conversation. Each window's Supervisor view writes an entry
  * in `planDir`/windows (src/steward-view.js).
  */
 const shownElsewhere = (planDir, { self, now, alive } = {}) => windowEntries.shownElsewhere(planDir, { self, now, alive, id: SESSION });

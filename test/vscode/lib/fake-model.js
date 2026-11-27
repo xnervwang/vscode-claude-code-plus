@@ -26,7 +26,7 @@
  * Bash call of PAUSE_RUN, which Claude Code runs without asking; a message typed while the turn runs is taken into the
  * turn after that call's result.
  *
- * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a steward link to that conversation. If it
+ * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a supervisor link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
  * address (IMAGE_WEB) after it.
  *
