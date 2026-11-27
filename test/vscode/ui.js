@@ -713,6 +713,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     if (!sl) throw new Error('Agent Plus\'s session list did not open');
     return sl;
   };
+  /* Agent Plus starts Account & usage collapsed, and keeps it as the user leaves it; opens it in the list's page `frame`. */
+  const openAccount = async (frame) => {
+    const open = () => frame.evaluate(() => { const a = document.querySelector('.sl-section[data-key="account"]'); return a ? a.classList.contains('sl-open') : null; }).catch(() => null);
+    if (await open() === false) await frame.locator('.sl-section[data-key="account"] .sl-head').first().click();
+    return until(async () => (await open()) === true, 5000, 200);
+  };
   /* Every row as the list draws it: its section, title, dot, stripe, envelope and crown. A page a reload or another
      view replaced is found again. */
   const readSl = () => sl.evaluate(() => [...document.querySelectorAll('.sl-row')].map((r) => ({
@@ -745,13 +751,21 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     return b ? [...b.querySelectorAll('.sl-ctx-item')].map((x) => x.textContent.replace('\u203a', '').replace('\u2713', '').trim()) : null;
   }), 5000, 200);
   const slItem = (label) => sl.locator('.sl-ctx:not(.sl-ctx-sub) .sl-ctx-item').filter({ hasText: label }).first();
+  /* Clicks the item `label` of the open row menu. In a narrow list Agent Plus opens a submenu as soon as the pointer rests
+     on its item, and the submenu covers the right part of the items below, so the item is pointed at near its left end. */
+  const slChoose = async (label) => {
+    const item = slItem(label);
+    await item.hover({ position: { x: 6, y: 6 } }).catch(() => {});
+    await until(() => sl.evaluate(() => !document.querySelector('.sl-ctx-sub')), 2000, 100);
+    await item.click({ position: { x: 6, y: 6 } });
+  };
   /* Right-clicks `t`'s row and clicks the item `label` of its menu. */
   const slPick = async (t, label) => {
     await page.keyboard.press('Escape');
     await slRowAt(t).click({ button: 'right' });
     const m = await slMenu();
     if (!m || !m.includes(label)) throw new Error(`the row's menu had no ${label}: ${JSON.stringify(m)}`);
-    await slItem(label).click();
+    await slChoose(label);
   };
 
   /* ── the session list, Claude Code's own webview ── */
@@ -1426,6 +1440,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await exec('workbench.view.extension.agentPlusSessions');
       const sl = await frameWhere(() => !!document.querySelector('.sl-root .sl-new'), 30000);
       if (!sl) throw new Error('Agent Plus\'s session list did not open');
+      await openAccount(sl);
       const acct = await until(() => sl.evaluate(() => { const a = document.querySelector('.sl-section[data-key="account"]'); return a && !a.classList.contains('sl-hidden') && a.innerText; }), 20000, 500);
       check(!!acct && /Claude Code/.test(acct) && /Estimated cost/.test(acct) && /Total duration \(wall\)/.test(acct) && /Total code changes/.test(acct),
         'Account & usage has a Claude Code part with the figures of the conversation in front: its cost, its time and the lines it changed', acct);
@@ -1513,6 +1528,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           return true;`);
         await exec('workbench.action.closeAuxiliaryBar');
         await showSl();
+        await openAccount(sl);
         const quiet = await until(async () => !(await claudeTabs()).length && ((await signIn()) || {}).idle, 30000, 500);
         if (!quiet) throw new Error(`a conversation still runs in this window: ${JSON.stringify({ tabs: await claudeTabs(), account: await signIn(), clis: clis() })}`);
         await setClaude('environmentVariables', (before.vars || []).filter((v) => v && v.name !== 'ANTHROPIC_API_KEY'));
@@ -1537,6 +1553,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!replied, 'a conversation whose CLI the wrapper started, signed in with the auth token, gets the fake model\'s reply',
           { turns: model.turns() - turns, seen: model.seen.slice(-2) });
         await showSl();
+        await openAccount(sl);
         if (hasProc) {
           const cli = await until(() => clis().find((x) => x.sessionId === t.id), 20000, 300);
           const running = await signInWhere((s) => s.value === 'Auth token');
@@ -2950,7 +2967,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!menu, 'once nothing has it open, an archived conversation\'s menu has Delete...', menu || await rowFacts());
       await shot('archived-menu');
       if (menu) {
-        await slItem('Delete...').click();
+        await slChoose('Delete...');
         const d = await until(dialog, 15000, 300);
         check(!!d && d.text.includes(t1.title) && /transcript/.test(d.text) && d.text.includes('This cannot be undone.') && d.buttons.includes('Delete') && d.buttons.includes('Cancel'),
           'Delete... first opens a dialog that names the conversation and what of it is on disk, says it cannot be undone, and offers Delete and Cancel', d);
@@ -3053,7 +3070,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         return null;
       }, 20000, 1000);
       if (!menu) throw new Error('the archived conversation\'s menu had no Delete...');
-      await slItem('Delete...').click();
+      await slChoose('Delete...');
       const d = await until(dialog, 15000, 300);
       check(!!d && d.text.includes(t.title) && /1 transcript/.test(d.text) && /1 sub-agent conversation/.test(d.text) && /the work plan/.test(d.text) && d.buttons.includes('Delete'),
         'Delete... asks first, naming the conversation and its transcript, its helper\'s transcript and its work plan', d);
