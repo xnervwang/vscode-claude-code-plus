@@ -43,7 +43,6 @@ const textOf = (rec) => {
 };
 /* A message the user wrote: not a tool's result, which Claude Code also files as a user record. */
 const isTyped = (rec) => isMessage(rec) && rec.type === 'user' && rec.toolUseResult === undefined && !!textOf(rec).trim();
-/* What the section says in place of the figures, for each of the two reasons it has none. */
 const NO_FIGURES = 'The cost, time and code changes are shown for a Claude Code conversation that runs in this window.';
 const NOT_YET = 'Claude Code reports the cost, time and code changes of a conversation once it has had a turn in this window.';
 /* The text of a user record's message, for a conversation with no title yet. */
@@ -325,10 +324,11 @@ function create(deps) {
         colors: Object.fromEntries(Object.entries(colors && typeof colors === 'object' ? colors : {}).filter(([id]) => ours(id))),
       };
     },
-    /* Always given, so that the section shows Claude Code as there: how it signs in unless with a claude.ai account,
-       and the figures of the conversation in front, or a line saying that it has none yet or that none runs here. The
-       core asks with the last conversation it saw in front, which can have closed since with no other taking its place;
-       figures are given only for a conversation that still runs here, this window's own one in front otherwise. */
+    /* Always given, so that the section shows Claude Code as there. It has how Claude Code signs in, except with a
+       claude.ai account, and the figures of the conversation in front; without figures, a line says that conversation
+       has had no turn here yet, or that none runs here. The core asks with the last conversation it saw in front, which
+       may have closed since with no other in its place, so figures are given only for a conversation that still runs
+       here: the one asked for, or else this window's one in front. */
     accountInfo({ sessionId } = {}) {
       const runs = (x) => SESSION.test(x) && !!safe(deps.state, null, x);
       const asked = typeof sessionId === 'string' ? sessionId : '';

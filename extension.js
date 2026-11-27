@@ -719,7 +719,8 @@ function start(context, log, renamed, handing = false) {
     const v = globalThis.__cceClientTimeZone;
     return typeof v === 'string' ? v : '';
   };
-  /* Notifications are timed in that zone once a panel has said it, and in this machine's, named, until then. */
+  /* Notifications are timed in that zone once a panel has said it, and until then in this machine's zone, with its
+     name. */
   noticeTime.setReaderZone(() => clientZone() || '');
   /* The plugin's hooks tell the model this zone (tell-time-zone.py), and they run beside Claude Code with no way to ask
      a panel, so it is left for them in a file. The last panel to report wins: one person behind several windows reads
@@ -1081,8 +1082,8 @@ function start(context, log, renamed, handing = false) {
   } });
   /* Claude Code titles a new conversation with its first message until it has a title of its own, and the first message
      of one a steward started is the steward's line. Once that message is sent, the conversation is named after the
-     user's words instead, unless something named it first: tried each second while Claude Code has no transcript to
-     write the title into. */
+     user's words instead, unless something named it first. Naming is retried each second while Claude Code has no
+     transcript to write the title into. */
   const nameOpened = async (sessionId, text) => {
     const title = stewards.titleOfWords(text);
     if (!title) return;

@@ -463,8 +463,7 @@ function createClaudeSource(deps) {
        reported yet; null for any other tab. A tab in front is the visible panel of its group. As a tab comes to the
        front, the panel it covers can still count as visible and active for a moment, so when panels of the group carry
        the tab's label as their title, only those are the tab's own. A tab behind another in its group has a panel that
-       is not visible, and only a panel of the group with the tab's label as its title can be it: the visible one there
-       belongs to the tab in front. */
+       is not visible, which can only be one of the group's panels titled with the tab's label. */
     sessionForTab(tab) {
       if (!isPanelTab(tab)) return null;
       const column = tab.group && tab.group.viewColumn;
@@ -656,8 +655,9 @@ function createClaudeSource(deps) {
     track(panel, sessionId) {
       if (!panel || typeof panel !== 'object') return;
       const id = typeof sessionId === 'string' ? sessionId : '';
-      /* Agent Plus's session list asks sessionForTab only when it reads the list again, and a panel's session can arrive
-         after the read its tab's opening caused, so each change of a panel's session makes the list read again. */
+      /* Agent Plus's session list asks sessionForTab only when it reads the list again, and a panel can report its
+         session after the read that opening its tab set off, so every change of a panel's session has the list read
+         again. */
       const moved = () => { if (list) list.changed(); };
       const known = panels.get(panel);
       if (known) {

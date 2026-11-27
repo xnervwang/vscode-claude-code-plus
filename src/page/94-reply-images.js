@@ -135,7 +135,7 @@
   };
 
   /* Switched off, an image shows as its alt text and path, so that what the reply pointed to is not lost behind Claude
-     Code's "[Image]". They sit in the box a note about an image uses, so that they do not read as part of the text. */
+     Code's "[Image]". They sit in the box a note about an image uses, apart from the text. */
   var imgText = function(h, src, alt){
     var path = IMG_DATA.test(src) ? '' : src;
     return h('span', { style: IMG_BOX, title: path, children: [
