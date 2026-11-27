@@ -9706,7 +9706,7 @@ console.log('\nthe Supervisor panel');
       const call = (id, command, extra = {}) => Object.assign({ type: 'assistant', uuid: 'a' + (++n), timestamp: iso(now - 50000 + n * 100), isSidechain: false,
         message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } }, extra);
       const reply = () => ({ type: 'assistant', uuid: 'a' + (++n), timestamp: iso(now - 50000 + n * 100), isSidechain: false, message: { role: 'assistant', content: [{ type: 'text', text: 'On it.' }] } });
-      const skill = () => said('Base directory for this skill: /p/skills/steward', 'human', { isMeta: true, sourceToolUseID: 'toolu_skill' });
+      const skill = () => said('Base directory for this skill: /p/skills/supervisor', 'human', { isMeta: true, sourceToolUseID: 'toolu_skill' });
       const typedForOthers = 'Merge it?\n\nYes, merge it.';
       relay.noteTyped(ldir, typedForOthers, now);
       fs.writeFileSync(path.join(ltdir, S(1) + '.jsonl'), [
@@ -11125,7 +11125,7 @@ console.log('\nthe Supervisor panel');
        once to load the skill again. A new supervisor is not told on its first turn. */
     {
       const seenFile = path.join(data, S(1) + '.steward-seen');
-      const skillFile = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'skills', 'steward', 'SKILL.md');
+      const skillFile = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'skills', 'supervisor', 'SKILL.md');
       const version = require('crypto').createHash('sha1').update(fs.readFileSync(skillFile)).digest('hex').slice(0, 8);
       const SAY = `The supervisor skill has changed since your previous turn (it is now version ${version}): load it again with the Skill tool`;
       let saved = {};
@@ -11217,7 +11217,7 @@ console.log('\nthe Supervisor panel');
         + 'messages from other sessions or a subagent\'s prompts');
     } else bad(`steward-peek.py --said printed ${JSON.stringify(sp + said.stderr)}`);
     const registered = JSON.parse(fs.readFileSync(path.join(hooks, 'hooks.json'), 'utf8')).hooks.UserPromptSubmit[0].hooks.map((x) => x.command);
-    const skill = fs.readFileSync(path.join(hooks, '..', 'skills', 'steward', 'SKILL.md'), 'utf8');
+    const skill = fs.readFileSync(path.join(hooks, '..', 'skills', 'supervisor', 'SKILL.md'), 'utf8');
     if (registered.some((c) => c.includes('/hooks/steward.py" "${CLAUDE_PLUGIN_DATA}"')) && /^name: supervisor$/m.test(skill) && skill.includes('hooks/steward-peek.py')
         && require('../src/workplan').SIDE_SUFFIXES.includes('.steward-seen')) {
       ok('the hook is registered, the supervisor skill ships beside it, and the supervisor\'s side file is swept with its conversation');
