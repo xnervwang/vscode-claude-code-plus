@@ -607,13 +607,17 @@ const claudeCli = (d) => {
   const dir = fs.readdirSync(d.profile.exts).filter((n) => n.startsWith('anthropic.claude-code-')).sort().pop();
   return dir ? path.join(d.profile.exts, dir, 'resources', 'native-binary', 'claude') : '';
 };
-const liveOf = (d, id) => {
+/* The records of the Claude Code processes of the demo's home that are still running. */
+const liveRecords = (d) => {
   const dir = path.join(d.profile.home, '.claude', 'sessions');
   let names = [];
   try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
   return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } })
-    .filter((r) => r && r.sessionId === id && (() => { try { process.kill(r.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } })());
+    .filter((r) => r && (() => { try { process.kill(r.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } })());
 };
+const liveOf = (d, id) => liveRecords(d).filter((r) => r.sessionId === id);
+/* The session ids of the conversations that Claude Code panels of the demo window still run. */
+const panelsRunning = (d) => liveRecords(d).filter((r) => r.entrypoint === 'claude-vscode').map((r) => r.sessionId);
 
 /* The agent map steps: the conversation they use, the worker's session id, and the two scheduled prompts. */
 const mapThread = (d) => d.threads[1];
@@ -704,6 +708,26 @@ function stopMapWork(d, ids) {
   try { names = fs.readdirSync(dir); } catch (_) { return; }
   for (const n of names) {
     try { const r = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); if ((r.kind === 'bg' || r.sessionId === MAP_WORKER) && stillOurs(r.pid)) process.kill(r.pid, 'SIGTERM'); } catch (_) { /* gone */ }
+  }
+}
+/*
+ * Ends the conversation the secondary side bar holds, which closing the side bar does not: Claude Code keeps its page
+ * there, and the conversation in it running, while the side bar is closed, and shuts a conversation there down only when
+ * VS Code disposes that page. VS Code disposes a view's page when the view leaves its container, and Claude Code's view
+ * is in the side bar only while claude-code:doesNotSupportSecondarySidebar is unset (Claude Code sets it on VS Code
+ * builds older than 1.106 alone). The key stays set until `ended()` holds, with the side bar closed throughout, so that
+ * once it is unset the view comes back with no page until it is next shown. `frame` is the side bar's page when known;
+ * `left()` says what still runs when `ended()` does not hold in time.
+ */
+async function endSideChat(d, frame, ended, left) {
+  const key = 'claude-code:doesNotSupportSecondarySidebar';
+  await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {});
+  await d.exec('setContext', key, true);
+  try {
+    if (frame && !await d.until(() => frame.isDetached(), 15000, 300)) throw new Error('the side bar\'s page was not closed within 15 s');
+    if (!await d.until(ended, 30000, 500)) throw new Error(`${left()} 30 s after the side bar's page was taken away`);
+  } finally {
+    await d.exec('setContext', key, false);
   }
 }
 
@@ -3183,13 +3207,20 @@ const STEPS = [
       await openMap(d, d.mapSide, 'Look through the notes');
       return d.part('workbench.parts.auxiliarybar');
     },
+    /* The conversation is ended before its background work is stopped: while it runs, it is told of each piece that stops
+       and answers with a turn. */
     undo: async (d) => {
       await closeMap(d);
       d.model.releaseHelper();
-      stopMapWork(d, [mapThread(d).id, d.threads[2].id]);
-      removeSchedules(d);
-      await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {});
-      await d.sleep(1000);
+      const side = d.mapSide, t = mapThread(d);
+      d.mapSide = null;
+      try {
+        await endSideChat(d, side, () => !liveOf(d, t.id).length, () => `"${titleNow(d, t)}" still runs`);
+      } finally {
+        stopMapWork(d, [mapThread(d).id, d.threads[2].id]);
+        removeSchedules(d);
+        await d.sleep(1000);
+      }
     },
   },
 
@@ -3800,15 +3831,18 @@ const STEPS = [
       + 'conversations open here.',
     act: async (d) => {
       await d.exec('workbench.action.closeAllEditors');
-      await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {});
+      /* An earlier step may have left a conversation in the side bar; it would go on running there. */
+      await endSideChat(d, null, () => !panelsRunning(d).length, () => `Claude Code still runs ${JSON.stringify(panelsRunning(d))} in this window`);
       const list = await agentList(d);
       const section = () => list.evaluate(() => {
         const a = document.querySelector('.sl-section[data-key="account"]');
         return a && !a.classList.contains('sl-hidden') ? { open: a.classList.contains('sl-open'), text: a.textContent } : null;
       }).catch(() => null);
-      /* A closed tab's process ends a moment later, and the section shows that the next time the figures change. */
+      /* The section follows the next time the figures or the conversation in front change. */
       if (!await d.until(async () => { const s = await section(); return s && /No conversation running/.test(s.text); }, 60000, 500)) {
-        throw new Error(`Account & usage does not say that no conversation runs in this window: ${JSON.stringify(await section())}`);
+        const focus = await d.call('const f = typeof globalThis.__cceFocusState === "function" ? globalThis.__cceFocusState() : null; return f && { front: f.front, tab: f.tab, chat: f.chat, panels: f.panels };').catch(() => null);
+        throw new Error(`Account & usage does not say that no conversation runs in this window: ${JSON.stringify({ section: await section(), focus,
+          running: liveRecords(d).map((r) => [r.sessionId, r.entrypoint, r.kind, r.status]) })}`);
       }
       if (!(await section()).open) await list.locator('.sl-section[data-key="account"] .sl-head').first().click();
       await d.until(async () => { const s = await section(); return s && s.open && s; }, 10000, 300);
