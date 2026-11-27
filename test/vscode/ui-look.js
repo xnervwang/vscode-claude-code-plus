@@ -3634,9 +3634,9 @@ const STEPS = [
           + 'rows, groups them from their menu and names the group; the ' + GROUP.toUpperCase() + ' band shows a folder icon, a downward '
           + 'arrow and a count of 2 above "' + C.groupA.title + '" and "' + C.groupB.title + '". Below it an UNGROUPED band holds the other '
           + 'conversations. Below UNGROUPED, the ARCHIVED band shows a count of 1 and a downward arrow; "'
-          + C.archived.title + '" appears only under this band. Each band is a strip set apart from the rows, with a line above and below '
-          + 'it, its label in capitals and its count at the right; the rows under every band have the Claude Code logo and their times. '
-          + 'No row is selected or outlined.',
+          + C.archived.title + '" appears only under this band. Lines above and below each band separate it from the rows. Each band has '
+          + 'its label in capitals and its count at the right. Each row under a band shows the Claude Code logo and '
+          + 'the row\'s time. No row is selected or outlined.',
         unchanged: 'The demo conversation is in front in the editor.',
         act: async (d) => {
           const list = await listReady(d);
@@ -3788,12 +3788,13 @@ const STEPS = [
      usage keeps the Claude Code part and says so (src/claude-session-list.js accountInfo). */
   {
     name: 'agent-plus-account-idle', features: ['agent-plus-account'],
-    expect: 'The ACCOUNT & USAGE section is open at the top of Agent Plus\'s session list in the side bar. In it a Claude Code part, '
-      + 'headed by the Claude Code logo and its name, with two rows, each a label and a value: Sign-in with "API key", and This '
-      + 'window with "No conversation running". There is no THIS CONVERSATION heading and no figures. The rows line up with the '
-      + 'other parts\' rows, are readable, and nothing is cut off at the side bar\'s edge. No Claude Code tab is open. For each tab this step '
-      + 'just closed, the conversation\'s row in the list below starts with the light blue stripe for conversations recently '
-      + 'closed in this window, not the solid stripe for conversations open here.',
+    expect: 'The ACCOUNT & USAGE section is open at the top of Agent Plus\'s session list in the side bar. The Claude Code part of this '
+      + 'section has the Claude Code logo and the name "Claude Code" above two label-value rows: Sign-in with "API '
+      + 'key" and This window with "No conversation running". There is no THIS CONVERSATION heading and no figures. '
+      + 'The rows line up with the other parts\' rows, are readable, and nothing is cut off at the side bar\'s edge. '
+      + 'No Claude Code tab is open. For each tab this step just closed, the conversation\'s row in the list below '
+      + 'starts with the light blue stripe for conversations recently closed in this window, not the solid stripe for '
+      + 'conversations open here.',
     act: async (d) => {
       await d.exec('workbench.action.closeAllEditors');
       await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {});
