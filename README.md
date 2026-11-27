@@ -75,9 +75,9 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 
 | Feature | What it does |
 | --- | --- |
-| [Status dots](docs/features.md#on-editor-tabs) | A dot at the top right of a Claude Code tab's logo is solid green while a turn runs, a green ring when only [background work](#background-work) is running, and red when the conversation waits for you. Session list rows and the [Steward panel](#steward) show the same dots. |
+| [Status dots](docs/features.md#on-editor-tabs) | A dot at the top right of a Claude Code tab's logo is solid green while a turn runs, a green ring when only [background work](#background-work) is running, and red when the conversation waits for you. Session list rows and the [Supervisor panel](#supervisor) show the same dots. |
 | [Notices of waits](docs/features.md#on-editor-tabs) | Agent Plus notifies you in your current VS Code window when a conversation outside it is waiting for tool permission, an answer to a question, a review of the plan it made in plan mode or your choice of Continue or Stop in auto mode. Click Open to go to that conversation's window. |
-| [Unread envelope](docs/features.md#on-editor-tabs) | When a conversation has a reply you have not seen, an envelope (✉️) appears at the end of its tab title and after its title in both the Steward panel and Agent Plus's session list. The envelope disappears when the conversation is shown. |
+| [Unread envelope](docs/features.md#on-editor-tabs) | When a conversation has a reply you have not seen, an envelope (✉️) appears at the end of its tab title and after its title in both the Supervisor panel and Agent Plus's session list. The envelope disappears when the conversation is shown. |
 | [Tabs back after a restart](docs/features.md#on-editor-tabs) | When the window starts, Claude Code Plus reopens Claude Code tabs that were open when it closed but that VS Code did not restore, as can happen after a lost remote connection. Tabs you closed while connected stay closed. |
 | [Load background tabs](docs/features.md#on-editor-tabs) | Turn on `claudeCodePlus.loadRestoredTabs` to load Claude Code conversations in background tabs when the window starts. By default, they load when you first click them. |
 
@@ -96,11 +96,11 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 
 ![The agent map with a detached command and a scheduled prompt](images/shots/agent-map.png)
 
-### Steward
+### Supervisor
 
-Tick other Claude Code conversations or OpenCode Agent Plus conversations in the Steward panel to make the current Claude Code conversation their steward; it gets notified when one needs you or stops and relays that conversation's questions word for word.
+Tick other Claude Code conversations or OpenCode Agent Plus conversations in the Supervisor panel to make the current Claude Code conversation their supervisor; it gets notified when one needs you or stops and relays that conversation's questions word for word.
 
-Start a message to the steward with `@` and a conversation's name, or ask it to message one; the steward writes the message and Claude Code Plus sends it there. For an OpenCode Agent Plus conversation, Claude Code Plus passes the message to Agent Plus, which sends it to the conversation. A conversation can have several stewards, and in a steward's own conversation you can ask it to start or stop managing another conversation. [More about the steward](docs/steward.md).
+Start a message to the supervisor with `@` and a conversation's name, or ask it to message one; the supervisor writes the message and Claude Code Plus sends it there. For an OpenCode Agent Plus conversation, Claude Code Plus passes the message to Agent Plus, which sends it to the conversation. A conversation can have several supervisors, and in a supervisor's own conversation you can ask it to start or stop managing another conversation. [More about the supervisor](docs/steward.md).
 
 ## What it costs in tokens
 
@@ -112,7 +112,7 @@ Run `Claude Code Plus: Settings` to open all of this extension's settings. Use [
 
 ## Known limits
 
-[Known limits](docs/known-limits.md) covers the work plan, the steward and how Claude Code Plus patches Claude Code's files. It also covers what happens when a window loses its remote connection.
+[Known limits](docs/known-limits.md) covers the work plan, the supervisor and how Claude Code Plus patches Claude Code's files. It also covers what happens when a window loses its remote connection.
 
 ## Contributing
 

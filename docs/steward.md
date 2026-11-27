@@ -1,90 +1,90 @@
-# Steward
+# Supervisor
 
 Back to the [README](../README.md).
 
-Bring a Claude Code conversation to the front, then tick the other Claude Code conversations or OpenCode Agent Plus conversations you want it to manage in the Steward panel; it becomes their steward. The steward watches those conversations for you and carries messages between you and them. The conversations you tick can be in any VS Code window on this machine. The Steward panel is at the bottom of the VS Code window, in the panel area beside Problems, Output and Terminal.
+Bring a Claude Code conversation to the front, then tick the other Claude Code conversations or OpenCode Agent Plus conversations you want it to manage in the Supervisor panel; it becomes their supervisor. The supervisor watches those conversations for you and carries messages between you and them. The conversations you tick can be in any VS Code window on this machine. The Supervisor panel is at the bottom of the VS Code window, in the panel area beside Problems, Output and Terminal.
 
 ## Choosing conversations
 
 The panel groups open Claude Code conversations by VS Code window. OpenCode Agent Plus conversations appear together at the end under the name OpenCode Agent Plus. OpenCode Agent Plus registers its conversations with Agent Plus, an extension it shares with Claude Code Plus. Agent Plus does not report which window has each OpenCode Agent Plus conversation open.
 
-With a Codex conversation in front, the panel shows no ticks to change and says the conversation can neither be a steward nor be managed by one. The panel also hides the list when you bring an OpenCode Agent Plus conversation to the front. The panel says this conversation cannot be a steward and tells you to tick it after switching to a Claude Code conversation. The list returns when you switch back to a Claude Code conversation; on a file or other non-conversation tab, the panel stays on the last Claude Code conversation that was in front.
+With a Codex conversation in front, the panel shows no ticks to change and says the conversation can neither be a supervisor nor be managed by one. The panel also hides the list when you bring an OpenCode Agent Plus conversation to the front. The panel says this conversation cannot be a supervisor and tells you to tick it after switching to a Claude Code conversation. The list returns when you switch back to a Claude Code conversation; on a file or other non-conversation tab, the panel stays on the last Claude Code conversation that was in front.
 
-Turn on **All, including new ones** to have this steward manage every conversation in the list and any opened later, except other stewards. This includes conversations that another steward has ticked, which both stewards then manage. While the switch is on, the checkboxes in the list are disabled.
+Turn on **All, including new ones** to have this supervisor manage every conversation in the list and any opened later, except other supervisors. This includes conversations that another supervisor has ticked, which both supervisors then manage. While the switch is on, the checkboxes in the list are disabled.
 
-The **New conversations** switch beside it leaves existing checkboxes as they are. While the switch is on, the steward manages each newly started conversation except other stewards. With **New conversations** on, you can still use the checkboxes. If you untick a conversation that **New conversations** added, the switch won't add it again. Turning the switch off leaves the conversations it added ticked.
+The **New conversations** switch beside it leaves existing checkboxes as they are. While the switch is on, the supervisor manages each newly started conversation except other supervisors. With **New conversations** on, you can still use the checkboxes. If you untick a conversation that **New conversations** added, the switch won't add it again. Turning the switch off leaves the conversations it added ticked.
 
 ## Who manages whom
 
-A conversation can have several stewards, and a steward has none. Each checkbox in a steward's panel shows only whether that steward manages the conversation. Ticking it in one panel doesn't change or disable it in another. The checkbox for another steward is disabled, and its row says "a steward". Hover over the checkbox to see the full reason. A conversation that becomes a steward is no longer managed by any steward. Several stewards can have **All, including new ones** on in their own panels at the same time, and several can have **New conversations** on.
+A conversation can have several supervisors, and a supervisor has none. Each checkbox in a supervisor's panel shows only whether that supervisor manages the conversation. Ticking it in one panel doesn't change or disable it in another. The checkbox for another supervisor is disabled, and its row says "a supervisor". Hover over the checkbox to see the full reason. A conversation that becomes a supervisor is no longer managed by any supervisor. Several supervisors can have **All, including new ones** on in their own panels at the same time, and several can have **New conversations** on.
 
-If other stewards also manage a conversation, its row ends with a small eye icon in a lighter color than the row text. The number beside the eye counts those other stewards. Hover over the eye to see their names, then click a name to open that steward's conversation. In the session list, hover over a managed conversation's row. The last line of the hover text says "Managed by" followed by the names of its stewards.
+If other supervisors also manage a conversation, its row ends with a small eye icon in a lighter color than the row text. The number beside the eye counts those other supervisors. Hover over the eye to see their names, then click a name to open that supervisor's conversation. In the session list, hover over a managed conversation's row. The last line of the hover text says "Managed by" followed by the names of its supervisors.
 
-Claude Code Plus reads a list saved by an earlier version as it is. If one steward appears on another's list, the first window allowed to write it (see [Known limits](known-limits.md#steward)) removes that entry and saves the change.
+Claude Code Plus reads a list saved by an earlier version as it is. If one supervisor appears on another's list, the first window allowed to write it (see [Known limits](known-limits.md#supervisor)) removes that entry and saves the change.
 
-A steward keeps its own title in its tab and session list row, with one crown (👑) drawn after the title whatever you type. The crown is just for display, so it stays out of the rename box and renaming cannot keep or double it.
+A supervisor keeps its own title in its tab and session list row, with one crown (👑) drawn after the title whatever you type. The crown is just for display, so it stays out of the rename box and renaming cannot keep or double it.
 
 ## Messages and notices
 
-Each message you send the steward comes with what each of the conversations it manages is doing. When an update of Claude Code Plus changes the steward skill (the instructions a steward follows), the next such message also tells a steward that is already running to load the skill again.
+Each message you send the supervisor comes with what each of the conversations it manages is doing. When an update of Claude Code Plus changes the skill a supervisor follows (`agent-work-plan:steward`), the next such message also tells a supervisor that is already running to load the skill again.
 
 ### Sending messages to a conversation
 
-Start a message with `@` and a conversation's name, or ask the steward to tell one of them something, and the steward writes the message for that conversation in its own words. Claude Code Plus types the steward's message into that conversation and sends it, so it counts there as your own message, including when it approves a plan or a change.
+Start a message with `@` and a conversation's name, or ask the supervisor to tell one of them something, and the supervisor writes the message for that conversation in its own words. Claude Code Plus types the supervisor's message into that conversation and sends it, so it counts there as your own message, including when it approves a plan or a change.
 
-The first line identifies the steward that sent it by title and session ID. If another steward sent that conversation a message in the last 30 minutes, Claude Code Plus skips the first attempt to send the new message and shows the steward the earlier message, which steward sent it, and how long ago. The steward sends its message without asking unless it would conflict with the earlier message, in which case it asks you first.
+The first line identifies the supervisor that sent it by title and session ID. If another supervisor sent that conversation a message in the last 30 minutes, Claude Code Plus skips the first attempt to send the new message and shows the supervisor the earlier message, which supervisor sent it, and how long ago. The supervisor sends its message without asking unless it would conflict with the earlier message, in which case it asks you first.
 
 In its replies, conversation names and session IDs link to the conversation in whatever window has it; see Links to other conversations in [Other features](features.md#in-a-conversation).
 
 ### Renaming, closing and opening conversations
 
-You can ask the steward to rename or close a conversation it manages. You can also ask it to start a new conversation in a project open in a VS Code window, with the first message you want it to get. It tells you if no such window is open. The first message in the new conversation counts as your own, and the steward then manages it.
+You can ask the supervisor to rename or close a conversation it manages. You can also ask it to start a new conversation in a project open in a VS Code window, with the first message you want it to get. It tells you if no such window is open. The first message in the new conversation counts as your own, and the supervisor then manages it.
 
-Closing a conversation closes its editor tab without deleting anything, and you can reopen it from the session list. If the conversation is working, waiting for an answer, or running background work, the steward asks you again and closes it only if you agree.
+Closing a conversation closes its editor tab without deleting anything, and you can reopen it from the session list. If the conversation is working, waiting for an answer, or running background work, the supervisor asks you again and closes it only if you agree.
 
-If you name a conversation that no VS Code window has open, the steward can reopen it in an editor tab and pass your message to it. Claude Code stores each conversation under the folder where it was last opened. The tab opens only in the window that lists that folder first in its workspace; Claude Code looks for a window's stored conversations there alone, and in any other window would start a new, empty one.
+If you name a conversation that no VS Code window has open, the supervisor can reopen it in an editor tab and pass your message to it. Claude Code stores each conversation under the folder where it was last opened. The tab opens only in the window that lists that folder first in its workspace; Claude Code looks for a window's stored conversations there alone, and in any other window would start a new, empty one.
 
-If a window or another process is already running the conversation, the steward does not open the tab. A conversation the steward reopens is then ticked for it in the Steward panel.
+If a window or another process is already running the conversation, the supervisor does not open the tab. A conversation the supervisor reopens is then ticked for it in the Supervisor panel.
 
 ### Handoffs from a managed conversation
 
-When a managed conversation hands the steward a message that does not belong there, the steward first checks your own words in that conversation. It passes them to the right conversation or to a new one, then tells you where the message went. The handoff goes to one steward. The conversation can name one of its stewards to receive it. Without a named recipient, the handoff goes to the steward whose message started the current turn or, if no such message started it, to whichever of the conversation's stewards you last typed to.
+When a managed conversation hands the supervisor a message that does not belong there, the supervisor first checks your own words in that conversation. It passes them to the right conversation or to a new one, then tells you where the message went. The handoff goes to one supervisor. The conversation can name one of its supervisors to receive it. Without a named recipient, the handoff goes to the supervisor whose message started the current turn or, if no such message started it, to whichever of the conversation's supervisors you last typed to.
 
-### Changing whom a steward manages
+### Changing whom a supervisor manages
 
-In the steward conversation, you can ask the steward to start or stop managing a conversation, naming it by title or session ID. You can also ask it to turn **All, including new ones** or **New conversations** on or off. The steward makes the change, and you can see it in its Steward panel.
+In the supervisor conversation, you can ask the supervisor to start or stop managing a conversation, naming it by title or session ID. You can also ask it to turn **All, including new ones** or **New conversations** on or off. The supervisor makes the change, and you can see it in its Supervisor panel.
 
-The steward changes the list only when you type the request in the steward conversation itself. If the request comes from another conversation, a notice from Claude Code Plus (see [Questions and notices](#questions-and-notices)), a handoff, a subagent's work or an answer you typed in Agent Plus's Answer view, the steward tells you it could not change the list.
+The supervisor changes the list only when you type the request in the supervisor conversation itself. If the request comes from another conversation, a notice from Claude Code Plus (see [Questions and notices](#questions-and-notices)), a handoff, a subagent's work or an answer you typed in Agent Plus's Answer view, the supervisor tells you it could not change the list.
 
-If the conversation you ask isn't already a steward, it tells you so and changes nothing. To make a conversation a steward, bring it to the front and tick another conversation in the Steward panel, or turn on either switch there. If a steward's last conversation is unticked and both switches are off, it is no longer a steward.
+If the conversation you ask isn't already a supervisor, it tells you so and changes nothing. To make a conversation a supervisor, bring it to the front and tick another conversation in the Supervisor panel, or turn on either switch there. If a supervisor's last conversation is unticked and both switches are off, it is no longer a supervisor.
 
 ### Questions and notices
 
-On each turn, Claude Code Plus gives a managed conversation the title and session ID of each steward watching it. The conversation leaves its questions for you in its work plan without messaging a steward, and a steward passes them to you word for word.
+On each turn, Claude Code Plus gives a managed conversation the title and session ID of each supervisor watching it. The conversation leaves its questions for you in its work plan without messaging a supervisor, and a supervisor passes them to you word for word.
 
-Claude Code Plus sends a notice when a managed conversation needs you. If several stewards watch it, only one gets the question from the conversation's plan or the item waiting for your response, such as a permission prompt. That steward is the one you last typed to among the stewards open in a VS Code window. If another steward gets a notice about that conversation for a different reason, it also learns which steward is handling the question or prompt.
+Claude Code Plus sends a notice when a managed conversation needs you. If several supervisors watch it, only one gets the question from the conversation's plan or the item waiting for your response, such as a permission prompt. That supervisor is the one you last typed to among the supervisors open in a VS Code window. If another supervisor gets a notice about that conversation for a different reason, it also learns which supervisor is handling the question or prompt.
 
-When the conversation stops, Claude Code Plus sends a notice only to the steward that started the turn with a message and to stewards with an open row naming the conversation in their own work plans. It also sends a notice if a managed conversation has a background session or `claude -p` worker that ended without finishing.
+When the conversation stops, Claude Code Plus sends a notice only to the supervisor that started the turn with a message and to supervisors with an open row naming the conversation in their own work plans. It also sends a notice if a managed conversation has a background session or `claude -p` worker that ended without finishing.
 
 "Stops" means the turn has ended, no background work is left, and that is still so two seconds later. The wait keeps a conversation that starts its next turn at once, for a message you sent while it was working, from counting as stopped.
 
-For a conversation waiting on a permission prompt, the steward is told which command it is for, and each question is passed to the steward once. When nothing in a notice needs you, the steward replies with only `[[quiet]]` or a single dash. The Claude Code panel where the steward conversation is shown hides such a reply, along with the folded row of tool calls just before it.
+For a conversation waiting on a permission prompt, the supervisor is told which command it is for, and each question is passed to the supervisor once. When nothing in a notice needs you, the supervisor replies with only `[[quiet]]` or a single dash. The Claude Code panel where the supervisor conversation is shown hides such a reply, along with the folded row of tool calls just before it.
 
 ## OpenCode Agent Plus conversations
 
-The panel lists OpenCode Agent Plus conversations only when both OpenCode Agent Plus and Agent Plus 1.5.0 or later are running in the VS Code window that shows the steward. Agent Plus in that window supplies the list and the location of each conversation's work plan, and passes messages. When you click a conversation's name in the panel, Agent Plus brings it to the front in the window where it's open. To rename, close or reopen it, use OpenCode Agent Plus itself. The steward can't do that for you.
+The panel lists OpenCode Agent Plus conversations only when both OpenCode Agent Plus and Agent Plus 1.5.0 or later are running in the VS Code window that shows the supervisor. Agent Plus in that window supplies the list and the location of each conversation's work plan, and passes messages. When you click a conversation's name in the panel, Agent Plus brings it to the front in the window where it's open. To rename, close or reopen it, use OpenCode Agent Plus itself. The supervisor can't do that for you.
 
 ### Messages and notices
 
-As with a Claude Code conversation, you can ask the steward to send a message to a managed OpenCode Agent Plus conversation. Claude Code Plus passes it to Agent Plus, which delivers it to OpenCode Agent Plus in the window where the conversation is open. It appears there as your own message. If the conversation is waiting for you to approve a tool or answer a question, the steward tells you the conversation won't accept the message, so respond in that conversation's window.
+As with a Claude Code conversation, you can ask the supervisor to send a message to a managed OpenCode Agent Plus conversation. Claude Code Plus passes it to Agent Plus, which delivers it to OpenCode Agent Plus in the window where the conversation is open. It appears there as your own message. If the conversation is waiting for you to approve a tool or answer a question, the supervisor tells you the conversation won't accept the message, so respond in that conversation's window.
 
-When the conversation starts waiting for you or stops, the steward gets a notice under the same conditions as for a Claude Code conversation. A notice of a wait names the tool that needs approval or says a question is waiting. The steward can read the conversation's work plan, its latest reply and your latest messages in that conversation. OpenCode Agent Plus writes the reply and messages to a file beside the plan at the end of each turn.
+When the conversation starts waiting for you or stops, the supervisor gets a notice under the same conditions as for a Claude Code conversation. A notice of a wait names the tool that needs approval or says a question is waiting. The supervisor can read the conversation's work plan, its latest reply and your latest messages in that conversation. OpenCode Agent Plus writes the reply and messages to a file beside the plan at the end of each turn.
 
-A managed OpenCode Agent Plus conversation gets a reminder each turn that a steward watches it. This requires Agent Plus 1.6.0 or later and an OpenCode Agent Plus release later than 1.0.0. With those versions, the conversation can hand the steward a message it thinks belongs elsewhere while the conversation is open in a VS Code window.
+A managed OpenCode Agent Plus conversation gets a reminder each turn that a supervisor watches it. This requires Agent Plus 1.6.0 or later and an OpenCode Agent Plus release later than 1.0.0. With those versions, the conversation can hand the supervisor a message it thinks belongs elsewhere while the conversation is open in a VS Code window.
 
 ## A conversation run by two processes
 
-On Linux, when Claude Code runs a conversation in more than one process at once, as after a window went away while its extension host stayed, the conversation is marked in the Steward panel and the session list and the steward is told each process's pid, start time and window. Claude Code Plus stops the old process when it is idle and its window is gone, and tells the steward; otherwise the panel's Stop the old process button does it. The process that keeps the conversation is told which background commands, monitors and subagents stopped with the old one.
+On Linux, when Claude Code runs a conversation in more than one process at once, as after a window went away while its extension host stayed, the conversation is marked in the Supervisor panel and the session list and the supervisor is told each process's pid, start time and window. Claude Code Plus stops the old process when it is idle and its window is gone, and tells the supervisor; otherwise the panel's Stop the old process button does it. The process that keeps the conversation is told which background commands, monitors and subagents stopped with the old one.
 
 Claude Code keeps a conversation's transcript in a folder for the directory it runs in. If the conversation continues from another directory, each folder has a copy. A window open on the earlier directory resumes that directory's copy, which is the older one. If a conversation is open in another window but not in the current one, clicking its session list entry here brings it to the front in that window.
 
