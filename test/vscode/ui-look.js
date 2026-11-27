@@ -616,7 +616,6 @@ const liveRecords = (d) => {
     .filter((r) => r && (() => { try { process.kill(r.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } })());
 };
 const liveOf = (d, id) => liveRecords(d).filter((r) => r.sessionId === id);
-/* Session ids of the conversations still running in Claude Code panels of the demo window. */
 const panelsRunning = (d) => liveRecords(d).filter((r) => r.entrypoint === 'claude-vscode').map((r) => r.sessionId);
 
 /* The agent map steps: the conversation they use, the worker's session id, and the two scheduled prompts. */
@@ -711,13 +710,13 @@ function stopMapWork(d, ids) {
   }
 }
 /*
- * Ends the conversation the secondary side bar holds, which closing the side bar does not: Claude Code keeps its page
- * there, and the conversation in it running, while the side bar is closed, and shuts a conversation there down only
- * when VS Code disposes that page, which happens when the view leaves its container. Claude Code's view is in the side
- * bar only while claude-code:doesNotSupportSecondarySidebar is unset (Claude Code sets it on VS Code builds older than
- * 1.106 alone). The key stays set until `ended()` holds, with the side bar closed throughout, so that once it is unset
- * the view comes back with no page until it is next shown. `frame` is the side bar's page when known; `left()` says
- * what still runs if `ended()` has not become true in time.
+ * Ends the conversation in the secondary side bar. Closing the side bar does not: Claude Code keeps its page there, and
+ * the conversation in it running, while the side bar is closed, and shuts a conversation there down only when VS Code
+ * disposes that page, which happens when the view leaves its container. Claude Code's view is in the side bar only
+ * while claude-code:doesNotSupportSecondarySidebar is unset (Claude Code sets it on VS Code builds older than 1.106
+ * alone). The side bar stays closed and the key stays set until `ended()` holds; once the key is unset, the view comes
+ * back with no page until it is next shown. `frame` is the side bar's page when known; `left()` says what still runs if
+ * `ended()` has not become true in time.
  */
 async function endSideChat(d, frame, ended, left) {
   const key = 'claude-code:doesNotSupportSecondarySidebar';
@@ -3838,7 +3837,7 @@ const STEPS = [
         const a = document.querySelector('.sl-section[data-key="account"]');
         return a && !a.classList.contains('sl-hidden') ? { open: a.classList.contains('sl-open'), text: a.textContent } : null;
       }).catch(() => null);
-      /* The section follows the next time the figures or the conversation in front change. */
+      /* Account & usage catches up the next time the figures or the conversation in front change. */
       if (!await d.until(async () => { const s = await section(); return s && /No conversation running/.test(s.text); }, 60000, 500)) {
         const focus = await d.call('const f = typeof globalThis.__cceFocusState === "function" ? globalThis.__cceFocusState() : null; return f && { front: f.front, tab: f.tab, chat: f.chat, panels: f.panels };').catch(() => null);
         throw new Error(`Account & usage does not say that no conversation runs in this window: ${JSON.stringify({ section: await section(), focus,

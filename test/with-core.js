@@ -321,7 +321,7 @@ async function run() {
     } else {
       /* Agent Plus's session list: the transcripts of this window's folder, listed through the source; Claude Code's
          own archive and groups, imported once; when the list deletes each; and Claude Code's own Ctrl+Shift+T left to
-         the list while the list archives and deletes on its own in this window. */
+         the list while it archives and deletes on its own in this window. */
       const DAY = 86400000;
       const LA = 'a1a1a1a1-1111-4222-8333-444444444441', LB = 'a1a1a1a1-1111-4222-8333-444444444442', LC = 'a1a1a1a1-1111-4222-8333-444444444443';
       const LD = 'a1a1a1a1-1111-4222-8333-444444444444';
@@ -349,7 +349,7 @@ async function run() {
       const d1 = due();
       eq([!!read, typeof d1[LA] === 'number' && d1[LA] > Date.now() + 89 * DAY && d1[LA] <= Date.now() + 90 * DAY, d1[LB], d1[LC]], [true, true, null, null],
         'Agent Plus\'s session list shows this window\'s Claude Code conversations, takes in Claude Code\'s own archive once, counting 90 days from then to delete it, and deletes none of the others');
-      /* The section each is drawn in, from the list the core draws (its session list view's model). */
+      /* The section each conversation is shown in, read from the model of the core's session list view. */
       const slView = control.state.webviews['agentPlus.sessions'];
       const sectionOf = (id) => {
         const m = slView && slView.list && typeof slView.list.model === 'function' ? slView.list.model() : null;

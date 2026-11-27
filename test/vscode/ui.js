@@ -101,13 +101,13 @@
  *                  and New in tab; an archived conversation: no Delete... while it is open in a tab, then its
  *                  confirmation
  *   rename, delete, another window, Ctrl+Shift+T
- *                  in Agent Plus's session list, each with conversations of its own: Rename of one no process has open,
- *                  written to its transcript with nothing opened, and of one open in a tab, through its panel;
- *                  Delete... carried through, removing the transcript, the folder of its helpers and its work plan; a
- *                  conversation a second window shows, dimmed with the stripe of a conversation open elsewhere and that
- *                  window named in its hover, and a click bringing that window forward with its tab; and Ctrl+Shift+T,
- *                  Claude Code's binding turned off while the list manages the window, bringing back in one tab the
- *                  conversation closed last, and reopening another editor closed after it instead
+ *                  in Agent Plus's session list, each with conversations of its own: Rename of a conversation no
+ *                  process has open, written to its transcript with nothing opened, and of one open in a tab, through
+ *                  its panel; Delete... carried through, removing the transcript, the folder of its helpers and its
+ *                  work plan; a conversation a second window shows, where a click on its row brings that window forward
+ *                  with its tab; and Ctrl+Shift+T, Claude Code's binding turned off while the list manages the window,
+ *                  bringing back in one tab the conversation closed last, and reopening another editor closed after it
+ *                  instead
  *   light theme    the envelope's text form on the tab and the Supervisor panel, the envelope on its row in Agent Plus's
  *                  session list, and the colour form back in a dark theme
  *   the old bell   a supervisor whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
@@ -214,7 +214,6 @@ const LIST_THREADS = {
   reopened: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c5', title: 'List the cron jobs of the build machine', days: 0,
     turns: [['List the cron jobs of the build machine.', 'There are three: the nightly build, the cache prune and the log rotation.']] },
 };
-/* The conversation of the process wrapper step. */
 const WRAPPER_THREAD = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6d1', title: 'Size the importer cache for the nightly load', days: 0,
   turns: [['Size the importer cache for the nightly load.', 'Set `cacheSizeMb` in config/importer.yml to 512; the nightly load peaks at 430 MB.']] };
 
@@ -1473,7 +1472,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         try { const s = fs.readFileSync(`/proc/${pid}/stat`, 'latin1'); return Number(s.slice(s.lastIndexOf(')') + 2).split(' ')[1]) || 0; } catch (_) { return 0; }
       };
       const underHost = (pid) => { for (let p = pid, n = 0; p > 1 && n < 32; n++) { if (p === host) return true; p = parentOf(p); } return false; };
-      /* The CLIs this window's extension host started that run now, from Claude Code's session registry. Without /proc
+      /* The running CLIs that this window's extension host started, from Claude Code's session registry. Without /proc
          none can be told apart, and this extension reads none either. A panel keeps a CLI ready for a new conversation,
          so one can run with no conversation running here. */
       const clis = () => {
@@ -1551,7 +1550,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const m = [...document.querySelectorAll('[data-testid="assistant-message"]')].pop();
           return !!m && m.innerText.includes('Done.');
         }), 60000, 500);
-        check(!!replied, 'a conversation whose CLI the wrapper started, signed in with the auth token, gets the fake model\'s reply',
+        check(!!replied, 'the fake model replies to a conversation whose CLI the wrapper started and signed in with the auth token',
           { turns: model.turns() - turns, seen: model.seen.slice(-2) });
         await showSl();
         await openAccount(sl);
@@ -2948,8 +2947,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const gone = await until(async () => !(await tabOf()) && !live(), 30000, 500);
         check(!!gone, 'closing its tab ends its Claude Code process', { tab: await tabOf(), running: live() });
       }
-      /* For a moment after its process ends, a menu opened again can lack the Delete... the one before had, so
-         deleteMenu returns only a menu that has it, and the step clicks Delete... there. */
+      /* For a moment after its process ends, a menu opened again can lack the Delete... the one before had. */
       const deleteMenu = async () => {
         await page.keyboard.press('Escape');
         await archivedAt.click({ button: 'right' });
@@ -3201,9 +3199,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
        the list archives and deletes on its own in this window, this extension turns Claude Code's off; that is read
        here from this extension itself (__cceListReopens), and the hand-over is checked by test/check.js and
        test/with-core.js. The window cannot tell which of Claude Code's binding and Agent Plus's took the key: with the
-       conversation closed last, either brings it back in a tab. What the window shows is the key's effect: the
-       conversation closed last comes back in one tab, and with another editor closed after it neither takes the key,
-       which then reopens that editor. */
+       conversation closed last, either brings it back in a tab. In the window, the conversation closed last comes back
+       in one tab, and with another editor closed after it neither takes the key, which then reopens that editor. */
     await step('reopening a closed conversation with Ctrl+Shift+T', async () => {
       const t = LIST_THREADS.reopened;
       fakeHome.writeThreads(profile.home, profile.folder, [t]);
@@ -3307,7 +3304,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const inside = frame ? await frame.evaluate(() => [document.body.innerText,
           ...[...document.querySelectorAll('[title], [data-why], [aria-label]')].flatMap((e) => ['title', 'data-why', 'aria-label'].map((a) => e.getAttribute(a) || ''))]
           .filter(Boolean)) : [];
-        /* Agent Plus's notices of conversations that need the user are its own; the rest on screen are this extension's. */
+        /* Agent Plus shows its own notices of conversations that need the user; every other notification on screen is
+           this extension's. */
         return { chrome, inside, toasts: (await notificationItems(page, '.notifications-toasts')).filter((n) => !NEED(n)).map((n) => n.text) };
       };
       const roleNamed = (w) => [...(w.chrome ? w.chrome.tabs.concat(w.chrome.heads) : []), ...w.inside, ...w.toasts].filter((t) => ROLE_WORD.test(t));
@@ -3613,7 +3611,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               model.seen.slice(asked).map((x) => (x.ask || '').slice(0, 160)));
             const seen = noticeSeen();
             check(seen.startsWith('Supervisor notice from Claude Code Plus, not a message from the user.') && !ROLE_WORD.test(seen),
-              'the notice starts with "Supervisor notice from Claude Code Plus" and nowhere calls its reader a steward', seen.slice(0, 600));
+              'the notice starts with "Supervisor notice from Claude Code Plus" and does not call the supervisor a steward anywhere', seen.slice(0, 600));
           }
           const closeBusy = await act(['--close', target.id]);
           check(/^Not done: busy: it is waiting/.test(closeBusy), 'asked to close it while it waits, without --confirmed, the supervisor is told to ask the user first', { closeBusy });

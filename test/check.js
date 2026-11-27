@@ -11755,7 +11755,6 @@ console.log('\nconversations');
   }
 
   {
-    /* A panel that goes away keeps its last state while the lists read after it went still show its process. */
     const { goneStates } = require('../src/gone-states');
     let t = 1000, list = { records: [{ sessionId: S(1), pid: 812, status: 'waiting' }], at: 900 };
     const g = goneStates({ now: () => t, agentsNow: () => list, pidsOf: w.pidsOf, trustMs: () => 60000 });
@@ -15105,7 +15104,7 @@ const repo = path.join(__dirname, '..');
         f.ps(200, HOST, { ANTHROPIC_API_KEY: 'k' });
         f.rec(200, S(1), 1000);
         eq([before, afterSetting, r(S(1)).method], ['none', 'wrapper', 'apiKey'],
-          'what it read is kept a while, but read again at once when the wrapper setting changes or a process appears in the session registry');
+          'the reader keeps its answer for a while, and reads again at once when the wrapper setting changes or a process appears in the session registry');
       }
       eq(cl.parseEnviron('A=1\0B=x=y\0\0=bad\0C\0'), { A: '1', B: 'x=y' }, 'an environment block is split at NULs and each entry at its first =');
     }
@@ -15185,8 +15184,8 @@ const repo = path.join(__dirname, '..');
   }
 
   /* The rows as Agent Plus's session list reads them: its own reading of a Session and its rules for the dot, the
-     stripe, the read mark, what it archives and deletes on its own, the order, search and the actions, taken from the
-     Agent Plus found beside this extension. The fields of a row have to match what those rules expect of them. */
+     stripe, the read mark, archiving and deleting on its own, the order, search and the actions, taken from the Agent
+     Plus found beside this extension. */
   console.log('\nClaude Code\'s rows as Agent Plus\'s session list reads them');
   {
     const csl = require('../src/claude-session-list');
