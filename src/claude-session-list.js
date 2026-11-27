@@ -43,10 +43,10 @@ const textOf = (rec) => {
 };
 /* A message the user wrote: not a tool's result, which Claude Code also files as a user record. */
 const isTyped = (rec) => isMessage(rec) && rec.type === 'user' && rec.toolUseResult === undefined && !!textOf(rec).trim();
-/* The text of a user record's message, for a conversation with no title yet. */
-/* Why the section has no figures: Claude Code reports them for a conversation that runs in this window. */
+/* What the section says in place of the figures, for each of the two reasons it has none. */
 const NO_FIGURES = 'The cost, time and code changes are shown for a Claude Code conversation that runs in this window.';
 const NOT_YET = 'Claude Code reports the cost, time and code changes of a conversation once it has had a turn in this window.';
+/* The text of a user record's message, for a conversation with no title yet. */
 function promptOf(rec) {
   const line = withoutFrom(String(textOf(rec) || '')).replace(/<[^>]+>[^<]*<\/[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   return line.length > MAX_PROMPT ? line.slice(0, MAX_PROMPT - 1) + '\u2026' : line;
@@ -355,9 +355,9 @@ function create(deps) {
         if (typeof id !== 'string' || !SESSION.test(id)) continue;
         seenLog.push([Date.now(), id, seen === true]);
         if (seenLog.length > 30) seenLog.shift();
-        /* Only a mark that changes goes to the host. Each call there first reads all its marks back from VS Code's
-           global state, which can briefly still hold the value from before its last write; a call that changes
-           nothing would then drop a reply it marked unread a moment earlier. */
+        /* Each call to the host first reads all its marks back from VS Code's global state, which can briefly still
+           hold the value from before its last write; a call that changes nothing would then drop a reply it marked
+           unread a moment earlier. */
         const on = seen !== true;
         if (typeof deps.unseen === 'function' && safe(deps.unseen, !on, id) === on) continue;
         try { if (deps.setUnread) deps.setUnread(id, on); } catch (_) { /* the host is not patched */ }

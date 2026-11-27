@@ -22,7 +22,7 @@ const on = (v) => /^(1|true|yes|on)$/i.test(String(v === undefined || v === null
 const set = (v) => typeof v === 'string' && v.trim() !== '';
 
 /* `env`: the variables the CLI gets, later sources first overridden; `settings`: ~/.claude/settings.json; `config`:
-   ~/.claude.json. Returns { method, label }. */
+   ~/.claude.json. */
 function method({ env = {}, settings = {}, config = {} } = {}) {
   const pick = (m) => ({ method: m, label: LABELS[m] });
   if (on(env.CLAUDE_CODE_USE_BEDROCK)) return pick('bedrock');

@@ -738,8 +738,8 @@ function start(context, log, renamed, handing = false) {
   /* Conversations renamed from the session list or by a steward, whose new conversation is then not named after its
      first message (nameOpened). */
   const renamedByOthers = new Set();
-  /* Account & usage follows the conversation in front and whether it still runs here, not only its figures: one that
-     stops before it has any keeps its "No figures yet" line until something else changes. */
+  /* Account & usage is asked again when the conversation in front or the ones running here change, not only when the
+     figures do: one that stopped before it had any would otherwise keep its "No figures yet" line. */
   let accountKey = '';
   const noteAccount = () => {
     const key = `${activeChat()}|${[...liveStates.keys()].sort().join(',')}`;
