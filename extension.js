@@ -1597,10 +1597,10 @@ function start(context, log, renamed, handing = false) {
     return agentsMerged.map.get(id) || null;
   };
   /*
-   * The host's states, and for a conversation whose panel here went away, the last state it had there while `claude
-   * agents` can still list that panel's process, for at most AGENTS_TRUST_MS (src/gone-states.js). The list held until
-   * then can also be one the windows share for up to 20 s (src/waiting.js), read while the panel still showed a wait
-   * the user has since answered.
+   * The host's states, and for a conversation whose panel in this window went away, the last state that panel had,
+   * while `claude agents` can still list its process and for at most AGENTS_TRUST_MS (src/gone-states.js). The list
+   * held until then can also be one the windows share for up to 20 s (src/waiting.js), read while the panel still
+   * showed a wait the user has since answered.
    */
   const hostStates = () => gone.over(liveStates);
   const activityFor = (id, host = hostStates().get(id) || '') =>

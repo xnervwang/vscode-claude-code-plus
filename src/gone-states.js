@@ -7,10 +7,10 @@
  * The last state a panel here had for each conversation whose panel went away, which stands in for the panel until
  * `claude agents` can speak for the conversation again. Closing a tab ends the panel's claude process a moment later,
  * and a list read in that moment still has that process, with the state it last wrote: that can be a wait the user
- * answered just before closing. So a gone state stands until a list read after the panel went has none of the
- * processes the conversation had then, and at most `trustMs`. A process that was not there then, such as the
- * conversation resumed in a terminal, speaks for it at once. With no list held when the panel went, the first list
- * read after it does.
+ * answered just before closing. So a gone state is kept until a list read after the panel went has none of the
+ * processes the conversation had then. It is kept for at most `trustMs`. A process that was not there then, such as the
+ * conversation resumed in a terminal, speaks for it at once. With no list held when the panel went, the first list read
+ * after it does.
  *
  *   note(before, after)  the host's states before and after a report from its panels
  *   over(live)           `live` with each gone state that still stands, for a conversation `live` does not have

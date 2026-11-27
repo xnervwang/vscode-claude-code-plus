@@ -265,7 +265,8 @@ function rename(names, { dir = planDir() } = {}) {
  * The line a supervisor's message to a conversation starts with, and the supervisor it names. The managed conversation reads
  * it to know which supervisor the message is from (hooks/steward.py says so each turn), and the relay reads it in that
  * conversation's transcript to find the supervisor that started a turn. hooks/steward_table.py parses the same form.
- * The line is written with "supervisor"; one that says "steward", as earlier builds wrote it, reads the same, in any case.
+ * The line is written with "supervisor"; one that says "steward", as earlier builds wrote it, is read the same way, and
+ * letter case does not matter.
  * The title loses every mark (src/title-marks.js) here, whatever the caller passed: a stored title can still carry
  * one that an older build wrote into it, and the line names the supervisor by its title alone.
  */
@@ -308,7 +309,7 @@ function titleOfWords(text) {
    does when it compares a message. */
 const textHash = (text) => crypto.createHash('sha256').update(String(text || '').replace(/[\s\u200b]+/g, ''), 'utf8').digest('hex');
 
-/* Notices from earlier builds begin with "Steward notice", which NOTICE also takes. */
+/* Notices from earlier builds begin with "Steward notice". */
 const NOTICE_HEAD = 'Supervisor notice from Claude Code Plus';
 const NOTICE = /^(?:Supervisor|Steward) notice from Claude Code Plus/i;
 const isNotice = (text) => NOTICE.test(String(text || ''));

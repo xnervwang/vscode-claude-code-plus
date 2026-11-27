@@ -43,7 +43,7 @@ function method({ env = {}, settings = {}, config = {} } = {}) {
 
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return {}; } };
 
-/* A NUL-separated environment block, as /proc/<pid>/environ holds one, as an object. */
+/* Parses a NUL-separated environment block, the format of /proc/<pid>/environ, into an object. */
 function parseEnviron(block) {
   const out = {};
   for (const line of String(block || '').split('\0')) {
@@ -72,7 +72,7 @@ function under(pid, ancestor, proc) {
  * The environment the Claude Code CLI of the conversation `sessionId` started with in this window, as { pid, env }, or
  * null. Its record in `sessions` (<config>/sessions/<pid>.json) names the process; it belongs to this window when
  * `ownPid`, the extension host, is among its ancestors, as it is whether or not a wrapper replaced itself with the CLI.
- * Of two processes on one conversation the one started last is taken. Only a conversation's own process is read: a
+ * If two processes run the conversation, the one started last is read. Only a conversation's own process is read: a
  * panel also starts a CLI for a new conversation before anything is sent, and keeps it while the panel is hidden. Where
  * `proc` does not list `ownPid` there is no /proc to read, and null is returned without reading the records.
  */
@@ -95,7 +95,7 @@ function windowProcess({ sessions, proc = '/proc', ownPid = process.pid, session
  * `wrapper` claudeCode.claudeProcessWrapper (a path, or ''). Called with the session id of the conversation in front
  * when it runs in this window, or '' when none runs here, it returns { method, label, tooltip? }. It reads the files
  * again at most every `ms` milliseconds, as the section asks often, and at once when the settings, the conversation
- * asked for or the processes in the session registry change. `proc`, `ownPid` and `isAlive` are for a test.
+ * asked for or the processes in the session registry change. Tests pass `proc`, `ownPid` and `isAlive`.
  */
 function reader({ extra = () => [], wrapper = () => '', env = process.env, home = os.homedir(), ms = 5000,
   proc = '/proc', ownPid = process.pid, isAlive } = {}) {
