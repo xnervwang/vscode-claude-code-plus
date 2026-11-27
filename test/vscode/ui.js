@@ -5020,10 +5020,22 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         vscode.ConfigurationTarget.Global); return true;`, [`notifications.${k}`, v]);
       const ASK_TEXT = /Allow this bash command\?/;
       const BASH_NOTICE = 'Claude is requesting permission to use Bash';
+      /* Right after a tab is opened, its page can lose the focus for a tenth of a second while Claude Code focuses its
+         input, and the keys typed then are gone. So the text is checked before Enter and typed again when keys are
+         missing, and Enter is pressed again while the text is still in the box. */
       const say = async (frame, p, text) => {
-        await frame.locator('[contenteditable][role="textbox"]').first().click();
-        await p.keyboard.type(text);
-        await p.keyboard.press('Enter');
+        const box = frame.locator('[contenteditable][role="textbox"]').first();
+        const inBox = () => box.evaluate((e) => (e.textContent || '').trim()).catch(() => '');
+        for (let i = 0; i < 3; i++) {
+          await box.click();
+          if (await inBox()) { await p.keyboard.press('ControlOrMeta+a'); await p.keyboard.press('Backspace'); }
+          await p.keyboard.type(text);
+          if (await inBox() === text) break;
+        }
+        for (let i = 0; i < 3; i++) {
+          await p.keyboard.press('Enter');
+          if (await until(async () => (await inBox()) !== text, 2000, 100)) break;
+        }
       };
       /* Answers No on the permission prompt in `frame` and waits for the prompt to go. A notice at the bottom right can
          lie over the panel's buttons, so the caller clears them first. */
