@@ -592,13 +592,21 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   };
 
   /* A frame of the window's webviews in which `test` (a function of document) is true, leaving out those in `skip` (a Set
-     of frames). */
+     of frames). Opening a tab again can leave the conversation's earlier page in place, still running but not drawn,
+     where a click never happens, so of several such frames one that draws is taken. */
+  const draws = (f) => Promise.race([f.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(true)))).catch(() => false),
+    new Promise((r) => setTimeout(() => r(false), 300))]);
   const frameWhere = async (test, ms, arg, skip) => until(async () => {
+    let first = null;
     for (const f of page.frames()) {
       if (skip && skip.has(f)) continue;
-      try { if (await f.evaluate(test, arg)) return f; } catch (_) { /* not ready, or gone */ }
+      let yes = false;
+      try { yes = !!await f.evaluate(test, arg); } catch (_) { /* not ready, or gone */ }
+      if (!yes) continue;
+      if (await draws(f)) return f;
+      first = first || f;
     }
-    return null;
+    return first;
   }, ms, 500);
   /* The crop of `box` (in the window's CSS pixels) as a PNG, with each of its four edges rounded to the nearest pixel, as
      the page itself snaps them: a size such as 258.5 px rounded alone comes out as 258 in one run and 259 in the next. */
@@ -1495,8 +1503,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       };
       let restored = false;
       try {
-        await call(`for (const x of vscode.window.tabGroups.all.flatMap((g) => g.tabs))
-          if (x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}) await vscode.window.tabGroups.close(x); return true;`);
+        /* Once its tabs are all closed, Claude Code opens the next conversation in a new group of its own, so a group that
+           held them is closed too, other editors and all: the steps after this one picture the tabs as one row, which a
+           third, narrower group would wrap. */
+        await call(`const panel = (x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)};
+          const held = vscode.window.tabGroups.all.filter((g) => g.tabs.some(panel));
+          for (const x of held.flatMap((g) => g.tabs).filter(panel)) await vscode.window.tabGroups.close(x);
+          for (const g of held) if (vscode.window.tabGroups.all.includes(g) && vscode.window.tabGroups.all.length > 1) await vscode.window.tabGroups.close(g);
+          return true;`);
         await exec('workbench.action.closeAuxiliaryBar');
         await showSl();
         const quiet = await until(async () => !(await claudeTabs()).length && ((await signIn()) || {}).idle, 30000, 500);
@@ -2716,7 +2730,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         while (Date.now() - closedAt < 30000) {
           if (!told) told = await noticeOf(t1);
           const n = await needCount();
-          if (!counted && n && ((base ? n.n > base.n : true) || n.label.includes(t1.title))) counted = Object.assign({ ms: Date.now() - closedAt }, n);
+          if (!counted && n && ((base ? n.n > base.n : true) || n.label.includes(t1.title))) {
+            /* Which of the sources still has it waiting: the shared list, Agent Plus's record, or the list row. */
+            const rowDot = await sl.evaluate((id) => { const r = [...document.querySelectorAll('.sl-row')].find((x) => (x.dataset.key || '').includes(`"${id}"`)); return r ? r.dataset.dot : null; }, t1.id).catch(() => null);
+            counted = Object.assign({ ms: Date.now() - closedAt, shared: sharedOf(t1.id), agentPlus: attentionOf(t1.id), rowDot }, n);
+          }
           await sleep(300);
         }
         const listed = (await listedNotices()).filter(about(t1));
