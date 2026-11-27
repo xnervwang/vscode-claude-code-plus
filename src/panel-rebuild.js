@@ -16,13 +16,14 @@
  * shows the "couldn't load" notice.
  *
  * Setting the panel's HTML again makes the editor build a new page, served by whichever worker is in place by then, as
- * the editor's Reload Webviews command does. Only for a script that was not delivered: one that arrived and threw would
- * throw again. Twice at most for one panel, so that when the file really is missing, Claude Code's notice stays.
+ * the editor's Reload Webviews command does. A script that arrived and threw would throw again, so only one that was
+ * not delivered gets a new page. Twice at most for one panel, so that when the file really is missing, Claude Code's
+ * notice stays.
  */
 const DELAYS_MS = [2000, 10000];
 const MARK = /\n?<!-- cce-built-again \d+ -->$/;
 
-/* The editor sends a new page only when the HTML changes, so this puts a comment numbered n at the end of it. */
+/* The editor sends a new page only when the HTML changes. */
 function marked(html, n) {
   return String(html).replace(MARK, '') + `\n<!-- cce-built-again ${n} -->`;
 }

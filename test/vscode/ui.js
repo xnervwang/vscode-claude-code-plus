@@ -2910,8 +2910,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await shot('new-in-tab');
     });
 
-    /* A page whose script never arrives ends on Claude Code's notice (src/panel-rebuild.js). Here the script is missing
-       while the tab opens and is put back once the notice shows. */
+    /* A page whose script never arrives ends on Claude Code's notice (src/panel-rebuild.js). This step moves the script
+       away while the tab opens and puts it back once the notice shows. */
     await step('a panel whose script did not arrive', async () => {
       const cc = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
       const file = path.join(profile.exts, cc, 'webview', 'index.js');
@@ -3405,8 +3405,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its supervisor', table);
-        /* With the panel narrowed to just fit a managed row's title on one line plus the parts that keep their size,
-           the title stays whole and only the text after it is cut. */
         const narrow = await until(() => frame.evaluate((id) => {
           const li = [...document.querySelectorAll('li.row.managed')].find((r) => r.querySelector(`input[data-id="${id}"]`));
           const name = li && li.querySelector('.name'), doing = li && li.querySelector('.doing');

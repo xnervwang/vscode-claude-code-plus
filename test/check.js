@@ -11973,8 +11973,8 @@ console.log('\nconversations');
   }
 
   {
-    /* A new conversation before Claude Code has generated its title: its tab and the session list show the first message
-       the user typed, and the Supervisor panel does too. */
+    /* Until Claude Code generates a title, a new conversation's tab and the session list show the first message the
+       user typed, and the Supervisor panel does too. */
     const { claudeTitle } = require('../src/conversations');
     const { firstPromptOf } = require('../src/claude-session-list');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-first-'));
