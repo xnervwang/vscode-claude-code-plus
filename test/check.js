@@ -15183,9 +15183,9 @@ const repo = path.join(__dirname, '..');
       'when this window cannot tell which conversations are open, nothing is deleted');
   }
 
-  /* The rows as Agent Plus's session list reads them: its own reading of a Session and its rules for the dot, the
-     stripe, the read mark, archiving and deleting on its own, the order, search and the actions, taken from the Agent
-     Plus found beside this extension. */
+  /* Claude Code's rows through Agent Plus's own session list code: how it makes a row from a Session, and its rules for
+     the dot, the stripe, the read mark, archiving and deleting on its own, the order, search and the actions, taken
+     from the Agent Plus found beside this extension. */
   console.log('\nClaude Code\'s rows as Agent Plus\'s session list reads them');
   {
     const csl = require('../src/claude-session-list');

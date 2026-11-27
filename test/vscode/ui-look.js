@@ -714,9 +714,8 @@ function stopMapWork(d, ids) {
  * the conversation in it running, while the side bar is closed, and shuts a conversation there down only when VS Code
  * disposes that page, which happens when the view leaves its container. Claude Code's view is in the side bar only
  * while claude-code:doesNotSupportSecondarySidebar is unset (Claude Code sets it on VS Code builds older than 1.106
- * alone). The side bar stays closed and the key stays set until `ended()` holds; once the key is unset, the view comes
- * back with no page until it is next shown. `frame` is the side bar's page when known; `left()` says what still runs if
- * `ended()` has not become true in time.
+ * alone). Once the key is unset, the view comes back with no page until it is next shown. `frame` is the side bar's
+ * page when known; `left()` says what still runs if `ended()` has not become true in time.
  */
 async function endSideChat(d, frame, ended, left) {
   const key = 'claude-code:doesNotSupportSecondarySidebar';
@@ -3830,7 +3829,7 @@ const STEPS = [
       + 'conversations open here.',
     act: async (d) => {
       await d.exec('workbench.action.closeAllEditors');
-      /* An earlier step may have left a conversation in the side bar; it would go on running there. */
+      /* An earlier step may have left a conversation in the side bar. */
       await endSideChat(d, null, () => !panelsRunning(d).length, () => `Claude Code still runs ${JSON.stringify(panelsRunning(d))} in this window`);
       const list = await agentList(d);
       const section = () => list.evaluate(() => {

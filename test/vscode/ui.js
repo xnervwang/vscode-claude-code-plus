@@ -102,12 +102,10 @@
  *                  confirmation
  *   rename, delete, another window, Ctrl+Shift+T
  *                  in Agent Plus's session list, each with conversations of its own: Rename of a conversation no
- *                  process has open, written to its transcript with nothing opened, and of one open in a tab, through
- *                  its panel; Delete... carried through, removing the transcript, the folder of its helpers and its
- *                  work plan; a conversation a second window shows, where a click on its row brings that window forward
- *                  with its tab; and Ctrl+Shift+T, Claude Code's binding turned off while the list manages the window,
- *                  bringing back in one tab the conversation closed last, and reopening another editor closed after it
- *                  instead
+ *                  process has open and of one open in a tab; Delete... through its confirmation; a conversation a
+ *                  second window shows, where a click on its row brings that window forward with its tab; and
+ *                  Ctrl+Shift+T, Claude Code's binding turned off while the list manages the window, bringing back in
+ *                  one tab the conversation closed last, and reopening another editor closed after it instead
  *   light theme    the envelope's text form on the tab and the Supervisor panel, the envelope on its row in Agent Plus's
  *                  session list, and the colour form back in a dark theme
  *   the old bell   a supervisor whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
@@ -3199,8 +3197,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
        the list archives and deletes on its own in this window, this extension turns Claude Code's off; that is read
        here from this extension itself (__cceListReopens), and the hand-over is checked by test/check.js and
        test/with-core.js. The window cannot tell which of Claude Code's binding and Agent Plus's took the key: with the
-       conversation closed last, either brings it back in a tab. In the window, the conversation closed last comes back
-       in one tab, and with another editor closed after it neither takes the key, which then reopens that editor. */
+       conversation closed last, either brings it back in a tab. With another editor closed after it, neither takes the
+       key, which then reopens that editor. */
     await step('reopening a closed conversation with Ctrl+Shift+T', async () => {
       const t = LIST_THREADS.reopened;
       fakeHome.writeThreads(profile.home, profile.folder, [t]);

@@ -320,8 +320,8 @@ async function run() {
       note('this Agent Plus has no \'sessionList\': its session list was not run with Claude Code\'s conversations');
     } else {
       /* Agent Plus's session list: the transcripts of this window's folder, listed through the source; Claude Code's
-         own archive and groups, imported once; when the list deletes each; and Claude Code's own Ctrl+Shift+T left to
-         the list while it archives and deletes on its own in this window. */
+         own archive and groups, imported once; and Claude Code's own Ctrl+Shift+T left to the list while it archives
+         and deletes on its own in this window. */
       const DAY = 86400000;
       const LA = 'a1a1a1a1-1111-4222-8333-444444444441', LB = 'a1a1a1a1-1111-4222-8333-444444444442', LC = 'a1a1a1a1-1111-4222-8333-444444444443';
       const LD = 'a1a1a1a1-1111-4222-8333-444444444444';
@@ -343,7 +343,7 @@ async function run() {
       globalThis.__cceOfficialLists = () => official;
       const due = () => ap.sessionDeletionDue('claude-code') || {};
       const has = (...ids) => ids.every((id) => Object.prototype.hasOwnProperty.call(due(), id));
-      /* A change of states makes the source tell the list (claude.changed()), which then reads it again. */
+      /* A change of states makes the source call claude.changed(), and the list then reads the source again. */
       globalThis.__cceStatesHook([], '', [], []);
       const read = await until(() => has(LA, LB, LC) && typeof due()[LA] === 'number', 15000);
       const d1 = due();
@@ -358,7 +358,8 @@ async function run() {
       };
       eq([LA, LB, LC].map(sectionOf), [['archived', 'Archived'], ['group', 'Parser'], ['ungrouped', 'Ungrouped']],
         'and it draws the one Claude Code\'s own list archives under Archived, the one in Claude Code\'s own group Parser in a group of that name, and the other under Ungrouped');
-      /* With a deletion this close, Claude Code's own cleanup is left to delete the transcript later than the list does. */
+      /* With a deletion this close, this extension leaves the transcript to Claude Code's own cleanup, which comes
+         after the list's deletion. */
       const csl = require(path.join(root, 'src', 'claude-session-list.js'));
       const file = (id) => path.join(listDir, `${id}.jsonl`);
       control.state.config['agentPlus.sessions.deleteAfterDays'] = 3;
