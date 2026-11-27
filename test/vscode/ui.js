@@ -2753,18 +2753,35 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const gone = await until(async () => !(await tabOf()) && !live(), 30000, 500);
         check(!!gone, 'closing its tab ends its Claude Code process', { tab: await tabOf(), running: live() });
       }
-      const menu = await until(async () => { const m = await archivedMenu(); return m && m.includes('Delete...') && m; }, 20000, 1000);
-      check(!!menu, 'once nothing has it open, an archived conversation\'s menu has Delete...', menu || await archivedMenu());
+      /* For a moment after its process ends, a menu opened again can lack the Delete... that the one before had, so
+         Delete... is clicked in the menu that offered it. */
+      const deleteMenu = async () => {
+        await page.keyboard.press('Escape');
+        await archivedAt.click({ button: 'right' });
+        const m = await slMenu();
+        if (m && m.includes('Delete...')) return m;
+        await page.keyboard.press('Escape');
+        return null;
+      };
+      const rowFacts = async () => {
+        const m = await archivedMenu();
+        await archivedAt.hover();
+        await sleep(800);
+        return { menu: m, hover: await slHoverText(), row: await archivedRow() };
+      };
+      const menu = await until(deleteMenu, 20000, 1000);
+      check(!!menu, 'once nothing has it open, an archived conversation\'s menu has Delete...', menu || await rowFacts());
       await shot('archived-menu');
       if (menu) {
-        await archivedAt.click({ button: 'right' });
-        await slMenu();
         await slItem('Delete...').click();
         const d = await until(dialog, 15000, 300);
         check(!!d && d.text.includes(t1.title) && /transcript/.test(d.text) && d.text.includes('This cannot be undone.') && d.buttons.includes('Delete') && d.buttons.includes('Cancel'),
           'Delete... first opens a dialog that names the conversation and what of it is on disk, says it cannot be undone, and offers Delete and Cancel', d);
         await shot('delete-confirmation');
         if (d) check(await answerDialog('Cancel') && fs.existsSync(transcriptOf(t1)), 'Cancel closes it and deletes nothing', transcriptOf(t1));
+        const still = await until(deleteMenu, 20000, 1000);
+        await page.keyboard.press('Escape');
+        check(!!still, 'after Cancel its menu still has Delete...', still || await rowFacts());
       }
       /* Later steps use this conversation as an ordinary one. */
       await archivedAt.hover();
