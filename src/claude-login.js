@@ -4,7 +4,7 @@
 
 'use strict';
 /*
- * How Claude Code's CLI signs in, for the Claude Code part of the session list's Account & usage section.
+ * How Claude Code's CLI signs in, for the Sign-in row of Account & usage in the session list.
  *
  * The CLI the panel starts gets the extension host's environment, the variables of the setting
  * claudeCode.environmentVariables and the env of ~/.claude/settings.json. With one of them it uses Amazon Bedrock, Google

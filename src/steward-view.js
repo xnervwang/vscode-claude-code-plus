@@ -989,8 +989,8 @@ function create(vscode, deps) {
       const p = deps.stopDuplicate ? deps.stopDuplicate(m.id) : null;
       noticeTime.info(vscode, p ? `Stopped process ${p.pid} of that conversation.`
         : 'That conversation is no longer run by more than one process, or its old process could not be stopped.');
-      /* The row says two processes until the list is read again, which is otherwise up to the next poll: it is read every
-         half second until the stopped one has left it, for five seconds at most. */
+      /* Without this, the row would say two processes until the next poll: the list is read every half second until the
+         stopped process has left it, for five seconds at most. */
       if (p && deps.rereadDuplicates) {
         let tries = 0;
         const again = () => {
