@@ -8399,7 +8399,7 @@ console.log('\na panel whose script never arrived');
     vm.createContext(fenv);
     vm.runInContext(fr.out + ';var p=new P;p.webview={name:"W"};p.handled=[];p.receivePanelLoadFailure({type:"panel_load_failed",reason:"not_delivered"});var h1=p.handled;', fenv);
     if (JSON.stringify(fenv.got) === '[["W","not_delivered"]]' && JSON.stringify(fenv.h1) === '["not_delivered"]') {
-      ok('a panel\'s report that its script did not run reaches this extension with that panel\'s webview, and Claude Code still handles it');
+      ok('when a panel reports that its script did not run, this extension gets the report with that panel\'s webview, and Claude Code still handles it');
     } else bad(`the hook got ${JSON.stringify(fenv.got)}, Claude Code handled ${JSON.stringify(fenv.h1)}`);
     const tenv = {};
     tenv.globalThis = tenv;
@@ -11974,7 +11974,7 @@ console.log('\nconversations');
 
   {
     /* A new conversation before Claude Code has generated its title: its tab and the session list show the first message
-       the user typed, and the Supervisor panel does too, not the name Claude Code made from the folder. */
+       the user typed, and the Supervisor panel does too. */
     const { claudeTitle } = require('../src/conversations');
     const { firstPromptOf } = require('../src/claude-session-list');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-first-'));

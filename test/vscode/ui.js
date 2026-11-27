@@ -2926,7 +2926,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       try {
         await sl.locator('.sl-new-half[data-where="tab"]').click();
         const notice = await frameWhere(() => !!document.querySelector('#claude-load-failure h1'), 30000, undefined, before);
-        check(!!notice, 'with its script missing, a new Claude Code tab ends on Claude Code\'s notice that it couldn\'t load', await tabs());
+        check(!!notice, 'with its script missing, a new Claude Code tab ends on its notice that it couldn\'t load', await tabs());
         putBack();
         if (notice) await shot('script-not-delivered');
         const up = notice && await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]')
@@ -3406,8 +3406,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its supervisor', table);
-        /* In a panel just wide enough for a managed row's title and the parts that are never cut, the title is shown whole
-           on one line and only the text after it is cut. */
+        /* With the panel narrowed to just fit a managed row's title on one line plus the parts that keep their size,
+           the title stays whole on one line and only the text after it is cut. */
         const narrow = await until(() => frame.evaluate((id) => {
           const li = [...document.querySelectorAll('li.row.managed')].find((r) => r.querySelector(`input[data-id="${id}"]`));
           const name = li && li.querySelector('.name'), doing = li && li.querySelector('.doing');
@@ -3975,8 +3975,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       } catch (_) { /* the steps after this one say what is left */ }
     } });
 
-    /* A new conversation is listed in the Supervisor panel under the name its tab shows: until Claude Code generates a
-       title, that is the first message typed in it. The fake model gives no title. */
+    /* The Supervisor panel lists a new conversation under the same name as its tab, the first message typed in it until
+       Claude Code generates a title. The fake model gives no title. */
     await step('a new conversation in the Supervisor panel after its first message', async () => {
       const TEXT = 'Name this new conversation after its first message';
       const before = new Set(page.frames());
@@ -4007,7 +4007,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         const nameIn = () => panel.evaluate((x) => { const a = document.querySelector(`a.name[data-open="${x}"]`); return a ? a.textContent : null; }, id).catch(() => null);
         const named = panel && await until(async () => { const n = await nameIn(); return n === TEXT && n; }, 60000, 1000);
-        check(!!named, 'in the Supervisor panel it is listed under that first message, not under the name Claude Code made from the folder',
+        check(!!named, 'in the Supervisor panel it is listed under that first message rather than the name Claude Code made from the folder',
           { listed: panel ? await nameIn() : null, tab: tab && tab.label });
         if (named) await shot('steward-new-conversation');
         await exec('workbench.action.closePanel');
