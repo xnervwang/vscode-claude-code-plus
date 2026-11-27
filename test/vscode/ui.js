@@ -2910,8 +2910,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await shot('new-in-tab');
     });
 
-    /* A page whose script never arrives ends on Claude Code's notice (src/panel-rebuild.js). This step moves the script
-       away while the tab opens and puts it back once the notice shows. */
+    /* What src/panel-rebuild.js does for a page whose script never arrives. */
     await step('a panel whose script did not arrive', async () => {
       const cc = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
       const file = path.join(profile.exts, cc, 'webview', 'index.js');
