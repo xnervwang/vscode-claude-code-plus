@@ -2996,9 +2996,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const after = path.join(profile.folder, 'closed-after.txt');
       fs.writeFileSync(after, 'An editor closed after the conversation.\n');
       const tabsOf = async () => (await claudeTabs()).filter((x) => titled(x.label, t.title));
-      const afterTabs = () => call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs)
-        .filter((x) => x.input && x.input.uri && x.input.uri.fsPath === arg).map((x) => ({ label: x.label, active: x.isActive }));`, after);
-      const closeAfter = () => call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.uri && x.input.uri.fsPath === arg);
+      /* On Windows VS Code gives the path with its drive letter in lower case. */
+      const isAfter = `const isAfter = (x) => !!x.input && !!x.input.uri && (process.platform === 'win32'
+        ? x.input.uri.fsPath.toLowerCase() === arg.toLowerCase() : x.input.uri.fsPath === arg);`;
+      const afterTabs = () => call(`${isAfter} return vscode.window.tabGroups.all.flatMap((g) => g.tabs)
+        .filter(isAfter).map((x) => ({ label: x.label, active: x.isActive }));`, after);
+      const closeAfter = () => call(`${isAfter} const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find(isAfter);
         if (t) await vscode.window.tabGroups.close(t); return !!t;`, after);
       const inClosed = async () => (await slRowsOf(t.id)).some((x) => x.section === 'closed');
       const closeConversation = async () => {
