@@ -107,8 +107,8 @@ function seed(pack, manifest, home, folder, user, salt) {
 }
 
 /* Stops the processes started with `home` as their HOME, and waits for them to go. A window stopped before it could close
-   can leave Claude Code's processes behind, still writing into that home, where the next run in the same root would find
-   its new files written into. Linux only: the processes are found through /proc. */
+   can leave Claude Code's processes behind, still writing into that home, and the next run in the same root would find
+   them writing into its new files. Linux only: the processes are found through /proc. */
 async function stopLeftovers(home) {
   if (process.platform !== 'linux') return;
   const mark = `HOME=${home}`;

@@ -6731,7 +6731,7 @@ console.log('\nthe old id\'s last version, shim/');
   const lately = (f) => [0, 1, 2, 3].map((m) => f(Date.now() - m * 60000));
   const inTokyo = ask({ preamble: 'globalThis.__cceClientTimeZone = "Asia/Tokyo";' });
   if (lately(clockOf('Asia/Tokyo', false)).includes(timeOf(inTokyo)) && lately(clockOf(undefined, true)).includes(timeOf(dismissed))) {
-    ok('the question starts with the hour and minute in the zone a panel reported, and before one has, in this machine\'s zone with its name');
+    ok('the question starts with the hour and minute in the zone a panel reported, or, before any panel has reported one, in this machine\'s zone with its name');
   } else bad(`the question's time: with a panel's zone ${JSON.stringify(timeOf(inTokyo))}, without ${JSON.stringify(timeOf(dismissed))}`);
 }
 

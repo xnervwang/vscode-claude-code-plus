@@ -877,7 +877,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!st, 'Claude Code Plus patches Claude Code\'s panel and its host on the first start', await patchState());
       const toast = await until(async () => (await toasts()).find((t) => RELOAD.test(t)) || '', 30000, 500);
       check(!!toast, 'and VS Code shows its prompt to reload the window', toast || await toasts());
-      /* Shown as the extension starts, before any panel has said the reader's zone. */
+      /* Shown as the extension starts, before any panel has reported the reader's zone. */
       const timed = (await rawToasts()).find((t) => RELOAD.test(untimed(t))) || '';
       const at = timeOf(timed);
       check(!!at && lately(at.time) && /^\[\d\d:\d\d( [^\]\s]+)?\] /.test(timed),
@@ -3922,7 +3922,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await exec('workbench.action.closeAllEditors');
       await exec('claude-vscode.editor.open', tab0.id);
       const opened = await counted(tab0);
-      check(good(opened) && titled(opened.front, tab0.title), 'and so is a tab opened by command and not touched after', opened);
+      check(good(opened) && titled(opened.front, tab0.title), 'and so is a tab opened by command and left untouched', opened);
       await shot('untouched-tab-counted');
       conv = await conversation(tab0, 30000) || conv;
     });
@@ -6179,10 +6179,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         };
         const askList = await hoverList('.apb-q');
         check(!!askList && askList[0] === '1 question for you' && askList.includes('3 This month or last month?'),
-          'resting on 1 to decide lists the question with its row\'s number', askList);
+          'hovering over 1 to decide lists the question with its row\'s number', askList);
         const doingList = await hoverList('.apb-b[data-state="doing"]');
         check(!!doingList && doingList[0] === '2 doing' && doingList.includes('2 Export') && doingList.includes('2.1 Write the CSV exporter'),
-          'and resting on a bubble lists the rows of its state', doingList);
+          'and hovering over a bubble lists the rows in that state', doingList);
         /* The input area sits over the bottom of the messages, and Claude Code keeps room under them for its height; the
            bar is part of that area, so the last message scrolled to the bottom ends above the bar. */
         const clear = await until(() => panel.evaluate(() => {

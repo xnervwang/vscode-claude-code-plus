@@ -80,7 +80,8 @@ async function panelTo(d, to) {
   await d.page.mouse.up();
   await d.sleep(500);
 }
-/* Whether the panel's Output view shows lines starting with each of `starts`: the view draws only the lines in view. */
+/* Whether the panel's Output view shows lines starting with each of `starts`; it draws only the lines scrolled into
+   sight. */
 const outputShows = (d, starts) => d.page.evaluate((want) => {
   const panel = document.getElementById('workbench.parts.panel');
   const shown = panel ? [...panel.querySelectorAll('.view-lines .view-line')].map((e) => e.textContent.replace(/\u00a0/g, ' ')) : [];
@@ -277,10 +278,10 @@ async function answerDialog(d, label) {
   await d.until(async () => !(await dialog(d)), 5000, 200);
 }
 
-/* In a page, whether it is the page of the fake conversation `q` (ownPageOf): its first message of yours is that
-   conversation's first, it has its messages and a reply, and with `box` a message box. Text alone does not tell: another
-   conversation's page can hold the same words, as a steward's message names the conversation by its title. Run in the
-   page, so it uses nothing outside itself. */
+/* Whether a page is the page of the fake conversation `q` (ownPageOf): its first message of yours is that
+   conversation's first, it holds that conversation's messages and a reply, and, when `box` is set, a message box. Text
+   alone does not tell: another conversation's page can hold the same words, as a steward's message names the
+   conversation by its title. Run in the page, so it uses nothing outside itself. */
 function ownPage(q) {
   const mine = document.querySelectorAll('[class*="userMessage_"]');
   return mine.length >= q.n && mine[0].innerText.includes(q.ask) && !!document.querySelector('[data-testid="assistant-message"]')
@@ -371,10 +372,9 @@ const CROWN = '\u{1F451}';
 const MARK_RE = /\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709/u;
 const tabLabels = (d) => d.call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((x) => x.input
   && String(x.input.viewType || '').endsWith('claudeVSCodePanel')).map((x) => x.label);`, []);
-/* The time a notification starts with (src/notice-time.js, in this extension and in Agent Plus): [HH:MM], [HH:MM ZONE]
-   before a page has said the reader's zone, with the month and day before it for another day. */
+/* The time a notification starts with (src/notice-time.js, in this extension and in Agent Plus): [HH:MM], or
+   [HH:MM ZONE] until a page has reported the reader's zone, with the month and day first for another day. */
 const NOTICE_TIME = /^\[(?:[A-Z][a-z]{2} \d{1,2} )?\d\d:\d\d(?: [^\]\s]+)?\] /;
-/* For an expect: what that time looks like. */
 const NOTICE_TIME_SAID = 'Every notification starts with the time it was shown in square brackets, such as [14:05] or '
   + '[04:05 UTC].';
 /* The texts of the Agent Plus notices on screen as toasts (its src/attention.js), without their time, or null while one
@@ -813,11 +813,11 @@ const STEPS = [
   /* The bar above the message box, drawn from the demo conversation's plan. */
   {
     name: 'plan-bar', features: ['plan-bar'],
-    expect: 'Right above the message box, a bar exactly as wide as the box: a list mark and "Plan" in bold; a rounded bubble '
-      + 'with a yellow speech-bubble mark and "11" on a yellow tint, and one with a purple circle and "4" on a purple tint; '
-      + 'no other bubble; then empty space; at the right a part filled solid orange with a question '
-      + 'mark and "3 to decide" in dark letters, not red; and an arrow. The bar is one line, nothing in it is cut at the '
-      + 'top or bottom, and it covers neither the conversation nor the message box.',
+    expect: 'Right above the message box is a bar exactly as wide as the box, starting with a list mark and "Plan" in bold, '
+      + 'followed by exactly two rounded bubbles (first a yellow speech-bubble mark and "11" on a yellow tint, then a purple '
+      + 'circle and "4" on a purple tint) and a stretch of empty space before the solid orange section on the right with a '
+      + 'question mark and "3 to decide" in dark letters, not red, followed by an arrow. The bar is one line, nothing in it is '
+      + 'cut at the top or bottom, and it covers neither the conversation nor the message box.',
     unchanged: 'The conversation above the bar and the message box below it are as before.',
     act: async (d) => {
       await demoAt(d, CSV, { focus: true });
@@ -2039,7 +2039,7 @@ const STEPS = [
       const waits = Number(((await needCountBox(d)) || {}).text) || 0;
       const want = needTotal(((await needEntry(d)) || {}).says) + 1;
       otherWindow(d, [{ sessionId: LOOK_ID(15), title: 'Tag the release build', waitingFor: { kind: 'permission', tool: 'Bash' } }]);
-      /* The status bar around the entry, also for the picture of a step that fails. */
+      /* The status bar around the entry; a failing step's picture uses it too. */
       const near = async (c) => {
         if (!c) return null;
         const width = await d.page.evaluate(() => innerWidth);
@@ -2272,7 +2272,7 @@ const STEPS = [
   {
     name: 'view-filter-helper', features: ['view-filter'],
     expect: 'The helper was picked in the filter: the control names it by the start of its task, and as none of the helper\'s '
-      + 'messages are drawn in this conversation (see the step that started it), a note near the top says "No messages loaded for '
+      + 'messages are drawn in this conversation, a note near the top says "No messages loaded for '
       + 'this agent." and why. The main thread\'s messages are hidden.',
     unchanged: 'The tab bar, side bar and message box are as before.',
     act: async (d) => {
@@ -2965,9 +2965,10 @@ const STEPS = [
       + 'running one with a filled green dot and "running", how long and an eight-digit job id on its second line; the '
       + 'finished one with a grey dot and "done", when it finished and its job id. Each card has a small arrow at the end of '
       + 'its title line, pointing right.',
-    unchanged: 'The conversation behind the map ends with three more replies than before: one after each of two messages of yours '
-      + 'asking for a claude --bg session, and one with no message of yours before it, the answer to the notice Claude Code Plus '
-      + 'sends when the first session has finished, which may come between the two or after both.',
+    unchanged: 'The conversation behind the map has three more replies than before. One follows each of your two messages '
+      + 'asking for a claude --bg session. The other reply answers the notice Claude Code Plus sends to the conversation when the '
+      + 'first claude --bg session finishes. That reply may appear between the other two replies or after both, with no message '
+      + 'of yours immediately before it.',
     act: async (d) => {
       const frame = await thread(d, mapThread(d));
       const from = d.model.seen.length;
@@ -3197,8 +3198,8 @@ const STEPS = [
      * Conversations these steps write into the demo folder for themselves, with the same records lib/fake-home.js
      * writes: one turn, its AI title and its last prompt. Their reply is days old, from before Agent Plus began its
      * record of the folder, so the list counts it as read. Each role has a session id of its own, derived from the
-     * run's root folder: a conversation once closed in this window keeps the light blue stripe of one closed here
-     * lately, so a role that must show no stripe is never opened. Every step removes what it wrote.
+     * run's root folder: a conversation once closed in this window keeps the light blue stripe of a recently closed
+     * one, so a role that must show no stripe is never opened. Every step removes what it wrote.
      */
     const idOf = (role) => {
       const h = require('crypto').createHash('sha1').update(`ui-look list:${ROOT}:${role}`).digest('hex');
@@ -3333,7 +3334,8 @@ const STEPS = [
     }
 
     /* A terminal with conversation `t` open, as Claude Code's record of the process says, made as agent-plus-elsewhere
-       makes one. It is written before the conversation's transcript, whose arrival has the list read again at once. */
+       makes one. It is written before the conversation's transcript, which makes the list read again as soon as it
+       appears. */
     async function inTerminal(d, t) {
       const sessions = path.join(d.profile.home, '.claude', 'sessions');
       const child = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'],
@@ -3399,10 +3401,10 @@ const STEPS = [
     }
 
     /*
-     * One conversation in each state the list draws, beside the others: a turn running, a permission prompt, a question,
-     * a reply that landed while its tab was behind another, one open nowhere, one open in a terminal. The fake model
-     * holds every turn while it holds one, so the two that wait are asked first, then the one with the reply, and the
-     * running one last, held until the undo.
+     * One conversation in each state the list draws, beside the others: a turn running, a permission prompt, a
+     * question, a reply that landed while its tab was behind another, one open nowhere, one open in a terminal. The
+     * fake model answers no other turn while it holds one, so the two that wait are asked first, then the one with the
+     * reply, and the running one last, held until the undo.
      */
     const SCENE = [C.run, C.perm, C.ask, C.unread, C.idle, C.term];
     async function sceneUp(d) {
@@ -3501,7 +3503,7 @@ const STEPS = [
         name: 'agent-plus-states', features: ['agent-plus-session-list', 'dot-working', 'dot-waiting', 'dot-stopped', 'unread-envelope', 'agent-plus-elsewhere'],
         expect: sceneSaid(', in the dark theme.') + ' The dot, envelope and stripe alone distinguish the four kinds of row; all times '
           + 'line up at the right edge.',
-        unchanged: 'The editor holds the tabs it held before, and four more Claude Code tabs; the demo conversation is in front.',
+        unchanged: 'The editor has the same tabs as before plus four more Claude Code tabs; the demo conversation is in front.',
         act: async (d) => { await sceneUp(d); return d.sidebar(); },
         undo: sceneDown,
       },
@@ -3534,12 +3536,12 @@ const STEPS = [
       },
       {
         name: 'agent-plus-elsewhere-alone', features: ['agent-plus-elsewhere'],
-        expect: 'Agent Plus\'s session list in the side bar, the pointer away from it and no hover box. Exactly one row is of a conversation '
-          + 'open somewhere other than this window: "' + C.term.title + '", which a terminal has open. That row alone shows three things '
+        expect: 'Agent Plus\'s session list in the side bar, the pointer away from it and no hover box. Exactly one row in the list shows a '
+          + 'conversation open outside this window: "' + C.term.title + '", which a terminal has open. That row alone shows three things '
           + 'at once: its logo, title and time are greyed, about half as bright as '
           + 'every other row; the stripe at its start is a hollow outline, where a row open in a tab here has a filled bar; and a small '
           + 'terminal icon, a box with a prompt sign, sits before its time. "' + C.idle.title + '", which '
-          + 'nothing has open, has no stripe and is not greyed. Each of the three terminal row details appears on that row alone.',
+          + 'nothing has open, has no stripe and is not greyed.',
         unchanged: 'The rows listed before are still there.',
         act: async (d) => {
           const list = await listReady(d);
@@ -3628,7 +3630,7 @@ const STEPS = [
         expect: 'Agent Plus\'s session list with a group the user made and the Archived section, both opened. The step selects both '
           + 'rows, groups them from their menu and names the group; the ' + GROUP.toUpperCase() + ' band shows a folder icon, a downward '
           + 'arrow and a count of 2 above "' + C.groupA.title + '" and "' + C.groupB.title + '". Below it an UNGROUPED band holds the other '
-          + 'conversations, those two not among them. Below UNGROUPED, the ARCHIVED band shows a count of 1 and a downward arrow; "'
+          + 'conversations. Below UNGROUPED, the ARCHIVED band shows a count of 1 and a downward arrow; "'
           + C.archived.title + '" appears only under this band. Each band is a strip set apart from the rows, with a line above and below '
           + 'it, its label in capitals and its count at the right; the rows under every band have the Claude Code logo and their times. '
           + 'No row is selected or outlined.',
@@ -3654,7 +3656,8 @@ const STEPS = [
           await pointerOff(d, list);
           return d.sidebar();
         },
-        /* Archived is folded again while its band still shows, before its one row goes with its transcript. */
+        /* Archived is folded again while its band is still on screen, before its only row is removed with its
+           transcript. */
         undo: async (d) => {
           const list = await agentList(d);
           if (d.listArchivedOpen === false) await foldTo(d, list, 'archived', false);
@@ -3733,8 +3736,8 @@ const STEPS = [
       /*
        * A folder with no conversations: Claude Code's transcript folder for this workspace is moved aside for the step,
        * and both extensions then read it as empty. Nothing runs a turn meanwhile. This extension deletes the plans of
-       * conversations whose transcript is gone on its first pass after midnight UTC, so the folder is not away across that
-       * moment. Windows can refuse to move a folder whose files a process holds open.
+       * conversations whose transcript is gone on its first pass after midnight UTC, so the folder is never moved aside
+       * across that moment. Windows can refuse to move a folder whose files a process holds open.
        */
       {
         name: 'agent-plus-empty', features: ['agent-plus-list-empty'], only: ['linux', 'darwin'],
@@ -3783,12 +3786,12 @@ const STEPS = [
      usage keeps the Claude Code part and says so (src/claude-session-list.js accountInfo). */
   {
     name: 'agent-plus-account-idle', features: ['agent-plus-account'],
-    expect: 'Agent Plus\'s session list in the side bar, its ACCOUNT & USAGE section at the top opened. In it a Claude Code part, '
+    expect: 'The ACCOUNT & USAGE section is open at the top of Agent Plus\'s session list in the side bar. In it a Claude Code part, '
       + 'headed by the Claude Code logo and its name, with two rows, each a label and a value: Sign-in with "API key", and This '
       + 'window with "No conversation running". There is no THIS CONVERSATION heading and no figures. The rows line up with the '
-      + 'other parts\' rows, are readable, and nothing is cut off at the side bar\'s edge. No Claude Code tab is open. In the list '
-      + 'below, the rows of the conversations whose tabs this step has just closed start with the light blue stripe of a '
-      + 'conversation recently closed in this window, not the solid stripe of one open here.',
+      + 'other parts\' rows, are readable, and nothing is cut off at the side bar\'s edge. No Claude Code tab is open. For each tab this step '
+      + 'just closed, the conversation\'s row in the list below starts with the light blue stripe for conversations recently '
+      + 'closed in this window, not the solid stripe for conversations open here.',
     act: async (d) => {
       await d.exec('workbench.action.closeAllEditors');
       await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {});
@@ -3797,7 +3800,7 @@ const STEPS = [
         const a = document.querySelector('.sl-section[data-key="account"]');
         return a && !a.classList.contains('sl-hidden') ? { open: a.classList.contains('sl-open'), text: a.textContent } : null;
       }).catch(() => null);
-      /* A closed tab's process ends a moment after, and the section follows the next time the figures change. */
+      /* A closed tab's process ends a moment later, and the section shows that the next time the figures change. */
       if (!await d.until(async () => { const s = await section(); return s && /No conversation running/.test(s.text); }, 60000, 500)) {
         throw new Error(`Account & usage does not say that no conversation runs in this window: ${JSON.stringify(await section())}`);
       }
