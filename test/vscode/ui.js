@@ -1100,9 +1100,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!back && await until(async () => await theirTimes() === 0, 10000, 500), 'turned back on, they are back, and Claude Code\'s are hidden again', await stampsIn(conv));
     });
 
-    /* Agent Plus's session list: the rows read from the transcripts, the one open in a tab here, the background runs
-       left out, a terminal that has a conversation open read from Claude Code's own records, the question whether to hide
-       Claude Code's own list, the figures of the conversation in front, and a click opening a conversation in a tab. */
+    /* Agent Plus's session list (src/claude-session-list.js): the rows read from the transcripts, the one open in a tab
+       here, the background runs left out, a terminal that has a conversation open read from Claude Code's own records,
+       the question whether to hide Claude Code's own list, the figures of the conversation in front, and a click opening
+       a conversation in a tab. */
     await step('Agent Plus\'s session list', async () => {
       if (!conv) throw new Error('the conversation did not open');
       await exec('workbench.view.extension.agentPlusSessions');
@@ -4105,7 +4106,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
         /* The click goes to the link itself: in a window behind another, moving the mouse onto it can lose the hover that
-           shows the list. */
+           shows the list, and that the list comes up is checked above. */
         await panelB.locator(eyeOf(X.id)).first().hover({ force: true });
         await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown; }, 5000, 200);
         await panelB.locator(`${eyeOf(X.id)} .pop a[data-open="${SA.id}"]`).first().dispatchEvent('click');

@@ -64,9 +64,9 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 | --- | --- |
 | [Agent Plus's session list](docs/features.md#in-the-session-list) | Agent Plus's session list in the side bar shows the Claude Code conversations of the folder open in this window alongside conversations from other agents; you can open, rename, archive, group, pin and delete Claude Code conversations there. |
 | [Where else a conversation is open](docs/features.md#in-the-session-list) | If a conversation is open in a terminal, a `claude --bg` job or Claude Desktop, its row is dimmed; hover over the row to see where it is open. |
-| [Conversation metrics](docs/features.md#in-the-session-list) | Account & usage, at the top of Agent Plus's session list, shows estimated cost, API time, time since the conversation started and lines changed for the Claude Code conversation in this window's active editor tab or sidebar. |
+| [The figures of the conversation in front](docs/features.md#in-the-session-list) | Account & usage, at the top of Agent Plus's session list, shows estimated cost, API time, time since the conversation started and lines changed for the Claude Code conversation in this window's active editor tab or sidebar. |
 | [Kept from Claude Code's cleanup](docs/features.md#in-the-session-list) | This extension keeps Claude Code's automatic transcript cleanup from deleting conversations that Agent Plus's session list still keeps. |
-| [Hiding Claude Code's own list](docs/features.md#in-the-session-list) | Turn on `claudeCodePlus.hideOfficialSessionList` to take Claude Code's own session list out of the Activity Bar. |
+| [Claude Code's own list hidden](docs/features.md#in-the-session-list) | Turn on `claudeCodePlus.hideOfficialSessionList` to take Claude Code's own session list out of the Activity Bar. |
 | [Background sessions left out](docs/features.md#in-the-session-list) | Claude Code's own list skips sessions started with `claude --bg` or `claude -p` (see [Background work](#background-work)), and empty transcripts. |
 | [Not in Agent Plus's list](docs/features.md#in-the-session-list) | Claude Code's Web tab and the claude.ai subscription bars, which need a claude.ai sign-in, are only in Claude Code's own list. |
 

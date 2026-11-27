@@ -1859,7 +1859,7 @@ function start(context, log, renamed, handing = false) {
   /* The patched host reports each tab the person closes; Agent Plus's session list shows it under Recently closed. */
   globalThis.__cceClosedHook = (id) => {
     try { sessionList.closed(id, 'tab'); } catch (_) { /* the core finds it closed itself */ }
-    /* Its process ends a moment later; the next look reads `claude agents` again. */
+    /* Its process ends a moment later; a list of what runs read before then must not stand for 30 s. */
     try { claude.invalidate(); } catch (_) { /* read again on the next tick */ }
   };
   context.subscriptions.push({ dispose: () => {
