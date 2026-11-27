@@ -326,15 +326,19 @@ function create(deps) {
       };
     },
     /* Always given, so that the section shows Claude Code as there: how it signs in unless with a claude.ai account,
-       and the figures of the conversation in front, or a line saying that it has none yet or that none runs here. */
+       and the figures of the conversation in front, or a line saying that it has none yet or that none runs here. The
+       core asks with the last conversation it saw in front, which can have closed since with no other taking its place;
+       figures are given only for a conversation that still runs here, this window's own one in front otherwise. */
     accountInfo({ sessionId } = {}) {
-      const id = typeof sessionId === 'string' ? sessionId : String(safe(deps.front, '') || '');
-      const rows = SESSION.test(id) ? safe(deps.totals, [], id) : [];
+      const runs = (x) => SESSION.test(x) && !!safe(deps.state, null, x);
+      const asked = typeof sessionId === 'string' ? sessionId : '';
+      const front = String(safe(deps.front, '') || '');
+      const id = runs(asked) ? asked : runs(front) ? front : '';
+      const rows = id ? safe(deps.totals, [], id) : [];
       const login = safe(deps.login, null);
       const top = login && login.method !== 'claudeAi' && login.label ? [{ label: 'Sign-in', value: login.label }] : [];
       if (!Array.isArray(rows) || !rows.length) {
-        const running = SESSION.test(id) && !!safe(deps.state, null, id);
-        const why = running ? { label: 'This conversation', value: 'No figures yet', tooltip: NOT_YET } : { label: 'This window', value: 'No conversation running', tooltip: NO_FIGURES };
+        const why = id ? { label: 'This conversation', value: 'No figures yet', tooltip: NOT_YET } : { label: 'This window', value: 'No conversation running', tooltip: NO_FIGURES };
         return { rows: top.concat([why]), bars: [], links: [] };
       }
       const hit = cache.get(id), sum = hit && hit.sum;
