@@ -11725,6 +11725,31 @@ console.log('\nconversations');
   }
 
   {
+    /* A panel that goes away: its last state stands while a list read after that still has the process it had. */
+    const { goneStates } = require('../src/gone-states');
+    let t = 1000, list = { records: [{ sessionId: S(1), pid: 812, status: 'waiting' }], at: 900 };
+    const g = goneStates({ now: () => t, agentsNow: () => list, pidsOf: w.pidsOf, trustMs: () => 60000 });
+    const empty = new Map();
+    g.note(new Map([[S(1), 'idle']]), empty);
+    const at = (when, records) => { t = when; list = { records, at: when }; return g.over(empty).get(S(1)) || ''; };
+    const held = at(1100, [{ sessionId: S(1), pid: 812, status: 'waiting' }]);
+    const gone = at(1200, [{ sessionId: S(1), pid: 812, status: 'waiting' }, { sessionId: S(1), pid: 913, status: 'waiting' }]);
+    g.note(new Map([[S(2), 'running']]), empty);
+    const ended = at(1300, []);
+    g.note(new Map([[S(3), 'idle']]), empty);
+    t = 70000;
+    const expired = g.over(empty).get(S(3)) || '';
+    list = { records: null, at: 0 };
+    t = 80000;
+    g.note(new Map([[S(4), 'idle']]), empty);
+    const unknown = [g.over(empty).get(S(4)) || '', at(80100, [{ sessionId: S(4), pid: 5, status: 'waiting' }])];
+    const kept = g.over(new Map([[S(4), 'running']]));
+    if (held === 'idle' && gone === '' && ended === '' && expired === '' && unknown.join() === 'idle,' && kept.get(S(4)) === 'running') {
+      ok('a panel that went away keeps its last state while `claude agents` still lists its process, and no longer once a new process holds the conversation, the old one is gone, or a minute has passed');
+    } else bad(`gone states ${JSON.stringify({ held, gone, ended, expired, unknown })}`);
+  }
+
+  {
     /* Stopped conversations: listed when the plan was written in the last week, still has open rows, and the transcript
        was started in a workspace folder; never when the conversation is still running. */
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-stopped-')));

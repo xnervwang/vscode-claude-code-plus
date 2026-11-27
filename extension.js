@@ -57,6 +57,7 @@ const pythonOffer = require('./src/python-offer');
 const latency = require('./src/openlatency');
 const tabdot = require('./src/tabdot');
 const activity = require('./src/activity');
+const { goneStates } = require('./src/gone-states');
 const sessionPins = require('./src/sessionpins');
 const sessionColors = require('./src/sessioncolors');
 const bgSessions = require('./src/bgsessions');
@@ -731,8 +732,8 @@ function start(context, log, renamed, handing = false) {
   let closing = false;
   context.subscriptions.push({ dispose: () => { closing = true; } });
   let liveStates = new Map(), unreadKeys = new Set(), statesTimer = 0;
-  /* The host's last state of each conversation whose panel here went away, with when it went (hostStates). */
-  const goneStates = new Map();
+  /* The host's last state of each conversation whose panel here went away (src/gone-states.js, hostStates). */
+  const gone = goneStates({ agentsNow: () => claude.agentsNow(), pidsOf: waiting.pidsOf, trustMs: () => AGENTS_TRUST_MS });
   const readTitles = waiting.reader();
   /* Conversations renamed from the session list or by a steward, whose new conversation is then not named after its
      first message (nameOpened). */
@@ -751,9 +752,7 @@ function start(context, log, renamed, handing = false) {
     try {
       const next = new Map((Array.isArray(states) ? states : [])
         .filter((s) => s && typeof s.sessionId === 'string').map((s) => [s.sessionId, s.state === 'waiting_input' ? 'waiting' : s.state]));
-      const now = Date.now();
-      for (const [id, state] of liveStates) if (!next.has(id)) goneStates.set(id, { state, at: now });
-      for (const id of next.keys()) goneStates.delete(id);
+      gone.note(liveStates, next);
       liveStates = next;
       unreadKeys = new Set((Array.isArray(unread) ? unread : []).filter((k) => typeof k === 'string'));
       if (!statesTimer) statesTimer = setTimeout(() => { statesTimer = 0; claude.changed(); noteAccount(); }, 300);
@@ -1595,23 +1594,11 @@ function start(context, log, renamed, handing = false) {
     return agentsMerged.map.get(id) || null;
   };
   /*
-   * The host's states, and for a conversation whose panel here went away, the last state it had there, until a list of
-   * `claude agents` read after it went arrives. The list held until then can be one the windows share for up to 20 s
-   * (src/waiting.js), read while the panel still showed a wait the user has since answered. Kept no longer than
-   * AGENTS_TRUST_MS, after which agentOf counts no list read before the panel went.
+   * The host's states, and for a conversation whose panel here went away, the last state it had there while `claude
+   * agents` can still list that panel's process (src/gone-states.js). The list held until then can also be one the
+   * windows share for up to 20 s (src/waiting.js), read while the panel still showed a wait the user has since answered.
    */
-  const hostStates = () => {
-    if (!goneStates.size) return liveStates;
-    const read = claude.agentsNow(), now = Date.now();
-    let out = liveStates;
-    for (const [id, g] of goneStates) {
-      if ((read.records && read.at >= g.at) || now - g.at > AGENTS_TRUST_MS) { goneStates.delete(id); continue; }
-      if (out.has(id)) continue;
-      if (out === liveStates) out = new Map(liveStates);
-      out.set(id, g.state);
-    }
-    return out;
-  };
+  const hostStates = () => gone.over(liveStates);
   const activityFor = (id, host = hostStates().get(id) || '') =>
     activity.activityOf({ host, turn: turns.get(id), bg: bgWorking.has(id), agent: agentOf(id) });
   const lastUser = activity.lastUserReader();
