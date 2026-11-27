@@ -322,7 +322,19 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     await sleep(300);
     return text || '';
   };
-  const toasts = () => page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].map((e) => e.innerText));
+  /* A notification of this extension, and of an Agent Plus with src/notice-time.js, starts with the time it was shown
+     in brackets: [HH:MM] in the reader's zone, [HH:MM ZONE] before a page has said that zone, with the month and day
+     before it for another day. The readers below give a notification's text without it, so a check reads the text as
+     written; timeOf() reads the time. */
+  const NOTICE_TIME = /^\[((?:[A-Z][a-z]{2} \d{1,2} )?\d\d:\d\d)(?: ([^\]\s]+))?\] /;
+  const untimed = (text) => String(text || '').replace(NOTICE_TIME, '');
+  const timeOf = (text) => { const m = NOTICE_TIME.exec(text || ''); return m ? { time: m[1], zone: m[2] || '' } : null; };
+  /* VS Code runs on this machine, so the hour and minute of a notification shown in the last few minutes are this
+     machine's, in either form. */
+  const lately = (time) => [0, 1, 2, 3].map((m) => new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .format(new Date(Date.now() - m * 60000))).includes(time);
+  const rawToasts = () => page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].map((e) => e.innerText));
+  const toasts = async () => (await rawToasts()).map(untimed);
   /*
    * Agent Plus's notices of conversations that need the user (its src/attention.js), each as what it says: its text and
    * the labels of its buttons. A notice shows as a toast at first and moves to the notification list after a while, and
@@ -330,10 +342,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
    * they look needs changes here only.
    */
   const NEED = (n) => / (finished|is waiting for you)\.$/.test(n.text) || (n.buttons.includes('Dismiss') && n.buttons.includes('Open'));
-  const notificationItems = (p, where) => p.evaluate((where) => [...document.querySelectorAll(`${where} .notification-list-item`)].filter((n) => n.offsetParent).map((n) => {
+  const notificationItems = async (p, where) => (await p.evaluate((where) => [...document.querySelectorAll(`${where} .notification-list-item`)].filter((n) => n.offsetParent).map((n) => {
     const m = n.querySelector('.notification-list-item-message');
     return { text: m ? m.innerText.replace(/\s+/g, ' ').trim() : '', buttons: [...n.querySelectorAll('.monaco-button')].map((b) => b.innerText.trim()).filter(Boolean) };
-  }), where).catch(() => []);
+  }), where).catch(() => [])).map((n) => ({ ...n, text: untimed(n.text), time: timeOf(n.text) }));
   /* The toasts among them in the window of `p`. */
   const needNotices = async (p = page) => (await notificationItems(p, '.notifications-toasts')).filter(NEED);
   /* All of them in the notification list of the window of `p` (whose extension host has `folder` open), toasts
@@ -831,6 +843,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!st, 'Claude Code Plus patches Claude Code\'s panel and its host on the first start', await patchState());
       const toast = await until(async () => (await toasts()).find((t) => RELOAD.test(t)) || '', 30000, 500);
       check(!!toast, 'and VS Code shows its prompt to reload the window', toast || await toasts());
+      /* Shown as the extension starts, before any panel has said the reader's zone. */
+      const timed = (await rawToasts()).find((t) => RELOAD.test(untimed(t))) || '';
+      const at = timeOf(timed);
+      check(!!at && lately(at.time) && /^\[\d\d:\d\d( [^\]\s]+)?\] /.test(timed),
+        'it starts with the time it was shown in brackets, [HH:MM], or [HH:MM ZONE] while no panel has said the reader\'s zone', timed || await rawToasts());
       const actions = await page.evaluate(() => {
         const n = [...document.querySelectorAll('.notification-list-item')].find((e) => /Claude Code Plus is installed/.test(e.innerText));
         return n ? [...n.querySelectorAll('.monaco-button')].map((b) => b.innerText.trim()).filter(Boolean) : null;
@@ -5075,10 +5092,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await closeBox(frame);
         return said;
       };
-      const notices = () => page.evaluate(() => [...document.querySelectorAll('.notification-list-item')].map((n) => ({
+      const notices = async () => (await page.evaluate(() => [...document.querySelectorAll('.notification-list-item')].map((n) => ({
         text: ((n.querySelector('.notification-list-item-message') || {}).innerText || '').trim(),
         buttons: [...n.querySelectorAll('.monaco-button')].map((b) => b.innerText.trim()).filter(Boolean) }))
-        .filter((n) => /has no effect until the mode is Custom/.test(n.text)));
+        .filter((n) => /has no effect until the mode is Custom/.test(n.text)))).map((n) => ({ ...n, text: untimed(n.text) }));
       const statusLine = async () => {
         await exec('notifications.clearAll');
         await exec('claudeCodePlus.status');
@@ -5464,8 +5481,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         if (firstB) await firstB.click();
         await sleep(6000);
         const lineB = panelB ? await staleLine(panelB) : null;
-        const toastB = await until(() => pageB.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].map((e) => e.innerText)
-          .find((t) => /^The tick is not saved: /.test(t)) || ''), 10000, 500);
+        const toastB = await until(async () => (await pageB.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].map((e) => e.innerText)))
+          .map(untimed).find((t) => /^The tick is not saved: /.test(t)) || '', 10000, 500);
         const reloadButton = toastB && await pageB.evaluate(() => [...document.querySelectorAll('.notification-list-item')].filter((n) => /The tick is not saved/.test(n.innerText))
           .some((n) => [...n.querySelectorAll('.monaco-button')].some((b) => b.innerText.trim() === 'Reload Window')));
         check(!!firstB && !table()[P.id] && !!lineB && /^This window runs an earlier build of Claude Code Plus than the one now installed, so ticks made here are not saved\./.test(lineB.text)

@@ -53,6 +53,23 @@ let passed = 0;
 const ok = (msg) => { passed++; console.log('  ok    ' + msg); };
 const bad = (msg) => { failures++; console.log('  FAIL  ' + msg); };
 const note = (msg) => { skipped++; console.log('  note  ' + msg); };
+/* Every notification this extension shows starts with its time in brackets (src/notice-time.js). The stand-in editors
+   below record a notification's text without it, so a check compares the text alone, and its time in a column of its
+   own. NOTICES gathers the times they saw and each notification shown with none, for the check that runs last. */
+const NOTICE_STAMP = /^\[([^\]]+)\] /;
+const NOTICES = { stamps: [], unstamped: [] };
+const noteNotices = (stamps, unstamped) => {
+  NOTICES.stamps.push(...(Array.isArray(stamps) ? stamps : []).filter(Boolean));
+  NOTICES.unstamped.push(...(Array.isArray(unstamped) ? unstamped : []));
+};
+/* The source of a function, for a stand-in editor written out as a module, that splits what a show…Message call was
+   given into its text, its time ('' for none) and whether it is a notification shown without one. A modal dialog is not
+   a notification and carries none. */
+const SPLIT_NOTICE = `((raw, rest) => {
+  const m = typeof raw === 'string' ? new RegExp(${JSON.stringify(NOTICE_STAMP.source)}).exec(raw) : null;
+  const modal = rest.some((x) => !!x && typeof x === 'object' && x.modal === true);
+  return { text: m ? raw.slice(m[0].length) : raw, stamp: m ? m[1] : '', bare: !m && !modal };
+})`;
 /* One argument of a command line the hooks print. shlex.quote puts it in ' when it needs quoting, as a Windows path always
    does. */
 const ARG = "('[^']*'|\\S+)";
@@ -3035,7 +3052,7 @@ console.log('\na Claude Code build the patch does not fit yet');
   } else bad(`unsupported: ${JSON.stringify([miss.error, version, fallback])}`);
   const ext = fs.readFileSync(path.join(root, 'extension.js'), 'utf8');
   if (/if \(unsupported\.isUnsupported\(r\.message\)\) notSupported\.add\(unsupported\.versionOf\(dir\)\);\s*else problems\.push/.test(ext)
-      && /vscode\.window\.showWarningMessage\(vscode\.l10n\.t\(unsupported\.MESSAGE, \[\.\.\.notSupported\]\.join\(', '\)\), details\)\s*\.then\(/.test(ext)
+      && /noticeTime\.warning\(vscode, vscode\.l10n\.t\(unsupported\.MESSAGE, \[\.\.\.notSupported\]\.join\(', '\)\), details\)\s*\.then\(/.test(ext)
       && /const details = vscode\.l10n\.t\(unsupported\.DETAILS\);/.test(ext) && require('../package.json').l10n === './src/l10n') {
     ok('it is shown as one plain sentence in the editor\'s display language, with the rule that failed left to the output channel');
   } else bad('extension.js does not show the unsupported-build warning through vscode.l10n');
@@ -6101,11 +6118,18 @@ const activateStub = (opts = {}) => {
     const stub = path.join(home, 'vscode-stub.js');
     fs.writeFileSync(stub, `
       const disposable = { dispose() {} };
-      const rec = { commands: [], looked: [], said: [], executed: [], logs: [] };
+      const rec = { commands: [], looked: [], said: [], stamps: [], unstamped: [], executed: [], logs: [] };
       const taken = new Set(${JSON.stringify(opts.taken || [])});
       const refuse = new Set(${JSON.stringify(opts.refuse || [])});
       const exts = JSON.parse(${JSON.stringify(JSON.stringify(opts.extensions || {}))}.split('$HOME').join(${JSON.stringify(JSON.stringify(home).slice(1, -1))}));
-      const say = async (text, ...items) => { rec.said.push([text].concat(items.filter((i) => typeof i === 'string'))); return ${JSON.stringify(opts.answer || null)} || undefined; };
+      const split = ${SPLIT_NOTICE};
+      const say = async (raw, ...items) => {
+        const n = split(raw, items);
+        rec.said.push([n.text].concat(items.filter((i) => typeof i === 'string')));
+        rec.stamps.push(n.stamp);
+        if (n.bare) rec.unstamped.push(String(raw));
+        return ${JSON.stringify(opts.answer || null)} || undefined;
+      };
       class TreeItem { constructor(label, state) { this.label = label; this.collapsibleState = state; } }
       module.exports = { rec, TreeItem, TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
         ThemeIcon: class {}, ThemeColor: class {}, MarkdownString: class {}, TabInputWebview: class {}, version: '1.120.0',
@@ -6168,6 +6192,7 @@ const activateStub = (opts = {}) => {
     let r;
     try { r = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000, env })); }
     catch (e) { r = { threw: e.message }; }
+    noteNotices(r.stamps, r.unstamped);
     r.files = {};
     const walk = (dir) => {
       for (const n of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -6694,6 +6719,20 @@ console.log('\nthe old id\'s last version, shim/');
     && /return sync\(\)\.then\(\(\) => \{ if \(handing && !reloadOffered\) offerUninstallOld\(context\); \}\);/.test(ext)) {
     ok('the question waits while the first sync asks for a reload');
   } else bad('the uninstall question is not held back by a reload the first sync asks for');
+  /* Its time is in the zone a panel reported (clientZone in extension.js) once one has, and in this machine's zone,
+     named, while none has. The question is asked after the start, so within a couple of minutes of now. */
+  const timeOf = (r) => { const i = (r.said || []).findIndex((s) => s[0].startsWith(ASK)); return i < 0 ? null : (r.stamps || [])[i]; };
+  const clockOf = (zone, named) => (ms) => {
+    const p = {};
+    for (const x of new Intl.DateTimeFormat('en-US', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      timeZoneName: named ? 'short' : undefined }).formatToParts(new Date(ms))) p[x.type] = x.value;
+    return `${p.hour}:${p.minute}` + (named ? ` ${p.timeZoneName}` : '');
+  };
+  const lately = (f) => [0, 1, 2, 3].map((m) => f(Date.now() - m * 60000));
+  const inTokyo = ask({ preamble: 'globalThis.__cceClientTimeZone = "Asia/Tokyo";' });
+  if (lately(clockOf('Asia/Tokyo', false)).includes(timeOf(inTokyo)) && lately(clockOf(undefined, true)).includes(timeOf(dismissed))) {
+    ok('the question starts with the hour and minute in the zone a panel reported, and before one has, in this machine\'s zone with its name');
+  } else bad(`the question's time: with a panel's zone ${JSON.stringify(timeOf(inTokyo))}, without ${JSON.stringify(timeOf(dismissed))}`);
 }
 
 /* What the work plan has added to the context, counted from the transcript back to its latest compaction. */
@@ -14194,10 +14233,11 @@ console.log('\nthe token mode');
   try {
     const stub = path.join(home, 'vscode-stub.js');
     fs.writeFileSync(stub, `
-      const listeners = [], values = {}, updates = [], told = [], disposable = { dispose() {} }, state = { source: null };
+      const listeners = [], values = {}, updates = [], told = [], unstamped = [], disposable = { dispose() {} }, state = { source: null };
+      const split = ${SPLIT_NOTICE};
       const core = { isActive: true, exports: { agentPlus: { version: '1.0.0',
         registerSource: (s) => { state.source = s; return { accepted: true, code: '', reason: '', registration: disposable }; } } } };
-      module.exports = { state, listeners, values, updates, told, TabInputWebview: class {}, version: '1.120.0', env: { language: 'en' },
+      module.exports = { state, listeners, values, updates, told, unstamped, TabInputWebview: class {}, version: '1.120.0', env: { language: 'en' },
         Uri: { file: (p) => ({ fsPath: p }) }, RelativePattern: class {}, ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
         workspace: { isTrusted: true, onDidGrantWorkspaceTrust: () => disposable, workspaceFolders: [],
           getConfiguration: (section) => ({ get: (k, d) => { const key = section ? section + '.' + k : k; return key in values ? values[key] : d; },
@@ -14205,7 +14245,12 @@ console.log('\nthe token mode');
           onDidChangeConfiguration: (fn) => { listeners.push(fn); return disposable; }, onDidChangeWorkspaceFolders: () => disposable },
         l10n: { t: (m, ...a) => a.reduce((s, v, i) => s.split('{' + i + '}').join(String(v)), String(m)) },
         window: { createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
-          showInformationMessage: async (text, ...buttons) => { told.push([text, buttons]); return undefined; },
+          showInformationMessage: async (raw, ...buttons) => {
+            const n = split(raw, buttons);
+            told.push([n.text, buttons, n.stamp]);
+            if (n.bare) unstamped.push(String(raw));
+            return undefined;
+          },
           showWarningMessage: async () => undefined, setStatusBarMessage() {}, tabGroups: { all: [], activeTabGroup: null },
           registerWebviewViewProvider: () => disposable, registerUriHandler: () => disposable },
         commands: { registerCommand: () => disposable, executeCommand: async () => {} },
@@ -14256,6 +14301,8 @@ console.log('\nthe token mode');
           vs.values['agentPlus.tokenMode'] = 'essential';
           out.status = typeof ext._tokenModeLine === 'function' ? ext._tokenModeLine() : null;
         } catch (e) { out.threw = String(e && e.stack); }
+        out.stamps = vs.told.map((x) => x[2]);
+        out.unstamped = vs.unstamped;
         for (const s of subs) { try { s.dispose(); } catch (e) { out.threw = out.threw || 'dispose: ' + e.message; } }
         process.stdout.write(JSON.stringify(out));
         process.exit(0);
@@ -14265,6 +14312,7 @@ console.log('\nthe token mode');
     delete env.CLAUDE_CONFIG_DIR;
     try { r = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000, env })); }
     catch (e) { r = { threw: e.message }; }
+    noteNotices(r.stamps, r.unstamped);
     const h = r.hooks || {};
     const want = { start: [true, true, true], interface: [false, false, false], essential: [true, true, false], all: [true, true, true] };
     if (!r.threw && ['start', 'interface', 'essential', 'all'].every((k) => JSON.stringify(h[k]) === JSON.stringify(want[k]))) {
@@ -14400,10 +14448,11 @@ console.log('\nthe token mode');
     try {
       const stub = path.join(home, 'vscode-stub.js');
       fs.writeFileSync(stub, `
-        const listeners = [], values = {}, told = [], disposable = { dispose() {} }, state = { source: null };
+        const listeners = [], values = {}, told = [], unstamped = [], disposable = { dispose() {} }, state = { source: null };
+        const split = ${SPLIT_NOTICE};
         const core = { isActive: true, exports: { agentPlus: { version: '1.0.0',
           registerSource: (s) => { state.source = s; return { accepted: true, code: '', reason: '', registration: disposable }; } } } };
-        module.exports = { state, listeners, values, told, TabInputWebview: class {}, version: '1.120.0', env: { language: 'en' },
+        module.exports = { state, listeners, values, told, unstamped, TabInputWebview: class {}, version: '1.120.0', env: { language: 'en' },
           Uri: { file: (p) => ({ fsPath: p }) }, RelativePattern: class {}, ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
           workspace: { isTrusted: true, onDidGrantWorkspaceTrust: () => disposable, workspaceFolders: [],
             getConfiguration: (section) => ({ get: (k, d) => { const key = section ? section + '.' + k : k; return key in values ? values[key] : d; },
@@ -14411,7 +14460,12 @@ console.log('\nthe token mode');
             onDidChangeConfiguration: (fn) => { listeners.push(fn); return disposable; }, onDidChangeWorkspaceFolders: () => disposable },
           l10n: { t: (m, ...a) => a.reduce((s, v, i) => s.split('{' + i + '}').join(String(v)), String(m)) },
           window: { createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
-            showInformationMessage: async (text, ...buttons) => { told.push([text, buttons]); return undefined; },
+            showInformationMessage: async (raw, ...buttons) => {
+              const n = split(raw, buttons);
+              told.push([n.text, buttons, n.stamp]);
+              if (n.bare) unstamped.push(String(raw));
+              return undefined;
+            },
             showWarningMessage: async () => undefined, setStatusBarMessage() {}, tabGroups: { all: [], activeTabGroup: null },
             registerWebviewViewProvider: () => disposable, registerUriHandler: () => disposable },
           commands: { registerCommand: () => disposable, executeCommand: async () => {} },
@@ -14460,9 +14514,11 @@ console.log('\nthe token mode');
               if (typeof globalThis.__cceProcessHook === 'function') globalThis.__cceProcessHook('11111111-2222-4333-8444-555555555555');
               await pause(100);
               out.steps.push({ mode, pushed, status: typeof ext._tokenModeLine === 'function' ? ext._tokenModeLine() : null, info: sent.slice(before),
-                hooks: hooks(), told: vs.told.slice(toldBefore).map(([t, b]) => [t, b]) });
+                hooks: hooks(), told: vs.told.slice(toldBefore).map(([t, b, at]) => [t, b, at]) });
             }
           } catch (e) { out.threw = String(e && e.stack); }
+          out.stamps = vs.told.map((x) => x[2]);
+          out.unstamped = vs.unstamped;
           for (const s of subs) { try { s.dispose(); } catch (e) { out.threw = out.threw || 'dispose: ' + e.message; } }
           delete globalThis.__cceToPanel;
           delete globalThis.__cceSessionsShown;
@@ -14471,8 +14527,11 @@ console.log('\nthe token mode');
         })();`;
       const env = Object.assign({}, process.env, { HOME: home, USERPROFILE: home });
       delete env.CLAUDE_CONFIG_DIR;
-      try { return JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000, env })); }
+      let r;
+      try { r = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000, env })); }
       catch (e) { return { threw: e.message, steps: [] }; }
+      noteNotices(r.stamps, r.unstamped);
+      return r;
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   };
   const OFF = { 'claudeCodePlus.tellClaudeYourTimeZone': false, 'claudeCodePlus.conversationBrief': false };
@@ -14596,6 +14655,60 @@ console.log('\nwith Agent Plus');
     if (!Array.isArray(verdicts) || !verdicts.length) bad(`the run with Agent Plus did not report: ${(r.stderr || r.stdout || '').slice(0, 400)}`);
     else for (const [kind, msg] of verdicts) (kind === 'ok' ? ok : kind === 'note' ? note : bad)(msg);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
+}
+
+/* ── the time a notification starts with ──
+   src/notice-time.js puts it before the text of every notification this extension shows: HH:MM in the reader's zone,
+   the month and day too for another day there, and this machine's zone, named, while the reader's is not known. */
+console.log('\nthe time a notification starts with');
+{
+  const nt = require('../src/notice-time');
+  /* 2026-11-27 04:05 UTC is 20:05 the day before in Los Angeles. */
+  const now = Date.UTC(2026, 10, 27, 4, 5);
+  const here = {};
+  for (const p of new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short' })
+    .formatToParts(new Date(now))) here[p.type] = p.value;
+  const got = [nt.stampOf(now, { now, zone: 'America/Los_Angeles' }), nt.stampOf(now - 24 * 3600e3, { now, zone: 'America/Los_Angeles' }),
+    nt.stampOf(now, { now, zone: '' })];
+  const want = ['20:05', 'Nov 25 20:05', `${here.hour}:${here.minute} ${here.timeZoneName}`];
+  if (JSON.stringify(got) === JSON.stringify(want)) {
+    ok('a time on the reader\'s day is HH:MM in the reader\'s zone, one on another day has the month and day before it, and with no reader\'s zone it is this machine\'s, named');
+  } else bad(`stampOf gave ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+
+  const calls = [];
+  const win = {};
+  for (const fn of ['showInformationMessage', 'showWarningMessage', 'showErrorMessage']) win[fn] = (...a) => { calls.push([fn, ...a]); return 'shown'; };
+  const fake = { window: win };
+  nt.setReaderZone(() => 'America/Los_Angeles');
+  const back = nt.info(fake, 'Hello', 'Open');
+  nt.warning(fake, 'Careful');
+  nt.error(fake, 'Broken', 'Retry');
+  nt.info(fake, 'A dialog', { modal: true }, 'OK');
+  nt.infoAt(fake, Date.now() - 3 * 24 * 3600e3, 'Earlier');
+  nt.setReaderZone(null);
+  const timed = /^\[\d\d:\d\d\] /;
+  if (back === 'shown' && JSON.stringify(calls.map((c) => [c[0], timed.test(c[1]), c.slice(2)])) === JSON.stringify([
+    ['showInformationMessage', true, ['Open']], ['showWarningMessage', true, []], ['showErrorMessage', true, ['Retry']],
+    ['showInformationMessage', false, [{ modal: true }, 'OK']], ['showInformationMessage', false, []]])
+    && calls[3][1] === 'A dialog' && /^\[[A-Z][a-z]{2} \d{1,2} \d\d:\d\d\] Earlier$/.test(calls[4][1])) {
+    ok('info, warning and error put the time before the text and pass the rest on, a modal dialog is shown as given, and infoAt dates a time on another day');
+  } else bad(`the show functions called ${JSON.stringify(calls)}`);
+
+  /* Every notification goes through it: no file this extension runs calls vscode.window's show…Message itself. A modal
+     dialog goes through it as well, which passes it on as given. */
+  const direct = [];
+  const scan = (rel) => {
+    const full = path.join(__dirname, '..', rel);
+    if (fs.statSync(full).isDirectory()) { for (const n of fs.readdirSync(full).sort()) scan(path.posix.join(rel, n)); return; }
+    if (!/\.js$/.test(rel) || rel === 'src/notice-time.js') return;
+    fs.readFileSync(full, 'utf8').split('\n').forEach((line, i) => {
+      if (/\bshow(Information|Warning|Error)Message\b/.test(line)) direct.push(`${rel}:${i + 1}`);
+    });
+  };
+  scan('extension.js');
+  scan('src');
+  if (!direct.length) ok('extension.js and src/ show every notification through src/notice-time.js, none through vscode.window directly');
+  else bad(`shown through vscode.window directly, with no time: ${direct.join(', ')}`);
 }
 
 /* ── copied from Agent Plus ──
@@ -15445,6 +15558,18 @@ const repo = path.join(__dirname, '..');
   } catch (e) {
     bad(`the fake model: ${(e && e.stack) || e}`);
   } finally { await m.close(); }
+
+  /* Last, once every stand-in editor above has run: the notifications they saw this extension show all started with a
+     time of today, HH:MM, with a zone name after it while no panel had reported the reader's zone. */
+  console.log('\nevery notification shown above starts with its time');
+  const today = /^\d\d:\d\d( [^\s\]]+)?$/;
+  const offDay = NOTICES.stamps.filter((s) => !today.test(s));
+  if (NOTICES.stamps.length && !NOTICES.unstamped.length && !offDay.length) {
+    ok(`all ${NOTICES.stamps.length} notifications the stand-in editors were shown start with [HH:MM] or [HH:MM zone]`);
+  } else {
+    bad(`notifications shown without their time: ${JSON.stringify(NOTICES.unstamped.slice(0, 5))}; with another kind of time: `
+      + `${JSON.stringify(offDay.slice(0, 5))}; ${NOTICES.stamps.length} timed`);
+  }
 })().catch((e) => bad(`a check copied from Agent Plus threw: ${(e && e.stack) || e}`)).finally(() => {
   fs.rmSync(scratch, { recursive: true, force: true });
   fs.rmSync(SHARED_HOME, { recursive: true, force: true });

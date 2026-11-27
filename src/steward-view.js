@@ -41,6 +41,7 @@ const titleMarks = require('./title-marks');
 const { GREEN, RED } = require('./tabdot');
 const envelope = require('./envelope');
 const windowEntries = require('./window-entries');
+const noticeTime = require('./notice-time');
 
 const VIEW = 'claudeCodePlus.steward';
 /* How often the list and the notices are refreshed. `claude agents --json` is asked at most every half minute
@@ -986,7 +987,7 @@ function create(vscode, deps) {
     if (m && m.type === 'ready') { if (view) view.webview.postMessage({ type: 'body', html: shown || '' }); return; }
     if (m && m.type === 'stop-old' && typeof m.id === 'string') {
       const p = deps.stopDuplicate ? deps.stopDuplicate(m.id) : null;
-      vscode.window.showInformationMessage(p ? `Stopped process ${p.pid} of that conversation.`
+      noticeTime.info(vscode, p ? `Stopped process ${p.pid} of that conversation.`
         : 'That conversation is no longer run by more than one process, or its old process could not be stopped.');
       /* The row says two processes until the list is read again, which is otherwise up to the next poll: it is read every
          half second until the stopped one has left it, for five seconds at most. */
@@ -1003,7 +1004,7 @@ function create(vscode, deps) {
       return;
     }
     if (m && m.type === 'open' && typeof m.id === 'string') {
-      if (await open(m.id) === 'nowhere') vscode.window.showInformationMessage('That conversation is not open in any VS Code window on this machine.');
+      if (await open(m.id) === 'nowhere') noticeTime.info(vscode, 'That conversation is not open in any VS Code window on this machine.');
       return;
     }
     if (m && m.type === 'reload') { await deps.reload(); return; }

@@ -44,6 +44,7 @@ const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
 const { transcriptOf, projectsDir, projectFolders, claudeDir, writeAtomic } = require('./src/claude-files');
 const planInjections = require('./src/plan-injections');
 const tokenMode = require('./src/token-mode');
+const noticeTime = require('./src/notice-time');
 const waiting = require('./src/waiting');
 const waitingFor = require('./src/waiting-for');
 const { createClaudeSource, isPanelTab } = require('./src/claude-source');
@@ -162,7 +163,7 @@ const cfg = () => settings || (settings = vscode.workspace.getConfiguration());
 function enabled() { return cfg().get(SETTING, true); }
 
 async function offerReload(text) {
-  const pick = await vscode.window.showInformationMessage(text, 'Reload Window');
+  const pick = await noticeTime.info(vscode, text, 'Reload Window');
   if (pick === 'Reload Window') vscode.commands.executeCommand('workbench.action.reloadWindow');
 }
 
@@ -258,7 +259,7 @@ const STEWARD_ORDER_MS = 5000;
 function standAside(context, log, version) {
   log.appendLine(`Work Plan for Claude Code ${version} (${carryover.LEGACY_ID}) is still installed and patches Claude Code itself; `
     + 'this extension does nothing until it is updated or uninstalled');
-  const tell = () => vscode.window.showWarningMessage(
+  const tell = () => noticeTime.warning(vscode,
     'An earlier version of Work Plan for Claude Code is installed. Update or uninstall it to use Claude Code Plus; your work plans come back after uninstall.',
     'Show It',
   ).then((pick) => { if (pick === 'Show It') showOldExtension(); }, () => {});
@@ -286,7 +287,7 @@ function showOldExtension() {
 const TOLD_OLD_KEY = PREFIX + 'toldUninstallOld';
 function offerUninstallOld(context) {
   if (context.globalState.get(TOLD_OLD_KEY) === true) return;
-  vscode.window.showInformationMessage(
+  noticeTime.info(vscode,
     'Claude Code Plus is now running. Work Plan for Claude Code is still installed but no longer does anything; you can uninstall it from its Extensions page.',
     'Show Extension',
   ).then((pick) => {
@@ -504,17 +505,17 @@ function start(context, log, renamed, handing = false) {
         }
       }
     }
-    if (!found && interactive) vscode.window.showWarningMessage('Claude Code Plus: the Claude Code extension is not installed, so there is nothing to patch.');
+    if (!found && interactive) noticeTime.warning(vscode, 'Claude Code Plus: the Claude Code extension is not installed, so there is nothing to patch.');
     const showing = !restoring && panels > 0 && panelsPatched === panels;
     if (showing !== panelShowsImages) { panelShowsImages = showing; writeHookSettings(); }
     // Shown in the editor's display language; which rule failed is only in the output channel. Not awaited: a message
     // with a button stays open.
     if (notSupported.size) {
       const details = vscode.l10n.t(unsupported.DETAILS);
-      vscode.window.showWarningMessage(vscode.l10n.t(unsupported.MESSAGE, [...notSupported].join(', ')), details)
+      noticeTime.warning(vscode, vscode.l10n.t(unsupported.MESSAGE, [...notSupported].join(', ')), details)
         .then((pick) => { if (pick === details) log.show(true); }, () => {});
     }
-    if (problems.length) vscode.window.showWarningMessage('Claude Code Plus: ' + problems.join(' | '));
+    if (problems.length) noticeTime.warning(vscode, 'Claude Code Plus: ' + problems.join(' | '));
     if (patched.length) offerReload(`Claude Code Plus is installed in ${patched.join(' and ')}. Reload the window once to start; after that, On/Off and colors change live.`);
     if (patched.length || restored.length) reloadOffered = true;
     // An uninstall already has the editor asking for a restart of its extensions; a second prompt would only compete.
@@ -548,7 +549,7 @@ function start(context, log, renamed, handing = false) {
     registerCommand('status', () => {
       const lines = [];
       for (const adapter of ADAPTERS) for (const d of installs(adapter, true)) lines.push(`${adapter.name} ${path.basename(d)}: ${adapter.status(d)}`);
-      vscode.window.showInformationMessage('Claude Code Plus — ' + (lines.join(' | ') || 'Claude Code is not installed') + (removed() ? ' (removed)' : '')
+      noticeTime.info(vscode, 'Claude Code Plus — ' + (lines.join(' | ') || 'Claude Code is not installed') + (removed() ? ' (removed)' : '')
         + ' | ' + tokenModeLine());
     }),
     /* Every setting this extension has, in the editor's own settings UI: search, per-workspace values, sync and a JSON
@@ -564,7 +565,7 @@ function start(context, log, renamed, handing = false) {
      * conversation's plan lives.
      */
     registerCommand('disableWorkPlanPlugin', async () => {
-      const yes = await vscode.window.showWarningMessage(
+      const yes = await noticeTime.warning(vscode,
         'Stop Claude Code loading the work plan plugin? This edits Claude Code\'s own settings, and saves the skill '
         + 'description it loads every session. Your existing plans are left alone.',
         { modal: true }, 'Stop loading it');
@@ -717,6 +718,8 @@ function start(context, log, renamed, handing = false) {
     const v = globalThis.__cceClientTimeZone;
     return typeof v === 'string' ? v : '';
   };
+  /* Notifications are timed in that zone once a panel has said it, and in this machine's, named, until then. */
+  noticeTime.setReaderZone(() => clientZone() || '');
   /* The plugin's hooks tell the model this zone (tell-time-zone.py), and they run beside Claude Code with no way to ask
      a panel, so it is left for them in a file. The last panel to report wins: one person behind several windows reads
      them all in one zone. A window that has not heard from a panel yet writes nothing rather than an empty zone. */
@@ -1190,13 +1193,13 @@ function start(context, log, renamed, handing = false) {
   /* The same link clicked in a Claude Code panel, which the page hands here directly (src/page/93-steward-links.js). */
   globalThis.__cceOpenSessionHook = (id) => {
     steward.open(id).then((r) => {
-      if (r === 'nowhere') vscode.window.showInformationMessage('That conversation is not open in any VS Code window on this machine.');
+      if (r === 'nowhere') noticeTime.info(vscode, 'That conversation is not open in any VS Code window on this machine.');
     }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
   };
   context.subscriptions.push({ dispose: () => { if (globalThis.__cceOpenSessionHook) delete globalThis.__cceOpenSessionHook; } });
   /* Other conversations named in replies, drawn as links by the panels' page (src/conversation-links.js). */
   const openOwnConversation = (id) => steward.open(id).then((r) => {
-    if (r === 'nowhere') vscode.window.showInformationMessage('That conversation is not open in any VS Code window on this machine.');
+    if (r === 'nowhere') noticeTime.info(vscode, 'That conversation is not open in any VS Code window on this machine.');
   }, (e) => log.appendLine('steward panel: ' + ((e && e.message) || e)));
   const links = conversationLinks.create({
     on: () => !removed() && !uninstalling() && !switchedOff().includes('conversationLinks'),
@@ -1938,17 +1941,17 @@ function start(context, log, renamed, handing = false) {
       const r = await pythonRuntime.download(undefined, { userAgent: 'claude-code-plus' });
       log.appendLine('python download: ' + r.said);
       if (!r.ok) {
-        vscode.window.showErrorMessage('Claude Code Plus: downloading Python failed. ' + r.said);
+        noticeTime.error(vscode, 'Claude Code Plus: downloading Python failed. ' + r.said);
         return false;
       }
       await syncPlugin(true);
-      vscode.window.showInformationMessage('Claude Code Plus: Python is installed. Start a new conversation to get a work plan.');
+      noticeTime.info(vscode, 'Claude Code Plus: Python is installed. Start a new conversation to get a work plan.');
       return true;
     }));
   /* Once per Python version on this machine, by whichever extension and window asks first. After "Not now" the row above
      the plan is the way to get it. */
   const offerPython = () => pythonOffer.offer({
-    ask: (message, ...buttons) => vscode.window.showInformationMessage(message, ...buttons), get: getPython });
+    ask: (message, ...buttons) => noticeTime.info(vscode, message, ...buttons), get: getPython });
   const syncPlugin = async (retry) => {
     if (removed()) return;
     const state = context.globalState.get(PLUGIN_KEY, {});
@@ -2093,7 +2096,7 @@ function start(context, log, renamed, handing = false) {
   context.subscriptions.push(
     registerCommand('installWorkPlanPlugin', () => syncPlugin(true).then(restorePlans).then(() => followTokenMode())),
     registerCommand('downloadPython', async () => {
-      const pick = await vscode.window.showInformationMessage(
+      const pick = await noticeTime.info(vscode,
         `Download Python ${pythonRuntime.VERSION} from python.org?`,
         { modal: true, detail: `11 MB, saved in ${pythonRuntime.home()}.` },
         'Download');
@@ -2137,7 +2140,7 @@ function start(context, log, renamed, handing = false) {
     }
     if (!LIVE_SETTINGS.some((k) => e.affectsConfiguration(k))) return;
     const c = cfg().get(COLOR_SETTING, '');
-    if (c && !safeColor(c)) vscode.window.showWarningMessage(`Claude Code Plus: "${c}" is not a CSS color (use e.g. #90EE90, lightgreen or rgb(144,238,144)); your message color is left unchanged.`);
+    if (c && !safeColor(c)) noticeTime.warning(vscode, `Claude Code Plus: "${c}" is not a CSS color (use e.g. #90EE90, lightgreen or rgb(144,238,144)); your message color is left unchanged.`);
     /* A switch has to reach the panel the moment it is flipped, which is what writing the stylesheet does. */
     writeLiveNow();
   }));

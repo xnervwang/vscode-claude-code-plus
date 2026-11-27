@@ -371,19 +371,25 @@ const CROWN = '\u{1F451}';
 const MARK_RE = /\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709/u;
 const tabLabels = (d) => d.call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((x) => x.input
   && String(x.input.viewType || '').endsWith('claudeVSCodePanel')).map((x) => x.label);`, []);
-/* The texts of the Agent Plus notices on screen as toasts (its src/attention.js), or null while one is still sliding
-   in. */
+/* The time a notification starts with (src/notice-time.js, in this extension and in Agent Plus): [HH:MM], [HH:MM ZONE]
+   before a page has said the reader's zone, with the month and day before it for another day. */
+const NOTICE_TIME = /^\[(?:[A-Z][a-z]{2} \d{1,2} )?\d\d:\d\d(?: [^\]\s]+)?\] /;
+/* For an expect: what that time looks like. */
+const NOTICE_TIME_SAID = 'Every notification starts with the time it was shown in square brackets, such as [14:05] or [04:05 UTC], '
+  + 'before what it says.';
+/* The texts of the Agent Plus notices on screen as toasts (its src/attention.js), without their time, or null while one
+   is still sliding in. */
 const needToasts = (d) => d.page.evaluate(() => {
   const items = [...document.querySelectorAll('.notifications-toasts .notification-list-item')].filter((n) => n.offsetParent);
   if (items.some((n) => n.closest('.notification-toast-container').getAnimations({ subtree: true }).some((a) => a.playState === 'running'))) return null;
   return items.map((n) => ((n.querySelector('.notification-list-item-message') || {}).innerText || '').replace(/\s+/g, ' ').trim());
-}).catch(() => null);
+}).then((texts) => (texts ? texts.map((t) => t.replace(NOTICE_TIME, '')) : null)).catch(() => null);
 /* Whether the text of a notice says `want`. With conversations of more than one program listed (Codex Plus adds its
    own), Agent Plus starts each notice with the program's name and a colon (its src/attention.js). */
 const noticeSays = (text, want) => text === want || (text.endsWith(want) && /^[^"]+: $/.test(text.slice(0, -want.length)));
 /* For an expect: what that start looks like here. */
-const NOTICE_SOURCE = 'When Agent Plus lists conversations of more than one program, a notification starts with the name of the '
-  + 'conversation\'s program and a colon, "Claude Code: ", and then reads as given.';
+const NOTICE_SOURCE = 'When Agent Plus lists conversations of more than one program, what a notification says starts with the name of the '
+  + 'conversation\'s program and a colon, "Claude Code: ", and then reads as given. ' + NOTICE_TIME_SAID;
 /* Whether an Agent Plus window's attention file (its src/attention.js) has an item for conversation `id` that passes `test`. */
 function attentionHas(d, id, test) {
   const dir = path.join(d.profile.home, '.agent-work-plan', 'attention');
@@ -1776,13 +1782,13 @@ const STEPS = [
   {
     name: 'session-twice-stopped', features: ['session-twice'],
     expect: 'Stop the old process was clicked: a notification at the bottom right says "Stopped process <a number> of that '
-      + 'conversation."',
+      + 'conversation." ' + NOTICE_TIME_SAID,
     unchanged: 'The tab bar is as before.',
     act: async (d) => {
       const t = d.threads[2];
       if (!d.twiceFrame) throw new Error('the conversation was not run twice');
       await d.twiceFrame.locator(`[data-stop-old="${t.id}"]`).first().click({ timeout: 5000 });
-      const said = () => d.page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].some((e) => /^Stopped process \d+/.test(e.innerText)));
+      const said = () => d.page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].some((e) => /^(?:\[[^\]]+\] )?Stopped process \d+/.test(e.innerText)));
       if (!await d.until(said, 15000, 300)) throw new Error('no notice that the old process was stopped appeared within 15 s');
       await d.sleep(500);
       await d.away();
@@ -2604,7 +2610,8 @@ const STEPS = [
     name: 'token-mode-no-effect', features: ['token-mode'],
     expect: 'After claudeCodePlus.workPlan was changed while the token mode is Essential features, one notification at the '
       + 'bottom right says "Claude Code Plus: the token mode is Essential features, so claudeCodePlus.workPlan has no effect '
-      + 'until the mode is Custom." with a Switch to Custom button. Only one such notification; it is readable and not cut off.',
+      + 'until the mode is Custom." with a Switch to Custom button. Only one such notification; it is readable and not cut off. '
+      + NOTICE_TIME_SAID,
     unchanged: 'The editor and side bar are as before; the Show Status notification is gone.',
     act: async (d) => { await setting(d, 'claudeCodePlus.workPlan', false); await d.sleep(2000); return d.body(); },
     undo: async (d) => { await setting(d, 'claudeCodePlus.workPlan', undefined); await d.sleep(1500); await d.exec('notifications.clearAll'); await d.sleep(500); },
