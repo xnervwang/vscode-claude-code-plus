@@ -619,7 +619,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     await still(loc);
     /* Agent Plus's first-install token mode notice stays at the bottom right until it is answered, over the footer. */
     await exec('notifications.hideToasts');
-    const b = await loc.boundingBox();
+    /* A box the page redraws, such as the information box, is briefly without its rows. */
+    const b = await until(() => loc.boundingBox().catch(() => null), 3000, 100);
     if (!b) { check(false, `${name} can be cropped`, 'the element has no box'); return; }
     const box = { x: b.x - pad, y: b.y - pad, width: b.width + 2 * pad, height: b.height + 2 * pad };
     base.compare(name, await crop(box), { masks: within(box, masks) });
@@ -2052,7 +2053,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const asking = await until(() => conv.evaluate(() => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes('tail -3')), 8000, 500);
         if (asking) await conv.locator('button, [role="button"]').filter({ hasText: /^\s*1\s*Yes\s*$/ }).first().click({ timeout: 5000 });
         const result = await until(() => resultIn(read(from)), 30000, 500);
-        check(!!result && model.seen.slice(before).some((x) => /^Command running in background with ID: /.test(x.result || '')),
+        /* The transcript has the call's result before the CLI sends it back to the model. */
+        const told = await until(() => model.seen.slice(before).some((x) => /^Command running in background with ID: /.test(x.result || '')), 30000, 300);
+        check(!!result && told,
           'Claude Code runs it as a background command, and the call\'s result names the file the command writes', { result, results: model.seen.slice(before).map((x) => x.result) });
         job = await until(() => jobs()[0], 60000, 500) || null;
         if (job) { try { created = Date.parse(JSON.parse(fs.readFileSync(path.join(jobsDir, job, 'state.json'), 'utf8')).createdAt); } catch (_) { /* read below */ } }
@@ -3757,7 +3760,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const focus = conv.locator('[data-cce-focus-btn]').first();
       const button = () => focus.evaluate((e) => ({ fold: e.getAttribute('data-cce-fold'), label: e.getAttribute('aria-label') }));
       const wasOn = (await button()).fold !== 'open';
-      if (!wasOn) await focus.click();
+      /* A click turns Focus view on from off, and folds again a tool call an earlier step opened by hand; either way the
+         new tool call below has to come in folded. A click on a page that has just opened can go unanswered, so it is
+         made again until the button says so. */
+      let folded = false;
+      for (let i = 0; i < 3 && !folded; i++) {
+        if ((await button()).fold !== 'folded') await focus.click();
+        folded = !!await until(async () => (await button()).fold === 'folded', 3000, 200);
+      }
+      if (!folded) throw new Error(`Focus view did not come on with every tool call folded: ${JSON.stringify(await button())}`);
       const row = conv.locator('[data-testid="focus-fold-row"][aria-expanded="false"]').filter({ visible: true }).first();
       /* The turns before may have left no tool call in this conversation, or left it far above the screen, where Claude
          Code does not draw it; a turn that runs a command puts a folded row at the bottom. */
