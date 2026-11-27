@@ -2666,7 +2666,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       if (!which) throw new Error(`the closed tab ${closed} is none of the fake conversations`);
       const shown = await until(async () => { const r = await slRows().catch(() => null); return r && r.find((x) => x.section === 'closed' && x.title === which.title) && r; }, 20000, 500);
       check(!!shown, 'closing a Claude Code tab puts its conversation in Recently closed at the top of Agent Plus\'s session list', shown || await slRows());
-      const own = shown && slFind(shown, which);
+      /* Until its Claude Code process has exited, the row counts as open elsewhere; on Windows that can take a moment. */
+      const own = shown && (await until(async () => { const r = slFind(await slRows().catch(() => null), which); return r && r.stripe === 'closed' && r; }, 15000, 500)
+        || slFind(await slRows().catch(() => null), which));
       check(!!own && own.stripe === 'closed', 'and its own row has the Recently closed stripe', own);
       await page.mouse.move(5, 880);
       await sleep(300);
