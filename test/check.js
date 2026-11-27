@@ -8378,7 +8378,7 @@ console.log('\nconversation tabs opened by this extension');
   const others = fifth.filter((a) => a !== 'AS_FULL_EDITOR');
   if (/^const AS_FULL_EDITOR = true;$/m.test(ext) && fifth.filter((a) => a === 'AS_FULL_EDITOR').length === 5
       && JSON.stringify(others.sort()) === JSON.stringify(['', 't.fullEditor'])) {
-    ok('every Claude Code tab this extension opens is a full editor tab, as Claude Code\'s own session list opens one, but for bringing forward a tab already open and reopening closed tabs as they were');
+    ok('this extension opens every Claude Code tab as a full editor tab, except when it brings forward a tab already open or reopens closed tabs as they were');
   } else bad(`fifth arguments of claude-vscode.editor.open: ${JSON.stringify(fifth)}`);
 }
 

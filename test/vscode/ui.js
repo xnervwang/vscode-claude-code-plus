@@ -1009,7 +1009,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!conv, 'Claude Code draws every turn of the conversation in that tab');
       if (!conv) return;
       const head = await conv.evaluate(() => ({ full: window.IS_FULL_EDITOR === true, titleRow: !!document.querySelector('[class*="titleGroup_"]') })).catch(() => null);
-      check(!!head && head.full && !head.titleRow, 'it is a full editor tab, as Claude Code\'s own session list opens one, with no row above the conversation repeating its title', head);
+      check(!!head && head.full && !head.titleRow, 'it is a full editor tab, with no title row above the conversation', head);
       const st = await until(async () => { const s = await stampsIn(conv); return s.user.every(Boolean) && s.reply.every(Boolean) && s.user.length === tab0.turns.length && s; }, 20000, 500);
       const s = st || await stampsIn(conv);
       check(!!st && s.user.every((x) => new RegExp(`^${STAMP}$`).test(x)), 'each of your messages carries its time', s.user);
