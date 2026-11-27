@@ -141,9 +141,10 @@ const EDITS = [
       + `${msg}.request.cceBusy,${msg}.request.cceBg,${msg}.request.isFarewell===true,${msg}.request.cceWait)}}catch(e){}${rest}`,
   },
   /*
-   * A panel whose script never arrived reports it, and Claude Code shows its "couldn't load" notice. The report reaches
-   * this extension too, with the panel's webview, so that src/panel-rebuild.js can build the page again. It goes ahead
-   * of Claude Code's own handling, which ignores a second report from a panel until that panel has sent anything else.
+   * When a panel's script never arrives, the page shows Claude Code's "couldn't load" notice and reports the failure.
+   * The report reaches this extension too, with the panel's webview, so that src/panel-rebuild.js can build the page
+   * again. It goes ahead of Claude Code's own handling, which ignores any further failure report from a panel until it
+   * has sent some other message.
    */
   {
     name: 'a panel that failed to load reaches this extension',

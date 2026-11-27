@@ -6,7 +6,7 @@
 /*
  * Rebuilds the page of a Claude Code panel whose script did not arrive.
  *
- * A panel's page and every file it asks for normally go through the editor's webview service worker, and all Claude
+ * A panel's page and every file it loads normally go through the editor's webview service worker, and all Claude
  * Code tabs of every window share one of those workers. The address a worker is registered under includes the remote
  * the window is connected to, so when windows on two different remotes are open, each one that builds a panel registers
  * the worker under its own address and the browser installs it again. A page made while that happens is not served by
@@ -17,20 +17,19 @@
  *
  * Setting the panel's HTML again makes the editor build a new page, served by whichever worker is in place by then, as
  * the editor's Reload Webviews command does. Only for a script that was not delivered: one that arrived and threw would
- * throw again. Twice at most for one panel, so a file that is really missing ends on Claude Code's notice.
+ * throw again. Twice at most for one panel, so that when the file really is missing, Claude Code's notice stays.
  */
 const DELAYS_MS = [2000, 10000];
 const MARK = /\n?<!-- cce-built-again \d+ -->$/;
 
-/* The HTML with a trailing comment numbered n, so that it differs from what the panel has: the editor sends a page only
-   when the HTML changes. */
+/* The editor sends a new page only when the HTML changes, so this puts a comment numbered n at the end of it. */
 function marked(html, n) {
   return String(html).replace(MARK, '') + `\n<!-- cce-built-again ${n} -->`;
 }
 
 /*
- * Returns onFailed(webview, report), called with the report as Claude Code parsed it. onFailed returns the delay of the
- * build it scheduled, or 0.
+ * onFailed(webview, report) is called with the report as Claude Code parsed it, and returns the delay of the build it
+ * scheduled, or 0.
  */
 function create({ setTimer = setTimeout, log = () => {}, delays = DELAYS_MS } = {}) {
   const tries = new WeakMap();
