@@ -63,6 +63,7 @@ const sessionColors = require('./src/sessioncolors');
 const bgSessions = require('./src/bgsessions');
 const droppedTabs = require('./src/droppedtabs');
 const loadTabs = require('./src/load-tabs');
+const panelRebuild = require('./src/panel-rebuild');
 const loadMarks = require('./src/load-marks');
 const duplicates = require('./src/duplicates');
 const deleteSession = require('./src/deletesession');
@@ -1902,6 +1903,10 @@ function start(context, log, renamed, handing = false) {
     if (globalThis.__cceClosedHook) delete globalThis.__cceClosedHook;
     if (globalThis.__cceSendSessionStates) delete globalThis.__cceSendSessionStates;
   } });
+  /* The patched host passes on each panel's report that its script never arrived (src/panel-rebuild.js says why that
+     happens and why building the page again helps). */
+  globalThis.__ccePanelFailedHook = panelRebuild.create({ log: (line) => log.appendLine(line) });
+  context.subscriptions.push({ dispose: () => { if (globalThis.__ccePanelFailedHook) delete globalThis.__ccePanelFailedHook; } });
   claude.followChat();
   sweepPlans().catch((e) => log.appendLine('orphan work plans: ' + e.message));
   watchEffort();

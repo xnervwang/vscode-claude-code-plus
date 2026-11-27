@@ -8370,6 +8370,73 @@ console.log('\na tab the person closes');
   }
 }
 
+console.log('\na panel whose script never arrived');
+{
+  const { applyEdits } = require('../src/edits');
+  const fe = host.EDITS.find((e) => e.name === 'a panel that failed to load reaches this extension');
+  const fsrc = 'class P{async receivePanelLoadFailure(e){try{if(e.type==="panel_load_failure_action")return;this.handled.push(e.reason)}catch(t){this.handled.push("caught")}}}';
+  const fr = fe ? applyEdits(fsrc, [fe]) : { error: 'no such edit' };
+  if (fr.error) bad('the failed-panel edit did not apply: ' + fr.error);
+  else {
+    const fenv = { got: [] };
+    fenv.globalThis = fenv;
+    fenv.__ccePanelFailedHook = (w, r) => fenv.got.push([w.name, r.reason]);
+    vm.createContext(fenv);
+    vm.runInContext(fr.out + ';var p=new P;p.webview={name:"W"};p.handled=[];p.receivePanelLoadFailure({type:"panel_load_failed",reason:"not_delivered"});var h1=p.handled;', fenv);
+    if (JSON.stringify(fenv.got) === '[["W","not_delivered"]]' && JSON.stringify(fenv.h1) === '["not_delivered"]') {
+      ok('a panel\'s report that its script did not run reaches this extension with that panel\'s webview, and Claude Code still handles it');
+    } else bad(`the hook got ${JSON.stringify(fenv.got)}, Claude Code handled ${JSON.stringify(fenv.h1)}`);
+    const tenv = {};
+    tenv.globalThis = tenv;
+    tenv.__ccePanelFailedHook = () => { throw new Error('broken hook'); };
+    vm.createContext(tenv);
+    vm.runInContext(fr.out + ';var p=new P;p.webview={};p.handled=[];p.receivePanelLoadFailure({type:"panel_load_failed",reason:"not_delivered"});var h2=p.handled;', tenv);
+    if (JSON.stringify(tenv.h2) === '["not_delivered"]') ok('a failed-panel hook that throws leaves Claude Code\'s own handling of the report as it was');
+    else bad(`with a throwing hook Claude Code handled ${JSON.stringify(tenv.h2)}`);
+  }
+
+  const panelRebuild = require('../src/panel-rebuild');
+  const timers = [];
+  const lines = [];
+  const onFailed = panelRebuild.create({ setTimer: (fn, ms) => timers.push({ fn, ms }), log: (l) => lines.push(l) });
+  const report = { type: 'panel_load_failed', reason: 'not_delivered' };
+  const view = { html: '<html>page</html>' };
+  const first = onFailed(view, report);
+  timers.shift().fn();
+  const afterFirst = view.html;
+  const second = onFailed(view, report);
+  timers.shift().fn();
+  const afterSecond = view.html;
+  const third = onFailed(view, report);
+  const fourth = onFailed(view, report);
+  if (first === 2000 && second === 10000 && third === 0 && fourth === 0 && !timers.length
+      && afterFirst === '<html>page</html>\n<!-- cce-built-again 1 -->' && afterSecond === '<html>page</html>\n<!-- cce-built-again 2 -->'
+      && lines.length === 3 && /time 1$/.test(lines[0]) && /time 2$/.test(lines[1]) && /left on its notice$/.test(lines[2])) {
+    ok('a panel whose script was not delivered is built again after 2 s and once more after 10 s, each time with HTML of its own, and then left on Claude Code\'s notice with one line saying so');
+  } else bad(`builds ${JSON.stringify([first, second, third, fourth])}, HTML ${JSON.stringify([afterFirst, afterSecond])}, log ${JSON.stringify(lines)}`);
+
+  const other = { html: 'x' };
+  const skipped = [
+    onFailed(other, { type: 'panel_load_failed', reason: 'syntax_error' }),
+    onFailed(other, { type: 'panel_load_failed', reason: 'exception' }),
+    onFailed(other, { type: 'panel_load_failed', reason: 'never_started' }),
+    onFailed(other, { type: 'panel_load_failed', reason: 'not_delivered', recovered: true }),
+    onFailed(other, { type: 'panel_load_failure_action', action: 'reload_window' }),
+    onFailed(null, report),
+    onFailed(other, undefined),
+  ];
+  if (skipped.every((v) => v === 0) && !timers.length && other.html === 'x') {
+    ok('a script that arrived and threw, one that got through when asked again, a click on the notice and a report without a panel build nothing again');
+  } else bad(`for those, builds ${JSON.stringify(skipped)} with ${timers.length} timers`);
+
+  const gone = { get html() { throw new Error('Webview is disposed'); }, set html(v) { throw new Error('Webview is disposed'); } };
+  const goneMs = onFailed(gone, report);
+  let threw = '';
+  try { timers.shift().fn(); } catch (e) { threw = e.message; }
+  if (goneMs === 2000 && !threw) ok('a panel closed before its new build is due is passed over without an error');
+  else bad(`a closed panel: scheduled ${goneMs}, threw ${JSON.stringify(threw)}`);
+}
+
 console.log('\na patched file written by several windows at once');
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-atomic-'));

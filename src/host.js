@@ -28,7 +28,7 @@ const { applyEdits, shapesOf } = require('./edits');
 const { writeAtomic } = require('./files');
 const { patchTarget } = require('./patch-target');
 
-const VERSION = 21;
+const VERSION = 22;
 const ANY_MARK = '/* CLAUDE-CODE-EXTRAS-HOST v';
 const BACKUP_SUFFIX = '.claude-code-extras-host.bak';
 const TMP_SUFFIX = '.claude-code-extras-host.tmp';
@@ -139,6 +139,16 @@ const EDITS = [
       + `else if(${msg}&&${msg}.type==="request"&&${msg}.request&&${msg}.request.type==="update_session_state"`
       + `&&typeof ${msg}.request.sessionId==="string"){globalThis.__cceTurnHook&&globalThis.__cceTurnHook(${msg}.request.sessionId,`
       + `${msg}.request.cceBusy,${msg}.request.cceBg,${msg}.request.isFarewell===true,${msg}.request.cceWait)}}catch(e){}${rest}`,
+  },
+  /*
+   * A panel whose script never arrived reports it, and Claude Code shows its "couldn't load" notice. The report reaches
+   * this extension too, with the panel's webview, so that src/panel-rebuild.js can build the page again. It goes ahead
+   * of Claude Code's own handling, which ignores a second report from a panel until that panel has sent anything else.
+   */
+  {
+    name: 'a panel that failed to load reaches this extension',
+    re: /async receivePanelLoadFailure\(([\w$]+)\)\{try\{/g,
+    to: (m, report) => `${m}try{globalThis.__ccePanelFailedHook&&globalThis.__ccePanelFailedHook(this.webview,${report})}catch(cceE){}`,
   },
   /*
    * After the logging above, a panel's message goes on to Claude Code's switch over the message types it knows, whose

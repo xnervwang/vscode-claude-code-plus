@@ -2906,6 +2906,38 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await shot('new-in-tab');
     });
 
+    /* A page whose script never arrives ends on Claude Code's notice (src/panel-rebuild.js). In use that happens while
+       the webview service worker is being installed again; here the script is simply missing while the tab opens, and
+       put back once the notice shows, so the next build of the page has it. */
+    await step('a panel whose script did not arrive', async () => {
+      const cc = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
+      const file = path.join(profile.exts, cc, 'webview', 'index.js');
+      const away = file + '.cce-away';
+      let back = false;
+      const putBack = () => { if (back) return; back = true; fs.renameSync(away, file); };
+      const before = new Set(page.frames());
+      const tabsBefore = (await claudeTabs()).length;
+      await showSl();
+      fs.renameSync(file, away);
+      try {
+        await sl.locator('.sl-new-half[data-where="tab"]').click();
+        const notice = await frameWhere(() => !!document.querySelector('#claude-load-failure h1'), 30000, undefined, before);
+        check(!!notice, 'with its script missing, a new Claude Code tab ends on Claude Code\'s notice that it couldn\'t load', await tabs());
+        putBack();
+        if (notice) await shot('script-not-delivered');
+        const up = notice && await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]')
+          && !document.querySelector('#claude-load-failure h1'), 40000, undefined, before);
+        check(!!up, 'with the script back, the page is built again by itself and shows a new conversation\'s input box', await tabs());
+        if (up) await shot('built-again');
+      } finally {
+        putBack();
+      }
+      const mine = (await claudeTabs()).filter((t) => t.active);
+      if ((await claudeTabs()).length === tabsBefore + 1 && mine.length) {
+        await call(`const t = vscode.window.tabGroups.activeTabGroup.activeTab; if (t) await vscode.window.tabGroups.close(t); return true;`);
+      }
+    });
+
     await step('an archived conversation', async () => {
       const t1 = threads[1];
       const tabOf = async () => (await claudeTabs()).find((x) => titled(x.label, t1.title));
