@@ -14705,6 +14705,13 @@ const repo = path.join(__dirname, '..');
       eq([seen.get(S(2)).unseen, 'unseen' in seen.get(S(1)), 'unseen' in rows.get(S(2))], [true, false, false],
         'a row says unseen while Claude Code holds its unread mark, and the other rows leave it out');
       (/\n\s+unseen: \(id\) => unreadKeys\.has\(id\),/.test(listDeps) ? ok : bad)('and the window gives the list the host\'s unread marks');
+      {
+        /* noteAccount in extension.js, up to the hook that calls it. */
+        const a = extSrc.indexOf('const noteAccount = () => {'), body = a < 0 ? '' : extSrc.slice(a, extSrc.indexOf('\n  };\n', a));
+        ((/activeChat\(\)/.test(body) && /liveStates\.keys\(\)/.test(body) && /sessionList\.accountChanged\(\)/.test(body)
+          && /claude\.changed\(\); noteAccount\(\);/.test(extSrc)) ? ok : bad)(
+          'the window tells the list the account part changed when the conversation in front, or which conversations run here, changes, not only when the figures do');
+      }
     }
 
     const run = async (...a) => (await list.runSessionAction(...a)).results.map((x) => [x.sessionId, x.outcome, x.reason]);
@@ -14736,9 +14743,13 @@ const repo = path.join(__dirname, '..');
         { rows: [NONE_HERE], bars: [], links: [] },
         { rows: [], bars: [], links: [], conversation: { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] } }],
       'the Account & usage part is the figures of the conversation in front, and for one with none a line saying no conversation runs here');
-    const signed = (login) => csl.create(Object.assign({}, deps, { login: () => login, state: () => null }));
-    eq([signed({ method: 'bedrock', label: 'Amazon Bedrock' }).accountInfo({ sessionId: S(2) }), signed({ method: 'apiKey', label: 'API key' }).accountInfo({ sessionId: S(1) }).rows,
-      signed({ method: 'claudeAi', label: 'claude.ai' }).accountInfo({ sessionId: S(1) }).rows, signed({ method: 'none', label: 'Not signed in' }).accountInfo({ sessionId: S(2) }).rows],
+    eq([stoppedAll.accountInfo({ sessionId: S(1) }), list.accountInfo({ sessionId: S(9) }).conversation],
+      [{ rows: [NONE_HERE], bars: [], links: [] }, { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] }],
+      'a conversation asked for that no longer runs here gets no figures, though it had some: the line says none runs, or the figures are of the one in front that runs');
+    const firstRuns = (id) => (id === S(1) ? { activity: 'idle' } : null);
+    const signed = (login, state = () => null) => csl.create(Object.assign({}, deps, { login: () => login, state }));
+    eq([signed({ method: 'bedrock', label: 'Amazon Bedrock' }).accountInfo({ sessionId: S(2) }), signed({ method: 'apiKey', label: 'API key' }, firstRuns).accountInfo({ sessionId: S(1) }).rows,
+      signed({ method: 'claudeAi', label: 'claude.ai' }, firstRuns).accountInfo({ sessionId: S(1) }).rows, signed({ method: 'none', label: 'Not signed in' }).accountInfo({ sessionId: S(2) }).rows],
       [{ rows: [{ label: 'Sign-in', value: 'Amazon Bedrock' }, NONE_HERE], bars: [], links: [] }, [{ label: 'Sign-in', value: 'API key' }], [],
         [{ label: 'Sign-in', value: 'Not signed in' }, NONE_HERE]],
       'it says how Claude Code signs in, unless with a claude.ai account, with no conversation running as with one');

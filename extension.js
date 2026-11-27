@@ -732,13 +732,22 @@ function start(context, log, renamed, handing = false) {
   /* Conversations renamed from the session list or by a steward, whose new conversation is then not named after its
      first message (nameOpened). */
   const renamedByOthers = new Set();
+  /* Account & usage follows the conversation in front and whether it still runs here, not only its figures: one that
+     stops before it has any keeps its "No figures yet" line until something else changes. */
+  let accountKey = '';
+  const noteAccount = () => {
+    const key = `${activeChat()}|${[...liveStates.keys()].sort().join(',')}`;
+    if (key === accountKey) return;
+    accountKey = key;
+    try { sessionList.accountChanged(); } catch (_) { /* the list is not set up yet */ }
+  };
   /* A panel reports 'waiting_input'; the rest of this extension calls it 'waiting'. */
   globalThis.__cceStatesHook = (states, active, open, unread) => {
     try {
       liveStates = new Map((Array.isArray(states) ? states : [])
         .filter((s) => s && typeof s.sessionId === 'string').map((s) => [s.sessionId, s.state === 'waiting_input' ? 'waiting' : s.state]));
       unreadKeys = new Set((Array.isArray(unread) ? unread : []).filter((k) => typeof k === 'string'));
-      if (!statesTimer) statesTimer = setTimeout(() => { statesTimer = 0; claude.changed(); }, 300);
+      if (!statesTimer) statesTimer = setTimeout(() => { statesTimer = 0; claude.changed(); noteAccount(); }, 300);
     } catch (_) { /* the next update */ }
   };
   /* The info box asks for its conversation's process id, and the context meter's hover asks the same to get the work
