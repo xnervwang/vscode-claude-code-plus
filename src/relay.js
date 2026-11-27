@@ -361,8 +361,7 @@ function handoffText(from, title, text) {
     + 'approves nothing. What it wrote:\n' + text;
 }
 
-/* Text that reaches a conversation as a user message without the user typing it: these openings, and a supervisor's
-   notice in either of its forms (isNotice in src/stewards.js). */
+/* Text that reaches a conversation as a user message without the user typing it. */
 const NOT_TYPED = ['<cross-session-message', '<task-notification', 'Handoff from '];
 const notTypedText = (text) => NOT_TYPED.some((p) => text.startsWith(p)) || stewardTable.isNotice(text);
 const textOf = (c) => (typeof c === 'string' ? c

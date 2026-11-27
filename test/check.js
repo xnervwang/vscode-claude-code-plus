@@ -11775,7 +11775,7 @@ console.log('\nconversations');
     const unknown = [g.over(empty).get(S(4)) || '', at(80100, [{ sessionId: S(4), pid: 5, status: 'waiting' }])];
     const kept = g.over(new Map([[S(4), 'running']]));
     if (held === 'idle' && gone === '' && ended === '' && expired === '' && unknown.join() === 'idle,' && kept.get(S(4)) === 'running') {
-      ok('a panel that went away keeps its last state while `claude agents` still lists its process, and no longer once a new process holds the conversation, the old one is gone, or a minute has passed');
+      ok('a panel that went away keeps its last state while `claude agents` still lists its process, until a new process holds the conversation, the old one is gone, or a minute has passed');
     } else bad(`gone states ${JSON.stringify({ held, gone, ended, expired, unknown })}`);
   }
 
@@ -15046,7 +15046,7 @@ const repo = path.join(__dirname, '..');
             tooltip: `Claude Code starts its CLI through the process wrapper ${WRAPPER} (claudeCode.claudeProcessWrapper), which decides how it signs in.` },
           { method: 'none', label: 'Not signed in' }, { method: 'none', label: 'Not signed in' }, { method: 'bedrock', label: 'Amazon Bedrock' }],
           'with a process wrapper and no conversation running, the sign-in is the wrapper\'s, with its path in the tooltip; without one, or with a blank one, it is Not signed in; '
-            + 'and a method found elsewhere, here the env of ~/.claude/settings.json, is shown as before');
+            + 'and a method found elsewhere, here the env of ~/.claude/settings.json, is shown instead of the wrapper');
       }
       {
         const f = fake();

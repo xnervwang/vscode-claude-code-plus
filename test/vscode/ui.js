@@ -1452,10 +1452,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
        an auth token instead of the API key claudeCode.environmentVariables gives it in the other steps, and runs the CLI in
        its place. With no conversation running here Account & usage says the wrapper decides; with one running, the
        sign-in is read from its CLI's environment where there is a /proc. The conversations this window shows are closed
-       for the step and opened again after it. */
+       for the step, so that none runs here, and opened again after it. */
     await step('the sign-in through a process wrapper', async () => {
       /* Claude Code starts the wrapper with child_process.spawn and no shell, which runs neither a .cmd nor a .bat file;
-         a wrapper ending in .js it runs with node, with the CLI's path before the script's. */
+         a wrapper ending in .js it runs with node, with the CLI's path before the script's, so node is given the CLI to
+         run and not the wrapper. */
       if (process.platform === 'win32') {
         note('the process wrapper step is left out on Windows: Claude Code starts the wrapper without a shell, so it has to be an executable file, which this test does not build');
         return;
@@ -1473,8 +1474,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       };
       const underHost = (pid) => { for (let p = pid, n = 0; p > 1 && n < 32; n++) { if (p === host) return true; p = parentOf(p); } return false; };
       /* The CLIs this window's extension host started that run now, from Claude Code's session registry. Without /proc
-         none can be told apart, and none is read either. A panel keeps a CLI ready for a new conversation, so one can run
-         with no conversation running here. */
+         none can be told apart, and this extension reads none either. A panel keeps a CLI ready for a new conversation,
+         so one can run with no conversation running here. */
       const clis = () => {
         if (!hasProc) return [];
         let names = [];
@@ -3000,7 +3001,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         return text.split('\n').map((l) => { try { return JSON.parse(l); } catch (_) { return null; } })
           .filter((r) => r && r.type === 'custom-title').map((r) => r.customTitle);
       };
-      /* The list edits a title in place and selects it: Rename in the row's menu, the new title typed over it, and Enter. */
+      /* The list edits a title in place and selects it. */
       const renameRow = async (t, title) => {
         await slPick(t, 'Rename');
         if (!await until(() => sl.evaluate(() => !!document.querySelector('.sl-title.sl-editing')), 5000, 100)) throw new Error('the row\'s title did not become editable');
@@ -3154,8 +3155,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const away = await until(async () => { const r = await slRowsOf(t.id); return r.length && r.every((x) => x.stripe === 'elsewhere' && x.dim) && r; }, 30000, 500);
         check(!!away, 'in this window\'s Agent Plus session list its row is dimmed, with the stripe of one open elsewhere', await slRowsOf(t.id));
         if (!away) return;
-        /* The list hovered afresh: another row first, as a hover box stays as it was while the pointer stays on its row.
-           Each hover is waited for until the box shows that row's session id. */
+        /* The list hovered afresh: another row first, as a hover box stays as it was while the pointer stays on its
+           row. */
         const other = threads.find((x) => x.id !== t.id);
         const hoverOn = async (x) => {
           await slRowAt(x).hover().catch(() => {});
@@ -4026,7 +4027,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const wasOn = (await button()).fold !== 'open';
       /* A click turns Focus view on from off, and folds again a tool call an earlier step opened by hand; either way the
          new tool call below has to come in folded. A click on a page that has just opened can go unanswered, so it is
-         made again until the button says so. */
+         made up to three times, until the button says so. */
       let folded = false;
       for (let i = 0; i < 3 && !folded; i++) {
         if ((await button()).fold !== 'folded') await focus.click();
@@ -5306,8 +5307,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const ASK_TEXT = /Allow this bash command\?/;
       const BASH_NOTICE = 'Claude is requesting permission to use Bash';
       /* Right after a tab is opened, its page can lose the focus for a tenth of a second while Claude Code focuses its
-         input, and the keys typed then are gone. So the text is checked before Enter and typed again when keys are
-         missing, and Enter is pressed again while the text is still in the box. */
+         input, and the keys typed then are gone. */
       const say = async (frame, p, text) => {
         const box = frame.locator('[contenteditable][role="textbox"]').first();
         const inBox = () => box.evaluate((e) => (e.textContent || '').trim()).catch(() => '');

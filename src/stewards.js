@@ -308,7 +308,7 @@ function titleOfWords(text) {
    does when it compares a message. */
 const textHash = (text) => crypto.createHash('sha256').update(String(text || '').replace(/[\s\u200b]+/g, ''), 'utf8').digest('hex');
 
-/* How a supervisor's notice starts. Earlier builds began it with "Steward notice"; isNotice takes either, in any case. */
+/* Notices from earlier builds begin with "Steward notice", which NOTICE also takes. */
 const NOTICE_HEAD = 'Supervisor notice from Claude Code Plus';
 const NOTICE = /^(?:Supervisor|Steward) notice from Claude Code Plus/i;
 const isNotice = (text) => NOTICE.test(String(text || ''));
