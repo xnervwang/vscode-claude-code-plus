@@ -103,8 +103,8 @@ function stoppedWithOpenRows(folders, running, { dir = planDir(), now = Date.now
 }
 
 /* The first message the user typed stands in for a title, as on the conversation's tab and in the session list until
-   Claude Code generates one. planOf() is called only when there is no title, name or first message, so a titled
-   conversation does not read its plan. */
+   Claude Code generates one. planOf() is called last, so a conversation with a title or a first message does not read
+   its plan. */
 function claudeTitle(s, t, planOf) {
   const named = s.name && !waiting.isDefaultName(s.name, s.cwd) ? s.name : '';
   if (t.custom || named || t.ai || t.first) return t.custom || named || t.ai || t.first;

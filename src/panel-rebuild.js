@@ -4,20 +4,20 @@
 
 'use strict';
 /*
- * Builds a Claude Code panel again when its script never reached it.
+ * Rebuilds the page of a Claude Code panel whose script did not arrive.
  *
  * A panel's page and every file it asks for normally go through the editor's webview service worker, and all Claude
  * Code tabs of every window share one of those workers. Its registration's address carries the remote the window is
  * connected to, so when windows on two different remotes are open, each one that builds a panel registers the worker
  * under its own address and the browser installs it again. A page made while that happens is not served by any worker:
- * its request for webview/index.js goes out to the network and fails at once. A request already in flight when the
- * worker changes is answered to the new worker, and the one that holds it gives up after 30 seconds. Either way Claude
- * Code asks once more from the same page, which fails the same way, and then shows its "couldn't load" notice.
+ * its request for webview/index.js goes out to the network and fails at once. The answer to a request already in
+ * flight when the worker changes goes to the new worker, and the old one, which still holds the request, gives up on it
+ * after 30 seconds. Either way Claude Code asks once more from the same page, which fails the same way, and then shows
+ * its "couldn't load" notice.
  *
  * Setting the panel's HTML again makes the editor build a new page, served by whichever worker is in place by then, as
  * the editor's Reload Webviews command does. Only for a script that was not delivered: one that arrived and threw would
- * throw again. Twice at most for one panel, the second time later, so a file that is really missing ends on Claude
- * Code's notice.
+ * throw again. Twice at most for one panel, so a file that is really missing ends on Claude Code's notice.
  */
 const DELAYS_MS = [2000, 10000];
 const MARK = /\n?<!-- cce-built-again \d+ -->$/;
@@ -29,9 +29,8 @@ function marked(html, n) {
 }
 
 /*
- * Returns onFailed(webview, report) for Claude Code's handler of a panel's failure report, which passes the report as
- * Claude Code parsed it. setTimer(fn, ms) schedules; log(line) records. onFailed returns the delay of the build it
- * scheduled, or 0 when it scheduled none.
+ * Returns onFailed(webview, report), called from Claude Code's handler of a panel's failure report with the report as
+ * Claude Code parsed it. onFailed returns the delay of the build it scheduled, or 0 when it scheduled none.
  */
 function create({ setTimer = setTimeout, log = () => {}, delays = DELAYS_MS } = {}) {
   const tries = new WeakMap();

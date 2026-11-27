@@ -194,8 +194,8 @@ function lastReplyAt(file) {
 }
 
 /**
- * Transcript lookups, kept between calls: a transcript's path, and the titles near its end with, when it has neither, the
- * first message the user typed. They are read again only when the file has changed.
+ * Transcript lookups, kept between calls: a transcript's path, the titles near its end, and its first prompt when it
+ * has neither title. The titles and the prompt are read again only when the file has changed.
  */
 function reader() {
   const paths = new Map(), seen = new Map(), replies = new Map();

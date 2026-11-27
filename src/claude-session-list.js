@@ -52,8 +52,7 @@ function promptOf(rec) {
 }
 const parse = (l) => { try { return JSON.parse(l); } catch (_) { return null; } };
 
-/* The first message the user typed in the transcript in `file`, as the list shows it for a conversation with no title
-   yet, or ''. */
+/* The first prompt in the transcript `file`, as the list shows it for a conversation with no title yet, or ''. */
 function firstPromptOf(file) {
   let fd;
   try {

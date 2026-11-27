@@ -356,7 +356,7 @@ function shell(list, nonce) {
   ul { list-style: none; margin: 0; padding: 0; }
   .row { display: flex; align-items: center; gap: 6px; padding: 2px 0; white-space: nowrap; }
   .row:not(.managed) { opacity: 0.7; }
-  /* A title is never cut: the texts after it get only the room it leaves, and a title wider than the row wraps. */
+  /* A title is never cut: the text after it is cut instead, and a title wider than the row wraps. */
   .name { color: var(--vscode-textLink-foreground); text-decoration: none; flex: 0 1 auto; min-width: 4em; white-space: normal; overflow-wrap: anywhere; }
   .doing { overflow: hidden; text-overflow: ellipsis; flex: 1 1 0; min-width: 0; opacity: 0.85; }
   .questions { color: var(--vscode-editorWarning-foreground, #cca700); }

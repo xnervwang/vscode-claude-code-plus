@@ -1907,8 +1907,8 @@ function start(context, log, renamed, handing = false) {
     if (globalThis.__cceClosedHook) delete globalThis.__cceClosedHook;
     if (globalThis.__cceSendSessionStates) delete globalThis.__cceSendSessionStates;
   } });
-  /* The patched host passes on each panel's report that its script never arrived (src/panel-rebuild.js says why that
-     happens and why building the page again helps). */
+  /* The patched host (src/host.js) passes on every report of a panel that failed to load; src/panel-rebuild.js says
+     why a panel's script can fail to arrive and why building the page again helps. */
   globalThis.__ccePanelFailedHook = panelRebuild.create({ log: (line) => log.appendLine(line) });
   context.subscriptions.push({ dispose: () => { if (globalThis.__ccePanelFailedHook) delete globalThis.__ccePanelFailedHook; } });
   claude.followChat();
