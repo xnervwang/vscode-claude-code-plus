@@ -3352,7 +3352,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             await sleep(15000);
             check(!noticed(), 'on native Windows the steward is not sent a notice, since its inbox socket takes none from other processes', model.seen.slice(asked).map((x) => (x.ask || '').slice(0, 120)));
           } else {
-            check(!!await until(noticed, 45000, 1000), 'the steward is sent a notice, not as the user\'s message, that the conversation is waiting for the user',
+            /* A steward gets at most one notice per NOTICE_GAP_MS, and the turn that ended a few seconds ago may have just
+               sent one, so the wait covers a whole gap. */
+            const gap = require('../../src/steward-view').NOTICE_GAP_MS;
+            check(!!await until(noticed, gap + 30000, 1000), 'the steward is sent a notice, not as the user\'s message, that the conversation is waiting for the user',
               model.seen.slice(asked).map((x) => (x.ask || '').slice(0, 160)));
           }
           const closeBusy = await act(['--close', target.id]);
