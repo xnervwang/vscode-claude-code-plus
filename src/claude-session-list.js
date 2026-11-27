@@ -52,6 +52,27 @@ function promptOf(rec) {
 }
 const parse = (l) => { try { return JSON.parse(l); } catch (_) { return null; } };
 
+/* The first message the user typed in the transcript in `file`, as the list shows it for a conversation with no title
+   yet, or ''. */
+function firstPromptOf(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size, len = Math.min(size, HEAD_BYTES);
+    const b = Buffer.alloc(len);
+    const n = fs.readSync(fd, b, 0, len, 0);
+    const lines = b.toString('utf8', 0, n).split('\n');
+    if (len < size) lines.pop();
+    for (const l of lines) {
+      if (!l || l[0] !== '{' || !l.includes('"type":"user"')) continue;
+      const r = parse(l);
+      if (isTyped(r)) return promptOf(r);
+    }
+  } catch (_) { /* no transcript yet, or unreadable */ }
+  finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (_) { /* closed */ } }
+  return '';
+}
+
 /* What the list shows of one transcript. The head gives when it started and the first prompt; the tail gives its
    titles, which Claude Code writes again every turn, its last message, the user's last message and the agent's last
    reply. */
@@ -459,4 +480,4 @@ function keepsFor(due, { now = Date.now(), soonMs = 0, kindOf = bgSessions.kindO
 
 const FEATURES = ['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose', 'sessionsNotice'];
 
-module.exports = { create, summarize, kindFor, worktreeOf, projectOf, appendTitle, deleteChecked, keepsFor, FEATURES, PAGE };
+module.exports = { create, summarize, firstPromptOf, kindFor, worktreeOf, projectOf, appendTitle, deleteChecked, keepsFor, FEATURES, PAGE };

@@ -11958,6 +11958,35 @@ console.log('\nconversations');
   }
 
   {
+    /* A new conversation before Claude Code has generated its title: its tab and the session list show the first message
+       the user typed, and the Supervisor panel does too, not the name Claude Code made from the folder. */
+    const { claudeTitle } = require('../src/conversations');
+    const { firstPromptOf } = require('../src/claude-session-list');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-first-'));
+    const file = path.join(dir, 't.jsonl');
+    fs.writeFileSync(file, [
+      '{"type":"queue-operation","operation":"enqueue"}',
+      '{"type":"user","isMeta":true,"message":{"role":"user","content":"<command-name>/model</command-name>"}}',
+      '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"你好"}]}}',
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]}}',
+      '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"later"}]}}',
+    ].join('\n') + '\n');
+    const first = firstPromptOf(file);
+    const s = { sessionId: 'b0c2e3ab-e2cb-42c0-83f6-dcaa2b2ad73d', name: 'vscode-claude-code-plus-cd', cwd: '/work/vscode-claude-code-plus' };
+    let planRead = false;
+    const plan = () => { planRead = true; return { title: 'From the plan', nodes: [] }; };
+    const untitled = claudeTitle(s, { custom: '', ai: '', first }, plan);
+    const readPlan = planRead;
+    const generated = claudeTitle(s, { custom: '', ai: 'Generated', first: '' }, plan);
+    const nothing = claudeTitle(s, { custom: '', ai: '', first: '' }, plan);
+    const bare = claudeTitle(s, { custom: '', ai: '' }, () => null);
+    if (first === '你好' && untitled === '你好' && !readPlan && generated === 'Generated' && nothing === 'From the plan' && bare === s.name) {
+      ok('a conversation with no title yet is named after the first message the user typed, ahead of its plan and of the name Claude Code made from its folder; a generated title still comes first');
+    } else bad(`first ${JSON.stringify(first)}, titles ${JSON.stringify([untitled, readPlan, generated, nothing, bare])}`);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  {
     /* In a child process, because this script ends synchronously and a result that arrives later would never be counted. */
     const script = `const w = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'waiting.js'))});
       let got = null;
@@ -14100,17 +14129,19 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
     const dots = [...html.matchAll(/<span class="dot ([a-z]*)"/g)].map((m) => m[1]);
     const envs = [...html.matchAll(/<\/a>\s*<span class="env"[^>]*>&#x1F4E9;<\/span>/g)].length;
     const shell = sv.shell('', 'n');
-    const long = 'A title far too long for the row, which the panel cuts short with an ellipsis before the envelope'.repeat(2);
+    const long = 'A title far too long for the row, which the panel wraps rather than cutting it short before the envelope'.repeat(2);
     const longHtml = sv.body({ front: { id: 'f', title: 'F' }, rows: [], groups: [{ key: 'w:1', name: 'w', rows: [Object.assign({ managed: false, processes: [] },
       all.get(S(5)), { title: long })] }], managed: 0, hidden: 0, every: false });
     const nameSpan = (/<a [^>]*class="name"[^>]*>([^<]*)<\/a>/.exec(longHtml) || [])[1] || '';
+    const nameRule = (/\.name \{([^}]*)\}/.exec(shell) || [])[1] || '', doingRule = (/\.doing \{([^}]*)\}/.exec(shell) || [])[1] || '';
     const cut = nameSpan === long && /<\/a>\s*<span class="env"[^>]*>&#x1F4E9;<\/span>[\s\S]*<span class="when">/.test(longHtml)
-      && /\.name \{[^}]*overflow: hidden; text-overflow: ellipsis;/.test(shell) && /\.env \{ flex: 0 0 auto;/.test(shell);
+      && !/ellipsis|max-width|overflow: hidden/.test(nameRule) && /white-space: normal/.test(nameRule)
+      && /text-overflow: ellipsis/.test(doingRule) && /\.env \{ flex: 0 0 auto;/.test(shell);
     if (cut && JSON.stringify(rows) === JSON.stringify(['working/working/-', 'background/background/u', 'prompt/waiting/-', 'idle/waiting/-', 'unread//u'])
         && JSON.stringify(dots) === JSON.stringify(['working', 'background', 'waiting', 'waiting', '']) && envs === 2
         && /\.dot\.background \{ border: 2px solid #22c55e; \}/.test(shell) && !/3b82f6/i.test(shell)) {
       ok('the Supervisor panel draws each conversation\'s dot as the tab does, red for a fresh question to the user, and an envelope right after the title, before the time, for a reply not read yet, '
-        + 'outside the title, which a long title cuts short with an ellipsis while the envelope keeps its size');
+        + 'outside the title, which a long title never cuts short: it wraps, only the text after it is cut, and the envelope keeps its size');
     } else bad(`supervisor rows ${JSON.stringify(rows)}, dots ${JSON.stringify(dots)}, envelopes ${envs}, long title kept apart ${cut}`);
   }
 

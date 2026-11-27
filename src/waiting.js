@@ -21,6 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const { transcriptOf, writeAtomic } = require('./claude-files');
 const bgSessions = require('./bgsessions');
+const { firstPromptOf } = require('./claude-session-list');
 /* Real paths are compared, so a folder reached through a symbolic link still matches. */
 const { folderTest } = require('./folders');
 
@@ -193,8 +194,8 @@ function lastReplyAt(file) {
 }
 
 /**
- * Transcript lookups, kept between calls: a transcript's path, and the titles near its end, which are read again only
- * when the file has changed.
+ * Transcript lookups, kept between calls: a transcript's path, and the titles near its end with, when it has neither, the
+ * first message the user typed. They are read again only when the file has changed.
  */
 function reader() {
   const paths = new Map(), seen = new Map(), replies = new Map();
@@ -209,10 +210,11 @@ function reader() {
   return {
     titles(s) {
       const file = fileOf(s.sessionId), st = file && stat(file);
-      if (!st) return { custom: '', ai: '' };
+      if (!st) return { custom: '', ai: '', first: '' };
       const key = st.size + ':' + st.mtimeMs, hit = seen.get(file);
       if (hit && hit.key === key) return hit.titles;
       const titles = transcriptTitles(file);
+      titles.first = titles.custom || titles.ai ? '' : firstPromptOf(file);
       seen.set(file, { key, titles });
       return titles;
     },

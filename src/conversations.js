@@ -102,10 +102,12 @@ function stoppedWithOpenRows(folders, running, { dir = planDir(), now = Date.now
   return out;
 }
 
-/* planOf() is called only when the first three titles are missing, so a titled conversation does not read its plan. */
+/* The first message the user typed comes after the generated title, as on the conversation's tab and in the session
+   list: until Claude Code generates a title, both show that message. planOf() is called only when none of these is
+   there, so a titled conversation does not read its plan. */
 function claudeTitle(s, t, planOf) {
   const named = s.name && !waiting.isDefaultName(s.name, s.cwd) ? s.name : '';
-  if (t.custom || named || t.ai) return t.custom || named || t.ai;
+  if (t.custom || named || t.ai || t.first) return t.custom || named || t.ai || t.first;
   const plan = planOf();
   const top = plan && plan.nodes && plan.nodes.find((n) => OPEN_STATES.includes(n.state));
   return (plan && plan.title) || (top && top.title) || s.name || s.id || s.sessionId;

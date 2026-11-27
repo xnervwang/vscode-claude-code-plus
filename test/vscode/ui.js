@@ -3402,6 +3402,32 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its supervisor', table);
+        /* In a panel just wide enough for a managed row's title and the parts that are never cut, the title is shown whole
+           on one line and only what it is doing, the text after it, is cut. */
+        const narrow = await until(() => frame.evaluate((id) => {
+          const li = [...document.querySelectorAll('li.row.managed')].find((r) => r.querySelector(`input[data-id="${id}"]`));
+          const name = li && li.querySelector('.name'), doing = li && li.querySelector('.doing');
+          if (!name || !doing) return null;
+          const root = document.getElementById('root');
+          const probe = document.createElement('span');
+          probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${getComputedStyle(name).font}`;
+          probe.textContent = name.textContent;
+          document.body.appendChild(probe);
+          const whole = probe.getBoundingClientRect().width;
+          probe.remove();
+          const gap = parseFloat(getComputedStyle(li).columnGap) || 0;
+          const kids = [...li.children];
+          const others = kids.filter((e) => e !== name && e !== doing).reduce((a, e) => a + e.getBoundingClientRect().width, 0);
+          const lead = li.getBoundingClientRect().left - root.getBoundingClientRect().left;
+          root.style.width = `${Math.ceil(lead + whole + others + gap * (kids.length - 1) + 10)}px`;
+          const r = name.getBoundingClientRect(), line = parseFloat(getComputedStyle(name).lineHeight) || 1.4 * parseFloat(getComputedStyle(name).fontSize);
+          const out = { title: name.textContent, whole: Math.round(whole), shown: Math.round(r.width), lines: Math.round(r.height / line),
+            doing: doing.textContent, doingShown: doing.clientWidth, doingWhole: doing.scrollWidth };
+          root.style.width = '';
+          return out;
+        }, chosen).catch(() => null), 10000, 500);
+        check(!!narrow && narrow.shown >= narrow.whole - 1 && narrow.lines === 1 && narrow.doingWhole > narrow.doingShown,
+          'in a narrow panel a row\'s title is shown whole and only the text after it is cut', narrow);
         /* A new body that reaches the panel between a box's press and its release replaces the box under the pointer;
            the panel holds it until the click is over, and the box still gets ticked. */
         const second = boxes.map(([id]) => id).find((id) => id !== chosen);
@@ -3944,6 +3970,50 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('workbench.action.closePanel');
       } catch (_) { /* the steps after this one say what is left */ }
     } });
+
+    /* A new conversation is listed in the Supervisor panel under the name its tab shows: until Claude Code generates a
+       title, that is the first message typed in it, not the name Claude Code makes from the folder. The fake model gives
+       no title, so the conversation keeps its first message as its name. */
+    await step('a new conversation in the Supervisor panel after its first message', async () => {
+      const TEXT = 'Name this new conversation after its first message';
+      const before = new Set(page.frames());
+      const tabsBefore = (await claudeTabs()).length;
+      await showSl();
+      await sl.locator('.sl-new-half[data-where="tab"]').click();
+      const fresh = await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]') && !document.querySelector('[class*="userMessage_"]'),
+        60000, undefined, before);
+      if (!fresh) throw new Error(`no new conversation opened: ${JSON.stringify(await tabs())}`);
+      await fresh.locator('[contenteditable][role="textbox"]').first().click();
+      await page.keyboard.type(TEXT);
+      await page.keyboard.press('Enter');
+      const dir = path.join(profile.home, '.claude', 'projects', folderName(profile.folder));
+      const id = await until(() => {
+        try {
+          const n = fs.readdirSync(dir).find((f) => f.endsWith('.jsonl') && !threads.some((t) => f === `${t.id}.jsonl`)
+            && fs.readFileSync(path.join(dir, f), 'utf8').includes(TEXT));
+          return n ? n.slice(0, -6) : null;
+        } catch (_) { return null; }
+      }, 30000, 500);
+      if (!id) throw new Error('the first message was not written to a new transcript');
+      const tab = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(TRAILING_MARKS, ''), TEXT)), 30000, 500);
+      check(!!tab && (await claudeTabs()).length === tabsBefore + 1, 'the new conversation\'s tab is titled with its first message', await claudeTabs());
+      try {
+        await exec('claude-vscode.editor.open', threads[0].id);
+        await sleep(1000);
+        await exec('workbench.view.extension.claudeCodePlusSteward');
+        const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
+        const nameIn = () => panel.evaluate((x) => { const a = document.querySelector(`a.name[data-open="${x}"]`); return a ? a.textContent : null; }, id).catch(() => null);
+        const named = panel && await until(async () => { const n = await nameIn(); return n === TEXT && n; }, 60000, 1000);
+        check(!!named, 'in the Supervisor panel it is listed under that first message, as on its tab, not under the name Claude Code made from the folder',
+          { listed: panel ? await nameIn() : null, tab: tab && tab.label });
+        if (named) await shot('steward-new-conversation');
+        await exec('workbench.action.closePanel');
+      } finally {
+        await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)} && x.label.startsWith(arg));
+          if (t) await vscode.window.tabGroups.close(t); return true;`, TEXT.slice(0, 12));
+        await exec('claude-vscode.editor.open', threads[0].id);
+      }
+    });
 
     /* Two Claude Code processes under VS Code's extension host for one conversation, as after a window went away while
        its extension host stayed: the conversation's own tab, and then its CLI started from the extension host the way

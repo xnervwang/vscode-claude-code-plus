@@ -344,7 +344,7 @@ function shell(list, nonce) {
   .every:has(input:disabled) { opacity: 0.6; }
   input:disabled { pointer-events: none; }
   .box { display: inline-flex; }
-  .by { flex: 0 1 auto; min-width: 0; max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.8; }
+  .by { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.8; }
   /* As faint as the time beside it (.when) in every theme; the list it opens keeps its own colours. */
   .eyes { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; color: color-mix(in srgb, var(--vscode-foreground) 60%, transparent); cursor: default; }
   .eyes .pop { display: none; position: absolute; right: 0; top: 100%; z-index: 10; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 4px;
@@ -356,8 +356,9 @@ function shell(list, nonce) {
   ul { list-style: none; margin: 0; padding: 0; }
   .row { display: flex; align-items: center; gap: 6px; padding: 2px 0; white-space: nowrap; }
   .row:not(.managed) { opacity: 0.7; }
-  .name { color: var(--vscode-textLink-foreground); text-decoration: none; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
-  .doing { overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; opacity: 0.85; }
+  /* A title is never cut: the texts after it get only the room it leaves, and a title wider than the row wraps. */
+  .name { color: var(--vscode-textLink-foreground); text-decoration: none; flex: 0 1 auto; min-width: 4em; white-space: normal; overflow-wrap: anywhere; }
+  .doing { overflow: hidden; text-overflow: ellipsis; flex: 1 1 0; min-width: 0; opacity: 0.85; }
   .questions { color: var(--vscode-editorWarning-foreground, #cca700); }
   .twice { color: var(--vscode-errorForeground, #f14c4c); }
   .stop-old { padding: 0 6px; }
