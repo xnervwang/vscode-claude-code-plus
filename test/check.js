@@ -13078,6 +13078,9 @@ console.log('\nClaude Code\'s own source');
       c.track(twin, 'TWIN');
       out.behind.push(c.source.sessionForTab(inSix(front.title, false)), c.source.sessionForTab(inSix(front.title, true)));
       front.d.forEach((f) => f()); back.d.forEach((f) => f()); twin.d.forEach((f) => f());
+      /* VS Code can report a tab as closed after its panel has gone. */
+      out.closedTab = [c.source.sessionForTab(inSix(back.title, true)), c.source.sessionForTab(inSix(back.title, false)),
+        c.source.sessionForTab(inSix('A title no panel has', true))];
       out.listeners = p1.l.length;
       p1.active = true; p1.l.forEach((f) => f({})); p2.l.forEach((f) => f({}));
       c.track(p1, 'A2');
@@ -13221,6 +13224,9 @@ console.log('\nClaude Code\'s own source');
     if (JSON.stringify(o.behind) === JSON.stringify(['BACK', 'FRONT', '', 'FRONT', 'TWIN', 'FRONT'])) {
       ok('a tab behind another in its group is its own conversation, taken from the panel with its label, which is not visible, and not from the visible panel with another title');
     } else bad(`a tab behind another: ${JSON.stringify(o.behind)}`);
+    if (JSON.stringify(o.closedTab) === JSON.stringify(['BACK', 'BACK', ''])) {
+      ok('a tab reported closed after its panel has gone is still known by its label and group for a few seconds, active or not');
+    } else bad(`a tab closed after its panel: ${JSON.stringify(o.closedTab)}`);
     if (JSON.stringify(o.heard) === JSON.stringify(['C', 'OLD', 'NEW', 'A', 'A2', 'X', '', 'Y', 'Y', 'Y', 'Y']) && JSON.stringify(o.follow) === '[true,false,true]') {
       ok('every Claude Code focus signal fires onDidFocus, including a front panel getting its session id');
     } else bad(`focus heard ${JSON.stringify([o.heard, o.follow])}`);

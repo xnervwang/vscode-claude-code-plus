@@ -187,6 +187,10 @@ function createClaudeSource(deps) {
   let notice = null;
   /* panel -> { sessionId, subs } */
   const panels = new Map();
+  /* Panels gone in the last CLOSED_MS, as { title, column, sessionId, at }: VS Code can report a tab closed after its panel
+     has gone, and the tab is then known only by its label and group. */
+  const closedPanels = [];
+  const CLOSED_MS = 10000;
   const unsubscribe = (subs) => { for (const d of subs) { try { d.dispose(); } catch (_) { /* already disposed */ } } };
   const pending = new Map();
   let keys = 0;
@@ -468,13 +472,22 @@ function createClaudeSource(deps) {
       if (!isPanelTab(tab)) return null;
       const column = tab.group && tab.group.viewColumn;
       const label = typeof tab.label === 'string' ? tab.label : '';
+      const closed = () => {
+        if (!label) return '';
+        const now = Date.now();
+        for (let i = closedPanels.length - 1; i >= 0; i--) {
+          const g = closedPanels[i];
+          if (now - g.at <= CLOSED_MS && g.title === label && (g.column === undefined || g.column === column)) return g.sessionId;
+        }
+        return '';
+      };
       if (tab.isActive === false) {
         let own = '';
         for (const [panel, { sessionId }] of panels) {
           if (!sessionId || !label || panel.viewColumn !== column || panel.title !== label) continue;
           if (!own || !panel.visible) own = sessionId;
         }
-        return own;
+        return own || closed();
       }
       const inGroup = [...panels].filter(([panel]) => panel.visible && panel.viewColumn === column);
       const named = label ? inGroup.filter(([panel]) => panel.title === label) : [];
@@ -483,7 +496,7 @@ function createClaudeSource(deps) {
         if (!sessionId) continue;
         if (!best || panel.active) best = sessionId;
       }
-      return best;
+      return best || closed();
     },
 
     isFocused(sessionId) {
@@ -669,15 +682,26 @@ function createClaudeSource(deps) {
       }
       const entry = { sessionId: id, subs: [] };
       panels.set(panel, entry);
+      const seen = () => { try { entry.title = panel.title; entry.column = panel.viewColumn; } catch (_) { /* gone */ } };
+      seen();
       const keep = (d) => { if (d && typeof d.dispose === 'function') entry.subs.push(d); };
       try {
         if (typeof panel.onDidChangeViewState === 'function') {
           keep(panel.onDidChangeViewState(() => {
+            seen();
             if (panel.active && entry.sessionId) say(entry.sessionId, 'view');
           }));
         }
         if (typeof panel.onDidDispose === 'function') {
           keep(panel.onDidDispose(() => {
+            let title = '', column;
+            try { title = panel.title; column = panel.viewColumn; } catch (_) { /* read below from what was seen */ }
+            title = typeof title === 'string' && title ? title : entry.title || '';
+            if (column === undefined) column = entry.column;
+            if (entry.sessionId && title) {
+              closedPanels.push({ title, column, sessionId: entry.sessionId, at: Date.now() });
+              if (closedPanels.length > 20) closedPanels.shift();
+            }
             if (panels.get(panel) === entry) panels.delete(panel);
             unsubscribe(entry.subs);
           }));
