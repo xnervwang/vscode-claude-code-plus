@@ -685,7 +685,8 @@ function removeSchedules(d) {
   } catch (_) { /* no file */ }
 }
 /* Stops what the agent map steps started: on Linux every process started in those conversations' names in the demo's
-   folder, and on every platform the claude --bg sessions and the worker, by their session records. */
+   folder, and on every platform the claude --bg sessions and the worker, by their session records. The fake conversations
+   have the same session ids in every run, so a process of another run at the same time is told apart by its folder. */
 function stopMapWork(d, ids) {
   const marks = ids.map((id) => `CLAUDE_CODE_SESSION_ID=${id}`);
   const ours = (p) => { try { const at = fs.readlinkSync(`/proc/${p}/cwd`); return at === d.profile.folder || at.startsWith(d.profile.folder + path.sep); } catch (_) { return false; } };
@@ -2195,7 +2196,8 @@ const STEPS = [
       + 'description, which stays on one line.',
     unchanged: 'The earlier messages are as before, but higher and dimmed: the conversation has scrolled to show the question. '
       + 'Claude Code keeps a message of yours pinned at the top of the conversation while the rows that answer it '
-      + 'scroll up behind it. The tab\'s title has no envelope now that the tab is in front.',
+      + 'scroll up behind it, so some of those rows may be hidden under it. The tab\'s title has no envelope now that the tab '
+      + 'is in front.',
     act: async (d) => {
       const frame = await live(d);
       const list = await agentList(d);
@@ -3542,7 +3544,8 @@ const STEPS = [
           + 'at once: its logo, title and time are greyed, about half as bright as '
           + 'every other row; the stripe at its start is a hollow outline, where a row open in a tab here has a filled bar; and a small '
           + 'terminal icon, a box with a prompt sign, sits before its time. "' + C.idle.title + '" is not open '
-          + 'in any tab, terminal or other window; its row has no stripe at its start and is not greyed.',
+          + 'in any tab, terminal or other window; its row has no stripe at its start and is not greyed. No other row is greyed, '
+          + 'has an outlined stripe or has a terminal icon.',
         unchanged: 'The rows listed before are still there.',
         act: async (d) => {
           const list = await listReady(d);
