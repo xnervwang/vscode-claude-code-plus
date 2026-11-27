@@ -4276,18 +4276,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const focus = conv.locator('[data-cce-focus-btn]').first();
       const button = () => focus.evaluate((e) => ({ fold: e.getAttribute('data-cce-fold'), label: e.getAttribute('aria-label') }));
       const wasOn = (await button()).fold !== 'open';
-      /* A click turns Focus view on when it is off, and when it is on folds again a tool call an earlier step opened by
-         hand; either way the new tool call below has to come in folded. A click on a page that has just opened can go
-         unanswered. */
-      let folded = false;
-      for (let i = 0; i < 3 && !folded; i++) {
-        if ((await button()).fold !== 'folded') await focus.click();
-        folded = !!await until(async () => (await button()).fold === 'folded', 3000, 200);
-      }
-      if (!folded) throw new Error(`Focus view did not come on with every tool call folded: ${JSON.stringify(await button())}`);
-      const row = conv.locator('[data-testid="focus-fold-row"][aria-expanded="false"]').filter({ visible: true }).first();
       /* The turns before may have left no tool call in this conversation, or left it far above the screen, where Claude
-         Code does not draw it; a turn that runs a command puts a folded row at the bottom. */
+         Code does not draw it; a turn that runs a command puts one at the bottom. */
       const turns = model.turns();
       await conv.locator('[contenteditable][role="textbox"]').first().click();
       await page.keyboard.type(`Please ${ASK_TO_PAUSE}.`);
@@ -4303,11 +4293,23 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }
         return false;
       }, 60000, 500);
-      const found = ran && await until(async () => (await row.count()) > 0, 15000, 300);
+      if (!ran) throw new Error('the turn that runs a command did not finish');
+      /* Focus view comes on, with every tool call folded, after the turn, so that what this step checks does not rest on
+         Focus view lasting through a turn. A click turns Focus view on when it is off, and when it is on folds again a
+         tool call opened by hand; a click on a page that has just opened can go unanswered. */
+      let folded = false;
+      for (let i = 0; i < 3 && !folded; i++) {
+        if ((await button()).fold !== 'folded') await focus.click();
+        folded = !!await until(async () => (await button()).fold === 'folded', 3000, 200);
+      }
+      if (!folded) throw new Error(`Focus view did not come on with every tool call folded: ${JSON.stringify(await button())}`);
+      const row = conv.locator('[data-testid="focus-fold-row"][aria-expanded="false"]').filter({ visible: true }).last();
+      const found = await until(async () => (await row.count()) > 0, 15000, 300);
       if (!found) throw new Error('the conversation shows no folded tool call in Focus view');
       await row.scrollIntoViewIfNeeded();
-      const key = await row.evaluate((e) => { e.setAttribute('data-cce-test-fold', ''); return e.textContent.trim(); });
-      const marked = conv.locator('[data-cce-test-fold]').first();
+      const key = (await row.textContent()).trim();
+      /* Found again by its text at each look, as Claude Code can draw the row anew. */
+      const marked = conv.locator('[data-testid="focus-fold-row"]').filter({ visible: true }).filter({ hasText: key }).last();
       await marked.click();
       const opened = await until(async () => await marked.getAttribute('aria-expanded') === 'true' && (await button()).fold === 'opened' && await button(), 5000, 200);
       check(!!opened && opened.label === LABELS.focusOpened, 'in Focus view, the button shows the unfolded arrows once a tool call is opened by hand',
@@ -4317,7 +4319,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const back = await until(async () => await marked.getAttribute('aria-expanded') === 'false' && (await button()).fold === 'folded' && await button(), 5000, 200);
       check(!!back && back.label === LABELS.focusOn, 'and pressing the button folds it again, with Focus view still on',
         { row: key, expanded: await marked.getAttribute('aria-expanded'), button: await button() });
-      await marked.evaluate((e) => e.removeAttribute('data-cce-test-fold')).catch(() => {});
       if (!wasOn) await focus.click();
     });
 
