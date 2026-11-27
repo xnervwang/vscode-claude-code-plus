@@ -319,9 +319,9 @@ async function run() {
     if (!(Array.isArray(ap.features) && ap.features.includes('sessionList') && typeof ap.sessionDeletionDue === 'function')) {
       note('this Agent Plus has no \'sessionList\': its session list was not run with Claude Code\'s conversations');
     } else {
-      /* Agent Plus's session list: this window's folder's transcripts listed through the source, Claude Code's own archive
-         and groups imported once, when the list deletes each, and Claude Code's own Ctrl+Shift+T left to the list while the
-         list archives and deletes on its own in this window. */
+      /* Agent Plus's session list: the transcripts of this window's folder, listed through the source; Claude Code's
+         own archive and groups, imported once; when the list deletes each; and Claude Code's own Ctrl+Shift+T left to
+         the list while the list archives and deletes on its own in this window. */
       const DAY = 86400000;
       const LA = 'a1a1a1a1-1111-4222-8333-444444444441', LB = 'a1a1a1a1-1111-4222-8333-444444444442', LC = 'a1a1a1a1-1111-4222-8333-444444444443';
       const LD = 'a1a1a1a1-1111-4222-8333-444444444444';
@@ -348,7 +348,7 @@ async function run() {
       const read = await until(() => has(LA, LB, LC) && typeof due()[LA] === 'number', 15000);
       const d1 = due();
       eq([!!read, typeof d1[LA] === 'number' && d1[LA] > Date.now() + 89 * DAY && d1[LA] <= Date.now() + 90 * DAY, d1[LB], d1[LC]], [true, true, null, null],
-        'Agent Plus\'s session list lists this window\'s Claude Code conversations, takes in Claude Code\'s own archive once, counting 90 days from then to delete it, and deletes none of the others');
+        'Agent Plus\'s session list shows this window\'s Claude Code conversations, takes in Claude Code\'s own archive once, counting 90 days from then to delete it, and deletes none of the others');
       /* The section each is drawn in, from the list the core draws (its session list view's model). */
       const slView = control.state.webviews['agentPlus.sessions'];
       const sectionOf = (id) => {
@@ -370,13 +370,13 @@ async function run() {
         'with the list deleting archived conversations after 3 days, this extension leaves to Claude Code\'s own cleanup the archived one, which the list deletes within the 14-day margin, and keeps the two the list does not delete');
       delete control.state.config['agentPlus.sessions.deleteAfterDays'];
       control.changeConfig(['agentPlus.sessions.deleteAfterDays']);
-      /* A later change of Claude Code's own list is not taken in: the import is once. */
+      /* Claude Code's own list is imported once: a change made to it later is not taken in. */
       official = { archived: [LA, LB], groups: [] };
       transcript(LD, 2, 'Started after the import');
       globalThis.__cceStatesHook([], '', [], []);
       const again = await until(() => has(LD), 15000);
       eq([!!again, due()[LB], due()[LD]], [true, null, null], 'a conversation Claude Code\'s own list archives after the import stays unarchived in the session list');
-      /* Restricted Mode: the list changes nothing on its own, so Claude Code's Ctrl+Shift+T is its own again. */
+      /* Restricted Mode: the list archives and deletes nothing on its own, so Ctrl+Shift+T is Claude Code's again. */
       const reopens = () => (typeof globalThis.__cceListReopens === 'function' ? globalThis.__cceListReopens() : null);
       const trusted = reopens();
       control.state.trusted = false;

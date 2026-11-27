@@ -11755,7 +11755,7 @@ console.log('\nconversations');
   }
 
   {
-    /* A panel that goes away: its last state stands while a list read after that still has the process it had. */
+    /* A panel that goes away keeps its last state while the lists read after it went still show its process. */
     const { goneStates } = require('../src/gone-states');
     let t = 1000, list = { records: [{ sessionId: S(1), pid: 812, status: 'waiting' }], at: 900 };
     const g = goneStates({ now: () => t, agentsNow: () => list, pidsOf: w.pidsOf, trustMs: () => 60000 });
@@ -14991,7 +14991,7 @@ const repo = path.join(__dirname, '..');
     const notShown = csl.create(Object.assign({}, deps, { here: (id) => id !== S(1) }));
     eq([notShown.accountInfo({ sessionId: S(1) }), notShown.accountInfo({}), list.accountInfo({ sessionId: S(1) }).conversation.title],
       [{ rows: [NONE_HERE], bars: [], links: [] }, { rows: [NONE_HERE], bars: [], links: [] }, 'Lexer escapes'],
-      'a conversation that `claude agents` still lists but no panel of this window shows, as just after its tab closed, gets no figures');
+      'a conversation that `claude agents` still lists but no panel of this window shows gets no figures, as happens just after its tab closes');
     const early = csl.create(Object.assign({}, deps, { state: (id) => (id === S(2) ? { activity: 'idle' } : null) }));
     eq(early.accountInfo({ sessionId: S(2) }).rows, [{ label: 'This conversation', value: 'No figures yet',
       tooltip: 'Claude Code reports the cost, time and code changes of a conversation once it has had a turn in this window.' }],
@@ -15065,13 +15065,13 @@ const repo = path.join(__dirname, '..');
         eq([withWrapper, plain, child, twice],
           [{ method: 'authToken', label: 'Auth token', tooltip: tip(200, WRAPPER) }, { method: 'authToken', label: 'Auth token', tooltip: tip(200) },
             { method: 'bedrock', label: 'Amazon Bedrock', tooltip: tip(300, WRAPPER) }, { method: 'vertex', label: 'Google Vertex AI', tooltip: tip(350, WRAPPER) }],
-          'with the conversation in front running in this window, the sign-in is read from its own CLI\'s environment in /proc, over what the extension host and the setting give: '
-            + 'also a CLI the wrapper started as its child, and of two processes on the conversation the one started last');
+          'with the conversation in front running in this window, the sign-in is read from its own CLI\'s environment in /proc, over what the extension host and the setting give; '
+            + 'this also holds for a CLI the wrapper started as its child, and when two processes run the conversation, the one started last is read');
         eq([f.read({ wrapper: () => WRAPPER })(''), f.read({ extra: () => [{ name: 'ANTHROPIC_API_KEY', value: 'k' }] })('')],
           [{ method: 'wrapper', label: 'Set by the process wrapper',
             tooltip: `Claude Code starts its CLI through the process wrapper ${WRAPPER} (claudeCode.claudeProcessWrapper), which decides how it signs in.` },
           { method: 'apiKey', label: 'API key' }],
-          'with no conversation running here no process is read, though CLIs of this window run, as a panel keeps one ready for a new conversation');
+          'no process is read while no conversation runs here, though CLIs of this window run, as a panel keeps one ready for a new conversation');
         fs.writeFileSync(path.join(f.h, '.claude', 'settings.json'), JSON.stringify({ env: { CLAUDE_CODE_USE_VERTEX: '0', CLAUDE_CODE_USE_FOUNDRY: '1' } }));
         eq(f.read()(S(1)).method, 'foundry', 'and the env of ~/.claude/settings.json still applies over the process\'s environment, as the CLI applies it when it starts');
       }
@@ -15093,7 +15093,7 @@ const repo = path.join(__dirname, '..');
         eq([others, bare.method, bareNone, noProc.method], [['wrapper', 'wrapper', 'wrapper'], 'wrapper', { method: 'none', label: 'Not signed in',
           tooltip: 'Read from the environment of process 700, the Claude Code CLI of this conversation.' }, 'wrapper'],
           'a CLI of another window, one whose environment cannot be read and one whose process has gone are passed over; a CLI whose environment names no method '
-            + 'leaves the sign-in to the wrapper, or Not signed in without one; and where there is no /proc only the wrapper is said');
+            + 'leaves the sign-in to the wrapper, or Not signed in without one; and where there is no /proc only the wrapper is shown');
       }
       {
         const f = fake();
@@ -15116,7 +15116,7 @@ const repo = path.join(__dirname, '..');
       eq([tipped.accountInfo({ sessionId: S(1) }).rows[0], tipped.accountInfo({ sessionId: S(9) }).rows[0], asked],
         [{ label: 'Sign-in', value: 'Set by the process wrapper', tooltip: 'Claude Code starts its CLI through the process wrapper /w.' },
           { label: 'Sign-in', value: 'Set by the process wrapper', tooltip: 'Claude Code starts its CLI through the process wrapper /w.' }, [S(1), '']],
-        'the Sign-in line carries the tooltip it is given, and the sign-in is asked for with the conversation that runs here, or none');
+        'the Sign-in line carries the tooltip it is given, and login() gets the id of the conversation asked about when it runs here, or an empty id when it does not');
       tipped.dispose();
       const src = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
       const at = src.indexOf('login: claudeLogin.reader({'), wiring = at < 0 ? '' : src.slice(at, src.indexOf('}),', at));
@@ -15184,9 +15184,9 @@ const repo = path.join(__dirname, '..');
       'when this window cannot tell which conversations are open, nothing is deleted');
   }
 
-  /* The rows as Agent Plus's session list reads them: its own reading of a Session and its rules for the dot, the stripe,
-     the read mark, what it archives and deletes on its own, the order, search and the actions, taken from the Agent Plus
-     found beside this extension. A field of a row has to mean to those rules what it means here. */
+  /* The rows as Agent Plus's session list reads them: its own reading of a Session and its rules for the dot, the
+     stripe, the read mark, what it archives and deletes on its own, the order, search and the actions, taken from the
+     Agent Plus found beside this extension. The fields of a row have to match what those rules expect of them. */
   console.log('\nClaude Code\'s rows as Agent Plus\'s session list reads them');
   {
     const csl = require('../src/claude-session-list');
@@ -15219,7 +15219,7 @@ const repo = path.join(__dirname, '..');
     const of = (rows, n) => rows.find((s) => s.sessionId === L(n)) || {};
     eq([5, 3, 7].map((n) => { const s = of(first, n); return [s.activity, s.running, s.waitingFor || null]; }),
       [['background', true, null], ['waiting', true, { kind: 'question' }], ['stopped', true, null]],
-      'a row whose turn is over while its background work runs says background; one waiting on a question form says why; one a process holds idle runs and is stopped');
+      'a row whose turn is over while its background work runs says background; one waiting on a question form says it waits on a question; one that a process keeps open while idle is both running and stopped');
     /* Keeping a transcript from Claude Code's cleanup moves its modification time later (src/sessionpins.js), and a rename
        outside a panel appends a record: neither is a message. */
     const lastActive = (rows) => rows.map((s) => [s.sessionId.slice(-2), s.lastActiveAt]);
@@ -15252,16 +15252,16 @@ const repo = path.join(__dirname, '..');
       const users = rows.filter((r) => r.kind === 'user').map((r) => row(Number(r.sessionId.slice(-2))));
       eq([rows.length, [2, 3, 4, 5, 1, 7].map((n) => rules.dotOf(row(n))), rules.counts(users), rows.filter((r) => r.kind !== 'user').map((r) => [r.sessionId, r.kind])],
         [9, ['blue', 'blue', 'green', 'greenRing', '', ''], { all: 7, open: 0, running: 2, needs: 2 }, [[L(8), 'background'], [L(9), 'empty']]],
-        'Agent Plus draws a permission or question wait as the blue dot, a turn as the green dot and background work as the green ring, counts the waits as needing you, and hides the background run and the empty conversation as such');
+        'Agent Plus draws a permission or question wait as the blue dot, a turn as the green dot and background work as the green ring, counts the waits as needing you, and gives the background run and the empty conversation the kinds it hides');
       eq([rules.stripeOf(row(7)), row(7).processes, row(7).elsewhere.map((e) => [e.kind, e.label]), rules.unread(row(6)), rules.unread(row(1))],
         ['elsewhere', 2, [['terminal', 'terminal pts/3 in ~/rows']], true, false],
-        'a conversation a terminal has open gets the stripe of one open elsewhere with that terminal named and its two processes, and Claude Code\'s own unread mark makes a row unread after the user saw its reply');
+        'a conversation a terminal has open gets the stripe of a conversation open elsewhere, with that terminal named and its two processes, and Claude Code\'s own unread mark makes a row unread after the user saw its reply');
       eq([1, 6, 7, 4, 2].map((n) => rules.archiveDue(row(n), { days: 14, now: NOW })),
         [true, false, false, false, false],
         'archiving on its own takes an old stopped conversation, and leaves one Claude Code holds unread, one open in a terminal, one running and one waiting');
       eq([1, 7, 4, 2].map((n) => rules.deleteBlocker(row(n, { archived: true }))),
         ['', 'it is open in terminal pts/3 in ~/rows', 'it is running', 'it is running'],
-        'of archived conversations, one a terminal has open, one running and one waiting are not deleted, and a stopped one nothing has open is');
+        'of archived conversations, one a terminal has open, one running and one waiting are not deleted, and a stopped one that nothing has open is deleted');
       const dueL1 = rules.deleteDueAt(row(1, { archived: true, archivedAt: START }), { days: 90 });
       const dueL3 = rules.deleteDueAt(row(3, { archived: true, archivedAt: START + 10 * DAY }), { days: 90 });
       const keeps = csl.keepsFor({ [L(1)]: dueL1, [L(3)]: dueL3, [L(2)]: null }, { now: dueL1 - 10 * DAY, soonMs: 14 * DAY, kindOf: () => '' });

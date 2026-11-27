@@ -607,7 +607,7 @@ const claudeCli = (d) => {
   const dir = fs.readdirSync(d.profile.exts).filter((n) => n.startsWith('anthropic.claude-code-')).sort().pop();
   return dir ? path.join(d.profile.exts, dir, 'resources', 'native-binary', 'claude') : '';
 };
-/* The records of the Claude Code processes of the demo's home that are still running. */
+/* Records of the Claude Code processes still running with the demo's home. */
 const liveRecords = (d) => {
   const dir = path.join(d.profile.home, '.claude', 'sessions');
   let names = [];
@@ -616,7 +616,7 @@ const liveRecords = (d) => {
     .filter((r) => r && (() => { try { process.kill(r.pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } })());
 };
 const liveOf = (d, id) => liveRecords(d).filter((r) => r.sessionId === id);
-/* The session ids of the conversations that Claude Code panels of the demo window still run. */
+/* Session ids of the conversations still running in Claude Code panels of the demo window. */
 const panelsRunning = (d) => liveRecords(d).filter((r) => r.entrypoint === 'claude-vscode').map((r) => r.sessionId);
 
 /* The agent map steps: the conversation they use, the worker's session id, and the two scheduled prompts. */
@@ -712,12 +712,12 @@ function stopMapWork(d, ids) {
 }
 /*
  * Ends the conversation the secondary side bar holds, which closing the side bar does not: Claude Code keeps its page
- * there, and the conversation in it running, while the side bar is closed, and shuts a conversation there down only when
- * VS Code disposes that page. VS Code disposes a view's page when the view leaves its container, and Claude Code's view
- * is in the side bar only while claude-code:doesNotSupportSecondarySidebar is unset (Claude Code sets it on VS Code
- * builds older than 1.106 alone). The key stays set until `ended()` holds, with the side bar closed throughout, so that
- * once it is unset the view comes back with no page until it is next shown. `frame` is the side bar's page when known;
- * `left()` says what still runs when `ended()` does not hold in time.
+ * there, and the conversation in it running, while the side bar is closed, and shuts a conversation there down only
+ * when VS Code disposes that page, which happens when the view leaves its container. Claude Code's view is in the side
+ * bar only while claude-code:doesNotSupportSecondarySidebar is unset (Claude Code sets it on VS Code builds older than
+ * 1.106 alone). The key stays set until `ended()` holds, with the side bar closed throughout, so that once it is unset
+ * the view comes back with no page until it is next shown. `frame` is the side bar's page when known; `left()` says
+ * what still runs if `ended()` has not become true in time.
  */
 async function endSideChat(d, frame, ended, left) {
   const key = 'claude-code:doesNotSupportSecondarySidebar';
@@ -3207,8 +3207,8 @@ const STEPS = [
       await openMap(d, d.mapSide, 'Look through the notes');
       return d.part('workbench.parts.auxiliarybar');
     },
-    /* The conversation is ended before its background work is stopped: while it runs, it is told of each piece that stops
-       and answers with a turn. */
+    /* The conversation is ended first, then its background work is stopped: a running conversation is told each time a
+       piece of its background work stops, and answers with a turn. */
     undo: async (d) => {
       await closeMap(d);
       d.model.releaseHelper();
