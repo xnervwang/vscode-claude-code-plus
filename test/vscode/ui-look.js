@@ -1710,9 +1710,8 @@ const STEPS = [
   },
   {
     name: 'steward-archived', features: ['steward-archive'],
-    expect: 'Agent Plus\'s session list in the side bar, after you asked the demo conversation, which supervises "Add a dry-run flag to the cleanup '
-      + 'script", to archive that conversation. The row of "Add a dry-run flag to the cleanup script" is in the list\'s Archived section, which is '
-      + 'open, and is not among the rows above it.',
+    expect: 'Agent Plus\'s session list in the side bar. The demo conversation supervises "Add a dry-run flag to the cleanup script", and you '
+      + 'asked it to archive that conversation. Its row is now in the list\'s open Archived section.',
     unchanged: null,
     act: async (d) => {
       const [t1] = d.threads.slice(1);

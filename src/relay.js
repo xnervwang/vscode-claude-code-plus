@@ -26,10 +26,10 @@
  * sends one records it in SENDS_FILE, where steward-relay.py looks for another supervisor's recent message to the same
  * conversation before it sends.
  *
- * `archive` archives the Claude Code conversations in `ids` (`to` is the first) in Agent Plus's session list, those the
- * supervisor manages that are not working, waiting for the user or running background work (deps.archive decides and
- * says why for each), and only when the user asked for it, as for the list actions below. No request deletes a
- * conversation: only the user does that, by hand, in the session list.
+ * An `archive` request names Claude Code conversations in `ids`, the first of them also in `to`. deps.archive decides for
+ * each whether it may be archived in Agent Plus's session list and says why not. As with the list actions below, the
+ * request is carried out only when the user asked for it. No request deletes a conversation: only the user does that,
+ * by hand, in the session list.
  *
  * `take`, `drop`, `all` and `new` change the asking supervisor's own list: they tick or untick one conversation, or turn
  * "All, including new ones" or "New conversations" on or off (`to` is the conversation, or "on" or "off"). Only the
@@ -41,8 +41,8 @@
  * Any process can write a request file. A window carries one out only if the conversation is one the supervisor manages
  * (for `open`, `resume` and the list actions, only if the one asking is a supervisor; for `handoff`, only if a supervisor
  * manages the one asking), and the asker's own transcript has the tool call that ran steward-relay.py for it in the
- * last RAN_MS (ranBy), with the action's flag, and at most once per call; the call of an archive names every
- * conversation it archives.
+ * last RAN_MS (ranBy), with the action's flag, and at most once per call. For an archive, that call names every
+ * conversation in the request.
  *
  * Another agent's conversation takes only a plain send; its `to` is a key `<source id>:<session id>`
  * (src/steward-keys.js), and Agent Plus's deliver() passes the text on to the window that can type into it
@@ -88,7 +88,6 @@ const FLAGS = { rename: '--rename', close: '--close', open: '--open', resume: '-
   take: '--take', drop: '--drop', all: '--all', new: '--new', archive: '--archive' };
 const ACTIONS = ['send', ...Object.keys(FLAGS)];
 const LIST = ['take', 'drop', 'all', 'new'];
-/* Carried out only when the user asked for it in the supervisor conversation itself (typedBefore). */
 const USER_ONLY = [...LIST, 'archive'];
 /* Agent Plus archives at most this many in one call (src/steward-core.js). */
 const ARCHIVE_MAX = 50;

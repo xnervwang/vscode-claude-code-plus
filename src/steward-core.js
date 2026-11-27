@@ -86,8 +86,8 @@ function link({ changed = () => {}, log = () => {} } = {}) {
 /*
  * Archives Claude Code conversations in Agent Plus's session list (its archive(), at most ARCHIVE_MAX ids), as Archive
  * on a row does. Resolves to [{ sessionId, outcome, reason }] in the order of `ids`, outcome "archived", "notListed"
- * (no list in an open window shows it) or "refused"; an Agent Plus without archive() refuses each, saying to update it.
- * Whether a conversation may be archived is decided before this.
+ * (no list in an open window shows it) or "refused"; with an Agent Plus that has no archive(), each is refused with the
+ * reason ARCHIVE_UPDATE.
  */
 const ARCHIVE_MAX = 50;
 const ARCHIVE_UPDATE = 'the Agent Plus in this window cannot archive conversations; update it';

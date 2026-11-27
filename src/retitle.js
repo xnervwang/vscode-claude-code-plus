@@ -4,16 +4,16 @@
 
 'use strict';
 /*
- * A conversation's request for a new title of its own (the plugin's hooks/retitle.py, through
- * plan_common.request_retitle), carried out by the window hosting it. The files and their order are Agent Plus's
+ * Renaming a conversation at its own request: the plugin's hooks/retitle.py (plan_common.request_retitle) writes the
+ * request, and the window hosting the conversation carries it out. The files and their order are Agent Plus's
  * docs/protocol.md, "Retitle requests":
  *
  *   <plan dir>/retitle/<key>.json          { format, key, agent, sessionId, title, at, via }   written by the requester
- *   <plan dir>/retitle/<key>.claimed       the request, taken by one window with a rename
+ *   <plan dir>/retitle/<key>.claimed       the request, once a window has claimed it by renaming the file
  *   <plan dir>/retitle/<key>.result.json   { format, key, outcome, reason, title, at }           read and removed by it
  *
  * Any process can write a request, so a window renames only when the conversation's own transcript has the Bash call
- * that ran retitle.py with this title in its command, in the last RAN_MS, and each call once.
+ * that ran retitle.py with this title in its command, within the last RAN_MS; each such call is used once.
  */
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +23,8 @@ const DIR = 'retitle';
 const KEY = /^[0-9a-z]{12,40}$/;
 const FORMAT = 1;
 const MAX_TITLE = 80;
-/* A window that does not show the conversation leaves the request this long to one that does. */
+/* How long a window that does not show the conversation waits before it takes a request, so that a window showing it
+   takes it first. */
 const OTHERS_WAIT_MS = 2000;
 const RAN_MS = 5 * 60000;
 const OLD_MS = 10 * 60000;
@@ -31,17 +32,15 @@ const OLD_MS = 10 * 60000;
 const TAIL_BYTES = 2 * 1024 * 1024;
 const SCRIPT = 'retitle.py';
 
-/* The title as the protocol cleans it: one space for each run of white space, no ends, no marks, at most MAX_TITLE
-   characters. */
+/* The title cleaned as the protocol says (Agent Plus's docs/protocol.md, "Retitle requests"). */
 function cleanTitle(raw) {
   const one = titleMarks.withoutMarks(String(raw || '').replace(/\s+/g, ' ').trim()).replace(/\s+/g, ' ').trim();
   return [...one].slice(0, MAX_TITLE).join('').trim();
 }
 
 /*
- * The id of the Bash call in the transcript `file` that ran retitle.py with `title` in its command, no older than
- * RAN_MS and not in `used`, or ''. Claude Code writes the call a moment after the command starts, so the caller looks
- * again before refusing.
+ * The id of that call for `title` in the transcript `file`, or '' if there is none younger than RAN_MS and not in
+ * `used`. Claude Code writes the call a moment after the command starts, so the caller looks again before refusing.
  */
 function ranRetitle(file, title, { now = Date.now(), used = new Set() } = {}) {
   let text = '';
@@ -72,7 +71,7 @@ function ranRetitle(file, title, { now = Date.now(), used = new Set() } = {}) {
   return '';
 }
 
-/* Writes `data` as JSON to `file` through a temporary name beside it. */
+/* Writes `data` as JSON to `file` by way of a temporary file in the same folder, renamed over it. */
 function writeJson(file, data) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data) + '\n');
@@ -82,7 +81,7 @@ function writeJson(file, data) {
 /*
  * deps: dir (the plan dir), shows(id) whether a panel of this window shows the conversation, transcriptOf(id),
  * rename(id, title) -> { outcome: 'done' | 'refused' | 'failed', reason }, now(), sleep(ms), log(line).
- * Returns { scan }: scan() handles what is waiting in the folder and resolves once this pass is done.
+ * Returns { scan, folder }. scan() takes the requests waiting in the folder and resolves when it has answered them.
  */
 function create(deps) {
   const now = deps.now || Date.now;

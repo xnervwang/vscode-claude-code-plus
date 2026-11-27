@@ -859,11 +859,10 @@ function create(vscode, deps) {
     return { why: `${hits.length} conversations have the title "${g}" (${hits.join(', ')}); give the session id of the one meant` };
   };
   /*
-   * Archives conversations for a supervisor whose user asked for it in that supervisor conversation (src/relay.js checks
-   * that). Of `ids`, those the supervisor manages that are not working, waiting for the user or running background work go
-   * to Agent Plus's archive() (stewardCore.archiveIn); each of the others gets the reason it was not archived. A
-   * conversation the panel does not list is checked in `claude agents --json`: one a process or a working claude --bg
-   * job holds is left alone, since its state is not known here.
+   * Carries out an archive request of `steward`; src/relay.js has checked that the user made it. A conversation goes to
+   * Agent Plus's archive() (stewardCore.archiveIn) only if the supervisor manages it and it is in none of the states in
+   * BUSY_NOW; the others get the reason. One the panel does not list is looked up in `claude agents --json` and left
+   * alone if a process or a working claude --bg job holds it, since its state is not known here.
    */
   const BUSY_NOW = { working: 'it is working', prompt: 'it is waiting for the user', background: 'it is running background work' };
   const archiveFor = async (steward, ids) => {

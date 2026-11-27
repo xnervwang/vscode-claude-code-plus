@@ -8432,7 +8432,7 @@ console.log('\na conversation asking for a title of its own');
       && JSON.stringify(got.b) === JSON.stringify(['done', 'Shown elsewhere', '']) && JSON.stringify(got.renamed) === JSON.stringify([[A, 'Port the reader'], [B, 'Shown elsewhere']])
       && !got.files.some((n) => /\.(json|claimed)$/.test(n) && !n.endsWith('.result.json'))) {
     ok('a window showing the conversation takes its retitle request at once, renames it with the cleaned title and answers done; one it cannot match to the conversation\'s own call is refused; '
-      + 'a request for a conversation this window does not show waits 2 seconds for the window that does, then this one takes it; an answer left over 10 minutes is removed');
+      + 'a request for a conversation this window does not show is left 2 seconds to the window that does before this one takes it; and an answer older than 10 minutes is removed');
   } else bad(`retitle host: ${r.stdout || r.stderr}`);
 }
 
@@ -9894,7 +9894,7 @@ console.log('\nthe Supervisor panel');
           && why('08') === 'refused: the request names no Claude Code conversations') {
         ok('a window archives conversations for a supervisor that ran --archive after a message the user typed in it, with the ids on the command line or in a here-document, '
           + 'and passes on each conversation\'s result; it refuses a call made after a notice, one whose command does not name every conversation, a subagent\'s, one from a '
-          + 'conversation that is not a supervisor, more than 50 at once and none at all');
+          + 'conversation that is not a supervisor, one naming more than 50 conversations, and one naming none');
       } else bad(`archive requests gave ${JSON.stringify(archived)}`);
 
       /* The panel's side: which of them go to Agent Plus, and why the others do not. */
@@ -9941,8 +9941,8 @@ console.log('\nthe Supervisor panel');
           && got[C('09')] === 'notListed: no session list in an open VS Code window shows it'
           && panel.old && panel.old.results && panel.old.results[0].outcome === 'refused' && panel.old.results[0].reason === stcore.ARCHIVE_UPDATE) {
         ok('of the conversations a supervisor asks to archive, only those it manages that are not working, waiting for the user, running background work or held by a '
-          + 'claude --bg job go to Agent Plus\'s archive(), for Claude Code; each of the others gets its reason, one no open session list shows says so, and an Agent Plus '
-          + 'without archive() archives nothing and says to update it');
+          + 'claude --bg job go to Agent Plus\'s archive(), for Claude Code; each of the others gets its reason, a conversation no open session list shows is '
+          + 'reported as not listed, and an Agent Plus without archive() archives nothing and says to update it');
       } else bad(`archiving in the panel gave ${JSON.stringify(panel).slice(0, 2500)}`);
 
       /* The script: what it asks the window for, and how it prints the window's answer. */
@@ -9989,7 +9989,8 @@ console.log('\nthe Supervisor panel');
           && many.code === 1 && !many.asked.length && /^Not done: 51 conversations were named; give at most 50 at a time\./.test(many.out)
           && odd.code === 2 && /^usage: /.test(odd.out) && none.code === 1 && /^Not done: no conversation was named\./.test(none.out)) {
         ok('steward-relay.py --archive asks the window to archive the Claude Code conversations named on the command line or in a here-document, once each, and prints a '
-          + 'line for each: archived, or not archived with the reason; it refuses another agent\'s key, more than 50, an option of another action and no conversation');
+          + 'line for each: archived, or not archived with the reason; it refuses another agent\'s key, more than 50 conversations, an option that belongs to another '
+          + 'action, and a command that names none');
       } else bad(`--archive from the script gave ${JSON.stringify({ two, heredoc, other, many: many.out, odd: odd.out, none: none.out })}`);
     }
 

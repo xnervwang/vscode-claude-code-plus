@@ -1911,8 +1911,8 @@ function start(context, log, renamed, handing = false) {
   /* The patched host (src/host.js) passes on every report of a panel that failed to load; see src/panel-rebuild.js. */
   globalThis.__ccePanelFailedHook = panelRebuild.create({ log: (line) => log.appendLine(line) });
   context.subscriptions.push({ dispose: () => { if (globalThis.__ccePanelFailedHook) delete globalThis.__ccePanelFailedHook; } });
-  /* A conversation's request for a title of its own (src/retitle.js), taken at once by a window that shows it and by any
-     other after a moment. A window with this extension switched off leaves requests to the others. */
+  /* Rename requests from conversations (src/retitle.js): a window showing the conversation takes one at once, any other
+     window after a moment, and a window with this extension switched off takes none. */
   const retitle = retitleHost.create({
     dir: planDir(),
     transcriptOf: (id) => transcriptOf(id),

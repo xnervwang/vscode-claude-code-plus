@@ -3148,7 +3148,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         /* The steps after this one count the tabs open here. */
         if (await shownTab()) {
           const closed = await closeTabTitled(SHOWN_TITLE) || await closeTabTitled(shown.title);
-          check(closed && !!await until(async () => !(await shownTab()), 10000, 300), 'the tab this step opened is closed again', await claudeTabs());
+          check(closed && !!await until(async () => !(await shownTab()), 10000, 300), 'its tab is closed again', await claudeTabs());
         }
       }
       const left = (() => { try { return fs.readdirSync(path.join(dataDir, 'retitle')); } catch (_) { return []; } })();
@@ -3205,7 +3205,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         says(`Please archive ${done.title}.`);
         const said = await archiveAs([done.id]);
         const moved = /^Archived: .*\(7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c9\)\.$/.test(said) && await until(() => archivedRow(done), 20000, 500);
-        check(!!moved, 'asked by the user in the supervisor conversation, the supervisor archives a conversation it manages: the script says so and the row moves to Archived in Agent Plus\'s session list',
+        check(!!moved, 'when the user asks for it there, a supervisor archives a conversation it manages: the script says so and the row moves to Archived in Agent Plus\'s session list',
           { said, rows: await slRowsOf(done.id) });
         says('Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:', 'cross-session');
         const refused = await archiveAs([kept.id]);
@@ -3217,7 +3217,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         /* The steps after this one count the tabs open here. */
         if (await supTab()) {
           const closed = await closeTabTitled(sup.title);
-          check(closed && !!await until(async () => !(await supTab()), 10000, 300), 'the tab this step opened is closed again', await claudeTabs());
+          check(closed && !!await until(async () => !(await supTab()), 10000, 300), 'the supervisor\'s tab is closed again', await claudeTabs());
         }
       }
     });
@@ -4268,7 +4268,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /* In the first conversation, where the earlier steps' turns left tool calls, which Focus view folds into rows. */
     await step('a fold opened by hand', async () => {
-      await exec('claude-vscode.editor.open', tab0.id);
+      /* Opened as this extension opens its tabs, as a full editor tab, which is how an earlier step may have it open. */
+      await call('await vscode.commands.executeCommand("claude-vscode.editor.open", arg, undefined, undefined, undefined, true); return true;', tab0.id);
       const conv = await conversation(tab0);
       if (!conv) throw new Error('the conversation did not open');
       await exec('notifications.clearAll');
@@ -5715,7 +5716,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
           await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', c.id);
           await sleep(800);
-          /* The page the tab shows after it is opened again draws the prompt a moment later. */
+          /* A reopened tab's page shows the prompt a moment after the tab opens. */
           const f = await frameOf(c) || frame;
           await askedBash(f).catch(() => false);
           return refuse(f).catch(async (e) => {
