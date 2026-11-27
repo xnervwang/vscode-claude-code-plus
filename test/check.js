@@ -62,9 +62,9 @@ const noteNotices = (stamps, unstamped) => {
   NOTICES.stamps.push(...(Array.isArray(stamps) ? stamps : []).filter(Boolean));
   NOTICES.unstamped.push(...(Array.isArray(unstamped) ? unstamped : []));
 };
-/* The source of a function, for a stand-in editor written out as a module, that splits what a show…Message call was
-   given into its text, its time ('' for none) and whether it is a notification shown without one. A modal dialog is not
-   a notification and carries none. */
+/* The source of a function that splits what a show…Message call was given into its text and its time ('' for none),
+   and tells whether it was a notification shown with no time. The stand-in editors written out as modules use it. A
+   modal dialog is not a notification and carries no time. */
 const SPLIT_NOTICE = `((raw, rest) => {
   const m = typeof raw === 'string' ? new RegExp(${JSON.stringify(NOTICE_STAMP.source)}).exec(raw) : null;
   const modal = rest.some((x) => !!x && typeof x === 'object' && x.modal === true);
@@ -6720,7 +6720,7 @@ console.log('\nthe old id\'s last version, shim/');
     ok('the question waits while the first sync asks for a reload');
   } else bad('the uninstall question is not held back by a reload the first sync asks for');
   /* Its time is in the zone a panel reported (clientZone in extension.js) once one has, and in this machine's zone,
-     named, while none has. The question is asked after the start, so within a couple of minutes of now. */
+     with its name, while none has. The question is asked after the start, so within a couple of minutes of now. */
   const timeOf = (r) => { const i = (r.said || []).findIndex((s) => s[0].startsWith(ASK)); return i < 0 ? null : (r.stamps || [])[i]; };
   const clockOf = (zone, named) => (ms) => {
     const p = {};
@@ -9127,7 +9127,7 @@ console.log('\nthe Steward panel');
         && lines[4] === `Sent by the steward (${S(1)}) for the user:` && named[4] && named[4].title === '') {
       ok('the line a steward\'s message starts with carries its title without a bell, with or without the emoji variation selector, a crown or an envelope, and names no title when only marks are stored');
     } else bad(`the lines a steward's message starts with: ${JSON.stringify(lines)}`);
-    /* What a conversation a steward started is titled with before it has a title of its own. */
+    /* How a conversation a steward started is listed before it gets a title of its own. */
     const asked = 'Start a new piece of work: list the scripts in the repository.';
     const stripped = [st.withFrom(S(1), 'CSV export and budgets', asked), `${st.fromLine(S(1), '')} ${asked}`, 'Sent by the steward "CSV export and bud',
       st.fromLine(S(1), 'CSV export and budgets'), asked, `Asked: ${st.fromLine(S(1), 'x')}`].map((x) => st.withoutFrom(x));
@@ -9141,7 +9141,7 @@ console.log('\nthe Steward panel');
     if (JSON.stringify(stripped) === JSON.stringify([asked, asked, '', '', asked, `Asked: ${st.fromLine(S(1), 'x')}`]) && firstPrompt === asked
         && JSON.stringify(titles) === JSON.stringify(['Start a new piece of work: list the scripts in the\u2026', 'Look through every script under tools and tell me which\u2026', '', 'Second line first.'])
         && titles.every((t) => t.length <= 60)) {
-      ok('a conversation a steward started is listed by the user\'s words after the steward\'s line and named after their first line, cut at a word; a line cut short or alone gives nothing, and text that only contains such a line is as it is');
+      ok('a conversation a steward started is listed by the user\'s words after the steward\'s line and named after their first line, cut at a word; a steward\'s line on its own or cut short leaves nothing, and text with such a line anywhere but at its start is kept whole');
     } else bad(`the steward's line taken off a title: ${JSON.stringify([stripped, firstPrompt, titles])}`);
     const sockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-sk-'));
     // A Unix socket elsewhere, a named pipe on Windows; post() is told it is not on Windows so that it connects.
@@ -14692,7 +14692,8 @@ console.log('\nwith Agent Plus');
 
 /* ── the time a notification starts with ──
    src/notice-time.js puts it before the text of every notification this extension shows: HH:MM in the reader's zone,
-   the month and day too for another day there, and this machine's zone, named, while the reader's is not known. */
+   the month and day too for another day there, and this machine's zone with its name while the reader's is not
+   known. */
 console.log('\nthe time a notification starts with');
 {
   const nt = require('../src/notice-time');
@@ -14923,7 +14924,7 @@ const repo = path.join(__dirname, '..');
       [{ rows: [], bars: [], links: [], conversation: { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] } },
         { rows: [NONE_HERE], bars: [], links: [] },
         { rows: [], bars: [], links: [], conversation: { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] } }],
-      'the Account & usage part is the figures of the conversation in front, and for one with none a line saying no conversation runs here');
+      'the Account & usage part shows the figures of the conversation in front, and for one with none a line saying no conversation runs here');
     eq([stoppedAll.accountInfo({ sessionId: S(1) }), list.accountInfo({ sessionId: S(9) }).conversation],
       [{ rows: [NONE_HERE], bars: [], links: [] }, { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] }],
       'a conversation asked for that has stopped running here gets no figures, though it had some: the line says none runs, or the figures are of the one in front that runs');
@@ -14933,11 +14934,11 @@ const repo = path.join(__dirname, '..');
       signed({ method: 'claudeAi', label: 'claude.ai' }, firstRuns).accountInfo({ sessionId: S(1) }).rows, signed({ method: 'none', label: 'Not signed in' }).accountInfo({ sessionId: S(2) }).rows],
       [{ rows: [{ label: 'Sign-in', value: 'Amazon Bedrock' }, NONE_HERE], bars: [], links: [] }, [{ label: 'Sign-in', value: 'API key' }], [],
         [{ label: 'Sign-in', value: 'Not signed in' }, NONE_HERE]],
-      'it says how Claude Code signs in, unless with a claude.ai account, with no conversation running as with one');
+      'it says how Claude Code signs in, except with a claude.ai account, with no conversation running as with one');
     const early = csl.create(Object.assign({}, deps, { state: (id) => (id === S(2) ? { activity: 'idle' } : null) }));
     eq(early.accountInfo({ sessionId: S(2) }).rows, [{ label: 'This conversation', value: 'No figures yet',
       tooltip: 'Claude Code reports the cost, time and code changes of a conversation once it has had a turn in this window.' }],
-    'and a conversation in front that runs but has had no turn here yet has no figures yet, not none running');
+    'and one in front that runs but has had no turn here yet gets the No figures yet line, not No conversation running');
     {
       const cl = require('../src/claude-login');
       const m = (o) => cl.method(o).method;
@@ -15687,7 +15688,7 @@ const repo = path.join(__dirname, '..');
     bad(`the fake model: ${(e && e.stack) || e}`);
   } finally { await m.close(); }
 
-  /* Last, once every stand-in editor above has run: the notifications they saw this extension show all started with a
+  /* Last, once every stand-in editor above has run: every notification they recorded started with a
      time of today, HH:MM, with a zone name after it while no panel had reported the reader's zone. */
   console.log('\nevery notification shown above starts with its time');
   const today = /^\d\d:\d\d( [^\s\]]+)?$/;

@@ -2588,7 +2588,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const seen = await trace.stop();
         check(!told && !listed.length, 'for 30 s after the tab closed, Agent Plus shows no notice of the conversation',
           { toast: told, listed, shared: sharedOf(t1.id), trace: seen });
-        check(!counted, 'and its count of conversations that need the user does not take it in', { base, counted });
+        check(!counted, 'and the conversation is not counted among those that need the user', { base, counted });
         await shot('closed-after-answer');
       } finally {
         if (!closed) await closeIt().catch(() => {});
@@ -3870,11 +3870,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /* A conversation's tab that nobody touches, first the one in front as a reload restores it, then one opened by
-       command: Agent Plus counts it open in this window within seconds of its page drawing the conversation. Claude Code
-       Plus learns which conversation a panel holds when the host sets the tab's icon with the session the page reported
-       (src/host.js), which can be after the list's pass that the tab's opening caused, so that change has the list read
-       again (track in src/claude-source.js). Until then the list finds the conversation only through shows(), and its
-       hover says the sidebar. */
+       command: Agent Plus counts it open in this window within seconds of its page drawing the conversation. Claude
+       Code Plus learns which conversation a panel holds when the host sets the tab's icon with the session the page
+       reported (src/host.js). That can come after the list has made its pass for the tab's opening, so the change has
+       the list read again (track in src/claude-source.js). Until then the list finds the conversation only through
+       shows(), and its hover says the sidebar. */
     await step('a conversation tab nobody has touched', async () => {
       const openChip = () => sl.evaluate(() => { const c = document.querySelector('.sl-chip[data-chip="open"] .sl-chip-n'); return c ? Number(c.textContent) : null; }).catch(() => null);
       /* The hover of `t`'s row once it says where the conversation is. The list keeps the hover box it shows while the
@@ -3890,7 +3890,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       };
       const inTab = (said, t) => said.includes(t.id) && /Open in this window/.test(said) && !/in the sidebar/.test(said);
       /* From the moment `t`'s page has drawn it, how long until its row has the solid stripe, the Open count takes it in
-         and its hover says it is open in this window, not in the sidebar, and what the hover said last. Nothing in the
+         and its hover says it is open in this window, not in the sidebar; also the hover's last text. Nothing in the
          editor is touched: the list is in the side bar. */
       const counted = async (t) => {
         const drawn = await conversation(t, 60000);
@@ -3917,7 +3917,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await reloadAndWait(tab0);
       const restored = await counted(tab0);
       check(good(restored) && titled(restored.front, tab0.title),
-        'after a reload, the tab in front that nobody touches is counted open in this window within 10 s of its page drawing: the solid stripe, Open counting it, and the hover saying so',
+        'after a reload, the untouched tab in front is counted open in this window within 10 s of its page drawing: its row gets the solid stripe, the Open count includes it, and its hover says so',
         restored);
       await exec('workbench.action.closeAllEditors');
       await exec('claude-vscode.editor.open', tab0.id);
@@ -6167,7 +6167,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const doing = await barIs((s) => s.shown && same(s.bubbles, [['doing', '2'], ['todo', '1']]));
         check(!!doing && doing.beforeForm && doing.name === 'Plan' && doing.questions === '1 to decide' && !doing.compact && !!doing.ask && doing.ask === doing.orange
           && doing.label === 'Work plan: 2 doing, 1 to do; 1 question waits for your answer',
-        'with a plan, a bar sits right above the input box: a bubble for the 2 rows being worked on and one for the 1 to do, and the row waiting for the user\'s answer counted only in 1 to decide, filled with the Work plan view\'s orange',
+        'with a plan, a bar sits right above the input box: a bubble counting the 2 rows being worked on and one counting the 1 row to do, and the row waiting for the user\'s answer counted only in 1 to decide, filled with the Work plan view\'s orange',
         doing || await bar());
         await shot('plan-bar-doing');
         /* The list each part shows after the pointer rests on it. */
@@ -6222,7 +6222,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           sizes.push({ width, nine, many });
           check(!!nine && !!many && Math.abs(nine.bar.width - nine.form.width) <= 1 && Math.abs(many.bar.width - many.form.width) <= 1
             && nine.bar.height === many.bar.height && Math.abs(nine.first.left - many.first.left) < 0.5 && nine.oneLine && many.oneLine,
-          `with the panel about ${width} px wide the bar is as wide as the input box, and as the plan grows from 9 to 120 rows it keeps its height, its start and one line`,
+          `with the panel about ${width} px wide the bar is as wide as the input box, and as the plan grows from 9 to 120 rows its height and its start stay the same and it stays on one line`,
           { nine: nine || null, many: many || await bar() });
         }
         const wide = sizes.map((x) => x.nine && Math.round(x.nine.bar.width));
