@@ -3192,7 +3192,9 @@ const STEPS = [
     expect: 'Agent Plus\'s session list in the side bar, its ACCOUNT & USAGE section at the top opened. In it a Claude Code part, '
       + 'headed by the Claude Code logo and its name, with two rows, each a label and a value: Sign-in with "API key", and This '
       + 'window with "No conversation running". There is no THIS CONVERSATION heading and no figures. The rows line up with the '
-      + 'other parts\' rows, are readable, and nothing is cut off at the side bar\'s edge. No Claude Code tab is open.',
+      + 'other parts\' rows, are readable, and nothing is cut off at the side bar\'s edge. No Claude Code tab is open. In the list '
+      + 'below, the rows of the conversations whose tabs this step has just closed start with the light blue stripe of a '
+      + 'conversation recently closed in this window, not the solid stripe of one open here.',
     act: async (d) => {
       await d.exec('workbench.action.closeAllEditors');
       await d.exec('workbench.action.closeAuxiliaryBar').catch(() => {});
