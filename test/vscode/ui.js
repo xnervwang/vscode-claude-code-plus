@@ -3512,6 +3512,49 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await setLoad(undefined);
     });
 
+    /* A conversation's tab that nobody touches, first the one in front as a reload restores it, then one opened by
+       command: Agent Plus counts it open in this window within seconds of its page drawing the conversation. Claude Code
+       Plus learns which conversation a panel holds when the host sets the tab's icon with the session the page reported
+       (src/host.js), and the list asks sessionForTab on each pass. */
+    await step('a conversation tab nobody has touched', async () => {
+      const openChip = () => sl.evaluate(() => { const c = document.querySelector('.sl-chip[data-chip="open"] .sl-chip-n'); return c ? Number(c.textContent) : null; }).catch(() => null);
+      /* From the moment `t`'s page has drawn it, how long until its row has the solid stripe and the Open count takes
+         it in, and the row's hover then. Nothing in the editor is touched: the list is in the side bar. */
+      const counted = async (t) => {
+        const drawn = await conversation(t, 60000);
+        if (!drawn) throw new Error('the conversation did not draw in its tab');
+        const at = Date.now();
+        await showSl();
+        const got = await until(async () => { const r = await slRow(t), n = await openChip(); return r && r.stripe === 'here' && n >= 1 && { row: r, open: n }; }, 15000, 250);
+        const ms = Date.now() - at;
+        /* The list keeps the hover box it shows while the pointer stays on a row, so another row is hovered first. */
+        await page.mouse.move(5, 5);
+        await slRowAt(threads.find((x) => x.id !== t.id)).hover();
+        await sleep(800);
+        await slRowAt(t).hover();
+        const said = await until(async () => { const x = await slHoverText(); return x.includes(t.id) && /Open in /.test(x) && x; }, 5000, 200) || await slHoverText();
+        await page.mouse.move(5, 5);
+        const front = (await claudeTabs()).find((x) => x.active);
+        return { got, ms, said, front: front ? front.label : null, now: { row: await slRow(t), open: await openChip() } };
+      };
+      const good = (r, t) => !!r.got && r.ms <= 10000 && r.said.includes(t.id) && /Open in this window/.test(r.said) && !/in the sidebar/.test(r.said);
+      await exec('workbench.action.closeAllEditors');
+      await exec('workbench.action.closeAuxiliaryBar');
+      await exec('claude-vscode.editor.open', tab0.id);
+      if (!await conversation(tab0, 60000)) throw new Error('the conversation did not open');
+      await reloadAndWait(tab0);
+      const restored = await counted(tab0);
+      check(good(restored, tab0) && titled(restored.front, tab0.title),
+        'after a reload, the tab in front that nobody touches is counted open in this window within 10 s of its page drawing: the solid stripe, Open counting it, and the hover saying so',
+        restored);
+      await exec('workbench.action.closeAllEditors');
+      await exec('claude-vscode.editor.open', tab0.id);
+      const opened = await counted(tab0);
+      check(good(opened, tab0) && titled(opened.front, tab0.title), 'and so is a tab opened by command and not touched after', opened);
+      await shot('untouched-tab-counted');
+      conv = await conversation(tab0, 30000) || conv;
+    });
+
     /*
      * A record the test keeps in the extension host from the moment watchHost() is called: each change of the window's
      * tabs (each group's labels, the tab in front starred), each change of the set of conversations Claude Code's host
