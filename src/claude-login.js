@@ -15,7 +15,7 @@
  * With the setting claudeCode.claudeProcessWrapper, Claude Code starts that program instead, with the CLI's path as its
  * first argument, and the program can set any of those variables itself. So while the conversation in front runs in
  * this window, the environment of its CLI is read from /proc where there is one; otherwise, with a wrapper and nothing
- * found elsewhere, the section says that the wrapper decides.
+ * found elsewhere, the Sign-in row reads "Set by the process wrapper".
  */
 const fs = require('fs');
 const os = require('os');
