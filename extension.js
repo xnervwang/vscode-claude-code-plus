@@ -728,6 +728,8 @@ function start(context, log, renamed, handing = false) {
   let closing = false;
   context.subscriptions.push({ dispose: () => { closing = true; } });
   let liveStates = new Map(), unreadKeys = new Set(), statesTimer = 0;
+  /* The host's last state of each conversation whose panel here went away, with when it went (hostStates). */
+  const goneStates = new Map();
   const readTitles = waiting.reader();
   /* Conversations renamed from the session list or by a steward, whose new conversation is then not named after its
      first message (nameOpened). */
@@ -735,8 +737,12 @@ function start(context, log, renamed, handing = false) {
   /* A panel reports 'waiting_input'; the rest of this extension calls it 'waiting'. */
   globalThis.__cceStatesHook = (states, active, open, unread) => {
     try {
-      liveStates = new Map((Array.isArray(states) ? states : [])
+      const next = new Map((Array.isArray(states) ? states : [])
         .filter((s) => s && typeof s.sessionId === 'string').map((s) => [s.sessionId, s.state === 'waiting_input' ? 'waiting' : s.state]));
+      const now = Date.now();
+      for (const [id, state] of liveStates) if (!next.has(id)) goneStates.set(id, { state, at: now });
+      for (const id of next.keys()) goneStates.delete(id);
+      liveStates = next;
       unreadKeys = new Set((Array.isArray(unread) ? unread : []).filter((k) => typeof k === 'string'));
       if (!statesTimer) statesTimer = setTimeout(() => { statesTimer = 0; claude.changed(); }, 300);
     } catch (_) { /* the next update */ }
@@ -940,7 +946,7 @@ function start(context, log, renamed, handing = false) {
     titles: readTitles.titles,
     since: readTitles.since,
     replyAt: readTitles.replyAt,
-    live: () => liveStates,
+    live: () => hostStates(),
     unread: () => unreadKeys,
     activity: (id) => activityFor(id),
     waitingFor: (id) => { const w = waits.get(id); try { return w ? JSON.parse(w) : null; } catch (_) { return null; } },
@@ -1126,7 +1132,7 @@ function start(context, log, renamed, handing = false) {
   const steward = stewardView.create(vscode, {
     activeChat, freshAgents: () => claude.freshAgents(), readPlan, titles: readTitles.titles, since: readTitles.since,
     agentsFresh: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders())), resume: resumeConversation,
-    live: () => liveStates, unread: () => unreadKeys, reveal: (sessionId) => claude.source.reveal(sessionId), shownHere,
+    live: () => hostStates(), unread: () => unreadKeys, reveal: (sessionId) => claude.source.reveal(sessionId), shownHere,
     activity: (id) => activityFor(id), question: (id) => freshQuestionOf(id),
     canWrite: () => !removed() && !replaced() && !uninstalling(), canShare: () => !removed() && !uninstalling(),
     replaced: () => !removed() && !uninstalling() && replaced(),
@@ -1576,7 +1582,25 @@ function start(context, log, renamed, handing = false) {
     if (agentsMerged.at !== a.at) agentsMerged = { at: a.at, map: waiting.merge(a.records) };
     return agentsMerged.map.get(id) || null;
   };
-  const activityFor = (id, host = liveStates.get(id) || '') =>
+  /*
+   * The host's states, and for a conversation whose panel here went away, the last state it had there, until a list of
+   * `claude agents` read after it went arrives. The list held until then can be one the windows share for up to 20 s
+   * (src/waiting.js), read while the panel still showed a wait the user has since answered. Kept no longer than
+   * AGENTS_TRUST_MS, after which agentOf counts no list read before the panel went.
+   */
+  const hostStates = () => {
+    if (!goneStates.size) return liveStates;
+    const read = claude.agentsNow(), now = Date.now();
+    let out = liveStates;
+    for (const [id, g] of goneStates) {
+      if ((read.records && read.at >= g.at) || now - g.at > AGENTS_TRUST_MS) { goneStates.delete(id); continue; }
+      if (out.has(id)) continue;
+      if (out === liveStates) out = new Map(liveStates);
+      out.set(id, g.state);
+    }
+    return out;
+  };
+  const activityFor = (id, host = hostStates().get(id) || '') =>
     activity.activityOf({ host, turn: turns.get(id), bg: bgWorking.has(id), agent: agentOf(id) });
   const lastUser = activity.lastUserReader();
   /* Kept while the plan, and the time of the user's last message, stay the same. */
@@ -1600,7 +1624,7 @@ function start(context, log, renamed, handing = false) {
   };
   /* The dots of the conversations with one, by session id, as the session list's rows draw them. */
   const marksNow = () => {
-    const ids = new Set([...liveStates.keys(), ...bgWorking]);
+    const ids = new Set([...hostStates().keys(), ...bgWorking]);
     const a = claude.agentsNow();
     if (a.records && Date.now() - a.at <= AGENTS_TRUST_MS) for (const r of a.records) if (r && typeof r.sessionId === 'string') ids.add(r.sessionId);
     const out = {};
