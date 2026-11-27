@@ -38,7 +38,7 @@ const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8
 
 /*
  * A reader over this machine's files and `extra`, a function giving the claudeCode.environmentVariables setting
- * ([{ name, value }]). It reads again at most every `ms` milliseconds, as the section asks often.
+ * ([{ name, value }]). It keeps what it read for `ms` milliseconds, as the section asks often.
  */
 function reader({ extra = () => [], env = process.env, home = os.homedir(), ms = 5000 } = {}) {
   let at = 0, last = null;
