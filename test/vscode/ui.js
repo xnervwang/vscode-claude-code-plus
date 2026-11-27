@@ -198,8 +198,8 @@ const FOLDER_THREADS = [
   { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fb', title: 'Draft the migration notes for the other project', days: 0,
     turns: [['Draft the migration notes for the other project.', 'Drafted them in docs/migration.md.']] },
 ];
-/* Conversations of the steps that rename, delete, reopen and open in a second window from Agent Plus's session list, each
-   step's own, so that no other step finds one of them renamed, gone or open. */
+/* Each of the steps that rename, delete, reopen or open in a second window from Agent Plus's session list has a
+   conversation of its own here, so that no other step finds one of them renamed, gone or open. */
 const LIST_THREADS = {
   renameClosed: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c1', title: 'Sort the release checklist by owner', days: 0,
     turns: [['Sort the release checklist by owner.', 'Sorted docs/release-checklist.md by owner, then by due date.']] },
@@ -732,8 +732,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const slRow = async (t) => slFind(await slRows().catch(() => null), t) || null;
   const slRowAt = (t) => sl.locator('.sl-section:not([data-key="closed"]) .sl-row').filter({ has: sl.locator('.sl-title', { hasText: t.title }) }).first();
   const slHoverText = () => sl.evaluate(() => { const h = document.querySelector('.sl-hover'); return h && !h.classList.contains('sl-hidden') ? h.textContent : ''; });
-  /* A conversation's rows by its session id, which a row's key holds whatever its title: each with its section, title,
-     stripe and whether it is dimmed. */
+  /* A conversation's rows, found by the session id in each row's key, which does not change with the title: each with
+     its section, title, stripe and whether it is dimmed. */
   const slRowsOf = async (id) => {
     await slRows().catch(() => null);
     return sl.evaluate((id) => [...document.querySelectorAll('.sl-row')].filter((r) => (r.dataset.key || '').includes(`"${id}"`))
@@ -2982,9 +2982,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!back, 'Unarchive puts it back among the other conversations, for the steps after this one', back || await slRows());
     });
 
-    /* Rename in Agent Plus's session list. A conversation no process has open gets the title in its transcript, as Claude
-       Code's own rename writes it, and is not opened for it; one a tab here shows is renamed through its panel, so that the
-       tab and Claude Code take the title as well. */
+    /* Rename in Agent Plus's session list. A conversation no process has open gets the title in its transcript, as
+       Claude Code's own rename writes it, and is not opened for it. When a tab here shows the conversation, the rename
+       goes through its panel, so that the tab and Claude Code take the title as well. */
     await step('renaming from Agent Plus\'s session list', async () => {
       const { renameClosed: shut, renameOpen: shown } = LIST_THREADS;
       fakeHome.writeThreads(profile.home, profile.folder, [shut, shown]);

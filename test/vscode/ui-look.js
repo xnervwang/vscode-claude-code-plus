@@ -715,7 +715,7 @@ function stopMapWork(d, ids) {
  * disposes that page, which happens when the view leaves its container. Claude Code's view is in the side bar only
  * while claude-code:doesNotSupportSecondarySidebar is unset (Claude Code sets it on VS Code builds older than 1.106
  * alone). Once the key is unset, the view comes back with no page until it is next shown. `frame` is the side bar's
- * page when known; `left()` says what still runs if `ended()` has not become true in time.
+ * page when known.
  */
 async function endSideChat(d, frame, ended, left) {
   const key = 'claude-code:doesNotSupportSecondarySidebar';
@@ -3205,8 +3205,7 @@ const STEPS = [
       await openMap(d, d.mapSide, 'Look through the notes');
       return d.part('workbench.parts.auxiliarybar');
     },
-    /* The conversation is ended first, then its background work is stopped: a running conversation is told each time a
-       piece of its background work stops, and answers with a turn. */
+    /* A running conversation is told each time a piece of its background work stops, and answers with a turn. */
     undo: async (d) => {
       await closeMap(d);
       d.model.releaseHelper();

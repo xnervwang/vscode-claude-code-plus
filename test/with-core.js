@@ -319,9 +319,7 @@ async function run() {
     if (!(Array.isArray(ap.features) && ap.features.includes('sessionList') && typeof ap.sessionDeletionDue === 'function')) {
       note('this Agent Plus has no \'sessionList\': its session list was not run with Claude Code\'s conversations');
     } else {
-      /* Agent Plus's session list: the transcripts of this window's folder, listed through the source; Claude Code's
-         own archive and groups, imported once; and Claude Code's own Ctrl+Shift+T left to the list while it archives
-         and deletes on its own in this window. */
+      /* Agent Plus's session list with this window's Claude Code conversations. */
       const DAY = 86400000;
       const LA = 'a1a1a1a1-1111-4222-8333-444444444441', LB = 'a1a1a1a1-1111-4222-8333-444444444442', LC = 'a1a1a1a1-1111-4222-8333-444444444443';
       const LD = 'a1a1a1a1-1111-4222-8333-444444444444';
@@ -371,7 +369,6 @@ async function run() {
         'with the list deleting archived conversations after 3 days, this extension leaves to Claude Code\'s own cleanup the archived one, which the list deletes within the 14-day margin, and keeps the two the list does not delete');
       delete control.state.config['agentPlus.sessions.deleteAfterDays'];
       control.changeConfig(['agentPlus.sessions.deleteAfterDays']);
-      /* Claude Code's own list is imported once: a change made to it later is not taken in. */
       official = { archived: [LA, LB], groups: [] };
       transcript(LD, 2, 'Started after the import');
       globalThis.__cceStatesHook([], '', [], []);
