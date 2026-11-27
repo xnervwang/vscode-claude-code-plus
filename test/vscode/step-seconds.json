@@ -18,6 +18,7 @@
   "a claude --bg session launched by a background command": 136,
   "what needs you": 103,
   "a question answered in its turn": 65,
+  "a tab closed right after its wait is answered": 70,
   "images in a reply": 2,
   "a scheduled prompt in the agent map": 54,
   "a closed tab": 1,
