@@ -15196,7 +15196,7 @@ const repo = path.join(__dirname, '..');
       message: type === 'user' ? { role: 'user', content: `Question of day ${d}` } : { role: 'assistant', content: [{ type: 'text', text: 'Answered.' }] } }, extra || {});
     fs.mkdirSync(path.join(projects, name), { recursive: true });
     const files = {};
-    /* Conversation n asks on day n - 1 and is answered a minute later. */
+    /* In conversation n, the user asks on day n - 1 and gets the answer a minute later. */
     const write = (n, d, extra) => {
       files[n] = path.join(projects, name, L(n) + '.jsonl');
       fs.writeFileSync(files[n], [rec('user', d, 0, extra), rec('assistant', d, 1)].map((r) => JSON.stringify(r) + '\n').join(''));
@@ -15216,7 +15216,7 @@ const repo = path.join(__dirname, '..');
     eq([5, 3, 7].map((n) => { const s = of(first, n); return [s.activity, s.running, s.waitingFor || null]; }),
       [['background', true, null], ['waiting', true, { kind: 'question' }], ['stopped', true, null]],
       'a row whose turn is over while its background work runs says background; one waiting on a question form says it waits on a question; one that a process keeps open while idle is both running and stopped');
-    /* Keeping a transcript from Claude Code's cleanup moves its modification time later (src/sessionpins.js), and a rename
+    /* Keeping a transcript from Claude Code's cleanup updates its modification time (src/sessionpins.js), and a rename
        outside a panel appends a record: neither is a message. */
     const lastActive = (rows) => rows.map((s) => [s.sessionId.slice(-2), s.lastActiveAt]);
     csl.appendTitle(files[1], L(1), 'Renamed while closed');
