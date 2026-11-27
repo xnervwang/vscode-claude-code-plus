@@ -11678,6 +11678,11 @@ console.log('\nconversations');
     if (states.join() === 'prompt,idle,working,unread,working' && asked === 'prompt') {
       ok('a conversation\'s state comes from Claude Code');
     } else bad(`states ${states.join()}, ${asked}`);
+    const panelSays = new Map([[S(1), 'idle'], [S(3), 'idle']]);
+    const after = [S(1), S(3)].map((id) => conv.stateOf(merged.get(id), panelSays, new Set()));
+    if (after.join() === 'idle,idle') {
+      ok('the state a panel here reports outranks the wait or the turn that `claude agents` last read');
+    } else bad(`states with a panel's own ${after.join()}`);
   }
 
   {

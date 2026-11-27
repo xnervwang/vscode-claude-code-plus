@@ -14,11 +14,12 @@ const { OPEN_STATES } = require('./workplan');
 const CLOSED_DAYS = 7;
 const HEAD_BYTES = 64 * 1024;
 
-/** State from Claude Code alone. */
+/** State from Claude Code alone. A state the host has for it (`live`) outranks `claude agents`, which is read at most
+    every half minute and can still show a wait already answered. */
 function stateOf(s, live, unread) {
   const now = live && live.get(s.sessionId);
-  if (now === 'waiting' || s.waitingFor) return 'prompt';
-  if (now === 'running' || s.busy) return 'working';
+  if (now ? now === 'waiting' : s.waitingFor) return 'prompt';
+  if (now ? now === 'running' : s.busy) return 'working';
   if (unread && unread.has(s.sessionId)) return 'unread';
   return 'idle';
 }

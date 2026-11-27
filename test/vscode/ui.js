@@ -2472,6 +2472,79 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
+    /*
+     * A permission prompt answered and its tab closed at once. The panel's state goes with the tab, while the list of
+     * `claude agents --json` that the windows share can be one read while the prompt showed, for up to 20 s
+     * (src/waiting.js), and still says the conversation waits. It must not come back as waiting: no notice of it and no
+     * count in the status bar.
+     */
+    await step('a tab closed right after its wait is answered', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const t1 = threads[1];
+      const agentsFile = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'agents.json');
+      /* The status the shared list gives the conversation `id`, and how old that list is. */
+      const sharedOf = (id) => {
+        try {
+          const d = JSON.parse(fs.readFileSync(agentsFile, 'utf8')), r = (d.records || []).find((x) => x && x.sessionId === id);
+          return { age: Date.now() - d.at, status: r ? r.status : null };
+        } catch (_) { return null; }
+      };
+      const closeIt = () => call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)} && x.label.startsWith(arg));
+        if (t) await vscode.window.tabGroups.close(t); return !!t;`, t1.title.slice(0, 12));
+      await exec('notifications.clearAll');
+      await exec('claude-vscode.editor.open', t1.id);
+      let closed = false;
+      try {
+        const side = await conversation(t1, 60000);
+        if (!side) throw new Error('the conversation did not draw in its tab');
+        const t = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(TRAILING_MARKS, ''), t1.title)), 15000, 300);
+        if (!t) throw new Error(`the conversation's tab is not in front: ${JSON.stringify(await tabs())}`);
+        check(await focusWindow(), 'the window has the focus, which Agent Plus needs before it shows a notice', { focused: await focused() });
+        const before = model.seen.length;
+        await side.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(`Please ${ASK_TO_RUN}.`);
+        await page.keyboard.press('Enter');
+        const asking = await until(() => side.evaluate((cmd) => /Allow this bash command\?/.test(document.body.innerText) && document.body.innerText.includes(cmd), RUN), 30000, 500);
+        if (!asking) throw new Error(`Claude Code did not ask for permission to run ${RUN}: ${JSON.stringify(model.seen.slice(before))}`);
+        const inSight = await until(() => { const a = attentionOf(t1.id); return a && a.activity === 'waiting' && a.front && a; }, SEEN_MS, 300);
+        check(!!inSight, 'Agent Plus sees it waiting in the front tab of the window with the focus', attentionOf(t1.id));
+        /* Answered right after a read of the shared list that saw the prompt, so the reads that come after the tab closes
+           still get that list. */
+        const fresh = await until(() => { const s = sharedOf(t1.id); return s && s.status === 'waiting' && s.age < 3000 && s; }, 70000, 100);
+        if (!fresh) throw new Error(`the shared list of \`claude agents\` was not read again with the conversation waiting: ${JSON.stringify(sharedOf(t1.id))}`);
+        const base = await needCount();
+        await side.locator('button, [role="button"]').filter({ hasText: /^\s*3\s*No\s*$/ }).first().click({ timeout: 5000 });
+        const answered = await until(async () => {
+          const gone = await side.evaluate(() => !/Allow this bash command\?/.test(document.body.innerText)).catch(() => false), d = gone && await dotsOn(t.label);
+          return d && d.waiting === 0 && d;
+        }, 10000, 100);
+        if (!answered) throw new Error(`the prompt or the tab's red dot did not go after No: ${JSON.stringify(await dotsOn(t.label))}`);
+        const trace = attentionTrace([t1.id], page);
+        closed = await closeIt();
+        const closedAt = Date.now();
+        trace.mark('closed');
+        check(closed, 'right after No, the tab is closed', await claudeTabs());
+        let told = null, counted = null;
+        while (Date.now() - closedAt < 30000) {
+          if (!told) told = await noticeOf(t1);
+          const n = await needCount();
+          if (!counted && n && ((base ? n.n > base.n : true) || n.label.includes(t1.title))) counted = Object.assign({ ms: Date.now() - closedAt }, n);
+          await sleep(300);
+        }
+        const listed = (await listedNotices()).filter(about(t1));
+        const seen = await trace.stop();
+        check(!told && !listed.length, 'for 30 s after the tab closed, Agent Plus shows no notice of the conversation',
+          { toast: told, listed, shared: sharedOf(t1.id), trace: seen });
+        check(!counted, 'and its count of conversations that need the user does not take it in', { base, counted });
+        await shot('closed-after-answer');
+      } finally {
+        if (!closed) await closeIt().catch(() => {});
+        await exec('notifications.clearAll');
+        await exec('claude-vscode.editor.open', tab0.id);
+        conv = await conversation(tab0, 30000) || conv;
+      }
+    });
+
     /* The conversation was told to save an image in its own folder and link it by its absolute path. A reply that does
        so is drawn; an image at a web address stays a link. */
     await step('images in a reply', async () => {
