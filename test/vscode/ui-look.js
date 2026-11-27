@@ -2716,10 +2716,11 @@ const STEPS = [
     expect: 'The demo conversation at the same place as in the first step\'s picture (conversation.jpg), minutes later, with '
       + 'tool rows shown. Everything that step\'s expect lists is there: a time on every row, start->end on each tool row on a '
       + 'line of its own above the tool\'s name, and the figures on the first row of each reply. Steps in between renamed the '
-      + 'conversation and gave it replies from the fake model, so these may differ from the first picture: the title in the tab '
-      + 'and in the header ("CSV export and budgets"), the message box\'s placeholder, the chips of the footer and of the plan bar '
-      + '(which a notification may cover in the first picture), and the usage meter, which follows the latest reply. Any other '
-      + 'difference in the rows, apart from the times on tool rows, is a finding.',
+      + 'conversation, opened other tabs and gave it replies from the fake model, so these may differ from the first picture: '
+      + 'the title in the tab and in the header ("CSV export and budgets"), the other tabs beside it, the message box\'s '
+      + 'placeholder, the chips of the footer and of the plan bar, the usage meter, which follows the latest reply, and the '
+      + 'notification that covers part of the footer in the first picture. Any other difference, apart from the times on tool '
+      + 'rows, is a finding.',
     unchanged: 'The tab bar has the same tabs as before; the side bar now shows Agent Plus\'s work plan.',
     act: async (d) => { await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1200); await demoAt(d, CSV); return d.editor(); },
   },
