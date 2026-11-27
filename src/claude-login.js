@@ -74,7 +74,7 @@ function under(pid, ancestor, proc) {
  * `ownPid`, the extension host, is among its ancestors, as it is whether or not a wrapper replaced itself with the CLI.
  * If two processes run the conversation, the one started last is read. Only a conversation's own process counts: a
  * panel also starts a CLI for a new conversation before anything is sent, and keeps it while the panel is hidden. Where
- * `proc` does not list `ownPid` there is no /proc to read, and null is returned without reading the records.
+ * `proc` does not list `ownPid` there is no /proc, and null is returned before the records are read.
  */
 function windowProcess({ sessions, proc = '/proc', ownPid = process.pid, sessionId = '', isAlive } = {}) {
   const want = String(sessionId || '').toLowerCase();
@@ -93,10 +93,9 @@ function windowProcess({ sessions, proc = '/proc', ownPid = process.pid, session
 /*
  * A reader over this machine's files and two settings: `extra` gives claudeCode.environmentVariables
  * ([{ name, value }]), `wrapper` claudeCode.claudeProcessWrapper (a path, or ''). Its argument is the session id of
- * the conversation in front, or '' when no conversation runs in this window; it returns { method, label, tooltip? }.
- * It reads the files again at most every `ms` milliseconds, as the section asks often, and at once when the settings,
- * the conversation asked for or the processes in the session registry change. Tests pass `proc`, `ownPid` and
- * `isAlive`.
+ * the conversation in front, or '' when no conversation runs in this window. It reads the files again at most every
+ * `ms` milliseconds, as the session list asks for it often, and at once when the settings, the conversation asked for
+ * or the processes in the session registry change. Tests pass `proc`, `ownPid` and `isAlive`.
  */
 function reader({ extra = () => [], wrapper = () => '', env = process.env, home = os.homedir(), ms = 5000,
   proc = '/proc', ownPid = process.pid, isAlive } = {}) {
