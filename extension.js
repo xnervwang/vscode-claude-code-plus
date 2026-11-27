@@ -65,8 +65,7 @@ const droppedTabs = require('./src/droppedtabs');
 const loadTabs = require('./src/load-tabs');
 const panelRebuild = require('./src/panel-rebuild');
 /* The fifth argument of claude-vscode.editor.open. Claude Code's own session list opens conversations as full editor
-   tabs, without a title row of their own; this extension opens its tabs that way too, so it makes no difference which
-   list a tab came from. */
+   tabs, without a title row of their own; this extension opens its tabs that way too. */
 const AS_FULL_EDITOR = true;
 const loadMarks = require('./src/load-marks');
 const duplicates = require('./src/duplicates');
