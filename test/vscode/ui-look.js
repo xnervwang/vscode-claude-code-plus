@@ -2292,8 +2292,7 @@ const STEPS = [
   },
   {
     name: 'off-view-filter', features: ['view-filter'], ...off('claudeCodePlus.show.footerViewFilter'),
-    expect: 'The tags are switched back on, and the filter control is gone from the footer; the other footer buttons stay, '
-      + 'without overlapping. No row carries a tag, as before: none of the helper\'s messages are drawn here.',
+    expect: 'The filter control is gone from the footer; the other footer buttons stay, without overlapping.',
     unchanged: 'The conversation above the message box is as before.',
     area: async (d) => { const frame = await live(d); await toBottom(frame); await d.sleep(600); return d.editor(); },
   },
