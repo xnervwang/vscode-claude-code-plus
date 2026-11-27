@@ -2910,9 +2910,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await shot('new-in-tab');
     });
 
-    /* A page whose script never arrives ends on Claude Code's notice (src/panel-rebuild.js). In use that happens while
-       the webview service worker is being installed again; here the script is simply missing while the tab opens, and
-       is put back once the notice shows. */
+    /* A page whose script never arrives ends on Claude Code's notice (src/panel-rebuild.js). Here the script is missing
+       while the tab opens and is put back once the notice shows. */
     await step('a panel whose script did not arrive', async () => {
       const cc = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
       const file = path.join(profile.exts, cc, 'webview', 'index.js');
@@ -3407,7 +3406,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its supervisor', table);
         /* With the panel narrowed to just fit a managed row's title on one line plus the parts that keep their size,
-           the title stays whole on one line and only the text after it is cut. */
+           the title stays whole and only the text after it is cut. */
         const narrow = await until(() => frame.evaluate((id) => {
           const li = [...document.querySelectorAll('li.row.managed')].find((r) => r.querySelector(`input[data-id="${id}"]`));
           const name = li && li.querySelector('.name'), doing = li && li.querySelector('.doing');
@@ -3975,8 +3974,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       } catch (_) { /* the steps after this one say what is left */ }
     } });
 
-    /* The Supervisor panel lists a new conversation under the same name as its tab, the first message typed in it until
-       Claude Code generates a title. The fake model gives no title. */
+    /* The fake model gives no title. */
     await step('a new conversation in the Supervisor panel after its first message', async () => {
       const TEXT = 'Name this new conversation after its first message';
       const before = new Set(page.frames());
