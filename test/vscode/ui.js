@@ -5155,6 +5155,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           try {
             await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', c.id);
             await sleep(800);
+            frame = await frameOf(c) || frame;
             await say(frame, pageD, text);
             await until(() => model.seen.length > before, 30000, 300);
             await behindD();
@@ -5171,11 +5172,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           if (await askedChoice(frame).catch(() => false)) await frame.getByText(/Submit answers\s*$/).last().click({ timeout: 5000 }).catch(() => {});
           return until(() => frame.evaluate((q) => !document.body.innerText.includes(q) || !/Esc to cancel/.test(document.body.innerText), CHOICE.question).catch(() => false), 20000, 500);
         };
+        /* Opening a conversation's tab again can give it a new page, so the page is looked up again after it. */
         const refuseIn = async (c, frame) => {
           await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
           await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', c.id);
           await sleep(800);
-          return refuse(frame);
+          return refuse(await frameOf(c) || frame);
         };
         /* After Open on a notice about `c`: once the second window's tab in front is `c`'s and `frame` shows text
            matching `shows`, the label of that tab and which window is in front. */
