@@ -118,3 +118,25 @@ jobs:
             await github.rest.issues.create({
               owner: context.repo.owner, repo: context.repo.repo, title, body,
             });
+
+      # The issue a failed check opened for a build is closed by the first check that passes against that build, so
+      # whether it was fixed is settled by the check rather than by someone reading the code.
+      - name: Close the issue of this build once the check passes
+        if: success()
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const version = '${{ steps.upstream.outputs.version }}';
+            if (!version) {
+              core.info('the check named no build');
+              return;
+            }
+            const title = `Claude Code ${version} failed the upstream check`;
+            const { owner, repo } = context.repo;
+            const open = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 });
+            for (const issue of open.filter((i) => i.title === title && !i.pull_request)) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number,
+                body: `The check passed on ${context.sha} against Claude Code ${version}.` });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed', state_reason: 'completed' });
+              core.info(`closed #${issue.number}`);
+            }

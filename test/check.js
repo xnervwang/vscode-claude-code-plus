@@ -12589,6 +12589,14 @@ console.log('\nthe workflow in a real VS Code window');
   const runner = read(path.join(__dirname, 'vscode', 'run.js'));
   const contributing = read(path.join(__dirname, '..', 'CONTRIBUTING.md'));
   const expect = (cond, msg, detail) => (cond ? ok(msg) : bad(detail === undefined ? msg : `${msg}: ${detail}`));
+  {
+    const up = read(path.join(dir, 'upstream-check.yml'));
+    const title = 'const title = `Claude Code ${version} failed the upstream check`;';
+    const at = up.indexOf('name: Close the issue of this build once the check passes'), close = at < 0 ? '' : up.slice(at);
+    expect(up.split(title).length === 3 && /\n\s+if: success\(\)\n/.test(close) && close.indexOf('createComment') >= 0
+      && close.indexOf('createComment') < close.indexOf("state: 'closed'") && /The check passed on \$\{context\.sha\} against Claude Code \$\{version\}\./.test(close),
+    'the upstream check closes the issue it opened for a build once a check against that build passes, saying on which commit, after the step that opens it');
+  }
   if (!ui) bad('.github/workflows/vscode.yml is missing');
   else {
     expect(/^\s+push:\s*\n(\s*#.*\n)*\s+branches:\s*\[main,\s*'ci\/\*\*'\]/m.test(ui) && /^\s+pull_request:/m.test(ui) && /^\s+workflow_dispatch:/m.test(ui),
