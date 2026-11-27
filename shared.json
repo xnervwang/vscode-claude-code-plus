@@ -1,5 +1,5 @@
 {
-  "core": "d79822dcd04a29f2f840c092c03dea7e29d97dfd",
+  "core": "f26836e7e02cb5bc1bc5813a4347c9439f3df5c9",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -69,7 +69,7 @@
     {
       "path": "src/page/04-plan-bar.js",
       "from": "shared/page/plan-bar.js",
-      "sha256": "498558b2e522ce8e7a7d86e09f5c7697cdcd80d64ca518e59c19dc55479649ca"
+      "sha256": "5cc918f0b077eacbcd39c2f20215316de9cab737924618b542756c2edb86c0b6"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_path.py",
@@ -150,7 +150,7 @@
     {
       "path": "src/notice-time.js",
       "from": "src/notice-time.js",
-      "sha256": "575eeadcbc2ae04258c78dfd600cde0f31b717bbafb6eeb96cf58b52b126cf0b"
+      "sha256": "5ea20e87fad7975f21433ea4e0cf0fda1bae864bf918785ada91e2623af864bc"
     },
     {
       "path": "test/vscode/LOOK.md",
