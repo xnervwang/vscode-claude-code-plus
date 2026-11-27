@@ -2912,7 +2912,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /* A page whose script never arrives ends on Claude Code's notice (src/panel-rebuild.js). In use that happens while
        the webview service worker is being installed again; here the script is simply missing while the tab opens, and
-       put back once the notice shows, so the next build of the page has it. */
+       is put back once the notice shows. */
     await step('a panel whose script did not arrive', async () => {
       const cc = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
       const file = path.join(profile.exts, cc, 'webview', 'index.js');
@@ -2931,7 +2931,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         if (notice) await shot('script-not-delivered');
         const up = notice && await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]')
           && !document.querySelector('#claude-load-failure h1'), 40000, undefined, before);
-        check(!!up, 'with the script back, the page is built again by itself and shows a new conversation\'s input box', await tabs());
+        check(!!up, 'once the script is back, this extension builds the page again without a reload, and it shows a new conversation\'s input box', await tabs());
         if (up) await shot('built-again');
       } finally {
         putBack();
@@ -3407,7 +3407,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its supervisor', table);
         /* In a panel just wide enough for a managed row's title and the parts that are never cut, the title is shown whole
-           on one line and only what it is doing, the text after it, is cut. */
+           on one line and only the text after it is cut. */
         const narrow = await until(() => frame.evaluate((id) => {
           const li = [...document.querySelectorAll('li.row.managed')].find((r) => r.querySelector(`input[data-id="${id}"]`));
           const name = li && li.querySelector('.name'), doing = li && li.querySelector('.doing');
@@ -3976,8 +3976,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     } });
 
     /* A new conversation is listed in the Supervisor panel under the name its tab shows: until Claude Code generates a
-       title, that is the first message typed in it, not the name Claude Code makes from the folder. The fake model gives
-       no title. */
+       title, that is the first message typed in it. The fake model gives no title. */
     await step('a new conversation in the Supervisor panel after its first message', async () => {
       const TEXT = 'Name this new conversation after its first message';
       const before = new Set(page.frames());
@@ -4008,7 +4007,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const panel = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         const nameIn = () => panel.evaluate((x) => { const a = document.querySelector(`a.name[data-open="${x}"]`); return a ? a.textContent : null; }, id).catch(() => null);
         const named = panel && await until(async () => { const n = await nameIn(); return n === TEXT && n; }, 60000, 1000);
-        check(!!named, 'in the Supervisor panel it is listed under that first message, as on its tab, not under the name Claude Code made from the folder',
+        check(!!named, 'in the Supervisor panel it is listed under that first message, not under the name Claude Code made from the folder',
           { listed: panel ? await nameIn() : null, tab: tab && tab.label });
         if (named) await shot('steward-new-conversation');
         await exec('workbench.action.closePanel');

@@ -8427,7 +8427,7 @@ console.log('\na panel whose script never arrived');
   if (first === 2000 && second === 10000 && third === 0 && fourth === 0 && !timers.length
       && afterFirst === '<html>page</html>\n<!-- cce-built-again 1 -->' && afterSecond === '<html>page</html>\n<!-- cce-built-again 2 -->'
       && lines.length === 3 && /time 1$/.test(lines[0]) && /time 2$/.test(lines[1]) && /left on its notice$/.test(lines[2])) {
-    ok('a panel whose script was not delivered is built again after 2 s and once more after 10 s, each time with HTML of its own, and then left on Claude Code\'s notice with one line saying so');
+    ok('a panel whose script was not delivered is built again after 2 s and again after 10 s, with different HTML each time, and then left on Claude Code\'s notice with one line saying so');
   } else bad(`builds ${JSON.stringify([first, second, third, fourth])}, HTML ${JSON.stringify([afterFirst, afterSecond])}, log ${JSON.stringify(lines)}`);
 
   const other = { html: 'x' };
@@ -8448,7 +8448,7 @@ console.log('\na panel whose script never arrived');
   const goneMs = onFailed(gone, report);
   let threw = '';
   try { timers.shift().fn(); } catch (e) { threw = e.message; }
-  if (goneMs === 2000 && !threw) ok('a panel closed before its new build is due is passed over without an error');
+  if (goneMs === 2000 && !threw) ok('a panel closed before its page is built again is skipped without an error');
   else bad(`a closed panel: scheduled ${goneMs}, threw ${JSON.stringify(threw)}`);
 }
 
@@ -11996,7 +11996,7 @@ console.log('\nconversations');
     const nothing = claudeTitle(s, { custom: '', ai: '', first: '' }, plan);
     const bare = claudeTitle(s, { custom: '', ai: '' }, () => null);
     if (first === '你好' && untitled === '你好' && !readPlan && generated === 'Generated' && nothing === 'From the plan' && bare === s.name) {
-      ok('a conversation with no title yet is named after the first message the user typed, ahead of its plan and of the name Claude Code made from its folder; a generated title still comes first');
+      ok('a conversation with no title yet is named after the first message the user typed, not after its plan or the name Claude Code made from its folder, and one with a generated title keeps it');
     } else bad(`first ${JSON.stringify(first)}, titles ${JSON.stringify([untitled, readPlan, generated, nothing, bare])}`);
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -14156,7 +14156,7 @@ console.log('\nwhat a conversation is doing: its dot, its envelope, and the fiel
         && JSON.stringify(dots) === JSON.stringify(['working', 'background', 'waiting', 'waiting', '']) && envs === 2
         && /\.dot\.background \{ border: 2px solid #22c55e; \}/.test(shell) && !/3b82f6/i.test(shell)) {
       ok('the Supervisor panel draws each conversation\'s dot as the tab does, red for a fresh question to the user, and an envelope right after the title, before the time, for a reply not read yet, '
-        + 'outside the title, which a long title never cuts short: it wraps, only the text after it is cut, and the envelope keeps its size');
+        + 'outside the title; a long title wraps rather than being cut short, the text after it is cut instead, and the envelope keeps its size');
     } else bad(`supervisor rows ${JSON.stringify(rows)}, dots ${JSON.stringify(dots)}, envelopes ${envs}, long title kept apart ${cut}`);
   }
 
