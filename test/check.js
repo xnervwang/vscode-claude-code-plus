@@ -15375,8 +15375,8 @@ const repo = path.join(__dirname, '..');
         'the list deletes 90 days from the later of archiving and the row\'s last message, and this extension keeps from Claude Code\'s cleanup each conversation the list does not delete within the margin');
       eq([users.slice().sort(rules.compare).map((r) => r.sessionId.slice(-1)),
         users.map((r) => (r.sessionId === L(1) ? Object.assign({}, r, { pinned: true }) : r)).sort(rules.compare).map((r) => r.sessionId.slice(-1))],
-      [['7', '6', '5', '4', '3', '2', '1'], ['1', '7', '6', '5', '4', '3', '2']],
-      'the rows sort by their last message, newest first, after the pinned ones');
+      [['5', '4', '7', '6', '3', '2', '1'], ['1', '5', '4', '7', '6', '3', '2']],
+      'the rows sort with the pinned ones first, then the two running ones, then the rest by their last message, newest first');
       eq([rules.matches(row(3), '000003'), rules.matches(row(3), 'row-dots'), rules.matches(row(3), 'nothing like it'), users.filter((r) => rules.matches(r, '000003')).length,
         apList.capsOf({ sessionActions: list.sessionActions })],
       [true, true, false, 1, { open: ['tab', 'sidebar'], create: ['tab', 'sidebar'], rename: true, delete: true, own: [] }],
