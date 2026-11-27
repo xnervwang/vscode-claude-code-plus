@@ -265,6 +265,21 @@ async function open({ pack, vsix, core, cache, root, salt, settings, prepare }) 
     };
 
     await w.hostUp();
+    /* A Claude Code that this run has just installed into the cache is patched by this extension as the window starts,
+       when Claude Code's host may already be running unpatched. That host takes the patch in only at the reload this
+       extension then asks for, and until then no panel tells this extension which conversation it shows, so the shared
+       session list counts none of them open in this window. */
+    const unpatchedHost = () => call(`const mine = vscode.extensions.getExtension(${JSON.stringify(MINE)}), cc = vscode.extensions.getExtension('anthropic.claude-code');
+      if (!mine || !mine.isActive || !cc) return null;
+      const A = require(require('path').join(mine.extensionPath, 'src', 'adapters'));
+      if (!A.every((a) => a.status(cc.extensionPath) === 'patched')) return null;
+      return { stale: cc.isActive && typeof globalThis.__cceAnswer !== 'function' };`).catch(() => null);
+    const patched = await until(unpatchedHost, 120000, 500);
+    if (!patched) throw new Error('Claude Code Plus did not patch Claude Code in 120 s');
+    if (patched.stale) {
+      log('reloading once: Claude Code\'s host started before this extension patched it');
+      await w.reload();
+    }
     await sleep(4000);
     await exec('workbench.action.closeAuxiliaryBar').catch(() => {});
     await exec('workbench.action.closePanel').catch(() => {});
