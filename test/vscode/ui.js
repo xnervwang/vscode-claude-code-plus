@@ -105,8 +105,9 @@
  *                  written to its transcript with nothing opened, and of one open in a tab, through its panel; Delete...
  *                  carried through, removing the transcript, the folder of its helpers and its work plan; a conversation
  *                  a second window shows, dimmed with the stripe of one open elsewhere and that window named in its
- *                  hover, and a click bringing that window forward with its tab; and Ctrl+Shift+T left to the list,
- *                  bringing back in one tab the conversation whose tab was closed last
+ *                  hover, and a click bringing that window forward with its tab; and Ctrl+Shift+T, Claude Code's
+ *                  binding turned off while the list manages the window, bringing back in one tab the conversation
+ *                  closed last, and reopening another editor closed after it instead
  *   light theme    the envelope's text form on the tab and the Steward panel, the envelope on its row in Agent Plus's
  *                  session list, and the colour form back in a dark theme
  *   the old bell   a steward whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
@@ -2803,20 +2804,28 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         'Rename in Agent Plus\'s list gives a conversation no process has open the new title in its transcript, as Claude Code\'s own rename writes it, and its row shows it, with nothing opened',
         { titles: customTitles(shut), rows: await slRowsOf(shut.id), tabs: await claudeTabs() });
 
-      await openTab(shown.id);
-      if (!await until(async () => (await claudeTabs()).find((x) => titled(x.label, shown.title)), 30000, 500)) throw new Error('the conversation to rename did not open in a tab');
-      if (!await conversation(shown, 60000)) throw new Error('the conversation to rename did not load in its tab');
-      await showSl();
       const SHOWN_TITLE = 'Cold start of the worker measured';
-      await renameRow(shown, SHOWN_TITLE);
-      const relabeled = await until(async () => (await claudeTabs()).find((x) => titled(x.label, SHOWN_TITLE)), 20000, 500);
-      const recorded = await until(() => customTitles(shown).includes(SHOWN_TITLE), 20000, 300);
-      const rowNow = await until(async () => { const r = await slRowsOf(shown.id); return r.length && r.every((x) => x.title === SHOWN_TITLE) && r; }, 15000, 500);
-      check(!!relabeled && !!recorded && !!rowNow,
-        'renamed while a tab here shows it, it is renamed through its panel: the tab takes the new title, Claude Code records it in the transcript, and its row shows it',
-        { tabs: await claudeTabs(), titles: customTitles(shown), rows: await slRowsOf(shown.id) });
-      await shot('agent-plus-list-renamed');
-      await closeTabTitled(SHOWN_TITLE);
+      const shownTab = async () => (await claudeTabs()).find((x) => titled(x.label, shown.title) || titled(x.label, SHOWN_TITLE));
+      await openTab(shown.id);
+      try {
+        if (!await until(shownTab, 30000, 500)) throw new Error('the conversation to rename did not open in a tab');
+        if (!await conversation(shown, 60000)) throw new Error('the conversation to rename did not load in its tab');
+        await showSl();
+        await renameRow(shown, SHOWN_TITLE);
+        const relabeled = await until(async () => (await claudeTabs()).find((x) => titled(x.label, SHOWN_TITLE)), 20000, 500);
+        const recorded = await until(() => customTitles(shown).includes(SHOWN_TITLE), 20000, 300);
+        const rowNow = await until(async () => { const r = await slRowsOf(shown.id); return r.length && r.every((x) => x.title === SHOWN_TITLE) && r; }, 15000, 500);
+        check(!!relabeled && !!recorded && !!rowNow,
+          'renamed while a tab here shows it, it is renamed through its panel: the tab takes the new title, Claude Code records it in the transcript, and its row shows it',
+          { tabs: await claudeTabs(), titles: customTitles(shown), rows: await slRowsOf(shown.id) });
+        await shot('agent-plus-list-renamed');
+      } finally {
+        /* The steps after this one count the conversations and tabs open here. */
+        if (await shownTab()) {
+          const closed = await closeTabTitled(SHOWN_TITLE) || await closeTabTitled(shown.title);
+          check(closed && !!await until(async () => !(await shownTab()), 10000, 300), 'the tab this step opened is closed again', await claudeTabs());
+        }
+      }
     });
 
     /* Delete in Agent Plus's session list, carried through: the conversation archived, Delete... in its menu, and Delete in
@@ -2905,35 +2914,46 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!entry, 'the conversation is open in a tab of the second window, whose entry among the windows lists it', { tab: await tabIn(folderE), entry: entryOfE() });
         if (!entry) return;
         /* Under xvfb-run every window VS Code has focused once says it is focused for good, so on Linux the X server says
-           which window has the input focus (lib/xfocus.py). Elsewhere it is the window VS Code counts as focused. */
+           which window has the input focus (lib/xfocus.py). Elsewhere it is the window VS Code counts as focused, asked of
+           the window in question first, as the two windows step asks it: the window left behind can still say it has the
+           focus once another has taken it. */
         const both = [[page, profile.folder], [pageE, folderE]];
-        const frontTitle = async () => {
+        const focusedIn = (folder) => call('return vscode.window.state.focused;', undefined, 60000, folder).catch(() => null);
+        const frontTitle = async (order = both) => {
           if (process.platform === 'linux') {
             const r = require('child_process').spawnSync('python3', [path.join(__dirname, 'lib', 'xfocus.py')], { encoding: 'utf8', env: process.env });
             return (r.stdout || '').trim();
           }
-          for (const [p, folder] of both) if ((await call('return vscode.window.state.focused;', undefined, 60000, folder).catch(() => null)) === true) return p.title();
+          for (const [p, folder] of order) if ((await focusedIn(folder)) === true) return p.title();
           return '';
         };
-        const inFront = async (p, folder) => { const t2 = await frontTitle(), name = path.basename(folder); return !!t2 && (t2 === await p.title() || t2.includes(` - ${name} - `) || t2.startsWith(`${name} - `)); };
+        const inFront = async (p, folder) => {
+          const t2 = await frontTitle(p === page ? both : [both[1], both[0]]), name = path.basename(folder);
+          return !!t2 && (t2 === await p.title() || t2.includes(` - ${name} - `) || t2.startsWith(`${name} - `));
+        };
+        const focusNow = async () => ({ here: await focusedIn(profile.folder), there: await focusedIn(folderE) });
         /* The conversation's tab covered in its window, and this window brought to the front as this extension brings any
            window there: VS Code's command line opening the folder that window has open. */
         const t0 = await tabIn(folderE);
         await inE('await vscode.window.showTextDocument(vscode.Uri.file(arg[0]), { preview: false, viewColumn: arg[1] }); return true;', [notesE, t0 ? t0.column : 1]);
         win.frontWindow(exe, profile.user, profile.folder, process.env);
         check(!!await until(async () => (await inFront(page, profile.folder)) && !((await tabIn(folderE)) || {}).active, 15000, 300),
-          'this window is in front, and the conversation\'s tab in the other window is behind another', { front: await frontTitle(), tab: await tabIn(folderE) });
+          'this window is in front, and the conversation\'s tab in the other window is behind another', { front: await frontTitle(), focused: await focusNow(), tab: await tabIn(folderE) });
         await showSl();
         const away = await until(async () => { const r = await slRowsOf(t.id); return r.length && r.every((x) => x.stripe === 'elsewhere' && x.dim) && r; }, 30000, 500);
         check(!!away, 'in this window\'s Agent Plus session list its row is dimmed, with the stripe of one open elsewhere', await slRowsOf(t.id));
         if (!away) return;
-        /* The list hovered afresh: another row first, as a hover box stays as it was while the pointer stays on its row. */
+        /* The list hovered afresh: another row first, as a hover box stays as it was while the pointer stays on its row.
+           Each hover is waited for until the box shows that row's session id. */
         const other = threads.find((x) => x.id !== t.id);
+        const hoverOn = async (x) => {
+          await slRowAt(x).hover().catch(() => {});
+          return until(async () => { const h = await slHoverText(); return h.includes(`Session ID: ${x.id}`) && h; }, 5000, 200);
+        };
         const hoverNow = async () => {
           await page.mouse.move(5, 880);
-          if (other) { await slRowAt(other).hover().catch(() => {}); await sleep(700); }
-          await slRowAt(t).hover();
-          return until(async () => { const h = await slHoverText(); return /Open in /.test(h) && h; }, 5000, 200);
+          if (other) await hoverOn(other);
+          return hoverOn(t);
         };
         /* Claude Code's record of the other window's process can reach the list before that window's entry lists the
            conversation; the list then names the place "another VS Code window" until it next reads the entries, which it
@@ -2948,7 +2968,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('notifications.clearAll');
         await slRowAt(t).click();
         const jumped = await until(async () => { const x = await tabIn(folderE); return x && x.active && await inFront(pageE, folderE); }, 20000, 300);
-        const seen = { tabThere: await tabIn(folderE), front: await frontTitle(), tabHere: await tabIn(profile.folder), processes: processes(),
+        const seen = { tabThere: await tabIn(folderE), front: await frontTitle([both[1], both[0]]), focused: await focusNow(), tabHere: await tabIn(profile.folder), processes: processes(),
           windows: w.browser.contexts().flatMap((c) => c.pages()).filter((x) => /workbench\.html/.test(x.url())).length };
         check(!!jumped && !seen.tabHere && seen.processes.length <= 1 && seen.windows === 2,
           'a click on its row brings the other window to the front with the conversation\'s tab active, and this window opens no copy of it', seen);
@@ -2963,31 +2983,67 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* Ctrl+Shift+T after a conversation's tab is closed. Claude Code binds the key to reopen its own last closed tab; while
-       Agent Plus's session list archives and deletes on its own in this window, this extension leaves the key to the list,
-       whose reopen brings back the conversation closed last at the place it was shown. */
+    /* Ctrl+Shift+T after tabs are closed. Three bindings want the key: Claude Code's reopens its own tab closed last,
+       Agent Plus's session list's the conversation closed last, and VS Code's the editor closed last. While the list
+       archives and deletes on its own in this window, this extension turns Claude Code's off; that is read here from this
+       extension itself (__cceListReopens), and the hand-over is checked by test/check.js and test/with-core.js. The window
+       cannot tell which of Claude Code's binding and Agent Plus's took the key: with the conversation closed last, either
+       brings it back in a tab. What the window shows is the key's effect: the conversation closed last comes back in one
+       tab, and with another editor closed after it neither takes the key, which then reopens that editor. */
     await step('reopening a closed conversation with Ctrl+Shift+T', async () => {
       const t = LIST_THREADS.reopened;
       fakeHome.writeThreads(profile.home, profile.folder, [t]);
+      const after = path.join(profile.folder, 'closed-after.txt');
+      fs.writeFileSync(after, 'An editor closed after the conversation.\n');
       const tabsOf = async () => (await claudeTabs()).filter((x) => titled(x.label, t.title));
-      await openTab(t.id);
-      if (!await until(async () => (await tabsOf()).length === 1, 30000, 500)) throw new Error('the conversation did not open in a tab');
-      if (!await conversation(t, 60000)) throw new Error('the conversation did not load in its tab');
-      const leftToList = await until(() => call('return typeof globalThis.__cceListReopens === "function" ? globalThis.__cceListReopens() : null;'), 15000, 500);
-      check(leftToList === true, 'while Agent Plus\'s session list archives and deletes on its own in this window, this extension leaves Claude Code\'s Ctrl+Shift+T to it', leftToList);
-      await closeTabTitled(t.title);
-      await showSl();
-      const closedRow = await until(async () => (await slRowsOf(t.id)).some((x) => x.section === 'closed'), 20000, 500);
-      check(!!closedRow && !(await tabsOf()).length, 'with its tab closed it is in Recently closed', { rows: await slRowsOf(t.id), tabs: await tabsOf() });
+      const afterTabs = () => call(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs)
+        .filter((x) => x.input && x.input.uri && x.input.uri.fsPath === arg).map((x) => ({ label: x.label, active: x.isActive }));`, after);
+      const closeAfter = () => call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.uri && x.input.uri.fsPath === arg);
+        if (t) await vscode.window.tabGroups.close(t); return !!t;`, after);
+      const inClosed = async () => (await slRowsOf(t.id)).some((x) => x.section === 'closed');
+      const closeConversation = async () => {
+        if (!await closeTabTitled(t.title)) throw new Error('the conversation\'s tab was not there to close');
+        if (!await until(async () => !(await tabsOf()).length, 10000, 300)) throw new Error('the conversation\'s tab stayed open');
+      };
       /* The key goes to the workbench, with an editor in front as after closing a tab. */
-      await openNotes();
-      await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+T' : 'Control+Shift+T');
-      const back = await until(async () => { const x = await tabsOf(); return x.length === 1 && x[0].active && x; }, 30000, 500);
-      const out = back && await until(async () => { const r = await slRowsOf(t.id); return r.length && !r.some((x) => x.section === 'closed') && r; }, 15000, 500);
-      check(!!back && !!out && (await tabsOf()).length === 1, 'Ctrl+Shift+T then brings it back in one tab, in front, and it leaves Recently closed',
-        { tabs: await tabsOf(), rows: await slRowsOf(t.id) });
-      await shot('agent-plus-list-reopened');
-      await closeTabTitled(t.title);
+      const press = async () => {
+        await openNotes();
+        await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+T' : 'Control+Shift+T');
+      };
+      await openTab(t.id);
+      try {
+        if (!await until(async () => (await tabsOf()).length === 1, 30000, 500)) throw new Error('the conversation did not open in a tab');
+        if (!await conversation(t, 60000)) throw new Error('the conversation did not load in its tab');
+        const leftToList = await until(() => call('return typeof globalThis.__cceListReopens === "function" ? globalThis.__cceListReopens() : null;'), 15000, 500);
+        check(leftToList === true, 'while Agent Plus\'s session list archives and deletes on its own in this window, this extension turns Claude Code\'s Ctrl+Shift+T off', leftToList);
+        await closeConversation();
+        await showSl();
+        check(!!await until(inClosed, 20000, 500), 'with its tab closed it is in Recently closed', { rows: await slRowsOf(t.id), tabs: await tabsOf() });
+        await press();
+        const back = await until(async () => { const x = await tabsOf(); return x.length === 1 && x[0].active && x; }, 30000, 500);
+        const out = back && await until(async () => { const r = await slRowsOf(t.id); return r.length && !r.some((x) => x.section === 'closed') && r; }, 15000, 500);
+        check(!!back && !!out && (await tabsOf()).length === 1, 'with it closed last, Ctrl+Shift+T brings it back in one tab, in front, and it leaves Recently closed',
+          { tabs: await tabsOf(), rows: await slRowsOf(t.id) });
+        await shot('agent-plus-list-reopened');
+
+        await closeConversation();
+        if (!await until(inClosed, 20000, 500)) throw new Error(`closed again, it is not in Recently closed: ${JSON.stringify(await slRowsOf(t.id))}`);
+        await call('await vscode.window.showTextDocument(vscode.Uri.file(arg), { preview: false }); return true;', after);
+        if (!await until(async () => (await afterTabs()).length === 1, 10000, 300)) throw new Error('the other editor did not open');
+        if (!await closeAfter() || !await until(async () => !(await afterTabs()).length, 10000, 300)) throw new Error('the other editor did not close');
+        await press();
+        const reopened = await until(async () => { const x = await afterTabs(); return x.length === 1 && x[0].active && x; }, 15000, 300);
+        check(!!reopened && !(await tabsOf()).length && await inClosed(),
+          'with another editor closed after it, Ctrl+Shift+T reopens that editor, and the conversation stays closed, in Recently closed',
+          { editor: await afterTabs(), tabs: await tabsOf(), rows: await slRowsOf(t.id) });
+      } finally {
+        /* The steps after this one count the conversations and tabs open here. */
+        if ((await tabsOf()).length) {
+          const closed = await closeTabTitled(t.title);
+          check(closed && !!await until(async () => !(await tabsOf()).length, 10000, 300), 'the tab this step opened is closed again', await tabsOf());
+        }
+        if ((await afterTabs()).length) await closeAfter();
+      }
     });
 
     await step('the steward panel', async () => { try {

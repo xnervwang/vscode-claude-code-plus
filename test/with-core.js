@@ -349,11 +349,27 @@ async function run() {
       const d1 = due();
       eq([!!read, typeof d1[LA] === 'number' && d1[LA] > Date.now() + 89 * DAY && d1[LA] <= Date.now() + 90 * DAY, d1[LB], d1[LC]], [true, true, null, null],
         'Agent Plus\'s session list lists this window\'s Claude Code conversations, takes in Claude Code\'s own archive once, counting 90 days from then to delete it, and deletes none of the others');
+      /* The section each is drawn in, from the list the core draws (its session list view's model). */
+      const slView = control.state.webviews['agentPlus.sessions'];
+      const sectionOf = (id) => {
+        const m = slView && slView.list && typeof slView.list.model === 'function' ? slView.list.model() : null;
+        const s = m && (m.sections || []).find((x) => x.kind !== 'closed' && (x.rows || []).some((r) => r.id === id));
+        return s ? [s.kind, s.label] : null;
+      };
+      eq([LA, LB, LC].map(sectionOf), [['archived', 'Archived'], ['group', 'Parser'], ['ungrouped', 'Ungrouped']],
+        'and it draws the one Claude Code\'s own list archives under Archived, the one in Claude Code\'s own group Parser in a group of that name, and the other under Ungrouped');
+      /* With a deletion this close, Claude Code's own cleanup is left to delete the transcript later than the list does. */
       const csl = require(path.join(root, 'src', 'claude-session-list.js'));
-      const keeps = csl.keepsFor(d1, { soonMs: 14 * DAY });
       const file = (id) => path.join(listDir, `${id}.jsonl`);
-      eq([LA, LB, LC].map((id) => keeps(id, file(id))), [true, true, true],
-        'and with what that list says, each of them is kept from Claude Code\'s own cleanup');
+      control.state.config['agentPlus.sessions.deleteAfterDays'] = 3;
+      control.changeConfig(['agentPlus.sessions.deleteAfterDays']);
+      const d3 = due();
+      const keeps = csl.keepsFor(d3, { soonMs: 14 * DAY });
+      eq([typeof d3[LA] === 'number' && d3[LA] > Date.now() + 2 * DAY && d3[LA] <= Date.now() + 3 * DAY, [LA, LB, LC].map((id) => keeps(id, file(id)))],
+        [true, [false, true, true]],
+        'with the list deleting archived conversations after 3 days, this extension leaves to Claude Code\'s own cleanup the archived one, which the list deletes within the 14-day margin, and keeps the two the list does not delete');
+      delete control.state.config['agentPlus.sessions.deleteAfterDays'];
+      control.changeConfig(['agentPlus.sessions.deleteAfterDays']);
       /* A later change of Claude Code's own list is not taken in: the import is once. */
       official = { archived: [LA, LB], groups: [] };
       transcript(LD, 2, 'Started after the import');
