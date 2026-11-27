@@ -2733,26 +2733,41 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
+    /* Asks conversation `thread`, whose page is `frame`, to show a picture saved in its own folder, and waits for a reply
+       to draw it: { slashed, asked, drawn }. The text is typed again when keys went missing, as they can while a tab just
+       opened takes the focus. */
+    const askForPicture = async (frame, thread) => {
+      const folder = path.join(profile.home, '.claude', 'scratch', folderName(profile.folder), thread.id);
+      fs.mkdirSync(folder, { recursive: true });
+      fs.writeFileSync(path.join(folder, 'square.png'), Buffer.from(SQUARE_PNG, 'base64'));
+      const slashed = folder.replace(/\\/g, '/');
+      const text = `Please show me the picture at ${slashed}/square.png`;
+      const box = frame.locator('[contenteditable][role="textbox"]').first();
+      const inBox = () => box.evaluate((e) => (e.textContent || '').trim()).catch(() => '');
+      const before = model.seen.length;
+      for (let i = 0; i < 3; i++) {
+        await box.click();
+        if (await inBox()) { await page.keyboard.press('ControlOrMeta+a'); await page.keyboard.press('Backspace'); }
+        await page.keyboard.type(text);
+        if (await inBox() === text) break;
+      }
+      await page.keyboard.press('Enter');
+      const asked = await until(() => model.seen.slice(before).find((x) => x.picture), 30000, 300);
+      const drawn = await until(() => frame.evaluate((alt) => {
+        const img = [...document.querySelectorAll('[data-testid="assistant-message"] img')].filter((x) => x.getAttribute('alt') === alt).pop();
+        return img && img.complete && img.naturalWidth > 0 ? { src: (img.getAttribute('src') || '').slice(0, 30), width: img.naturalWidth } : null;
+      }, IMAGE_ALT), 30000, 500);
+      return { slashed, asked, drawn };
+    };
+
     /* The conversation was told to save an image in its own folder and link it by its absolute path. A reply that does
        so is drawn; an image at a web address stays a link. */
     await step('images in a reply', async () => {
       if (!conv) throw new Error('the conversation did not open');
-      const folder = path.join(profile.home, '.claude', 'scratch', folderName(profile.folder), tab0.id);
-      fs.mkdirSync(folder, { recursive: true });
-      fs.writeFileSync(path.join(folder, 'square.png'), Buffer.from(SQUARE_PNG, 'base64'));
-      const slashed = folder.replace(/\\/g, '/');
-      const before = model.seen.length;
-      await conv.locator('[contenteditable][role="textbox"]').first().click();
-      await page.keyboard.type(`Please show me the picture at ${slashed}/square.png`);
-      await page.keyboard.press('Enter');
-      const asked = await until(() => model.seen.slice(before).find((x) => x.picture), 30000, 300);
+      const { slashed, asked, drawn } = await askForPicture(conv, tab0);
       const same = (a, b) => (process.platform === 'win32' ? String(a).toLowerCase() === String(b).toLowerCase() : a === b);
       check(!!asked && same(asked.imagesNote, slashed), 'the conversation was told to save an image to show in its own folder',
         { told: asked && asked.imagesNote, folder: slashed });
-      const drawn = await until(() => conv.evaluate((alt) => {
-        const img = [...document.querySelectorAll('[data-testid="assistant-message"] img')].filter((x) => x.getAttribute('alt') === alt).pop();
-        return img && img.complete && img.naturalWidth > 0 ? { src: (img.getAttribute('src') || '').slice(0, 30), width: img.naturalWidth } : null;
-      }, IMAGE_ALT), 30000, 500);
       check(!!drawn && /^data:image\/png;base64,/.test(drawn.src) && drawn.width === 8, 'an image file on this machine that a reply links is drawn',
         drawn || await conv.evaluate(() => { const m = [...document.querySelectorAll('[data-testid="assistant-message"]')].pop(); return m ? m.innerHTML.slice(-800) : null; }));
       const web = await conv.evaluate((url) => {
@@ -3161,7 +3176,19 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const closeAfter = () => call(`${isAfter} const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find(isAfter);
         if (t) await vscode.window.tabGroups.close(t); return !!t;`, after);
       const inClosed = async () => (await slRowsOf(t.id)).some((x) => x.section === 'closed');
+      /* What tells the list where the conversation is, for a check that fails: the milliseconds after the last close at
+         which the patched host reported it closed, whether a panel of this window still holds it, and the tabs. */
+      await call(`const was = globalThis.__cceClosedHook; globalThis.__cceTestClosed = [];
+        if (typeof was === 'function' && !was.__cceTestWraps) { const w = (id) => { globalThis.__cceTestClosed.push({ id, at: Date.now() }); return was(id); };
+          w.__cceTestWraps = was; globalThis.__cceClosedHook = w; } return true;`);
+      const placeFacts = () => call(`const t0 = globalThis.__cceTestCloseAt || 0, q = (f) => (typeof f === 'function' ? f(arg) : null);
+        return { reportedClosed: (globalThis.__cceTestClosed || []).filter((x) => x.id === arg).map((x) => x.at - t0),
+          panelHolds: q(globalThis.__cceAnswer), shownVisibly: q(globalThis.__cceShownVisibly),
+          shown: typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown().includes(arg) : null,
+          tabs: vscode.window.tabGroups.all.flatMap((g) => g.tabs.map((x) => ({ column: g.viewColumn, label: x.label, active: x.isActive,
+            view: x.input && x.input.viewType ? x.input.viewType : '' }))) };`, t.id).catch((e) => String(e).slice(0, 120));
       const closeConversation = async () => {
+        await call('globalThis.__cceTestCloseAt = Date.now(); return true;');
         if (!await closeTabTitled(t.title)) throw new Error('the conversation\'s tab was not there to close');
         if (!await until(async () => !(await tabsOf()).length, 10000, 300)) throw new Error('the conversation\'s tab stayed open');
       };
@@ -3178,12 +3205,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(leftToList === true, 'while Agent Plus\'s session list archives and deletes on its own in this window, this extension turns Claude Code\'s Ctrl+Shift+T off', leftToList);
         await closeConversation();
         await showSl();
-        check(!!await until(inClosed, 20000, 500), 'with its tab closed it is in Recently closed', { rows: await slRowsOf(t.id), tabs: await tabsOf() });
+        check(!!await until(inClosed, 20000, 500), 'with its tab closed it is in Recently closed', { rows: await slRowsOf(t.id), tabs: await tabsOf(), place: await placeFacts() });
         await press();
         const back = await until(async () => { const x = await tabsOf(); return x.length === 1 && x[0].active && x; }, 30000, 500);
         const out = back && await until(async () => { const r = await slRowsOf(t.id); return r.length && !r.some((x) => x.section === 'closed') && r; }, 15000, 500);
         check(!!back && !!out && (await tabsOf()).length === 1, 'with it closed last, Ctrl+Shift+T brings it back in one tab, in front, and it leaves Recently closed',
-          { tabs: await tabsOf(), rows: await slRowsOf(t.id) });
+          { tabs: await tabsOf(), rows: await slRowsOf(t.id), place: await placeFacts() });
         await shot('agent-plus-list-reopened');
 
         await closeConversation();
@@ -3203,6 +3230,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           check(closed && !!await until(async () => !(await tabsOf()).length, 10000, 300), 'the tab this step opened is closed again', await tabsOf());
         }
         if ((await afterTabs()).length) await closeAfter();
+        await call(`const w = globalThis.__cceClosedHook; if (w && w.__cceTestWraps) globalThis.__cceClosedHook = w.__cceTestWraps;
+          delete globalThis.__cceTestClosed; delete globalThis.__cceTestCloseAt; return true;`).catch(() => {});
       }
     });
 
@@ -4033,6 +4062,16 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
        reload loads the Claude Code tab behind the one in front without a click. */
     await step('restored tabs', async () => {
       const [front, behind] = threads;
+      /* The reply with an image comes from the step 'images in a reply'; a run without that step asks for it here. */
+      const pictured = (f) => f.evaluate((alt) => [...document.querySelectorAll('[data-testid="assistant-message"] img')]
+        .some((x) => x.getAttribute('alt') === alt), IMAGE_ALT).catch(() => false);
+      const shown = await conversation(front, 10000).catch(() => null);
+      if (!shown || !await pictured(shown)) {
+        await exec('claude-vscode.editor.open', front.id);
+        const f = await conversation(front, 30000);
+        if (!f) throw new Error('the conversation did not open to be asked for a picture');
+        if (!(await askForPicture(f, front)).drawn) throw new Error('no reply drew the picture to be restored');
+      }
       await exec('workbench.action.closeAllEditors');
       await exec('workbench.action.closeAuxiliaryBar');
       await exec('claude-vscode.editor.open', behind.id);

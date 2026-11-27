@@ -472,8 +472,11 @@ function createClaudeSource(deps) {
       if (!isPanelTab(tab)) return null;
       const column = tab.group && tab.group.viewColumn;
       const label = typeof tab.label === 'string' ? tab.label : '';
+      /* Only a tab no longer in its group is matched to a panel gone by its label: one still open can carry the same
+         label, as every new conversation's tab is labelled Claude Code. */
+      const open = () => { try { return vscode.window.tabGroups.all.some((g) => g.tabs.includes(tab)); } catch (_) { return false; } };
       const closed = () => {
-        if (!label) return '';
+        if (!label || open()) return '';
         const now = Date.now();
         for (let i = closedPanels.length - 1; i >= 0; i--) {
           const g = closedPanels[i];
@@ -645,6 +648,9 @@ function createClaudeSource(deps) {
        another Claude Code tab, whose own panel is then the one in front, or none until that panel is known. A sidebar
        panel taking the focus leaves the active tab as it was, so its signal stands. */
     tabsChanged(tab) {
+      /* A panel's title changes with no event of its own, but its tab's label changing is one. The title is kept for
+         when the panel has gone and can no longer be read (closedPanels). */
+      for (const [panel, entry] of panels) { try { entry.title = panel.title; entry.column = panel.viewColumn; } catch (_) { /* gone */ } }
       if (tab === frontTab) return;
       frontTab = tab;
       if (!tab) return;

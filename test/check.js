@@ -13081,6 +13081,20 @@ console.log('\nClaude Code\'s own source');
       /* VS Code can report a tab as closed after its panel has gone. */
       out.closedTab = [c.source.sessionForTab(inSix(back.title, true)), c.source.sessionForTab(inSix(back.title, false)),
         c.source.sessionForTab(inSix('A title no panel has', true))];
+      const stillOpen = inSix(back.title, false);
+      vs.window = { tabGroups: { all: [{ tabs: [stillOpen] }] } };
+      out.closedTab.push(c.source.sessionForTab(stillOpen));
+      delete vs.window;
+      /* A panel renamed after it was tracked, whose title cannot be read once it has gone. */
+      const renamed = panel(7, true, false);
+      let renamedGone = false, renamedTitle = 'Claude Code';
+      Object.defineProperty(renamed, 'title', { get() { if (renamedGone) throw new Error('disposed'); return renamedTitle; } });
+      c.track(renamed, 'RENAMED');
+      renamedTitle = 'List the cron jobs of th\u2026';
+      c.tabsChanged(undefined);
+      renamedGone = true; renamed.d.forEach((f) => f());
+      const inSeven = (label) => ({ input: new vs.TabInputWebview('mainThreadWebview-claudeVSCodePanel'), group: { viewColumn: 7 }, label, isActive: true });
+      out.renamedGone = [c.source.sessionForTab(inSeven(renamedTitle)), c.source.sessionForTab(inSeven('Claude Code'))];
       out.listeners = p1.l.length;
       p1.active = true; p1.l.forEach((f) => f({})); p2.l.forEach((f) => f({}));
       c.track(p1, 'A2');
@@ -13224,9 +13238,12 @@ console.log('\nClaude Code\'s own source');
     if (JSON.stringify(o.behind) === JSON.stringify(['BACK', 'FRONT', '', 'FRONT', 'TWIN', 'FRONT'])) {
       ok('a tab behind another in its group is its own conversation, taken from the panel with its label, which is not visible, and not from the visible panel with another title');
     } else bad(`a tab behind another: ${JSON.stringify(o.behind)}`);
-    if (JSON.stringify(o.closedTab) === JSON.stringify(['BACK', 'BACK', ''])) {
-      ok('a tab reported closed after its panel has gone is still known by its label and group for a few seconds, active or not');
+    if (JSON.stringify(o.closedTab) === JSON.stringify(['BACK', 'BACK', '', ''])) {
+      ok('a tab reported closed after its panel has gone is still known by its label and group for a few seconds, active or not, and an open tab with that label is not taken for it');
     } else bad(`a tab closed after its panel: ${JSON.stringify(o.closedTab)}`);
+    if (JSON.stringify(o.renamedGone) === JSON.stringify(['RENAMED', ''])) {
+      ok('a panel renamed after it opened is known by its new title once it has gone, not by the one it opened with');
+    } else bad(`a renamed panel gone: ${JSON.stringify(o.renamedGone)}`);
     if (JSON.stringify(o.heard) === JSON.stringify(['C', 'OLD', 'NEW', 'A', 'A2', 'X', '', 'Y', 'Y', 'Y', 'Y']) && JSON.stringify(o.follow) === '[true,false,true]') {
       ok('every Claude Code focus signal fires onDidFocus, including a front panel getting its session id');
     } else bad(`focus heard ${JSON.stringify([o.heard, o.follow])}`);
