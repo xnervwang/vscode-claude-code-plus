@@ -2194,9 +2194,8 @@ const STEPS = [
       + 'list in the side bar. The tool row of that call has its time on a line of its own above "Bash" and its '
       + 'description, which stays on one line.',
     unchanged: 'The earlier messages are as before, but higher and dimmed: the conversation has scrolled to show the question. '
-      + 'Claude Code also keeps a message of yours pinned at the top while the rows that answer it scroll up behind '
-      + 'it, so some of those rows may be hidden under it. The tab\'s title has no envelope now that the tab is in '
-      + 'front.',
+      + 'Claude Code keeps a message of yours pinned at the top of the conversation while the rows that answer it '
+      + 'scroll up behind it. The tab\'s title has no envelope now that the tab is in front.',
     act: async (d) => {
       const frame = await live(d);
       const list = await agentList(d);
@@ -2723,13 +2722,13 @@ const STEPS = [
   {
     name: 'conversation-again', features: ['timestamps', 'reply-figures', 'self-check'],
     expect: 'The demo conversation at the same place as in the first step\'s picture (conversation.jpg), minutes later, with '
-      + 'tool rows shown. Everything that step\'s expect lists is there: a time on every row, start->end on each tool row on a '
-      + 'line of its own above the tool\'s name, and the figures on the first row of each reply. Steps in between renamed the '
-      + 'conversation, opened other tabs and gave it replies from the fake model, so these may differ from the first picture: '
-      + 'the title in the tab and in the header ("CSV export and budgets"), the other tabs beside it, the message box\'s '
-      + 'placeholder, the chips of the footer and of the plan bar, the usage meter, which follows the latest reply, and the '
-      + 'notification that covers part of the footer in the first picture. Any other difference, apart from the times on tool '
-      + 'rows, is a finding.',
+      + 'tool rows shown. Everything that step\'s expect lists is there: a time on every row, start->end on each tool '
+      + 'row on a line of its own above the tool\'s name, and the figures on the first row of each reply. Steps in '
+      + 'between renamed the conversation, opened other tabs and gave it replies from the fake model, so these may '
+      + 'differ from the first picture: the title in the tab and in the header ("CSV export and budgets"), the other '
+      + 'tabs beside it, the message box\'s placeholder, the chips of the footer and of the plan bar, the usage meter '
+      + 'and the notification that covers part of the footer in the first picture. Any other difference, apart from '
+      + 'the times on tool rows, is a finding.',
     unchanged: 'The tab bar has the same tabs as before; the side bar now shows Agent Plus\'s work plan.',
     act: async (d) => { await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1200); await demoAt(d, CSV); return d.editor(); },
   },
@@ -3542,8 +3541,8 @@ const STEPS = [
           + 'conversation open outside this window: "' + C.term.title + '", which a terminal has open. That row alone shows three things '
           + 'at once: its logo, title and time are greyed, about half as bright as '
           + 'every other row; the stripe at its start is a hollow outline, where a row open in a tab here has a filled bar; and a small '
-          + 'terminal icon, a box with a prompt sign, sits before its time. "' + C.idle.title + '", which '
-          + 'nothing has open, has no stripe and is not greyed.',
+          + 'terminal icon, a box with a prompt sign, sits before its time. "' + C.idle.title + '" is not open '
+          + 'in any tab, terminal or other window; its row has no stripe at its start and is not greyed.',
         unchanged: 'The rows listed before are still there.',
         act: async (d) => {
           const list = await listReady(d);
@@ -3630,7 +3629,8 @@ const STEPS = [
       },
       {
         name: 'agent-plus-sections', features: ['agent-plus-list-sections'],
-        expect: 'Agent Plus\'s session list with a group the user made and the Archived section, both opened. The step selects both '
+        expect: 'Agent Plus\'s session list shows two expanded sections: a group the user made and the Archived section. The step '
+          + 'selects both '
           + 'rows, groups them from their menu and names the group; the ' + GROUP.toUpperCase() + ' band shows a folder icon, a downward '
           + 'arrow and a count of 2 above "' + C.groupA.title + '" and "' + C.groupB.title + '". Below it an UNGROUPED band holds the other '
           + 'conversations. Below UNGROUPED, the ARCHIVED band shows a count of 1 and a downward arrow; "'
@@ -3707,9 +3707,7 @@ const STEPS = [
         expect: 'The ACCOUNT & USAGE band is folded at the top of Agent Plus\'s session list. It starts with a right-pointing arrow, '
           + 'followed by a person icon and the words ACCOUNT & USAGE. None of the section\'s Claude Code content is '
           + 'visible below the band: no Claude Code logo, no THIS CONVERSATION heading and no figures. The section '
-          + 'bands and rows of the list come right after the band, with no gap or stray '
-          + 'line between. "' + C.figures.title + '", in front in the editor, has just answered a message, so the part has figures to '
-          + 'show once the band is opened.',
+          + 'bands and rows of the list come right after the band, with no gap or stray line between.',
         unchanged: 'The rows listed before are still there.',
         act: async (d) => {
           const list = await listReady(d);
@@ -3745,10 +3743,10 @@ const STEPS = [
        */
       {
         name: 'agent-plus-empty', features: ['agent-plus-list-empty'], only: ['linux', 'darwin'],
-        expect: 'Agent Plus\'s session list for a folder that has no Claude Code conversation. Under the New bar and the filter chips, which '
-          + 'all count 0, there are no rows and no section bands: no RECENTLY CLOSED, UNGROUPED or ARCHIVED. In their place a short line, '
-          + 'centred and greyed, reads "No conversations yet". An ACCOUNT & USAGE band may still sit at the top, for the conversation in '
-          + 'front, whose tab stays open. Nothing else is in the side bar.',
+        expect: 'Agent Plus\'s session list for a folder that has no Claude Code conversation. Below the New bar and the filter chips (each shows '
+          + '0), the list has no conversation rows or RECENTLY CLOSED, UNGROUPED or ARCHIVED bands. In their place a '
+          + 'short line, centred and greyed, reads "No conversations yet". An ACCOUNT & USAGE band may still sit at '
+          + 'the top, for the conversation in front, whose tab stays open. Nothing else is in the side bar.',
         unchanged: 'The demo conversation is in front in the editor.',
         act: async (d) => {
           const list = await listReady(d);
