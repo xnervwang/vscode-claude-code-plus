@@ -64,6 +64,10 @@ const bgSessions = require('./src/bgsessions');
 const droppedTabs = require('./src/droppedtabs');
 const loadTabs = require('./src/load-tabs');
 const panelRebuild = require('./src/panel-rebuild');
+/* The fifth argument of claude-vscode.editor.open. Claude Code's own session list opens a conversation as a full editor
+   tab, which draws no title row of its own above the conversation, the tab's title being right there; this extension
+   opens its tabs the same way, so a tab looks the same whichever list opened it. */
+const AS_FULL_EDITOR = true;
 const loadMarks = require('./src/load-marks');
 const duplicates = require('./src/duplicates');
 const deleteSession = require('./src/deletesession');
@@ -855,11 +859,11 @@ function start(context, log, renamed, handing = false) {
       return places.scan();
     },
     isSteward: (id) => enabled() && !removed() && stewardMarks.stewardIds(stewardTable()).includes(String(id).toLowerCase()),
-    open: (id, where) => vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, undefined,
+    open: (id, where) => vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, AS_FULL_EDITOR,
       { programmatic: where === 'sidebar' ? 'cce-pin-to-sidebar' : 'pin-to-panel' }),
     /* A new conversation has no id until its first message is sent, so the core is answered without one. */
     create: async (where) => {
-      await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, undefined,
+      await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, AS_FULL_EDITOR,
         { programmatic: where === 'sidebar' ? 'cce-pin-to-sidebar' : 'pin-to-panel' });
       return '';
     },
@@ -1002,7 +1006,7 @@ function start(context, log, renamed, handing = false) {
     listens: (sessionId) => claude.source.canDeliver(sessionId) && answersReady.has(sessionId),
     openTab: (sessionId) => {
       answersReady.delete(sessionId);
-      return vscode.commands.executeCommand('claude-vscode.editor.open', sessionId, undefined, undefined, undefined, undefined, { programmatic: 'pin-to-panel' });
+      return vscode.commands.executeCommand('claude-vscode.editor.open', sessionId, undefined, undefined, undefined, AS_FULL_EDITOR, { programmatic: 'pin-to-panel' });
     },
     transcriptOf: (sessionId) => transcriptOf(sessionId),
     elsewhere: (sessionId) => deleteSession.shownElsewhere(planDir()).get(sessionId) || [],
@@ -1109,7 +1113,7 @@ function start(context, log, renamed, handing = false) {
     if (typeof globalThis.__cceToAllPanels !== 'function') return { outcome: 'notReceived', reason: 'Claude Code is not patched in this window' };
     relay.noteTyped(planDir(), text);
     try {
-      await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, text, undefined, undefined, undefined, { programmatic: 'pin-to-panel' });
+      await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, text, undefined, undefined, AS_FULL_EDITOR, { programmatic: 'pin-to-panel' });
     } catch (e) { return { outcome: 'notReceived', reason: 'Claude Code could not open a tab: ' + ((e && e.message) || e) }; }
     const id = 'open-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     const started = Date.now();
@@ -1138,7 +1142,7 @@ function start(context, log, renamed, handing = false) {
   const resumeConversation = (sessionId, text) => relay.resume(sessionId, text, {
     open: (id) => {
       answersReady.delete(id);
-      return vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, undefined, { programmatic: 'pin-to-panel' });
+      return vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, AS_FULL_EDITOR, { programmatic: 'pin-to-panel' });
     },
     shows: (id) => claude.source.canDeliver(id) && answersReady.has(id),
     tabOpen: (id) => shownList().includes(id),

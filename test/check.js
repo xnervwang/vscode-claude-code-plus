@@ -8370,6 +8370,21 @@ console.log('\na tab the person closes');
   }
 }
 
+console.log('\nconversation tabs opened by this extension');
+{
+  /* Claude Code's own session list opens a conversation as a full editor tab, the fifth argument of
+     claude-vscode.editor.open; every tab this extension opens is opened the same way. Two calls are left as they are: one
+     brings forward a tab already open, and one reopens closed tabs as they were. */
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const calls = [...ext.matchAll(/executeCommand\('claude-vscode\.editor\.open', ([^)]*)\)/g)].map((m) => m[1].split(',').map((a) => a.trim()));
+  const fifth = calls.map((a) => a[4] || '');
+  const others = fifth.filter((a) => a !== 'AS_FULL_EDITOR');
+  if (/^const AS_FULL_EDITOR = true;$/m.test(ext) && fifth.filter((a) => a === 'AS_FULL_EDITOR').length === 5
+      && JSON.stringify(others.sort()) === JSON.stringify(['', 't.fullEditor'])) {
+    ok('every Claude Code tab this extension opens is a full editor tab, as Claude Code\'s own session list opens one, but for bringing forward a tab already open and reopening closed tabs as they were');
+  } else bad(`fifth arguments of claude-vscode.editor.open: ${JSON.stringify(fifth)}`);
+}
+
 console.log('\na panel whose script never arrived');
 {
   const { applyEdits } = require('../src/edits');
@@ -10828,7 +10843,7 @@ console.log('\nthe Supervisor panel');
       const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
       const answerPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '91-answer.js'), 'utf8');
       const readyId = (/var ANSWERS_READY = '([^']+)';/.exec(answerPage) || [])[1];
-      if (/open: \(id\) => \{\s*answersReady\.delete\(id\);\s*return vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, undefined, \{ programmatic: 'pin-to-panel' \}\);\s*\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*tabOpen: \(id\) => shownList\(\)\.includes\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
+      if (/open: \(id\) => \{\s*answersReady\.delete\(id\);\s*return vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, AS_FULL_EDITOR, \{ programmatic: 'pin-to-panel' \}\);\s*\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*tabOpen: \(id\) => shownList\(\)\.includes\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
           && /agentsFresh: \(\) => waiting\.listAgents\(pluginInstall\.findClaude\(claudeFolders\(\)\)\), resume: resumeConversation,/.test(ext)
           && readyId && ext.includes(`const ANSWERS_READY = '${readyId}', answersReady = new Set();`)
           && /if \(key !== ANSWERS_READY\) \{ claude\.answered\(key, sent, reason, detail\); return; \}/.test(ext)) {
