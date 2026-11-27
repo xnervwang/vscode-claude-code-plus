@@ -5336,10 +5336,22 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         if (!pageD || !hostD) return;
         w.pin(profile.folder);
         const inD = (body, arg) => call(body, arg, 60000, folderD);
-        const frameOf = (c) => until(async () => {
-          for (const f of pageD.frames()) { try { if (await f.evaluate((x) => !!document.body && document.body.innerText.includes(x), c.turns[0][1])) return f; } catch (_) { /* gone */ } }
-          return null;
-        }, 60000, 1000);
+        /* The pages of the second window that show conversation `c`, each with whether it draws. */
+        const pagesOf = async (c) => {
+          const found = [];
+          for (const f of pageD.frames()) {
+            try { if (!await f.evaluate((x) => !!document.body && document.body.innerText.includes(x), c.turns[0][1])) continue; } catch (_) { continue; }
+            found.push({ frame: f, paints: await paints(f) });
+          }
+          return found;
+        };
+        /* Opening a conversation's tab again can leave its earlier page in place, still running but no longer drawn, and
+           a click on that page never happens. So a page of `c` that draws is taken, and one that does not only when none
+           draws within 20 seconds. */
+        const frameOf = async (c) => {
+          const drawn = await until(async () => { const x = (await pagesOf(c)).find((p) => p.paints.raf === true); return x && x.frame; }, 20000, 1000);
+          return drawn || until(async () => { const x = (await pagesOf(c))[0]; return x && x.frame; }, 40000, 1000);
+        };
         const openIn = async (c) => { await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', c.id); return frameOf(c); };
         const behindD = () => inD('await vscode.window.showTextDocument(vscode.Uri.file(arg), { preview: false, viewColumn: vscode.window.tabGroups.activeTabGroup.viewColumn }); return true;',
           path.join(folderD, 'notes-d.txt'));
@@ -5364,6 +5376,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
           await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', Y.id);
           await sleep(800);
+          frame = await frameOf(Y) || frame;
           await frame.getByText(CHOICE.options[0], { exact: true }).last().click({ timeout: 5000 }).catch(() => {});
           if (await askedChoice(frame).catch(() => false)) await frame.getByText(/Submit answers\s*$/).last().click({ timeout: 5000 }).catch(() => {});
           return until(() => frame.evaluate((q) => !document.body.innerText.includes(q) || !/Esc to cancel/.test(document.body.innerText), CHOICE.question).catch(() => false), 20000, 500);
@@ -5373,7 +5386,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           await inD('await vscode.commands.executeCommand("notifications.clearAll"); return true;');
           await inD('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', c.id);
           await sleep(800);
-          return refuse(await frameOf(c) || frame);
+          return refuse(await frameOf(c) || frame).catch(async (e) => {
+            const pages = (await pagesOf(c)).map((p) => p.paints);
+            throw new Error(`${String(e.message).split('\n')[0]}; pages showing the conversation: ${JSON.stringify(pages)}`);
+          });
         };
         /* After Open on a notice about `c`: once the second window's tab in front is `c`'s and `frame` shows text
            matching `shows`, the label of that tab and which window is in front. */
