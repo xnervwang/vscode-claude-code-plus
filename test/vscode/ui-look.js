@@ -3208,8 +3208,11 @@ const STEPS = [
       unread: made('unread', 'Summarise the failed nightly jobs', 'Two jobs failed, both in the export step.', 4),
       idle: made('idle', 'Rename the columns of the audit table', 'Renamed them in db/audit.sql.', 5),
       term: made('term', 'Tidy the logging in the payment client', 'The client now logs one line per request.', 5),
+      tab: made('tab', 'Write the changelog for the hotfix', 'The changelog has one entry for the fix.', 3),
+      window: made('window', 'Profile the slow report query', 'The query spends most of its time sorting.', 3),
     };
     const SCREEN = 'payments';
+    const OTHER_WINDOW_NAME = 'billing-service';
 
     /* Writes the transcripts of `list` beside the fake conversations', with their version and branch. */
     function addConvos(d, list) {
@@ -3278,6 +3281,18 @@ const STEPS = [
     const pointerOff = async (d, list) => { await rest(d, list, 'bottom'); await d.away(); };
     const toDemo = async (d) => { await d.exec('claude-vscode.editor.open', d.sid); await d.sleep(1500); };
 
+    /* Opens `t` in a tab and has it answer `text`: a conversation opened from its id and not run since can go on counting
+       as open nowhere. */
+    async function openHere(d, list, t, text) {
+      const frame = await thread(d, t);
+      const turns = d.model.turns();
+      await send(d, frame, text);
+      if (!await d.until(async () => d.model.turns() > turns && await lastReplyHas(frame, PLAIN), 30000, 500)) {
+        throw new Error(`"${t.title}" did not answer "${text}" in 30 s`);
+      }
+      await rowWhere(d, list, t.title, (s) => s.stripe === 'here', 30000, 'has no stripe of a conversation open here');
+      return frame;
+    }
     /* Closes the Claude Code tabs of the conversations titled `titles`; a tab's title can carry this extension's marks and
        be cut short. */
     async function closeTabs(d, titles) {
@@ -3320,6 +3335,24 @@ const STEPS = [
       fs.writeFileSync(record, JSON.stringify({ pid: child.pid, sessionId: t.id, cwd: d.profile.folder, startedAt: Date.now() - 125000,
         procStart, entrypoint: 'cli', kind: 'interactive', status: 'idle' }));
       return { child, record };
+    }
+    /*
+     * Another VS Code window that shows conversation `t`: the entry each window of this machine writes in the plan folder
+     * of this extension (src/window-entries.js), for a live process that stands in for that window. An entry is kept
+     * fresh while the step lasts, as the windows rewrite theirs.
+     */
+    function inWindow(d, t) {
+      const child = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: 'ignore' });
+      const dir = path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'windows');
+      fs.mkdirSync(dir, { recursive: true });
+      const record = path.join(dir, `${child.pid}.json`);
+      const write = () => {
+        fs.writeFileSync(record + '.tmp', JSON.stringify({ at: Date.now(), pid: child.pid, name: OTHER_WINDOW_NAME,
+          folders: [path.join(path.dirname(d.profile.folder), OTHER_WINDOW_NAME)], sessions: [t.id] }) + '\n');
+        fs.renameSync(record + '.tmp', record);
+      };
+      write();
+      return { child, record, fresh: setInterval(write, 30000) };
     }
     const leave = (x) => {
       if (!x) return;
@@ -3482,6 +3515,44 @@ const STEPS = [
           return d.sidebar();
         },
         undo: async (d) => { leave(d.listTerminal); d.listTerminal = null; await dropConvos(d, [C.idle, C.term]); },
+      },
+      {
+        name: 'agent-plus-hover-here', features: ['agent-plus-row-hover'],
+        expect: 'The pointer rests on the row "' + C.tab.title + '" in Agent Plus\'s session list: the conversation in front in the '
+          + 'editor, in a tab of this window, so its row has a solid stripe at its start and is drawn as the current one, its title in bold '
+          + 'on a highlighted background. A hover box under the row reads, one line each: "Claude Code", a dot and "Ungrouped"; '
+          + '"Session ID:" and the conversation\'s id; "Started" with a date and a time; "Last active" with a date and a time; and "Open in '
+          + 'this window", with nothing about a sidebar, another window or a terminal. The box has a border, is readable, and lies wholly '
+          + 'inside the side bar, over the rows below. While the pointer is on the row its time gives way to its buttons.',
+        unchanged: 'The rows listed before are still there.',
+        act: async (d) => {
+          const list = await listReady(d);
+          addConvos(d, [C.tab]);
+          await listed(d, list, [C.tab]);
+          await openHere(d, list, C.tab, 'Is the date in it right?');
+          await agentHover(d, list, C.tab.title, /Open in this window/);
+          return d.sidebar();
+        },
+        undo: async (d) => { await pointerOff(d, await agentList(d)); await closeTabs(d, [C.tab.title]); await dropConvos(d, [C.tab]); await toDemo(d); },
+      },
+      {
+        name: 'agent-plus-hover-window', features: ['agent-plus-row-hover'],
+        expect: 'The pointer rests on the row "' + C.window.title + '" in Agent Plus\'s session list, a conversation that another VS Code '
+          + 'window, "' + OTHER_WINDOW_NAME + '", shows: the row is greyed and the stripe at its start is a hollow outline. A hover box '
+          + 'under the row reads, one line each: "Claude Code", a dot and "Ungrouped"; "Session ID:" and the conversation\'s id; "Started" '
+          + 'with a date and a time; "Last active" with a date and a time; and "Open in the VS Code window "' + OTHER_WINDOW_NAME + '"". '
+          + 'The box has a border, is readable, and lies wholly inside the side bar.',
+        unchanged: 'The demo conversation is in front in the editor.',
+        act: async (d) => {
+          const list = await listReady(d);
+          d.listWindow = inWindow(d, C.window);
+          addConvos(d, [C.window]);
+          await listed(d, list, [C.window]);
+          await rowWhere(d, list, C.window.title, (r) => r.stripe === 'elsewhere' && r.dim && r.away === 'window', 45000, 'is not shown open in another window');
+          await agentHover(d, list, C.window.title, /Open in the VS Code window/);
+          return d.sidebar();
+        },
+        undo: async (d) => { await pointerOff(d, await agentList(d)); leave(d.listWindow); d.listWindow = null; await dropConvos(d, [C.window]); },
       },
     ];
   })(),
