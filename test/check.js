@@ -8372,9 +8372,6 @@ console.log('\na tab the person closes');
 
 console.log('\nconversation tabs opened by this extension');
 {
-  /* Claude Code's own session list opens a conversation as a full editor tab, the fifth argument of
-     claude-vscode.editor.open; every tab this extension opens is opened the same way. Two calls are left as they are: one
-     brings forward a tab already open, and one reopens closed tabs as they were. */
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   const calls = [...ext.matchAll(/executeCommand\('claude-vscode\.editor\.open', ([^)]*)\)/g)].map((m) => m[1].split(',').map((a) => a.trim()));
   const fifth = calls.map((a) => a[4] || '');

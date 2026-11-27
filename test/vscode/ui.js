@@ -1008,8 +1008,6 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       conv = await conversation(tab0);
       check(!!conv, 'Claude Code draws every turn of the conversation in that tab');
       if (!conv) return;
-      /* Claude Code's own session list opens a conversation as a full editor tab, which draws no row above the conversation
-         repeating the tab's title; one opened from Agent Plus's list is the same. */
       const head = await conv.evaluate(() => ({ full: window.IS_FULL_EDITOR === true, titleRow: !!document.querySelector('[class*="titleGroup_"]') })).catch(() => null);
       check(!!head && head.full && !head.titleRow, 'it is a full editor tab, as Claude Code\'s own session list opens one, with no row above the conversation repeating its title', head);
       const st = await until(async () => { const s = await stampsIn(conv); return s.user.every(Boolean) && s.reply.every(Boolean) && s.user.length === tab0.turns.length && s; }, 20000, 500);
