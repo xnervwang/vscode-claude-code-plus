@@ -72,13 +72,13 @@
  *                  not, in inline code only the id is linked, the conversation's own title and id and a placeholder
  *                  title are not, a reply that gets its link once the conversation it names is listed, the same link in
  *                  a panel opened later, and a click opening the conversation in that agent's own view
- *   the steward    the Steward panel, a steward's crown on its tab, on every session list row and in the panel's header
+ *   the supervisor    the Supervisor panel, a supervisor's crown on its tab, on every session list row and in the panel's header
  *                  with no bell even where an older build stored one, renames through both of Claude Code's rename
  *                  boxes with marks typed anywhere, a managed conversation's dot and envelope in the panel while it
  *                  works, has a reply unread, waits for permission and runs work in the background, and each of the
- *                  steward's requests: a message passed on, a rename, close (refused while busy without --confirmed),
+ *                  supervisor's requests: a message passed on, a rename, close (refused while busy without --confirmed),
  *                  --windows, a new conversation, one reopened (refused while another process runs it or no window has
- *                  its folder, and ticked again), a handoff, a notice, a second steward's crown, and a link. On Linux,
+ *                  its folder, and ticked again), a handoff, a notice, a second supervisor's crown, and a link. On Linux,
  *                  also a conversation two processes run: the marks, and Stop the old process
  *   restored tabs  after a reload, a Claude Code tab behind another left unloaded, and loaded with
  *                  claudeCodePlus.loadRestoredTabs on, the tab that was in front staying in front; two such tabs with
@@ -87,15 +87,15 @@
  *                  takes a message; through three reloads with the setting on, each background tab still opens its
  *                  conversation rather than Claude Code's notice that it was not reopened
  *   two windows    a second window of the same VS Code on a folder of its own: a conversation open there comes to the
- *                  front, in that window, from the first window's Steward panel, from a steward's link and from the
+ *                  front, in that window, from the first window's Supervisor panel, from a supervisor's link and from the
  *                  first window's session list when a copy of it is kept under that window's folder, and no copy of it
  *                  opens; a link to a conversation open nowhere reports that; its title in a reply in the first
  *                  window, linked and clicked, does the same; and what each window knows of it once that window has
  *                  reloaded with the conversation's tab restored behind another and not loaded
- *   several stewards
- *                  two stewards in two windows ticking one conversation: its box stays free in the other's panel, a
- *                  steward's own box is still greyed, the eye at the end of its row names the other steward, and a
- *                  click on that name brings that steward up in its window
+ *   several supervisors
+ *                  two supervisors in two windows ticking one conversation: its box stays free in the other's panel, a
+ *                  supervisor's own box is still greyed, the eye at the end of its row names the other supervisor, and a
+ *                  click on that name brings that supervisor up in its window
  *   closed, sidebar, archived
  *                  in Agent Plus's session list, Recently closed once the tab is closed; Open in Sidebar, New in sidebar
  *                  and New in tab; an archived conversation: no Delete... while it is open in a tab, then its
@@ -108,9 +108,9 @@
  *                  hover, and a click bringing that window forward with its tab; and Ctrl+Shift+T, Claude Code's
  *                  binding turned off while the list manages the window, bringing back in one tab the conversation
  *                  closed last, and reopening another editor closed after it instead
- *   light theme    the envelope's text form on the tab and the Steward panel, the envelope on its row in Agent Plus's
+ *   light theme    the envelope's text form on the tab and the Supervisor panel, the envelope on its row in Agent Plus's
  *                  session list, and the colour form back in a dark theme
- *   the old bell   a steward whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
+ *   the old bell   a supervisor whose stored name ends in the bell of an older build: Agent Plus's notice, its count's hover,
  *                  its list of what needs you and its Conversations view name it with the crown after it and no bell
  *   the focused window
  *                  a conversation of a second window that starts to wait: the focused window shows the notice,
@@ -127,7 +127,7 @@
  *                  receives, a detached command's end, and the four settings in the Settings editor
  *   installed again
  *                  the same version rebuilt with one file changed, installed over the running copy with a second window
- *                  open: a steward of all conversations still gains the one it opens, in stewards.json and its panel;
+ *                  open: a supervisor of all conversations still gains the one it opens, in stewards.json and its panel;
  *                  after a reload that window keeps the table, and the other, still on the earlier build, saves no tick
  *                  and says so with a Reload Window button
  *   commands       Show Status, Settings and the confirmation of Stop Loading the Work Plan Plugin
@@ -193,7 +193,7 @@ const CROWN = '\u{1F451}', BELL = '\u{1F6CE}\uFE0F';
 const MARK_RE = /\u{1F451}|\u{1F6CE}|\u{1F4E9}|\u2709/u;
 /* The crown and the envelope a tab's label ends in. */
 const TRAILING_MARKS = /(?: (?:\u{1F451}|\u{1F4E9}|\u2709[\uFE0E\uFE0F]?))+$/u;
-/* Conversations a steward opens again: one started in a folder below the window's, one in a folder no window has open. */
+/* Conversations a supervisor opens again: one started in a folder below the window's, one in a folder no window has open. */
 const FOLDER_THREADS = [
   { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6fa', title: 'Tidy the helper scripts in the sub folder', days: 0,
     turns: [['Tidy the helper scripts in the sub folder.', 'Moved the two helpers into scripts/ and removed the unused one.']] },
@@ -278,7 +278,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const claudeTabs = async () => (await tabs()).flatMap((g) => g.tabs.map((t) => ({ ...t, column: g.column })))
     .filter((t) => t.view === PANEL_VIEW);
   const exec = (command, ...a) => call(`await vscode.commands.executeCommand(${JSON.stringify(command)}, ...arg); return true;`, a);
-  /* Opens a conversation in an editor tab the way a steward's --resume does; a plain open shows a conversation the
+  /* Opens a conversation in an editor tab the way a supervisor's --resume does; a plain open shows a conversation the
      sidebar has held in the sidebar again. */
   const openTab = (id) => call('await vscode.commands.executeCommand("claude-vscode.editor.open", arg, undefined, undefined, undefined, undefined, { programmatic: "pin-to-panel" }); return true;', id);
   /* The conversations that can be opened in an editor tab: once the sidebar has held one (the sidebar step opens the
@@ -1240,7 +1240,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await openList();
     });
 
-    /* Agent Plus has a message typed into a conversation, as its Answer view and a steward's messages are, while the
+    /* Agent Plus has a message typed into a conversation, as its Answer view and a supervisor's messages are, while the
        user types in another conversation's panel beside it. The panel says it is ready and types only on the host's
        go, and the user's focus and keys stay in the other panel. */
     await step('a message typed for someone else', async () => {
@@ -3208,14 +3208,45 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     await step('the steward panel', async () => { try {
       const front = threads[0];
-      /* The Steward panel lists only conversations open in a window, so the others are opened in tabs first. */
+      /* The Supervisor panel lists only conversations open in a window, so the others are opened in tabs first. */
       for (const t of threads.slice(1)) { await exec('claude-vscode.editor.open', t.id); await sleep(800); }
       await exec('claude-vscode.editor.open', front.id);
       await sleep(1500);
       await exec('workbench.view.extension.claudeCodePlusSteward');
       const frame = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
       const text = frame ? await frame.evaluate(() => document.body.innerText.slice(0, 300)) : '';
-      check(!!frame, 'the Steward panel opens at the bottom of the window for the conversation in front', text);
+      check(!!frame, 'the Supervisor panel opens at the bottom of the window for the conversation in front', text);
+      /* What the user reads of the Supervisor panel: the tabs of the bottom panel, the view's title, the panel's text with
+         every hover text and label in it, and this extension's notifications on screen. None of it names the role
+         "steward"; a file or skill name such as steward-relay.py or agent-work-plan:steward is not the role. */
+      const ROLE_WORD = /(?<![\w\-./:])steward(?![\w\-./])/i;
+      const panelWords = async () => {
+        const chrome = await page.evaluate(() => {
+          const part = document.querySelector('.part.panel');
+          if (!part) return null;
+          const said = (e) => [e.innerText || '', e.getAttribute('aria-label') || '', e.getAttribute('title') || ''];
+          const tabs = [...part.querySelectorAll('.composite-bar .action-item')];
+          const active = tabs.find((e) => e.classList.contains('checked'));
+          return {
+            active: active ? [active, ...active.querySelectorAll('[aria-label], [title]')].flatMap(said).filter(Boolean) : [],
+            tabs: tabs.flatMap((e) => [e, ...e.querySelectorAll('[aria-label], [title]')]).flatMap(said).filter(Boolean),
+            heads: [...part.querySelectorAll('.pane-header, .title-label')].flatMap(said).filter(Boolean),
+          };
+        });
+        const inside = frame ? await frame.evaluate(() => [document.body.innerText,
+          ...[...document.querySelectorAll('[title], [data-why], [aria-label]')].flatMap((e) => ['title', 'data-why', 'aria-label'].map((a) => e.getAttribute(a) || ''))]
+          .filter(Boolean)) : [];
+        /* Agent Plus's notices of conversations that need the user are its own; the rest on screen are this extension's. */
+        return { chrome, inside, toasts: (await notificationItems(page, '.notifications-toasts')).filter((n) => !NEED(n)).map((n) => n.text) };
+      };
+      const roleNamed = (w) => [...(w.chrome ? w.chrome.tabs.concat(w.chrome.heads) : []), ...w.inside, ...w.toasts].filter((t) => ROLE_WORD.test(t));
+      if (frame) {
+        const w = await until(async () => { const x = await panelWords(); return x.chrome && x.chrome.active.some((t) => /\bSupervisor\b/i.test(t)) && x; }, 10000, 500)
+          || await panelWords();
+        check(!!w.chrome && w.chrome.active.some((t) => /\bSupervisor\b/i.test(t)) && w.inside.some((t) => /\bSupervisors\b/.test(t)) && !roleNamed(w).length,
+          'the bottom panel\'s tab reads Supervisor, and no tab, view title, text or hover text of the panel, nor a notification of this extension on screen, says steward',
+          { active: w.chrome && w.chrome.active, heads: w.chrome && w.chrome.heads, steward: roleNamed(w) });
+      }
       /* Running conversations come from `claude agents --json`, which is polled at most every 30 s. */
       const listed = () => frame.evaluate(() => [...document.querySelectorAll('input[data-id]')].map((b) => [b.dataset.id, b.checked]));
       let boxes = frame ? (await until(async () => { const b = await listed(); return b.length ? b : null; }, 40000, 1000)) || [] : [];
@@ -3235,7 +3266,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         try { return line ? String(JSON.parse(line).customTitle || '') : ''; } catch (_) { return ''; }
       };
       if (frame && boxes.length) {
-        /* The name an older build stored for a steward: the title with its bell after it, as the last custom title in the
+        /* The name an older build stored for a supervisor: the title with its bell after it, as the last custom title in the
            transcript and as the name of its process's session record. */
         const belledName = `${front.title} ${BELL}`;
         fs.appendFileSync(transcriptOf(front), JSON.stringify({ type: 'custom-title', customTitle: belledName, sessionId: front.id }) + '\n');
@@ -3248,8 +3279,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         let tabbed = await claudeTabs();
         const inTab = (id) => { const t = threads.find((x) => x.id === id); return !!t && tabbed.some((x) => titled(x.label.replace(ENVELOPE, ''), t.title)); };
         /* The panel lists a conversation once its process shows up, which can be after the first one, so it is given a
-           while to list one that has a tab. With none, the test opens one in a tab behind the steward's, the way a
-           steward's --resume opens it; a plain open could put it in a sidebar an earlier step left with a new
+           while to list one that has a tab. With none, the test opens one in a tab behind the supervisor's, the way a
+           supervisor's --resume opens it; a plain open could put it in a sidebar an earlier step left with a new
            conversation. The sidebar's page can still hold the conversation an earlier step opened there, and Claude Code
            then shows it in the sidebar, so one that does not come up in a tab is passed over for the next. */
         const withTab = async () => { tabbed = await claudeTabs(); const b = await listed(); if (b.length) boxes = b; return boxes.some(([id]) => inTab(id)); };
@@ -3259,19 +3290,19 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             if (!t) continue;
             await openTab(t.id);
             if (await until(async () => { tabbed = await claudeTabs(); return inTab(t.id); }, 15000, 500)) break;
-            note(`"${t.title}" stayed out of a tab when asked for one, so the steward manages another conversation`);
+            note(`"${t.title}" stayed out of a tab when asked for one, so the supervisor manages another conversation`);
           }
           await exec('claude-vscode.editor.open', front.id);
           await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label.replace(TRAILING_MARKS, ''), front.title)), 20000, 300);
         }
         const chosen = (boxes.find(([id]) => inTab(id)) || boxes[0])[0];
-        check(inTab(chosen), 'the conversation the steward will manage has an editor tab here', { chosen, tabs: tabbed.map((x) => x.label) });
+        check(inTab(chosen), 'the conversation the supervisor will manage has an editor tab here', { chosen, tabs: tabbed.map((x) => x.label) });
         await frame.locator(`input[data-id="${chosen}"]`).first().click();
         const file = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
         const table = await until(() => {
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
-        check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its steward', table);
+        check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its supervisor', table);
         /* A new body that reaches the panel between a box's press and its release replaces the box under the pointer;
            the panel holds it until the click is over, and the box still gets ticked. */
         const second = boxes.map(([id]) => id).find((id) => id !== chosen);
@@ -3305,11 +3336,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const others = await Promise.all(threads.filter((t) => t.id !== front.id).map((t) => slRow(t)));
         check(!!crownRow && others.every((r) => !r || !r.crown),
           'and its row in Agent Plus\'s session list has the crown, after the title and not in it; no other row has one', { steward: crownRow || await slRow(front), others });
-        /* The Steward panel's header shows the steward's name with its crown and without the bell stored in that
+        /* The Supervisor panel's header shows the supervisor's name with its crown and without the bell stored in that
            name. */
         const header = () => frame.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : null; });
         const headed = await until(async () => (await header()) === `${front.title} ${CROWN}`, 15000, 500);
-        check(!!headed, 'the Steward panel\'s header names the steward with one crown after the name and without the bell an older build stored in it',
+        check(!!headed, 'the Supervisor panel\'s header names the supervisor with one crown after the name and without the bell an older build stored in it',
           { header: await header(), stored: storedTitle(front.id) });
         await shot('steward-ticked');
 
@@ -3376,8 +3407,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }
         await page.mouse.move(5, 880);
         await shot('steward-renamed');
-        /* A message the steward passes on with its script: the window types it into the managed conversation, which
-           sends it as the user's message. The steward's tool call that runs the script is in its transcript first. */
+        /* A message the supervisor passes on with its script: the window types it into the managed conversation, which
+           sends it as the user's message. The supervisor's tool call that runs the script is in its transcript first. */
         const target = threads.find((t) => t.id === chosen);
         if (target) {
           const words = 'Please run the tests once more, then stop.';
@@ -3398,12 +3429,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const arrived = /^Sent: /.test(said) ? await until(() => {
             try { return fs.readFileSync(transcriptOf(target), 'utf8').includes(JSON.stringify(words).slice(1, -1)); } catch (_) { return false; }
           }, 30000, 500) : false;
-          check(/^Sent: /.test(said) && !!arrived, 'the steward passes a message on: it is typed into the managed conversation and sent as its user\'s message',
+          check(/^Sent: /.test(said) && !!arrived, 'the supervisor passes a message on: it is typed into the managed conversation and sent as its user\'s message',
             { said, arrived: !!arrived });
           await shot('steward-relay');
-          /* The steward's other requests: a rename through the panel showing the conversation, a new conversation in
+          /* The supervisor's other requests: a rename through the panel showing the conversation, a new conversation in
              this window's folder with its first message sent, and closing that new one's tab. Each is run the way the
-             steward runs it, so its tool call is in the steward's transcript first. */
+             supervisor runs it, so its tool call is in the supervisor's transcript first. */
           let calls = 0;
           /* `asker` runs the script: its tool call goes in its own transcript first. */
           const actAs = (asker, args, input) => {
@@ -3422,16 +3453,16 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             }).then((said) => { answered(said); return said; });
           };
           const act = (args, input) => actAs(front.id, args, input);
-          const title = 'Renamed by its steward';
+          const title = 'Renamed by its supervisor';
           const renamed = await act(['--rename', target.id], title);
           const titled2 = /^Renamed\./.test(renamed) ? await until(() => {
             try { return fs.readFileSync(transcriptOf(target), 'utf8').includes(`"customTitle":"${title}"`); } catch (_) { return false; }
           }, 20000, 500) : false;
-          check(/^Renamed\./.test(renamed) && !!titled2, 'the steward renames a conversation it manages, and Claude Code records the title', { renamed });
+          check(/^Renamed\./.test(renamed) && !!titled2, 'the supervisor renames a conversation it manages, and Claude Code records the title', { renamed });
           // Later steps find this conversation's tab by its own title.
           if (/^Renamed\./.test(renamed)) await act(['--rename', target.id], target.title);
 
-          /* The managed conversation, in a tab behind the steward's, as the Steward panel's row shows it: a filled green
+          /* The managed conversation, in a tab behind the supervisor's, as the Supervisor panel's row shows it: a filled green
              dot while a turn runs, an envelope once its reply has landed unread, a red dot while it waits for permission,
              and a green ring while nothing but its background work runs. */
           const GREEN = `rgb(${DOTS.running.join(', ')})`, RED = `rgb(${DOTS.waiting.join(', ')})`;
@@ -3443,13 +3474,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               fill: cs && cs.backgroundColor, ring: cs && cs.borderTopWidth !== '0px' ? cs.borderTopColor : '', text: li.innerText.replace(/\s+/g, ' ').trim() };
           }, id);
           const rowIs = (want) => until(async () => { const r = await panelRow(target.id); return r && want(r) && r; }, 30000, 500);
-          const sendTo = async (words) => { const said2 = await act([target.id], words); if (!/^Sent: /.test(said2)) throw new Error(`the steward could not pass "${words}" on: ${said2}`); };
+          const sendTo = async (words) => { const said2 = await act([target.id], words); if (!/^Sent: /.test(said2)) throw new Error(`the supervisor could not pass "${words}" on: ${said2}`); };
           const front2 = async () => { await exec('claude-vscode.editor.open', front.id); await sleep(800); };
           model.hold();
           try {
             await sendTo('Please look at the build log, then stop.');
             const working = await rowIs((r) => r.dot === 'working' && r.fill === GREEN);
-            check(!!working, 'while a turn of the managed conversation runs, its row in the Steward panel has a filled green dot', await panelRow(target.id));
+            check(!!working, 'while a turn of the managed conversation runs, its row in the Supervisor panel has a filled green dot', await panelRow(target.id));
             await shot('steward-row-working');
           } finally { model.release(); }
           const unread = await rowIs((r) => !r.dot && r.env === ENVELOPE.trim());
@@ -3481,20 +3512,40 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const waitingRow = await rowIs((r) => r.dot === 'waiting' && r.fill === RED);
           check(!!waitingRow, 'while it waits for permission to run a command, the row has a filled red dot', await panelRow(target.id));
           await shot('steward-row-waiting');
-          /* The steward is told, through its inbox, which native Windows does not offer (src/stewards.js post()). */
-          const noticed = () => { try { const x = fs.readFileSync(transcriptOf(front), 'utf8'); return x.includes('Steward notice from Claude Code Plus') && x.includes(`(${target.id}) is waiting for the user`); } catch (_) { return false; } };
+          /* The supervisor is told, through its inbox, which native Windows does not offer (src/stewards.js post()). */
+          const noticed = () => { try { const x = fs.readFileSync(transcriptOf(front), 'utf8'); return x.includes('Supervisor notice from Claude Code Plus') && x.includes(`(${target.id}) is waiting for the user`); } catch (_) { return false; } };
+          /* The latest notice in the supervisor's transcript, from its opening line on: the message Claude Code queued
+             for it, or the user row that carries it after a line of Claude Code's own. A skill listing that quotes
+             the opening is neither. */
+          const noticeSeen = () => {
+            let lines = [];
+            try { lines = fs.readFileSync(transcriptOf(front), 'utf8').split('\n'); } catch (_) { return ''; }
+            for (let i = lines.length - 1; i >= 0; i--) {
+              if (!lines[i].includes('notice from Claude Code Plus')) continue;
+              let r;
+              try { r = JSON.parse(lines[i]); } catch (_) { continue; }
+              const c = r.type === 'queue-operation' ? r.content : r.type === 'user' && r.message ? r.message.content : '';
+              const t = typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => (x && x.text) || '').join('\n') : '';
+              const m = /(?:^|\n)((?:Supervisor|Steward) notice from Claude Code Plus[\s\S]*)/i.exec(t);
+              if (m) return m[1];
+            }
+            return '';
+          };
           if (process.platform === 'win32') {
             await sleep(15000);
-            check(!noticed(), 'on native Windows the steward is not sent a notice, since its inbox socket takes none from other processes', model.seen.slice(asked).map((x) => (x.ask || '').slice(0, 120)));
+            check(!noticed(), 'on native Windows the supervisor is not sent a notice, since its inbox socket takes none from other processes', model.seen.slice(asked).map((x) => (x.ask || '').slice(0, 120)));
           } else {
-            /* A steward gets at most one notice per NOTICE_GAP_MS, and the turn that ended a few seconds ago may have just
+            /* A supervisor gets at most one notice per NOTICE_GAP_MS, and the turn that ended a few seconds ago may have just
                sent one, so the wait covers a whole gap. */
             const gap = require('../../src/steward-view').NOTICE_GAP_MS;
-            check(!!await until(noticed, gap + 30000, 1000), 'the steward is sent a notice, not as the user\'s message, that the conversation is waiting for the user',
+            check(!!await until(noticed, gap + 30000, 1000), 'the supervisor is sent a notice, not as the user\'s message, that the conversation is waiting for the user',
               model.seen.slice(asked).map((x) => (x.ask || '').slice(0, 160)));
+            const seen = noticeSeen();
+            check(seen.startsWith('Supervisor notice from Claude Code Plus, not a message from the user.') && !ROLE_WORD.test(seen),
+              'the notice starts with "Supervisor notice from Claude Code Plus" and nowhere calls its reader a steward', seen.slice(0, 600));
           }
           const closeBusy = await act(['--close', target.id]);
-          check(/^Not done: busy: it is waiting/.test(closeBusy), 'asked to close it while it waits, without --confirmed, the steward is told to ask the user first', { closeBusy });
+          check(/^Not done: busy: it is waiting/.test(closeBusy), 'asked to close it while it waits, without --confirmed, the supervisor is told to ask the user first', { closeBusy });
           await exec('claude-vscode.editor.open', target.id);
           const targetPage = await conversation(target, 30000);
           if (targetPage) await targetPage.locator('button, [role="button"]').filter({ hasText: /^\s*3\s*No\s*$/ }).first().click({ timeout: 5000 }).catch(() => {});
@@ -3515,17 +3566,17 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           check(!!ringRow, 'once its turn has ended with a command still running in the background, the row has a green ring, not a filled dot', await panelRow(target.id));
           await shot('steward-row-background');
 
-          /* A handoff run from the managed conversation reaches its steward through the steward's inbox, as a notice
+          /* A handoff run from the managed conversation reaches its supervisor through the supervisor's inbox, as a notice
              that is not the user's message. */
           const handed = model.seen.length;
           const handText = 'The user asked here for the release notes, which belong in another conversation.';
           const handoff = await actAs(target.id, ['--handoff'], handText);
           const arrivedHand = () => { try { const x = fs.readFileSync(transcriptOf(front), 'utf8'); return x.includes('Handoff from') && x.includes(`(${target.id}), passed on by Claude Code Plus`); } catch (_) { return false; } };
           if (process.platform === 'win32') {
-            check(/^Not done: /.test(handoff) && /inbox/.test(handoff), 'on native Windows a handoff says the steward\'s inbox could not be reached', { handoff });
+            check(/^Not done: /.test(handoff) && /inbox/.test(handoff), 'on native Windows a handoff says the supervisor\'s inbox could not be reached', { handoff });
           } else {
             check(handoff.startsWith('Handed off to the steward ') && handoff.includes(`(${front.id})`) && !!await until(arrivedHand, 30000, 1000),
-              'a managed conversation hands something off: the answer names the steward, which gets it as a notice from Claude Code Plus', { handoff, seen: model.seen.slice(handed).map((x) => (x.ask || '').slice(0, 160)) });
+              'a managed conversation hands something off: the answer names the supervisor, which gets it as a notice from Claude Code Plus', { handoff, seen: model.seen.slice(handed).map((x) => (x.ask || '').slice(0, 160)) });
             /* Claude Code draws no row for what arrives through the inbox, so the turn that the handoff starts has no
                message on the page to begin at; its reply's duration still runs from the handoff, not from the last
                message typed. */
@@ -3563,7 +3614,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               }
               return null;
             });
-            check(!!shown2, 'the steward\'s reply to the handoff, which Claude Code draws no row for, is timed from the handoff',
+            check(!!shown2, 'the supervisor\'s reply to the handoff, which Claude Code draws no row for, is timed from the handoff',
               { shown: await stampOf(), want: want2, answer, listed: await listed() });
           }
           const listedWindows = await act(['--windows']);
@@ -3575,7 +3626,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const started = newId ? await until(() => {
             try { return fs.readFileSync(transcriptOf({ id: newId }), 'utf8').includes(JSON.stringify(first).slice(1, -1)); } catch (_) { return false; }
           }, 30000, 500) : false;
-          check(/^Opened: /.test(opened) && !!started, 'the steward opens a new conversation in this window\'s folder, which sends the first message', { opened });
+          check(/^Opened: /.test(opened) && !!started, 'the supervisor opens a new conversation in this window\'s folder, which sends the first message', { opened });
           if (newId) {
             const managed = await until(() => {
               try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(newId); } catch (_) { return false; }
@@ -3584,7 +3635,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
                shown while another tab has its label, and a new conversation's tab is labelled Claude Code, as is the
                empty one an earlier step leaves. */
             const ownTitle = await act(['--rename', newId], 'A new piece of work');
-            check(/^Renamed\./.test(ownTitle), 'the steward gives the new conversation a title', { ownTitle });
+            check(/^Renamed\./.test(ownTitle), 'the supervisor gives the new conversation a title', { ownTitle });
             /* With a turn of the new conversation running, closing it needs --confirmed. */
             const idleNew = await until(() => sessionStatus(newId) === 'idle', 60000, 500);
             let refusedClose = '', closed = '';
@@ -3597,8 +3648,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               }
             } finally { model.release(); }
             check(!!managed && /^Not done: busy: it is working/.test(refusedClose) && /^Closed: /.test(closed),
-              'the new conversation is the steward\'s; while it works, closing it is refused unless --confirmed is given, and goes ahead with it', { managed, idleNew, refusedClose, closed });
-            /* With its tab closed no window shows that conversation, so the steward opens it again and passes it a
+              'the new conversation is the supervisor\'s; while it works, closing it is refused unless --confirmed is given, and goes ahead with it', { managed, idleNew, refusedClose, closed });
+            /* With its tab closed no window shows that conversation, so the supervisor opens it again and passes it a
                message. Its process and this window's list of what it shows can take a moment to let it go. */
             if (/^Closed: /.test(closed)) {
               /* Two lines, to see that the line break reaches the transcript: the panel types the text, and Claude Code
@@ -3611,7 +3662,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               const offered = await until(() => drop.isVisible().catch(() => false), 30000, 500);
               if (offered) await drop.click();
               const unticked = offered && await until(() => manages(newId) === false, 10000, 300);
-              check(!!unticked, 'the Steward panel says a ticked conversation is open in no window, and its Untick button removes the tick', { offered, manages: manages(newId) });
+              check(!!unticked, 'the Supervisor panel says a ticked conversation is open in no window, and its Untick button removes the tick', { offered, manages: manages(newId) });
               /* What this window's panels show, less what Claude Code knows runs in another process (shownList in extension.js). */
               const shownHere = () => call(`if (typeof globalThis.__cceSessionsShown !== 'function') return null;
                 const away = typeof globalThis.__cceSessionsElsewhere === 'function' ? globalThis.__cceSessionsElsewhere() : [];
@@ -3630,7 +3681,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
                 const refusedResume = running ? await act(['--resume', newId], later) : '';
                 const shown = await shownHere();
                 check(!!running && new RegExp(`^Not done: process ${other.pid} runs it`).test(refusedResume) && Array.isArray(shown) && !shown.includes(newId),
-                  'while another process runs a conversation, the steward\'s request to open it is refused with the process named, and no tab opens', { refusedResume, shown, cli });
+                  'while another process runs a conversation, the supervisor\'s request to open it is refused with the process named, and no tab opens', { refusedResume, shown, cli });
               } finally { model.release(); }
               if (other) await until(() => !liveRecords().some((r) => r.pid === other.pid), 30000, 500);
               let resumed = '';
@@ -3644,14 +3695,14 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
               }, 30000, 500) : false;
               const tab = await until(async () => (await claudeTabs()).find((x) => x.active), 10000, 300);
               check(/^Opened: /.test(resumed) && /It is now ticked for you in the Steward panel\./.test(resumed) && !!arrived2,
-                'the steward opens a conversation no window shows in an editor tab of this window, passes it a message of two lines, which arrives with its line break, and has it ticked',
+                'the supervisor opens a conversation no window shows in an editor tab of this window, passes it a message of two lines, which arrives with its line break, and has it ticked',
                 { resumed, arrived: !!arrived2, tab });
-              /* The panel is about the conversation in front, which is the resumed one now; the steward is brought back.
+              /* The panel is about the conversation in front, which is the resumed one now; the supervisor is brought back.
                  Running conversations reach the panel from `claude agents --json`, asked at most every 30 s. */
               await exec('claude-vscode.editor.open', front.id);
               const boxOf = () => frame.evaluate((id) => { const b = document.querySelector(`input[data-id="${id}"]`); return b ? b.checked : null; }, newId);
               const tickedBox = await until(async () => (await boxOf()) === true, 45000, 500);
-              check(manages(newId) === true && !!tickedBox, 'and it is ticked again: stewards.json lists it, and its box in the Steward panel is ticked', { manages: manages(newId), box: await boxOf() });
+              check(manages(newId) === true && !!tickedBox, 'and it is ticked again: stewards.json lists it, and its box in the Supervisor panel is ticked', { manages: manages(newId), box: await boxOf() });
               await shot('steward-resume');
               if (/^Opened/.test(resumed)) {
                 const twice = await act(['--resume', newId], later);
@@ -3688,9 +3739,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             }
           }
           await shot('steward-actions');
-          /* A second steward: the managed conversation ticks another conversation in its own panel, where the first
-             steward's box is greyed, since no steward can be managed. Becoming a steward takes it off the first
-             steward's list, and in the first steward's panel its row then shows one crown, and the other rows none. */
+          /* A second supervisor: the managed conversation ticks another conversation in its own panel, where the first
+             supervisor's box is greyed, since no supervisor can be managed. Becoming a supervisor takes it off the first
+             supervisor's list, and in the first supervisor's panel its row then shows one crown, and the other rows none. */
           await exec('claude-vscode.editor.open', target.id);
           const box2 = frame.locator(`input[data-id="${front.id}"]`).first();
           const other2 = frame.locator(`input[data-id]:not([disabled]):not([data-id="${front.id}"])`).first();
@@ -3701,7 +3752,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const isSteward2 = await until(() => {
             try { const all = JSON.parse(fs.readFileSync(file, 'utf8')).stewards; return all[target.id] && all[target.id].manages.length && !(all[front.id] || { manages: [] }).manages.includes(target.id); } catch (_) { return false; }
           }, 10000, 300);
-          check(frontGreyed && !!isSteward2, 'in the managed conversation\'s panel the steward\'s box is greyed; ticking another makes it a steward, which takes it off the first steward\'s list',
+          check(frontGreyed && !!isSteward2, 'in the managed conversation\'s panel the supervisor\'s box is greyed; ticking another makes it a supervisor, which takes it off the first supervisor\'s list',
             { ticked2: !!ticked2, frontGreyed, table: (() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards; } catch (_) { return null; } })() });
           await exec('claude-vscode.editor.open', front.id);
           const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row a.name[data-open]')].map((a) => [a.dataset.open, a.textContent])));
@@ -3709,8 +3760,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             const n = await names(), others = Object.entries(n).filter(([id]) => id !== target.id);
             return n[target.id] === `${target.title} ${CROWN}` && others.length && others.every(([, t]) => !t.includes(CROWN)) && n;
           }, 30000, 500);
-          check(!!isSteward2 && !!shown2, 'in the first steward\'s panel, a second steward\'s row shows one crown after its title, and the rows of conversations that are not stewards show none',
+          check(!!isSteward2 && !!shown2, 'in the first supervisor\'s panel, a second supervisor\'s row shows one crown after its title, and the rows of conversations that are not supervisors show none',
             { ticked2: !!ticked2, isSteward2: !!isSteward2, names: await names() });
+          {
+            const w = await panelWords();
+            check(w.inside.some((t) => t === 'This conversation is a supervisor, and a supervisor is not managed by another') && w.inside.some((t) => /\ba supervisor\b/.test(t))
+              && !roleNamed(w).length,
+              'with a second supervisor in the list, its greyed box\'s hover text and the row\'s label say supervisor, and nothing in the panel says steward',
+              { steward: roleNamed(w), supervisor: w.inside.filter((t) => /supervisor/i.test(t)).map((t) => t.slice(0, 160)).slice(0, 8) });
+          }
           await shot('steward-two-stewards');
           await exec('claude-vscode.editor.open', target.id);
           if (await until(async () => { const h = await header(); return h && h.includes(target.title.slice(0, 20)); }, 30000, 500)) await frame.locator('button[data-act="none"]').click();
@@ -3736,7 +3794,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await frame.locator('button[data-act="none"]').click();
         await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, front.title)), 10000, 300);
       }
-      /* A steward link that Claude Code drew in a reply, clicked, should bring up the linked conversation's tab. */
+      /* A supervisor link that Claude Code drew in a reply, clicked, should bring up the linked conversation's tab. */
       const other = threads[1], frontPanel = await conversation(front);
       if (frontPanel) {
         const href = 'vscode://xnervwang.claude-code-plus/open?session=' + other.id;
@@ -3747,8 +3805,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const a = [...document.querySelectorAll('[data-testid="assistant-message"] a')].filter((x) => x.textContent.trim() === text).pop();
           return a ? { href: a.getAttribute('href') } : null;
         }, LINK_TEXT), 30000, 500);
-        check(!!drawn && drawn.href === href, 'a steward\'s link in a reply keeps its address when Claude Code draws it', drawn);
-        /* With the Steward panel open, the 1024x677 macOS CI window left the conversation a few lines and clicking
+        check(!!drawn && drawn.href === href, 'a supervisor\'s link in a reply keeps its address when Claude Code draws it', drawn);
+        /* With the Supervisor panel open, the 1024x677 macOS CI window left the conversation a few lines and clicking
            the link timed out. Close the panel first. */
         await exec('workbench.action.closePanel');
         await sleep(500);
@@ -3775,7 +3833,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
       await exec('workbench.action.closePanel');
     } finally {
-      /* Whatever happened above, the conversation in front is no steward afterwards: later steps find its tab by its own
+      /* Whatever happened above, the conversation in front is no supervisor afterwards: later steps find its tab by its own
          title. */
       try {
         await exec('claude-vscode.editor.open', threads[0].id);
@@ -3833,7 +3891,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           return li ? { twice: tw ? tw.textContent : null, stop: stop ? stop.textContent : null, title: stop ? stop.title : null } : null;
         }, t.id);
         const shown = panel && await until(async () => { const r = await rowNow(); return r && r.twice === '2 processes' && r && r.stop === 'Stop the old process' && r; }, 45000, 1000);
-        check(!!shown && shown.title.startsWith(`Stops pid ${older}, `), 'its row in the Steward panel says 2 processes and offers Stop the old process, which names the older one, the tab\'s', shown || (panel && await rowNow()));
+        check(!!shown && shown.title.startsWith(`Stops pid ${older}, `), 'its row in the Supervisor panel says 2 processes and offers Stop the old process, which names the older one, the tab\'s', shown || (panel && await rowNow()));
         await shot('steward-two-processes');
         if (shown) {
           await exec('notifications.clearAll');
@@ -3842,7 +3900,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const gone = await until(() => !of(t.id).some((r) => r.pid === older) && of(t.id).length === 1, 20000, 300);
           check(said === `Stopped process ${older} of that conversation.` && !!gone, 'clicked, it stops the older process and says which, and the other runs on', { said, left: of(t.id) });
           /* The process left running is the one this test started the way the panel starts one. No window's panel shows
-             it, so the conversation can leave the Steward panel altogether. */
+             it, so the conversation can leave the Supervisor panel altogether. */
           const cleared = await until(async () => { const r = await rowNow(), m = await mark(); return (!r || (!r.twice && !r.stop)) && !!m && !/processes at once/.test(m); }, 45000, 1000);
           check(!!cleared, 'and the marks go from the panel and the session list', { row: await rowNow(), list: await mark() });
         }
@@ -4395,7 +4453,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!xInB && !!listed, 'X is open in a tab of the second window, and that window\'s entry among the windows lists it',
           { tab: xInB, entry: entryOf(folderB) });
         const nameB = listed ? listed.name : '';
-        /* Window A has a conversation of its own in front, as a steward would be, and the Steward panel open. */
+        /* Window A has a conversation of its own in front, as a supervisor would be, and the Supervisor panel open. */
         await exec('claude-vscode.editor.open', threads[0].id);
         const own = await conversation(threads[0], 60000).catch(() => null);
         /* notes-b.txt in front of X in X's own column, so that X's tab is behind another. */
@@ -4443,13 +4501,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('workbench.view.extension.claudeCodePlusSteward');
         const steward = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         const rowLink = steward ? await until(() => steward.evaluate((id) => !!document.querySelector(`a.name[data-open="${id}"]`), X.id), 45000, 1000) : false;
-        check(!!rowLink, 'the Steward panel in window A lists X, open in window B', steward ? await steward.evaluate(() => document.body.innerText.slice(0, 400)) : 'no Steward panel');
+        check(!!rowLink, 'the Supervisor panel in window A lists X, open in window B', steward ? await steward.evaluate(() => document.body.innerText.slice(0, 400)) : 'no Supervisor panel');
         if (rowLink) {
           await steward.locator(`a.name[data-open="${X.id}"]`).first().click();
-          await jumped('clicking X\'s row in the Steward panel');
+          await jumped('clicking X\'s row in the Supervisor panel');
           await shotB('two-windows-row-jump');
         }
-        /* The link a steward gives, clicked in a Claude Code panel's page: the page hands it to the extension itself
+        /* The link a supervisor gives, clicked in a Claude Code panel's page: the page hands it to the extension itself
            (src/page/93-steward-links.js), as Claude Code drops such links from replies. */
         const clickLink = (frame, id) => frame.evaluate((href) => {
           const a = document.createElement('a');
@@ -4463,7 +4521,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           check(!!await backToA(), 'window A is in front again before the link is clicked', { front: await frontTitle(both), titleA: await page.title() });
           await exec('notifications.clearAll');
           await clickLink(own, X.id);
-          await jumped('a steward\'s link to X clicked in window A');
+          await jumped('a supervisor\'s link to X clicked in window A');
           await shotB('two-windows-link-jump');
           /* Y is open in no window. */
           frontWith(profile.folder);
@@ -4563,7 +4621,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* A steward reopens a stored conversation in the window whose first folder is the one Claude Code stores it under,
+    /* A supervisor reopens a stored conversation in the window whose first folder is the one Claude Code stores it under,
        and nowhere else. A second window opens a workspace whose folders are R, then this window's own folder A, then Q.
        Conversation Z was started in A and later resumed in R, so its transcript is kept under R's folder of projects
        while its first record still names A: it opens in the second window, and this one starts no new conversation. One
@@ -4610,7 +4668,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
          conversations its processes run. */
       const sessionsNow = () => liveRecords().map((r) => r.sessionId);
       const transcriptsOf = (folder) => { try { return fs.readdirSync(path.join(profile.home, '.claude', 'projects', folderName(folder))).sort(); } catch (_) { return []; } };
-      /* The steward: the conversation in front, ticking one other in the Steward panel. The panel lists only
+      /* The supervisor: the conversation in front, ticking one other in the Supervisor panel. The panel lists only
          conversations open in a window, so another is opened in a tab first. */
       await openTab(threads[1].id);
       await until(async () => (await claudeTabs()).find((x) => titled(x.label.replace(ENVELOPE, ''), threads[1].title)), 20000, 300);
@@ -4623,7 +4681,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', workspace);
       const pageB = await w.pageOf('resume-b', 90000);
       const hostB = pageB ? await w.hostUp(before, folderR).catch(() => null) : null;
-      check(!!box && !!pageB && !!hostB, 'a steward in this window, and a second window on a workspace whose first folder is R and whose second is this window\'s folder', { box: !!box, pageB: !!pageB });
+      check(!!box && !!pageB && !!hostB, 'a supervisor in this window, and a second window on a workspace whose first folder is R and whose second is this window\'s folder', { box: !!box, pageB: !!pageB });
       if (!pageB || !hostB) {
         if (pageB) await pageB.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+W' : 'Control+Shift+W').catch(() => {});
         return;
@@ -4673,9 +4731,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       async function shotB() { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-reopen-in-window-b.png`) }).catch(() => {}); }
     });
 
-    /* Two stewards in two windows, one steward for each conversation at most: a steward cannot be ticked by another
-       (1), a conversation that becomes a steward leaves the other steward's list (2), a conversation one steward ticked
-       is greyed in the other's panel (3), and All is on for one steward only, which takes only what the other has not
+    /* Two supervisors in two windows, one supervisor for each conversation at most: a supervisor cannot be ticked by another
+       (1), a conversation that becomes a supervisor leaves the other supervisor's list (2), a conversation one supervisor ticked
+       is greyed in the other's panel (3), and All is on for one supervisor only, which takes only what the other has not
        ticked (4). Each greyed control says why in a hover label. */
     await step('several stewards for one conversation', async () => {
       const SA = threads[0], X = threads[1];
@@ -4704,7 +4762,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }, id).catch(() => null);
       const eyeOf = (id) => `li.row:has(a.name[data-open="${id}"]) .eyes`;
 
-      /* Window B on a folder of its own: Q1 will be the second steward, Q2 a conversation of B's. */
+      /* Window B on a folder of its own: Q1 will be the second supervisor, Q2 a conversation of B's. */
       const folderT = fs.realpathSync.native((() => { const d = path.join(path.dirname(profile.folder), 'ws-t'); fs.mkdirSync(d, { recursive: true }); return d; })());
       const Q1 = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e700', title: 'Watch over the reports work', days: 0,
         turns: [['Watch over the reports work.', 'I will keep an eye on it.']] };
@@ -4729,7 +4787,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', Q2.id);
         await sleep(800);
         await inB('await vscode.commands.executeCommand("claude-vscode.editor.open", arg); await vscode.commands.executeCommand("workbench.view.extension.claudeCodePlusSteward"); return true;', Q1.id);
-        /* Window A: X loaded in a tab, SA in front with the Steward panel. */
+        /* Window A: X loaded in a tab, SA in front with the Supervisor panel. */
         await exec('claude-vscode.editor.open', X.id);
         await sleep(800);
         await exec('claude-vscode.editor.open', SA.id);
@@ -4739,44 +4797,44 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const listed = panelA && panelB && await until(async () => (await boxIn(panelA, X.id)) && (await boxIn(panelA, Q1.id)) && (await boxIn(panelB, X.id))
           && (await boxIn(panelB, SA.id)) && (await header(panelB)).includes(Q1.title.slice(0, 20))
           && (await header(panelA)).includes(SA.title.slice(0, 20)), 60000, 1000);
-        check(!!listed, 'each window\'s Steward panel lists the conversations of both', { a: panelA && await panelA.evaluate(() => document.body.innerText.slice(0, 400)), b: panelB && await panelB.evaluate(() => document.body.innerText.slice(0, 400)) });
+        check(!!listed, 'each window\'s Supervisor panel lists the conversations of both', { a: panelA && await panelA.evaluate(() => document.body.innerText.slice(0, 400)), b: panelB && await panelB.evaluate(() => document.body.innerText.slice(0, 400)) });
         if (!listed) return;
 
         /* SA ticks X in A's panel; in B's panel X's box stays free, and Q1 ticks it too. */
         await panelA.locator(`input[data-id="${X.id}"]`).first().click();
         const first = await until(() => has(SA.id, X.id), 10000, 300);
         const free = first && await until(async () => { const b = await boxIn(panelB, X.id); return b && !b.disabled && !b.checked && b; }, 20000, 500);
-        check(!!first && !!free, 'once one steward ticks a conversation, its box in the other window\'s panel is neither greyed nor ticked', { table: table(), box: free || await boxIn(panelB, X.id) });
+        check(!!first && !!free, 'once one supervisor ticks a conversation, its box in the other window\'s panel is neither greyed nor ticked', { table: table(), box: free || await boxIn(panelB, X.id) });
         await panelB.locator(`input[data-id="${X.id}"]`).first().click();
         const both = await until(() => has(SA.id, X.id) && has(Q1.id, X.id), 10000, 300);
-        /* B's panel draws SA as a steward once its next body arrives, which can come after the table is written. */
+        /* B's panel draws SA as a supervisor once its next body arrives, which can come after the table is written. */
         const sa = await until(async () => { const b = await boxIn(panelB, SA.id); return b && b.disabled && b; }, 10000, 300) || await boxIn(panelB, SA.id);
-        check(!!both && !!sa && sa.disabled && sa.why === 'This conversation is a steward, and a steward is not managed by another',
-          'the second steward ticks it as well, so both lists have it; a steward\'s own box is still greyed in the other\'s panel', { table: table(), sa });
+        check(!!both && !!sa && sa.disabled && sa.why === 'This conversation is a supervisor, and a supervisor is not managed by another',
+          'the second supervisor ticks it as well, so both lists have it; a supervisor\'s own box is still greyed in the other\'s panel', { table: table(), sa });
 
-        /* In each panel, X's row ends with an eye and the count 1, for the other steward. */
+        /* In each panel, X's row ends with an eye and the count 1, for the other supervisor. */
         const eyeA = await until(async () => { const e = await eyesIn(panelA, X.id); return e && e.n === '1' && e; }, 30000, 500);
         const eyeB = await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.n === '1' && e; }, 30000, 500);
         check(!!eyeA && !!eyeB && eyeA.last && eyeB.last && eyeA.svg && !eyeA.shown && !eyeA.by && !eyeB.by && eyeA.colour !== eyeA.text,
-          'in each panel the managed conversation\'s row ends in a light eye with the count 1 for the other steward, and the row itself names no steward', { a: eyeA || await eyesIn(panelA, X.id), b: eyeB || await eyesIn(panelB, X.id) });
+          'in each panel the managed conversation\'s row ends in a light eye with the count 1 for the other supervisor, and the row itself names no supervisor', { a: eyeA || await eyesIn(panelA, X.id), b: eyeB || await eyesIn(panelB, X.id) });
         const plain = await until(async () => { const e = await eyesIn(panelA, Q1.id); return e && e; }, 30000, 500);
-        check(!!plain && plain.none === true && plain.by === true, 'a steward\'s own row says "a steward" and has no eye', plain);
+        check(!!plain && plain.none === true && plain.by === true, 'a supervisor\'s own row says "a supervisor" and has no eye', plain);
         await shot('stewards-eye-in-a');
 
         /* Window B is behind A: on macOS and Windows a window behind another gets no animation frames, so Playwright's wait
            for the element to stand still never ends there. The hover goes ahead without it; the check after it is what
-           says the list of stewards came up. */
+           says the list of supervisors came up. */
         await panelB.locator(eyeOf(X.id)).first().hover({ force: true });
         const named = await until(async () => { const e = await eyesIn(panelB, X.id); return e && e.shown && e; }, 5000, 200);
         check(!!named && named.names.length === 1 && named.names[0].to === SA.id && named.names[0].name.includes(SA.title.slice(0, 20)),
-          'hovered, the eye in B\'s panel lists the other steward by name', named || await eyesIn(panelB, X.id));
+          'hovered, the eye in B\'s panel lists the other supervisor by name', named || await eyesIn(panelB, X.id));
         await shotB('stewards-eye-hover-in-b');
         await panelA.locator(eyeOf(X.id)).first().hover();
         const namedA = await until(async () => { const e = await eyesIn(panelA, X.id); return e && e.shown && e; }, 5000, 200);
         check(!!namedA && namedA.names.length === 1 && namedA.names[0].to === Q1.id,
-          'and in A\'s panel it names the steward in B', namedA || await eyesIn(panelA, X.id));
+          'and in A\'s panel it names the supervisor in B', namedA || await eyesIn(panelA, X.id));
 
-        /* Clicking a name brings that steward's conversation to the front in its window. */
+        /* Clicking a name brings that supervisor's conversation to the front in its window. */
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
         /* The click goes to the link itself: in a window behind another, moving the mouse onto it can lose the hover that
@@ -4787,10 +4845,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const upInA = await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label.replace(TRAILING_MARKS, ''), SA.title)), 20000, 300);
         const copyInB = (await inB(`return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter((t) => t.input && t.input.viewType === ${JSON.stringify(PANEL_VIEW)}).map((t) => t.label);`))
           .some((l) => titled(l.replace(TRAILING_MARKS, ''), SA.title));
-        check(!!upInA && !copyInB, 'clicked, the name brings that steward\'s conversation to the front in window A, and opens no copy in B',
+        check(!!upInA && !copyInB, 'clicked, the name brings that supervisor\'s conversation to the front in window A, and opens no copy in B',
           { tabsA: await claudeTabs(), copyInB });
 
-        /* What each steward runs, with its tool call in its own transcript first, and a message the user typed there. */
+        /* What each supervisor runs, with its tool call in its own transcript first, and a message the user typed there. */
         const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
         const fileOf = (t) => path.join(profile.home, '.claude', 'projects', fakeHome.folderName(t === Q1 || t === Q2 ? folderT : profile.folder), `${t.id}.jsonl`);
         let calls = 0;
@@ -4822,36 +4880,36 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           promptSource: from ? 'system' : 'user', origin: { kind: from || 'human' }, message: { role: 'user', content: text } }) + '\n');
         const inX = (text) => { try { return fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(text).slice(1, -1)); } catch (_) { return false; } };
 
-        /* Two stewards' messages to one conversation: the second is held back while the first is recent, and sent with --anyway. */
+        /* Two supervisors' messages to one conversation: the second is held back while the first is recent, and sent with --anyway. */
         const first2 = 'Please keep the totals query as it is.', second2 = 'Please rewrite the totals query.';
         const sentA = await actAs(SA, [X.id], first2);
         const arrivedA = /^Sent: /.test(sentA) && await until(() => inX(first2), 30000, 500);
         const held = await actAs(Q1, [X.id], second2);
         const forced = /^Not sent: another steward sent this conversation a message in the last 30 minutes/.test(held) ? await actAs(Q1, ['--anyway', X.id], second2) : '';
         const arrivedB = /^Sent: /.test(forced) && await until(() => inX(second2), 30000, 500);
-        const signed = arrivedB && fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(`Sent by the steward "${Q1.title}" (${Q1.id}) for the user:\n${second2}`).slice(1, -1));
+        const signed = arrivedB && fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(`Sent by the supervisor "${Q1.title}" (${Q1.id}) for the user:\n${second2}`).slice(1, -1));
         check(!!arrivedA && held.includes(`"${SA.title}" (${SA.id})`) && held.includes(first2) && /--anyway/.test(held) && !!arrivedB && !!signed,
-          'a steward\'s message to a conversation that another steward messaged a moment ago is held back, showing the earlier message and who sent it; '
+          'a supervisor\'s message to a conversation that another supervisor messaged a moment ago is held back, showing the earlier message and who sent it; '
           + '--anyway sends it, after the line that names its sender', { sentA, held, forced });
 
-        /* A handoff with --to goes to the steward it names, not to the one whose message started the turn. */
+        /* A handoff with --to goes to the supervisor it names, not to the one whose message started the turn. */
         const moved = 'The user asked here for the release notes, which belong in another conversation.';
         const handed = await actAs(X, ['--handoff', '--to', SA.id], moved);
-        /* On native Windows no handoff reaches a steward's inbox: the answer names the steward --to gave as
-           unreachable, and no other steward is tried. */
+        /* On native Windows no handoff reaches a supervisor's inbox: the answer names the supervisor --to gave as
+           unreachable, and no other supervisor is tried. */
         const gotA = process.platform === 'win32'
-          ? /^Not done: no steward of this conversation could be reached/.test(handed) && handed.includes(SA.id) && !handed.includes(Q1.id)
+          ? /^Not done: no supervisor of this conversation could be reached/.test(handed) && handed.includes(SA.id) && !handed.includes(Q1.id)
           : handed.startsWith('Handed off to the steward ') && handed.includes(`(${SA.id})`)
             && await until(() => { try { return fs.readFileSync(fileOf(SA), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`); } catch (_) { return false; } }, 30000, 1000);
         const notQ1 = !fs.readFileSync(fileOf(Q1), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`);
         const stranger = await actAs(X, ['--handoff', '--to', Q2.id], moved);
         check(!!gotA && notQ1 && /^Not done: .* does not manage this conversation\. Its stewards are /.test(stranger),
-          'a managed conversation\'s handoff with --to goes to the steward it names, though another steward\'s message started its turn, and a --to that names none of its stewards is refused',
+          'a managed conversation\'s handoff with --to goes to the supervisor it names, though another supervisor\'s message started its turn, and a --to that names none of its supervisors is refused',
           { handed, stranger });
 
-        /* A steward changes its own list when the user asks for it in the steward conversation, and refuses when a
-           notice asks. New conversations goes on first, so that unticking the steward's only conversation leaves it a
-           steward that can still change its list. */
+        /* A supervisor changes its own list when the user asks for it in the supervisor conversation, and refuses when a
+           notice asks. New conversations goes on first, so that unticking the supervisor's only conversation leaves it a
+           supervisor that can still change its list. */
         userSays(SA, 'Turn on New conversations.');
         const newOn = await actAs(SA, ['--new', 'on']);
         const laterBox = /^Done: /.test(newOn) && !!table()[SA.id].newSince
@@ -4864,8 +4922,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const onBox = /^Done: /.test(taken) && has(SA.id, X.id) && await until(async () => { const b = await boxIn(panelA, X.id); return b && b.checked && b; }, 20000, 500);
         userSays(SA, 'Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:', 'cross-session');
         const refused = await actAs(SA, ['--new', 'off']);
-        check(!!offBox && !!onBox && !!laterBox && /^Not done: only the user, typing in this steward conversation, can change its list/.test(refused) && !!table()[SA.id].newSince,
-          'asked by the user in the steward conversation, the steward turns New conversations on, unticks a conversation and ticks it again by its title, and its panel shows each change; '
+        check(!!offBox && !!onBox && !!laterBox && /^Not done: only the user, typing in this supervisor conversation, can change its list/.test(refused) && !!table()[SA.id].newSince,
+          'asked by the user in the supervisor conversation, the supervisor turns New conversations on, unticks a conversation and ticks it again by its title, and its panel shows each change; '
           + 'a call made after a notice changes nothing and says why', { dropped, taken, newOn, refused });
         userSays(SA, 'Turn New conversations off.');
         await actAs(SA, ['--new', 'off']);
@@ -4885,7 +4943,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* In a light theme a colour emoji font draws the envelope white, so the tab title, the session list and the Steward
+    /* In a light theme a colour emoji font draws the envelope white, so the tab title, the session list and the Supervisor
        panel draw its one-colour text form there (src/envelope.js); a dark theme brings the colour form back without a
        reload. */
     await step('the envelope in a light theme', async () => {
@@ -4898,7 +4956,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const listIn = () => until(async () => { const f = await listForms(); return f.length === 1 && f[0] === true && f; }, 15000, 500);
       let steward = null, trace = null, sampler = null, stopSampling = async () => null;
       const failedAtStart = failedHere;
-      /* The envelope on the conversation's row in the Steward panel, '' for a row without one. */
+      /* The envelope on the conversation's row in the Supervisor panel, '' for a row without one. */
       const panelForm = () => steward.evaluate((id) => {
         const a = document.querySelector(`a.name[data-open="${id}"]`), row = a && a.closest('li'), e = row && row.querySelector('.env');
         return e ? e.textContent : row ? '' : null;
@@ -4911,7 +4969,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('claude-vscode.editor.open', tab0.id);
         const frame = await conversation(tab0, 60000);
         if (!frame) throw new Error('the conversation did not open');
-        /* A reply that lands while another conversation is in front, so the Steward panel shows that other one. What the
+        /* A reply that lands while another conversation is in front, so the Supervisor panel shows that other one. What the
            windows' shared files said of both as it happened is kept in the results folder when the envelope does not come. */
         trace = attentionTrace([tab0.id, other.id], page);
         /* And what this extension counted as in front (src/claude-source.js focusState), at each change. */
@@ -4953,8 +5011,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         steward = await frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
         /* Running conversations come from `claude agents --json`, which is read at most every 30 s. */
         const panel = steward ? await until(async () => (await panelForm()) === ENVELOPE_TEXT.trim(), 45000, 1000) : false;
-        trace.mark(panel ? 'the envelope in the Steward panel' : 'no envelope in the Steward panel');
-        check(!!panel, 'and so does its row in the Steward panel', steward ? await panelForm() : 'no Steward panel');
+        trace.mark(panel ? 'the envelope in the Supervisor panel' : 'no envelope in the Supervisor panel');
+        check(!!panel, 'and so does its row in the Supervisor panel', steward ? await panelForm() : 'no Supervisor panel');
         await page.mouse.move(5, 880);
         await shot('light-envelope');
         await theme('Default Dark Modern');
@@ -4962,7 +5020,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const darkTab = await tabEnds(ENVELOPE);
         const darkRows = await listIn();
         const darkPanel = steward ? await until(async () => (await panelForm()) === ENVELOPE.trim(), 20000, 500) : false;
-        check(!!darkTab && !!darkRows && !!darkPanel, 'the tab and the Steward panel draw the colour form again, without a reload, and Agent Plus\'s list keeps its envelope',
+        check(!!darkTab && !!darkRows && !!darkPanel, 'the tab and the Supervisor panel draw the colour form again, without a reload, and Agent Plus\'s list keeps its envelope',
           { tabs: await claudeTabs(), list: await listForms(), panel: steward ? await panelForm() : null });
         trace.mark('the dark theme checked');
         const traced = await trace.stop(), focusTrace = await stopSampling();
@@ -4977,7 +5035,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
-    /* A steward whose stored name still ends in the bell an older build of this extension put after a title: everything
+    /* A supervisor whose stored name still ends in the bell an older build of this extension put after a title: everything
        Agent Plus draws of it - the notice, the count's hover, the list of the conversations that need you, the
        Conversations view - names it with the crown after the name and no bell (src/claude-source.js, src/title-marks.js). */
     await step('a steward named with the old bell', async () => {
@@ -5008,7 +5066,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('workbench.action.closeAllEditors');
         await exec('workbench.action.closeAuxiliaryBar');
         await exec('claude-vscode.editor.open', S.id);
-        check(!!await conversation(S, 60000), 'the steward\'s conversation opens in a tab', await tabs());
+        check(!!await conversation(S, 60000), 'the supervisor\'s conversation opens in a tab', await tabs());
         /* Its process's record holds the stored name too. */
         const rec = await until(() => recordOf(S.id), 30000, 500);
         if (rec && !String(rec.d.name || '').includes(BELL)) fs.writeFileSync(rec.file, JSON.stringify(Object.assign({}, rec.d, { name: stored })));
@@ -5020,18 +5078,18 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         fs.writeFileSync(plan, JSON.stringify({ nodes: [{ title: 'Pick which conversation goes first', state: 'waiting', waitingOn: 'user',
           question: 'Which one first?', asked: now, opened: now, since: now }] }, null, 2));
         /* Agent Plus learns of running conversations from `claude agents --json`, which is read at most every 30 s. The
-           steward's tab is behind the other in the window with the focus, so an Agent Plus with 'waitingFor' shows no
+           supervisor's tab is behind the other in the window with the focus, so an Agent Plus with 'waitingFor' shows no
            notice of it there, and its name is read from the hover of its count. */
         if (apWaits) {
           const seen = await until(async () => { const c = await needCount(); return c && c.n >= 1 && c; }, 60000, 300);
           const none = seen ? await noticesWithin(named) : null;
-          check(!!seen && !none.length && !bells(await needNotices()), 'Agent Plus counts the waiting steward, and the window where its tab is open shows no notice of it',
+          check(!!seen && !none.length && !bells(await needNotices()), 'Agent Plus counts the waiting supervisor, and the window where its tab is open shows no notice of it',
             { count: seen || await needCount(), notices: none, record: recordOf(S.id) });
         } else {
           const told = await until(() => noticeOf(named), 60000, 250) || (await listedNotices()).find(about(named));
           const all = await needNotices();
           check(!!told && told.text === `"${named.title}" is waiting for you.` && !bells(all),
-            'Agent Plus\'s notice names the steward with the crown after the name and no bell', { notice: told, toasts: all, listed: told ? undefined : await listedNotices(), record: recordOf(S.id) });
+            'Agent Plus\'s notice names the supervisor with the crown after the name and no bell', { notice: told, toasts: all, listed: told ? undefined : await listedNotices(), record: recordOf(S.id) });
         }
         await shot('steward-old-bell-notice');
         await exec('notifications.clearAll');
@@ -5798,8 +5856,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /* A build of the same version of this extension that differs in one file is installed over the running copy, as
        installing a build locally does: every open window then runs a build that is no longer the installed one until it
-       reloads. A steward of all conversations in window A still gains the conversation it opens; once A has reloaded it
-       keeps the stewards table, and window B, still on the earlier build, leaves it alone and says so. */
+       reloads. A supervisor of all conversations in window A still gains the conversation it opens; once A has reloaded it
+       keeps the supervisors table, and window B, still on the earlier build, leaves it alone and says so. */
     await step('a steward of all after its extension is installed again', async () => {
       const front = threads[0];
       const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
@@ -5837,7 +5895,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }, 30000, 500);
       const staleLine = (f) => f.evaluate(() => { const p = document.querySelector('p.stale'); return p ? { text: p.innerText.replace(/\s+/g, ' ').trim(), button: !!p.querySelector('button[data-act="reload"]') } : null; });
 
-      /* Window A: once the Steward panel is about the conversation in front, that conversation is set to All. The panel
+      /* Window A: once the Supervisor panel is about the conversation in front, that conversation is set to All. The panel
          follows the tab in front at its next pass; a click before then would go to the conversation that was in front
          earlier. */
       const headed = (f, t) => until(() => f.evaluate(() => { const b = document.querySelector('.head b'); return b ? b.textContent : ''; })
@@ -5849,7 +5907,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const forFront = panel && await headed(panel, front);
       if (forFront && !await panel.locator('input[data-every]').isChecked()) await panel.locator('input[data-every]').click();
       const every = await until(() => table()[front.id] && table()[front.id].all === true, 10000, 300);
-      check(!!panel && !!forFront && !!every, 'window A has a steward of all conversations in front', { front: front.id, forFront: !!forFront, table: table() });
+      check(!!panel && !!forFront && !!every, 'window A has a supervisor of all conversations in front', { front: front.id, forFront: !!forFront, table: table() });
       if (!panel || !every) return;
 
       /* Window B on a folder of its own, opened before the install so that it runs the earlier build too. */
@@ -5936,7 +5994,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           }
         }
 
-        /* The steward opens a new conversation in A's folder. Running conversations reach the panel from `claude agents
+        /* The supervisor opens a new conversation in A's folder. Running conversations reach the panel from `claude agents
            --json`, asked at most every 30 s. */
         const opened = await act(['--open', profile.folder], 'Start on the changelog, please.');
         newId = (/Session id: ([0-9a-f-]{36})/.exec(opened) || [])[1] || '';
@@ -5947,7 +6005,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const quietA = await staleLine(panel);
         const eA = entryOf(profile.folder), eB = entryOf(folderS);
         check(/^Opened: /.test(opened) && /It is now ticked for you in the Steward panel\./.test(opened) && !!gained && !!rowOn && !quietA,
-          'with every window still on the replaced build, the steward of all gains the conversation it opened at once: the script reports the tick, stewards.json lists the conversation, and the panel shows it ticked without asking for a reload',
+          'with every window still on the replaced build, the supervisor of all gains the conversation it opened at once: the script reports the tick, stewards.json lists the conversation, and the panel shows it ticked without asking for a reload',
           { opened, gained: !!gained, row: rowOn || (newId && await boxOf(panel, newId)), line: quietA, manages: (table()[front.id] || {}).manages });
         check(!!eA && eA.installed === false && !!eB && eB.installed === false && typeof eA.build === 'string' && eA.build.length > 0 && eA.build === eB.build,
           'both windows\' entries say they run the same build, and not the installed one', { a: eA && [eA.build, eA.installed], b: eB && [eB.build, eB.installed] });
@@ -5960,7 +6018,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!eA2 && eA2.build !== (entryOf(folderS) || {}).build, 'after its reload A\'s entry says it runs the installed build, another than B\'s', { a: entryOf(profile.folder), b: entryOf(folderS) });
 
         /* Window B still runs the earlier build and leaves the table to A, so a tick in B's panel is not saved, and the
-           panel says so. The tick is for a conversation of A's that the steward has through All, which runs again once
+           panel says so. The tick is for a conversation of A's that the supervisor has through All, which runs again once
            its tab is in front. */
         await exec('claude-vscode.editor.open', threads[1].id);
         await conversation(threads[1], 60000).catch(() => null);
@@ -5977,7 +6035,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           .some((n) => [...n.querySelectorAll('.monaco-button')].some((b) => b.innerText.trim() === 'Reload Window')));
         check(!!firstB && !table()[P.id] && !!lineB && /^This window runs an earlier build of Claude Code Plus than the one now installed, so ticks made here are not saved\./.test(lineB.text)
           && lineB.button && !!toastB && !!reloadButton,
-          'window B, still on the earlier build, saves no tick once A runs the installed one, and says so in one line of its Steward panel and in a notice, each with a Reload Window button',
+          'window B, still on the earlier build, saves no tick once A runs the installed one, and says so in one line of its Supervisor panel and in a notice, each with a Reload Window button',
           { clicked: !!firstB, saved: table()[P.id] || null, line: lineB, toast: toastB, reloadButton });
         await (async () => { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-replaced-window-b.png`) }).catch(() => {}); })();
 
@@ -6220,7 +6278,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           || await frame.evaluate(look, KEY) : null;
         const oc = seen ? seen.groups.findIndex((g) => g.name === 'OpenCode Agent Plus') : -1;
         check(!!seen && oc >= 0 && oc === seen.groups.length - 1 && seen.groups[oc].ids.includes(KEY) && /working/.test(seen.dot) && seen.name === 'Port the parser',
-          'the Steward panel lists the OpenCode Agent Plus conversation in a group of its own after the window groups, with its title and a working dot', seen);
+          'the Supervisor panel lists the OpenCode Agent Plus conversation in a group of its own after the window groups, with its title and a working dot', seen);
         await shot('steward-opencode');
         if (frame && seen && !seen.every) {
           await frame.locator(`input[data-id="${KEY}"]`).first().click();
@@ -6229,7 +6287,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             try { const x = JSON.parse(fs.readFileSync(file, 'utf8')), e = x.stewards && x.stewards[front.id]; return e && e.manages.includes(KEY) ? x : null; } catch (_) { return null; }
           }, 10000, 300);
           check(!!t && t.version === 3 && t.stewards[front.id].paths && t.stewards[front.id].paths[KEY] === planFile,
-            'ticking it makes the conversation in front its steward, and the version 3 table records the plan path Agent Plus gives', t);
+            'ticking it makes the conversation in front its supervisor, and the version 3 table records the plan path Agent Plus gives', t);
           await frame.locator(`input[data-id="${KEY}"]`).first().click();
         } else note('the conversation in front has All on, so the OpenCode Agent Plus conversation was not ticked by hand');
       } finally {

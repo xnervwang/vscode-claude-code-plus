@@ -280,7 +280,7 @@ async function answerDialog(d, label) {
 
 /* Whether a page is the page of the fake conversation `q` (ownPageOf): its first message of yours is that
    conversation's first, it holds that conversation's messages and a reply, and, when `box` is set, a message box. Text
-   alone does not tell: another conversation's page can hold the same words, as a steward's message names the
+   alone does not tell: another conversation's page can hold the same words, as a supervisor's message names the
    conversation by its title. Run in the page, so it uses nothing outside itself. */
 function ownPage(q) {
   const mine = document.querySelectorAll('[class*="userMessage_"]');
@@ -537,7 +537,7 @@ function transcriptFile(d, id) {
   }
   return '';
 }
-/* Runs the steward's script as conversation `asker` would: the tool call that runs it goes in that conversation's
+/* Runs the supervisor's script as conversation `asker` would: the tool call that runs it goes in that conversation's
    transcript first, since a window carries out only what the asker's own transcript shows it asked for. */
 const RELAY = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
 let relayCalls = 0;
@@ -558,11 +558,11 @@ function relay(d, asker, args, input) {
     kid.stdin.end(input || '');
   }).then((said) => { answered(said); return said; });
 }
-/* The Steward panel at the bottom, for the conversation in front. */
+/* The Supervisor panel at the bottom, for the conversation in front. */
 async function stewardPanel(d) {
   await d.exec('workbench.view.extension.claudeCodePlusSteward');
   const frame = await d.frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
-  if (!frame) throw new Error('the Steward panel did not open in 30 s');
+  if (!frame) throw new Error('the Supervisor panel did not open in 30 s');
   return frame;
 }
 const stewardsFile = (d) => path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
@@ -578,7 +578,7 @@ async function severalPanel(d) {
   const frame = await stewardPanel(d);
   if (!await d.until(() => frame.evaluate(([a, b]) => { const x = document.querySelector(`input[data-id="${a}"]`); const e = document.querySelector(`.eyes[data-eyes="${b}"]`);
     return !!x && x.disabled && !!e; }, [t1.id, t2.id]).catch(() => false), 40000, 1000)) {
-    throw new Error(`the box of the steward "${t1.title}" is not greyed, or the row of "${t2.title}" has no eye`);
+    throw new Error(`the box of the supervisor "${t1.title}" is not greyed, or the row of "${t2.title}" has no eye`);
   }
   d.several = frame;
   return frame;
@@ -588,14 +588,14 @@ function typed(d, id, text) {
     uuid: `${id.slice(0, 24)}${String(795000 + relayCalls++).padStart(12, '0')}`, timestamp: new Date().toISOString(), permissionMode: 'default',
     promptSource: 'user', origin: { kind: 'human' }, message: { role: 'user', content: text } }) + '\n');
 }
-/* Brings the demo conversation to the front and ticks `ids` in its Steward panel. */
+/* Brings the demo conversation to the front and ticks `ids` in its Supervisor panel. */
 async function stewardOf(d, ids) {
   await d.exec('claude-vscode.editor.open', d.sid);
   await d.sleep(1000);
   const frame = await stewardPanel(d);
   for (const id of ids) {
     const box = frame.locator(`input[data-id="${id}"]`).first();
-    if (!await d.until(() => box.isVisible().catch(() => false), 40000, 1000)) throw new Error(`the Steward panel does not list ${id}`);
+    if (!await d.until(() => box.isVisible().catch(() => false), 40000, 1000)) throw new Error(`the Supervisor panel does not list ${id}`);
     if (!await box.isChecked()) await box.click();
   }
   await d.sleep(1500);
@@ -1303,10 +1303,10 @@ const STEPS = [
     area: async (d) => { await sessionList(d); await d.sleep(3000); await d.away(); return d.sidebar(); },
   },
 
-  /* The Steward panel. */
+  /* The Supervisor panel. */
   {
     name: 'steward-panel', features: ['steward-panel'],
-    expect: 'The Steward panel at the bottom of the window, beside Problems, Output and Terminal. It lists the other '
+    expect: 'The Supervisor panel at the bottom of the window, beside Problems, Output and Terminal. It lists the other '
       + 'conversations open in this window (the two short ones, in tabs of their own) under a heading for the window, each '
       + 'with an unticked box, and an "All, including new ones" choice. The conversation in front is not in the list. Text '
       + 'is readable; boxes line up with their rows.',
@@ -1321,10 +1321,10 @@ const STEPS = [
       await d.sleep(1500);
       await d.exec('workbench.view.extension.claudeCodePlusSteward');
       const frame = await d.frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
-      if (!frame) throw new Error('the Steward panel did not open in 30 s');
+      if (!frame) throw new Error('the Supervisor panel did not open in 30 s');
       const listed = () => frame.evaluate((ids) => ids.filter((id) => !!document.querySelector(`input[data-id="${id}"]`)), others.map((t) => t.id)).catch(() => []);
       if (!await d.until(async () => (await listed()).length === others.length, 60000, 1000)) {
-        throw new Error(`the Steward panel lists ${JSON.stringify(await listed())} of ${JSON.stringify(others.map((t) => t.id))} in 60 s`);
+        throw new Error(`the Supervisor panel lists ${JSON.stringify(await listed())} of ${JSON.stringify(others.map((t) => t.id))} in 60 s`);
       }
       d.steward = frame;
       await d.away();
@@ -1333,12 +1333,12 @@ const STEPS = [
   },
   {
     name: 'steward-ticked', features: ['steward-marks', 'steward-panel'],
-    expect: 'One conversation has been ticked in the Steward panel, so the conversation in front is now its steward: its tab\'s '
+    expect: 'One conversation has been ticked in the Supervisor panel, so the conversation in front is now its supervisor: its tab\'s '
       + 'title ends with a crown, one only, and the panel shows the tick. Nothing else in the tab bar changed. In the panel, '
       + 'the rows show no blue dot.',
-    unchanged: 'The Steward panel lists the same rows as before.',
+    unchanged: 'The Supervisor panel lists the same rows as before.',
     act: async (d) => {
-      if (!d.steward) throw new Error('the Steward panel is not open');
+      if (!d.steward) throw new Error('the Supervisor panel is not open');
       await d.steward.locator('input[data-id]').first().click();
       await d.sleep(3000);
       await d.away();
@@ -1347,12 +1347,12 @@ const STEPS = [
   },
   {
     name: 'steward-renamed', features: ['steward-rename', 'steward-marks'],
-    expect: 'The steward conversation in front was renamed through Claude Code\'s own Rename Session Tab, typing a name that '
+    expect: 'The supervisor conversation in front was renamed through Claude Code\'s own Rename Session Tab, typing a name that '
       + 'kept a crown in front and added a second crown and the old bell at the end. Its tab now reads "CSV export and '
       + 'budgets", a space and a crown: exactly one crown, after the title, no bell and no envelope. In Agent Plus\'s session '
       + 'list in the side bar, that conversation\'s row reads "CSV export and budgets", with no crown or bell inside the title, '
       + 'and then one small yellow crown icon; nothing overlaps the title. No rename box is left open.',
-    unchanged: 'The other tabs and the Steward panel\'s tick are as before.',
+    unchanged: 'The other tabs and the Supervisor panel\'s tick are as before.',
     act: async (d) => {
       await d.exec('claude-vscode.editor.open', d.sid);
       await d.sleep(800);
@@ -1383,15 +1383,15 @@ const STEPS = [
       await d.sleep(800);
     },
   },
-  /* What a steward does for the conversations it manages, each request made through steward-relay.py as a steward would
-     make it, and the mark on a conversation that two processes run. The last undo closes the Steward panel and the
+  /* What a supervisor does for the conversations it manages, each request made through steward-relay.py as a supervisor would
+     make it, and the mark on a conversation that two processes run. The last undo closes the Supervisor panel and the
      extra tabs and takes the crown off the first tab, which is the state the work-plan step starts from. */
   {
     name: 'steward-relayed', features: ['steward-send'],
     expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. The last message in it from you '
       + 'reads "Please check the export query once more, then stop.", above which is the first line Claude Code Plus '
-      + 'adds to any message a steward passes on: Sent by the steward "CSV export and budgets" (and the steward\'s '
-      + 'session id) for the user:. The demo conversation, which is its steward, passed it on and Claude Code Plus '
+      + 'adds to any message a supervisor passes on: Sent by the supervisor "CSV export and budgets" (and the supervisor\'s '
+      + 'session id) for the user:. The demo conversation, which is its supervisor, passed it on and Claude Code Plus '
       + 'typed it in, so it is drawn like any message you typed; the fake model\'s reply follows it.',
     unchanged: null,
     act: async (d) => {
@@ -1400,7 +1400,7 @@ const STEPS = [
       await stewardOf(d, [t.id]);
       const words = 'Please check the export query once more, then stop.';
       const said = await relay(d, d.sid, [t.id], words);
-      if (!/^Sent: /.test(said)) throw new Error(`the steward could not pass the message on: ${said}`);
+      if (!/^Sent: /.test(said)) throw new Error(`the supervisor could not pass the message on: ${said}`);
       if (!await d.until(() => d.model.seen.some((x) => (x.typed || '').includes(words)), 30000, 500)) throw new Error('the message did not reach the model');
       const frame = await thread(d, t);
       await d.until(() => lastReplyHas(frame, PLAIN), 20000, 500);
@@ -1411,15 +1411,15 @@ const STEPS = [
   },
   {
     name: 'steward-renamed-managed', features: ['steward-renames-managed'],
-    expect: 'The demo conversation is in front again, with the Steward panel open at the bottom. Its steward renamed the '
-      + 'conversation it manages: that conversation\'s tab in the tab bar and its row in the Steward panel now read "Export '
+    expect: 'The demo conversation is in front again, with the Supervisor panel open at the bottom. Its supervisor renamed the '
+      + 'conversation it manages: that conversation\'s tab in the tab bar and its row in the Supervisor panel now read "Export '
       + 'query and archived rows".',
     unchanged: null,
     act: async (d) => {
       const t = d.threads[1];
       await stewardOf(d, [t.id]);
       const said = await relay(d, d.sid, ['--rename', t.id], 'Export query and archived rows');
-      if (!/^Renamed\./.test(said)) throw new Error(`the steward could not rename it: ${said}`);
+      if (!/^Renamed\./.test(said)) throw new Error(`the supervisor could not rename it: ${said}`);
       await d.sleep(4000);
       await d.away();
       return d.body();
@@ -1428,19 +1428,19 @@ const STEPS = [
   },
   {
     name: 'steward-notice', features: ['steward-notices'],
-    expect: 'The demo conversation, the steward, is in front. The conversation it manages was asked to run the test suite and '
-      + 'waits for permission, so Claude Code Plus has sent the steward a notice through its inbox. Claude Code draws no row '
-      + 'for what a script sends there, so the notice itself is not on screen: at the end of the steward conversation comes '
+    expect: 'The demo conversation, the supervisor, is in front. The conversation it manages was asked to run the test suite and '
+      + 'waits for permission, so Claude Code Plus has sent the supervisor a notice through its inbox. Claude Code draws no row '
+      + 'for what a script sends there, so the notice itself is not on screen: at the end of the supervisor conversation comes '
       + 'the fake model\'s reply to it with no message of yours before it, and that reply\'s first line gives a duration of '
-      + 'a few seconds, not the hours since the last message you typed. In the Steward panel, that conversation\'s row starts '
+      + 'a few seconds, not the hours since the last message you typed. In the Supervisor panel, that conversation\'s row starts '
       + 'with a filled red dot.',
     unchanged: 'The other conversation\'s title is its own again.',
     act: async (d) => {
       const t = d.threads[1];
       await stewardOf(d, [t.id]);
       const said = await relay(d, d.sid, [t.id], 'Please run the test suite.');
-      if (!/^Sent: /.test(said)) throw new Error(`the steward could not pass the message on: ${said}`);
-      if (!await d.until(() => transcriptHas(d, d.sid, `(${t.id}) is waiting for the user`), 60000, 1000)) throw new Error('the steward was not sent a notice within 60 s');
+      if (!/^Sent: /.test(said)) throw new Error(`the supervisor could not pass the message on: ${said}`);
+      if (!await d.until(() => transcriptHas(d, d.sid, `(${t.id}) is waiting for the user`), 60000, 1000)) throw new Error('the supervisor was not sent a notice within 60 s');
       await d.sleep(6000);
       await toBottom(d.conv);
       await d.away();
@@ -1449,10 +1449,10 @@ const STEPS = [
   },
   {
     name: 'steward-closed', features: ['steward-close'],
-    expect: 'The steward asked to close the conversation that waits for permission. The first request, without the user\'s '
+    expect: 'The supervisor asked to close the conversation that waits for permission. The first request, without the user\'s '
       + 'confirmation, was refused; the second, with it, closed the tab. "Why does the nightly export skip archived rows?" has no tab any more. The '
-      + 'Steward panel says one ticked conversation is not open in any VS Code window, with a button to untick it.',
-    unchanged: 'The steward conversation is as before.',
+      + 'Supervisor panel says one ticked conversation is not open in any VS Code window, with a button to untick it.',
+    unchanged: 'The supervisor conversation is as before.',
     act: async (d) => {
       const t = d.threads[1];
       await stewardOf(d, []);
@@ -1467,10 +1467,10 @@ const STEPS = [
   },
   {
     name: 'steward-resumed', features: ['steward-resume'],
-    expect: 'The steward opened that conversation again, in a tab of this window: "Why does the nightly export skip archived '
+    expect: 'The supervisor opened that conversation again, in a tab of this window: "Why does the nightly export skip archived '
       + 'rows?" is in front and ends with your message "Carry on where you left off, please." and the fake model\'s reply. The '
-      + 'message starts with the line Claude Code Plus puts before whatever a steward passes on: Sent by the steward "CSV export '
-      + 'and budgets" (and the steward\'s session id) for the user:.',
+      + 'message starts with the line Claude Code Plus puts before whatever a supervisor passes on: Sent by the supervisor "CSV export '
+      + 'and budgets" (and the supervisor\'s session id) for the user:.',
     unchanged: null,
     act: async (d) => {
       const t = d.threads[1];
@@ -1480,7 +1480,7 @@ const STEPS = [
         said = await relay(d, d.sid, ['--resume', t.id], 'Carry on where you left off, please.');
         if (!/^Opened/.test(said)) await d.sleep(2000);
       }
-      if (!/^Opened: /.test(said)) throw new Error(`the steward could not open it: ${said}`);
+      if (!/^Opened: /.test(said)) throw new Error(`the supervisor could not open it: ${said}`);
       const frame = await thread(d, t);
       await d.until(() => lastReplyHas(frame, PLAIN), 20000, 500);
       await toBottom(frame);
@@ -1490,7 +1490,7 @@ const STEPS = [
   },
   {
     name: 'steward-opened', features: ['steward-open'],
-    expect: 'A new conversation, which the steward started in this window\'s folder, is in a new tab in front: its first '
+    expect: 'A new conversation, which the supervisor started in this window\'s folder, is in a new tab in front: its first '
       + 'message, "Start a new piece of work: list the scripts in the repository.", is drawn as your own, followed by the '
       + 'fake model\'s reply.',
     unchanged: null,
@@ -1499,7 +1499,7 @@ const STEPS = [
       const first = 'Start a new piece of work: list the scripts in the repository.';
       const said = await relay(d, d.sid, ['--open', d.profile.folder], first);
       d.openedId = (/Session id: ([0-9a-f-]{36})/.exec(said) || [])[1] || '';
-      if (!/^Opened: /.test(said) || !d.openedId) throw new Error(`the steward could not open a new conversation: ${said}`);
+      if (!/^Opened: /.test(said) || !d.openedId) throw new Error(`the supervisor could not open a new conversation: ${said}`);
       await d.until(() => transcriptHas(d, d.openedId, PLAIN), 30000, 500);
       await d.sleep(2000);
       await d.away();
@@ -1514,7 +1514,7 @@ const STEPS = [
   },
   {
     name: 'steward-handoff', features: ['steward-handoff'],
-    expect: 'The demo conversation, the steward, is in front, after "Why does the nightly export skip archived rows?" handed '
+    expect: 'The demo conversation, the supervisor, is in front, after "Why does the nightly export skip archived rows?" handed '
       + 'something off to it through Claude Code Plus. Claude Code draws no row for what arrives through its inbox, so the '
       + 'handoff itself is not on screen: the conversation ends with the fake model\'s reply to it. No message of yours comes '
       + 'before that reply, and its first line says the turn took a few seconds, not the time since you last typed.',
@@ -1523,8 +1523,8 @@ const STEPS = [
       const t = d.threads[1];
       await stewardOf(d, [t.id]);
       const said = await relay(d, t.id, ['--handoff'], 'The user asked here for the release notes, which belong in another conversation.');
-      if (!/^Handed off to the steward /.test(said)) throw new Error(`the handoff did not reach the steward: ${said}`);
-      if (!await d.until(() => transcriptHas(d, d.sid, `(${t.id}), passed on by Claude Code Plus`), 30000, 1000)) throw new Error('the steward did not get the handoff within 30 s');
+      if (!/^Handed off to the steward /.test(said)) throw new Error(`the handoff did not reach the supervisor: ${said}`);
+      if (!await d.until(() => transcriptHas(d, d.sid, `(${t.id}), passed on by Claude Code Plus`), 30000, 1000)) throw new Error('the supervisor did not get the handoff within 30 s');
       await d.sleep(6000);
       await toBottom(d.conv);
       await d.away();
@@ -1533,7 +1533,7 @@ const STEPS = [
   },
   {
     name: 'steward-link', features: ['steward-links'],
-    expect: 'The steward was asked for a link to another conversation and its reply held one ("that conversation"); clicked, '
+    expect: 'The supervisor was asked for a link to another conversation and its reply held one ("that conversation"); clicked, '
       + 'it brought that conversation\'s tab, "Add a dry-run flag to the cleanup script", to the front, with no prompt from '
       + 'VS Code about opening a link.',
     unchanged: null,
@@ -1552,19 +1552,19 @@ const STEPS = [
       return d.body();
     },
   },
-  /* Several stewards, with the demo conversation in front: its Steward panel greys another steward's box, which says
-     why on hover, and the row of a conversation another steward also ticked ends in an eye with their number; hovering
-     over the eye lists them. The other steward is set by writing the table, as its own panel would. In both themes. */
+  /* Several supervisors, with the demo conversation in front: its Supervisor panel greys another supervisor's box, which says
+     why on hover, and the row of a conversation another supervisor also ticked ends in an eye with their number; hovering
+     over the eye lists them. The other supervisor is set by writing the table, as its own panel would. In both themes. */
   ...['dark', 'light'].flatMap((tone) => [
     {
       name: `steward-eye${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The Steward panel at the bottom, in a ${tone} theme, for the demo conversation in front. The row of "Why does the nightly export skip `
-        + 'archived rows?" has a greyed box and says "a steward" after its title. The row of "Add a dry-run flag to the cleanup script" is ticked, '
+      expect: `The Supervisor panel at the bottom, in a ${tone} theme, for the demo conversation in front. The row of "Why does the nightly export skip `
+        + 'archived rows?" has a greyed box and says "a supervisor" after its title. The row of "Add a dry-run flag to the cleanup script" is ticked, '
         + 'and at its far right end, after the time, stands a small eye with the number 1 beside it, drawn in a lighter grey than the row\'s text and about '
-        + 'as tall as the text. No row names a steward after its title. The "All, including new ones" and "New conversations" switches at the top '
+        + 'as tall as the text. No row names a supervisor after its title. The "All, including new ones" and "New conversations" switches at the top '
         + 'right are both unticked and not greyed. The mouse is away; nothing overlaps.',
       unchanged: tone === 'light' ? null : 'The side bar is as before, and the tab bar has the same tabs; the demo conversation is '
-        + 'in front now, and "Why does the nightly export skip archived rows?", made a steward by this step, has a crown after its '
+        + 'in front now, and "Why does the nightly export skip archived rows?", made a supervisor by this step, has a crown after its '
         + 'title.',
       act: async (d) => {
         if (tone === 'light') { await theme(d, 'Default Light Modern'); await d.sleep(2500); }
@@ -1578,9 +1578,9 @@ const STEPS = [
     {
       name: `steward-eye-hover${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
       expect: `The mouse rests on the eye at the end of the row of "Add a dry-run flag to the cleanup script", still in the ${tone} theme, and a small `
-        + 'box opens just below it, its right edge under the eye: its first line reads "Also managed by 1 other steward", and below it "Why does the '
+        + 'box opens just below it, its right edge under the eye: its first line reads "Also managed by 1 other supervisor", and below it "Why does the '
         + 'nightly export skip archived rows?" in link colour. The box is readable against its background, wholly inside the panel, and has a thin border.',
-      unchanged: 'The rows of the Steward panel are as in the step before.',
+      unchanged: 'The rows of the Supervisor panel are as in the step before.',
       act: async (d) => {
         const frame = d.several || await severalPanel(d);
         const t2 = d.threads[2];
@@ -1596,9 +1596,9 @@ const STEPS = [
     {
       name: `steward-greyed-box${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
       expect: `The mouse rests on the greyed box of "Why does the nightly export skip archived rows?", still in the ${tone} theme: a small hover label `
-        + 'beside it reads "This conversation is a steward, and a steward is not managed by another". The label is readable against its background '
+        + 'beside it reads "This conversation is a supervisor, and a supervisor is not managed by another". The label is readable against its background '
         + 'and does not hide the row\'s title; the eye\'s list from the step before is closed.',
-      unchanged: 'The rows of the Steward panel are as in the step before.',
+      unchanged: 'The rows of the Supervisor panel are as in the step before.',
       act: async (d) => {
         const frame = d.several || await severalPanel(d);
         const t1 = d.threads[1];
@@ -1613,7 +1613,7 @@ const STEPS = [
     },
     {
       name: `steward-eye-narrow${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The panel area moved to the right side of the window, in the ${tone} theme, so the Steward panel is narrow. The rows' titles are cut `
+      expect: `The panel area moved to the right side of the window, in the ${tone} theme, so the Supervisor panel is narrow. The rows' titles are cut `
         + 'short with an ellipsis where they do not fit, and the eye with its 1 still stands whole at the right end of the row of "Add a dry-run flag '
         + 'to the cleanup script". Nothing wraps onto a second line or overlaps.',
       unchanged: null,
@@ -1640,7 +1640,7 @@ const STEPS = [
   ]),
   {
     name: 'steward-new-switch', features: ['steward-new-switch', 'steward-panel'],
-    expect: 'The Steward panel for the demo conversation. "New conversations" at the top right, beside "All, including new ones", is ticked; '
+    expect: 'The Supervisor panel for the demo conversation. "New conversations" at the top right, beside "All, including new ones", is ticked; '
       + '"All, including new ones" is not. The boxes of the rows below are not greyed, and the header line reads "Managed by" and the demo '
       + 'conversation\'s title with one crown after it.',
     unchanged: null,
@@ -1661,7 +1661,7 @@ const STEPS = [
   },
   {
     name: 'steward-list-changed', features: ['steward-list-change'],
-    expect: 'The Steward panel for the demo conversation, after you asked it in its own conversation to take "Add a dry-run flag to the cleanup '
+    expect: 'The Supervisor panel for the demo conversation, after you asked it in its own conversation to take "Add a dry-run flag to the cleanup '
       + 'script" and to stop managing "Why does the nightly export skip archived rows?". The row of "Add a dry-run flag to the cleanup script" '
       + 'is ticked, the row of "Why does the nightly export skip archived rows?" is not, and the header counts 1.',
     unchanged: null,
@@ -1670,10 +1670,10 @@ const STEPS = [
       await stewardOf(d, [t1.id]);
       typed(d, d.sid, `Take "${t2.title}" too.`);
       const said = await relay(d, d.sid, ['--take'], t2.title);
-      if (!/^Done: /.test(said)) throw new Error(`the steward did not take it: ${said}`);
+      if (!/^Done: /.test(said)) throw new Error(`the supervisor did not take it: ${said}`);
       typed(d, d.sid, `Stop managing "${t1.title}".`);
       const dropped = await relay(d, d.sid, ['--drop', t1.id]);
-      if (!/^Done: /.test(dropped)) throw new Error(`the steward did not drop it: ${dropped}`);
+      if (!/^Done: /.test(dropped)) throw new Error(`the supervisor did not drop it: ${dropped}`);
       const frame = await stewardPanel(d);
       if (!await d.until(() => frame.evaluate(([a, b]) => { const x = document.querySelector(`input[data-id="${a}"]`), y = document.querySelector(`input[data-id="${b}"]`);
         return !!x && x.checked && !!y && !y.checked; }, [t2.id, t1.id]), 20000, 500)) {
@@ -1687,10 +1687,10 @@ const STEPS = [
   },
   {
     name: 'steward-recent-held', features: ['steward-recent-send'],
-    expect: 'The conversation "Add a dry-run flag to the cleanup script" is in front. Two stewards manage it, and the second one\'s message was held '
+    expect: 'The conversation "Add a dry-run flag to the cleanup script" is in front. Two supervisors manage it, and the second one\'s message was held '
       + 'back once, as the first had just sent one, then sent with --anyway. The last message from you in it starts with the line "Sent by the '
-      + 'steward" followed by the demo conversation\'s title in quotes and its session id in parentheses, then "for the user:", and on the next line '
-      + 'reads "Turn the dry-run flag on by default.". The message before it, from the other steward, starts with that steward\'s line the same way.',
+      + 'supervisor" followed by the demo conversation\'s title in quotes and its session id in parentheses, then "for the user:", and on the next line '
+      + 'reads "Turn the dry-run flag on by default.". The message before it, from the other supervisor, starts with that supervisor\'s line the same way.',
     unchanged: null,
     act: async (d) => {
       const [t1, t2] = d.threads.slice(1);
@@ -1700,7 +1700,7 @@ const STEPS = [
         [t1.id]: { manages: [t2.id], names: {}, at: Date.now() - 1000, title: t1.title }, [d.sid]: { manages: [t2.id], names: {}, at: Date.now() } } }, null, 1) + '\n');
       await d.sleep(6000);
       const one = await relay(d, t1.id, [t2.id], 'Keep the dry-run flag off by default.');
-      if (!/^Sent: /.test(one)) throw new Error(`the first steward could not send: ${one}`);
+      if (!/^Sent: /.test(one)) throw new Error(`the first supervisor could not send: ${one}`);
       const words = 'Turn the dry-run flag on by default.';
       const held = await relay(d, d.sid, [t2.id], words);
       if (!/^Not sent: another steward/.test(held)) throw new Error(`the second message was not held back: ${held}`);
@@ -1750,7 +1750,7 @@ const STEPS = [
   },
   {
     name: 'session-twice', features: ['session-twice'],
-    expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once. In the Steward '
+    expect: 'The conversation "Add a dry-run flag to the cleanup script" runs in two Claude Code processes at once. In the Supervisor '
       + 'panel at the bottom, its row says "2 processes" and has a "Stop the old process" button. In Agent Plus\'s session list in '
       + 'the side bar, its row says "2 processes" after the title, and the mouse rests on that row: the hover box under it has a '
       + 'line "Open in 2 processes at once". The box is wholly inside the side bar; nothing overlaps.',
@@ -1769,7 +1769,7 @@ const STEPS = [
       if (!await d.until(() => liveOf(d, t.id).some((r) => r.pid === d.twicePid) && liveOf(d, t.id).length === 2, 30000, 500)) throw new Error('the second process did not start');
       const frame = await stewardOf(d, []);
       if (!await d.until(() => frame.evaluate((id) => { const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'); return !!li && !!li.querySelector('[data-stop-old]'); }, t.id), 45000, 1000)) {
-        throw new Error('the Steward panel does not mark it as run twice');
+        throw new Error('the Supervisor panel does not mark it as run twice');
       }
       d.twiceFrame = frame;
       const list = await agentList(d);
@@ -1812,7 +1812,7 @@ const STEPS = [
     expect: 'Agent Plus\'s work plan view in the side bar: the demo conversation\'s plan as a tree of numbered rows, each with a '
       + 'mark for its state (done, to do, waiting, parked, discussing), indented to show which rows sit under which. Titles '
       + 'are readable; rows do not overlap; there are no empty rows.',
-    unchanged: 'The Steward panel is closed, the extra tabs are gone, and the first tab\'s title has no crown.',
+    unchanged: 'The Supervisor panel is closed, the extra tabs are gone, and the first tab\'s title has no crown.',
     act: async (d) => { await d.exec('workbench.view.extension.agentPlus'); await d.sleep(1500); await d.widen(); await d.away(); return d.sidebar(); },
   },
   /* The pen on a work plan row, which puts "About row N (title): " into the conversation's message box (prefill in
@@ -2115,9 +2115,9 @@ const STEPS = [
     expect: 'Before the screenshot, the test changed the name of the conversation with an unread reply using its '
       + 'row\'s rename box in Claude Code\'s own session list. The test entered an envelope, then a very long '
       + 'name, then an envelope and a crown. Now the side bar is narrow and shows Agent Plus\'s session list, the '
-      + 'demo conversation is in front, and the Steward panel is open at the bottom. In Agent Plus\'s list, the '
+      + 'demo conversation is in front, and the Supervisor panel is open at the bottom. In Agent Plus\'s list, the '
       + 'renamed conversation\'s row shows "Where the retry delay..." cut short with an ellipsis, then exactly '
-      + 'one envelope icon, whole and not inside the title, and then the time; no crown. In the Steward panel its '
+      + 'one envelope icon, whole and not inside the title, and then the time; no crown. In the Supervisor panel its '
       + 'row\'s title is cut short the same way and is followed by one envelope. Its tab\'s title ends in one '
       + 'envelope and has no crown.',
     unchanged: 'The other conversations\' rows are as before.',
@@ -2851,7 +2851,7 @@ const STEPS = [
       await d.away();
       const tab = (await tabLabels(d)).find((l) => l.startsWith('Where the retry')) || '';
       if (!tab.endsWith(' \u2709\uFE0E')) throw new Error(`the tab reads "${tab}", not ending in the envelope's text form`);
-      /* The envelope in the Steward panel is checked against the theme in ui.js, which has another conversation in
+      /* The envelope in the Supervisor panel is checked against the theme in ui.js, which has another conversation in
          front. */
       await agentRowWhere(d, list, titleNow(d, d.threads[0]), (s) => s.unread === 1, 20000, 'has no envelope');
       if (!await d.until(() => seenUnread(d, d.threads[0].id), SEEN_MS, 300)) throw new Error('Agent Plus did not see the reply unread in 60 s');
