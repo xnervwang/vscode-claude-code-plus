@@ -14926,7 +14926,7 @@ const repo = path.join(__dirname, '..');
       'the Account & usage part is the figures of the conversation in front, and for one with none a line saying no conversation runs here');
     eq([stoppedAll.accountInfo({ sessionId: S(1) }), list.accountInfo({ sessionId: S(9) }).conversation],
       [{ rows: [NONE_HERE], bars: [], links: [] }, { title: 'Lexer escapes', rows: [{ label: 'Estimated cost', value: '$0.42' }] }],
-      'a conversation asked for that no longer runs here gets no figures, though it had some: the line says none runs, or the figures are of the one in front that runs');
+      'a conversation asked for that has stopped running here gets no figures, though it had some: the line says none runs, or the figures are of the one in front that runs');
     const firstRuns = (id) => (id === S(1) ? { activity: 'idle' } : null);
     const signed = (login, state = () => null) => csl.create(Object.assign({}, deps, { login: () => login, state }));
     eq([signed({ method: 'bedrock', label: 'Amazon Bedrock' }).accountInfo({ sessionId: S(2) }), signed({ method: 'apiKey', label: 'API key' }, firstRuns).accountInfo({ sessionId: S(1) }).rows,

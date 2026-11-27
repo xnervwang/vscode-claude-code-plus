@@ -351,8 +351,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   const NOTICE_TIME = /^\[((?:[A-Z][a-z]{2} \d{1,2} )?\d\d:\d\d)(?: ([^\]\s]+))?\] /;
   const untimed = (text) => String(text || '').replace(NOTICE_TIME, '');
   const timeOf = (text) => { const m = NOTICE_TIME.exec(text || ''); return m ? { time: m[1], zone: m[2] || '' } : null; };
-  /* VS Code runs on this machine, so the hour and minute of a notification shown in the last few minutes are this
-     machine's, in either form. */
+  /* VS Code and its pages run on this machine, so the reader's zone is this machine's too, and a notification shown in
+     the last few minutes has this machine's hour and minute in either form. */
   const lately = (time) => [0, 1, 2, 3].map((m) => new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     .format(new Date(Date.now() - m * 60000))).includes(time);
   const rawToasts = () => page.evaluate(() => [...document.querySelectorAll('.notification-list-item-message')].map((e) => e.innerText));

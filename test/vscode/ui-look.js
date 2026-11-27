@@ -385,7 +385,7 @@ const needToasts = (d) => d.page.evaluate(() => {
   return items.map((n) => ((n.querySelector('.notification-list-item-message') || {}).innerText || '').replace(/\s+/g, ' ').trim());
 }).then((texts) => (texts ? texts.map((t) => t.replace(NOTICE_TIME, '')) : null)).catch(() => null);
 /* Whether the text of a notice says `want`. With conversations of more than one program listed (Codex Plus adds its
-   own), Agent Plus starts each notice with the program's name and a colon (its src/attention.js). */
+   own), Agent Plus starts the text of each notice with the program's name and a colon (its src/attention.js). */
 const noticeSays = (text, want) => text === want || (text.endsWith(want) && /^[^"]+: $/.test(text.slice(0, -want.length)));
 /* For an expect: what that start looks like here. */
 const NOTICE_SOURCE = 'When Agent Plus lists conversations of more than one program, what a notification says starts with the name of the '
@@ -686,8 +686,7 @@ function removeSchedules(d) {
   } catch (_) { /* no file */ }
 }
 /* Stops what the agent map steps started: on Linux every process started in those conversations' names in the demo's
-   folder, and on every platform the claude --bg sessions and the worker, by their session records. The fake conversations
-   have the same session ids in every run, so a process of another run at the same time is told apart by its folder. */
+   folder, and on every platform the claude --bg sessions and the worker, by their session records. */
 function stopMapWork(d, ids) {
   const marks = ids.map((id) => `CLAUDE_CODE_SESSION_ID=${id}`);
   const ours = (p) => { try { const at = fs.readlinkSync(`/proc/${p}/cwd`); return at === d.profile.folder || at.startsWith(d.profile.folder + path.sep); } catch (_) { return false; } };
@@ -3409,7 +3408,6 @@ const STEPS = [
     const SCENE = [C.run, C.perm, C.ask, C.unread, C.idle, C.term];
     async function sceneUp(d) {
       const list = await listReady(d);
-      /* With the focus, as when someone looks at the window, a notice Agent Plus gave of these waits would be on screen. */
       if (!await d.front()) throw new Error('the window did not get the focus, which Agent Plus needs before it shows a notice');
       const s = d.listScene = { terminal: await inTerminal(d, C.term), frames: {} };
       addConvos(d, SCENE);
@@ -3465,9 +3463,9 @@ const STEPS = [
       for (const t of [C.run, C.perm, C.ask]) {
         await rowWhere(d, list, t.title, (r) => r.dot === 'none', 30000, 'still has a dot').catch((e) => d.log('undo', e.message));
       }
-      /* Once its tab is closed, a conversation's state comes from this extension's shared list of the running ones
-         (agents.json in its plan folder), which can be 20 s old. A tab closed before that list is read again after the
-         answers brings the wait back, and Agent Plus gives a notice of a wait that no window shows. */
+      /* Once its tab is closed, a conversation keeps the state its panel last had until this extension's shared list of
+         the running ones (agents.json in its plan folder), which can be 20 s old, is read again. The tabs close once that
+         list shows the three idle, or after a minute, so that the steps after do not depend on that last state. */
       const answered = Date.now(), ids = [C.run, C.perm, C.ask].map((t) => t.id);
       const agentsFile = path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'agents.json');
       const idle = () => {
@@ -3512,7 +3510,7 @@ const STEPS = [
         expect: sceneSaid(', in a light theme: dark text on a light background, the section bands a little darker than the rows.')
           + ' The green and blue dots keep their colours and stand out against the light background; the envelope and the terminal icon '
           + 'are drawn dark like the text; the solid stripes are dark grey bars and the outlined one a dark outline; the greyed row is '
-          + 'paler than the others but still readable. Nothing is left in the dark theme\'s colours.',
+          + 'paler than the others but still readable. Nothing else is left in the dark theme\'s colours.',
         unchanged: 'The demo conversation is in front in the editor, as before.',
         act: async (d) => { await theme(d, 'Default Light Modern'); await d.sleep(2500); await sceneUp(d); return d.sidebar(); },
         undo: async (d) => { await sceneDown(d); await theme(d, 'Default Dark Modern'); await d.sleep(2000); },
@@ -3539,8 +3537,8 @@ const STEPS = [
         expect: 'Agent Plus\'s session list in the side bar, the pointer away from it and no hover box. Exactly one row is of a conversation '
           + 'open somewhere other than this window: "' + C.term.title + '", which a terminal has open. That row alone shows three things '
           + 'at once, so this picture tells which it is without anything else: its logo, title and time are greyed, about half as bright as '
-          + 'every other row; the stripe at its start is a hollow outline, where a row open in a tab here has a filled bar and a row open '
-          + 'nowhere has none; and a small terminal icon, a box with a prompt sign, sits before its time. "' + C.idle.title + '", which '
+          + 'every other row; the stripe at its start is a hollow outline, where a row open in a tab here has a filled bar; and a small '
+          + 'terminal icon, a box with a prompt sign, sits before its time. "' + C.idle.title + '", which '
           + 'nothing has open, has no stripe and is not greyed. No other row is greyed, has an outlined stripe or has a terminal icon.',
         unchanged: 'The rows listed before are still there.',
         act: async (d) => {
