@@ -347,7 +347,6 @@ async function run() {
       const d1 = due();
       eq([!!read, typeof d1[LA] === 'number' && d1[LA] > Date.now() + 89 * DAY && d1[LA] <= Date.now() + 90 * DAY, d1[LB], d1[LC]], [true, true, null, null],
         'Agent Plus\'s session list shows this window\'s Claude Code conversations, takes in Claude Code\'s own archive once, counting 90 days from then to delete it, and deletes none of the others');
-      /* The section each conversation is shown in, read from the model of the core's session list view. */
       const slView = control.state.webviews['agentPlus.sessions'];
       const sectionOf = (id) => {
         const m = slView && slView.list && typeof slView.list.model === 'function' ? slView.list.model() : null;

@@ -15183,8 +15183,6 @@ const repo = path.join(__dirname, '..');
       'when this window cannot tell which conversations are open, nothing is deleted');
   }
 
-  /* Claude Code's rows through Agent Plus's own session list code: how it makes a row from a Session, and its rules,
-     taken from the Agent Plus found beside this extension. */
   console.log('\nClaude Code\'s rows as Agent Plus\'s session list reads them');
   {
     const csl = require('../src/claude-session-list');
