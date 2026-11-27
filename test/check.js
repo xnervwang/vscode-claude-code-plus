@@ -9144,7 +9144,7 @@ console.log('\nthe Supervisor panel');
       ok('a conversation a supervisor started is listed by the user\'s words after the supervisor\'s line and named after their first line, cut at a word; a supervisor\'s line on its own or cut short leaves nothing, and text with such a line anywhere but at its start is kept whole');
     } else bad(`the supervisor's line taken off a title: ${JSON.stringify([stripped, firstPrompt, titles])}`);
     /* The line before a supervisor's message and a notice's opening are read with "supervisor" or "steward" in them, in
-       either letter case: a window running an earlier build still writes "steward". */
+       upper or lower case: a window running an earlier build still writes "steward". */
     {
       const relay = require('../src/relay');
       const forms = [`Sent by the supervisor "Docs" (${S(1)}) for the user:`, `Sent by the steward "Docs" (${S(1)}) for the user:`,
@@ -9167,7 +9167,7 @@ console.log('\nthe Supervisor panel');
           && st.titleOfWords(forms[1] + '\nList the scripts.') === 'List the scripts.'
           && noticeForms.every((t) => st.isNotice(t)) && !notNotices.some((t) => st.isNotice(t))
           && why.every((w) => w === 'it is a supervisor notice from Claude Code Plus') && last === Date.parse(at(0))) {
-        ok('the line before a supervisor\'s message and a notice\'s opening are read in both wordings, "supervisor" and "steward", in any case; '
+        ok('the line before a supervisor\'s message and a notice\'s opening are read in both wordings, "supervisor" and "steward", in upper or lower case; '
           + 'a notice in either wording is not taken for the user\'s words');
       } else bad(`reading both wordings gave ${JSON.stringify({ senders, words, why, last, notices: noticeForms.map((t) => st.isNotice(t)), not: notNotices.map((t) => st.isNotice(t)) })}`);
       fs.rmSync(tdir, { recursive: true, force: true });

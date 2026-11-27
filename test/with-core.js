@@ -341,7 +341,8 @@ async function run() {
       globalThis.__cceOfficialLists = () => official;
       const due = () => ap.sessionDeletionDue('claude-code') || {};
       const has = (...ids) => ids.every((id) => Object.prototype.hasOwnProperty.call(due(), id));
-      /* A change of states makes the source call claude.changed(), and the list then reads the source again. */
+      /* A change of states calls claude.changed(), with which the source tells the list, and the list then reads the
+         source again. */
       globalThis.__cceStatesHook([], '', [], []);
       const read = await until(() => has(LA, LB, LC) && typeof due()[LA] === 'number', 15000);
       const d1 = due();
