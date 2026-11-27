@@ -214,6 +214,9 @@ const LIST_THREADS = {
   reopened: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c5', title: 'List the cron jobs of the build machine', days: 0,
     turns: [['List the cron jobs of the build machine.', 'There are three: the nightly build, the cache prune and the log rotation.']] },
 };
+/* The conversation of the step whose Claude Code CLI a process wrapper starts. */
+const WRAPPER_THREAD = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6d1', title: 'Size the importer cache for the nightly load', days: 0,
+  turns: [['Size the importer cache for the nightly load.', 'Set `cacheSizeMb` in config/importer.yml to 512; the nightly load peaks at 430 MB.']] };
 
 async function run({ exe, vsix, profile, env, playwright, model, threads, background = [], out, check, note }) {
   /* Counts failed checks: a step during which one fails saves what its pages held (savePages). */
@@ -1420,6 +1423,138 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         'Account & usage has a Claude Code part with the figures of the conversation in front: its cost, its time and the lines it changed', acct);
       await shot('agent-plus-list-account');
       await openList();
+    });
+
+    /* Claude Code started through a process wrapper (claudeCode.claudeProcessWrapper): a script that signs the CLI in with
+       an auth token instead of the API key claudeCode.environmentVariables gives it in the other steps, and runs the CLI in
+       its place. With no conversation running here Account & usage says the wrapper decides; with one running, the
+       sign-in is read from its CLI's environment where there is a /proc. The conversations this window shows are closed
+       for the step and opened again after it. */
+    await step('the sign-in through a process wrapper', async () => {
+      /* Claude Code starts the wrapper with child_process.spawn and no shell, which runs neither a .cmd nor a .bat file;
+         a wrapper ending in .js it runs with node, with the CLI's path before the script's. */
+      if (process.platform === 'win32') {
+        note('the process wrapper step is left out on Windows: Claude Code starts the wrapper without a shell, so it has to be an executable file, which this test does not build');
+        return;
+      }
+      const t = WRAPPER_THREAD;
+      fakeHome.writeThreads(profile.home, profile.folder, [t]);
+      const wrapper = path.join(profile.home, 'wrapper', 'claude-wrapper.sh');
+      fs.mkdirSync(path.dirname(wrapper), { recursive: true });
+      fs.writeFileSync(wrapper, `#!/bin/sh\nANTHROPIC_AUTH_TOKEN='${fakeHome.KEY}'\nexport ANTHROPIC_AUTH_TOKEN\nexec "$@"\n`, { mode: 0o755 });
+      const hasProc = fs.existsSync('/proc/self/environ');
+      const host = await call('return process.pid;');
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const parentOf = (pid) => {
+        try { const s = fs.readFileSync(`/proc/${pid}/stat`, 'latin1'); return Number(s.slice(s.lastIndexOf(')') + 2).split(' ')[1]) || 0; } catch (_) { return 0; }
+      };
+      const underHost = (pid) => { for (let p = pid, n = 0; p > 1 && n < 32; n++) { if (p === host) return true; p = parentOf(p); } return false; };
+      /* The CLIs this window's extension host started that run now, from Claude Code's session registry. Without /proc
+         none can be told apart, and none is read either. A panel keeps a CLI ready for a new conversation, so one can run
+         with no conversation running here. */
+      const clis = () => {
+        if (!hasProc) return [];
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+        return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); } catch (_) { return null; } })
+          .filter((d) => d && Number.isInteger(d.pid) && fs.existsSync(`/proc/${d.pid}`) && underHost(d.pid))
+          .map((d) => ({ pid: d.pid, sessionId: d.sessionId, entrypoint: d.entrypoint, kind: d.kind, startedAt: d.startedAt,
+            args: (() => { try { return fs.readFileSync(`/proc/${d.pid}/cmdline`, 'utf8').split('\0').slice(1, 12).join(' '); } catch (_) { return ''; } })() }));
+      };
+      const signIn = () => sl.evaluate(() => {
+        const block = [...document.querySelectorAll('.sl-section[data-key="account"] .sl-acct')]
+          .find((b) => ((b.querySelector('.sl-acct-name') || {}).textContent || '') === 'Claude Code');
+        const r = block && [...block.querySelectorAll('.sl-kv')].find((k) => ((k.querySelector('.sl-kv-k') || {}).textContent || '') === 'Sign-in');
+        return block ? { value: r ? r.querySelector('.sl-kv-v').textContent : null, tooltip: (r && r.title) || '',
+          idle: /No conversation running/.test(block.textContent), figures: /Estimated cost/.test(block.textContent) } : null;
+      }).catch(() => null);
+      const signInWhere = (test, ms = 20000) => until(async () => { const s = await signIn(); return s && test(s) && s; }, ms, 500);
+      const setClaude = (k, v) => call(`await vscode.workspace.getConfiguration('claudeCode').update(arg[0], arg[1] === null ? undefined : arg[1],
+        vscode.ConfigurationTarget.Global); return true;`, [k, v]);
+      const before = await call(`const c = vscode.workspace.getConfiguration('claudeCode');
+        return { vars: (c.inspect('environmentVariables') || {}).globalValue || null, wrapper: (c.inspect('claudeProcessWrapper') || {}).globalValue || null };`);
+      const restore = async () => { await setClaude('environmentVariables', before.vars); await setClaude('claudeProcessWrapper', before.wrapper); };
+      const label = (x) => x.label.replace(TRAILING_MARKS, '');
+      const tabsOf = async () => (await claudeTabs()).filter((x) => titled(label(x), t.title));
+      const reopen = [];
+      for (const x of await claudeTabs()) { const y = threads.find((z) => titled(label(x), z.title)); if (y && !reopen.includes(y)) reopen.push(y); }
+      /* The text is checked before Enter and typed again when keys went missing, as a tab just opened can lose the focus. */
+      const say = async (frame, text) => {
+        const box = frame.locator('[contenteditable][role="textbox"]').first();
+        const inBox = () => box.evaluate((e) => (e.textContent || '').trim()).catch(() => '');
+        for (let i = 0; i < 3; i++) {
+          await box.click();
+          if (await inBox()) { await page.keyboard.press('ControlOrMeta+a'); await page.keyboard.press('Backspace'); }
+          await page.keyboard.type(text);
+          if (await inBox() === text) break;
+        }
+        for (let i = 0; i < 3; i++) {
+          await page.keyboard.press('Enter');
+          if (await until(async () => (await inBox()) !== text, 2000, 100)) break;
+        }
+      };
+      let restored = false;
+      try {
+        await call(`for (const x of vscode.window.tabGroups.all.flatMap((g) => g.tabs))
+          if (x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}) await vscode.window.tabGroups.close(x); return true;`);
+        await exec('workbench.action.closeAuxiliaryBar');
+        await showSl();
+        const quiet = await until(async () => !(await claudeTabs()).length && ((await signIn()) || {}).idle, 30000, 500);
+        if (!quiet) throw new Error(`a conversation still runs in this window: ${JSON.stringify({ tabs: await claudeTabs(), account: await signIn(), clis: clis() })}`);
+        await setClaude('environmentVariables', (before.vars || []).filter((v) => v && v.name !== 'ANTHROPIC_API_KEY'));
+        await setClaude('claudeProcessWrapper', wrapper);
+        const idle = await signInWhere((s) => s.idle && s.value === 'Set by the process wrapper');
+        check(!!idle && idle.tooltip.includes(wrapper),
+          'with a process wrapper set, no API key in claudeCode.environmentVariables and no conversation running, Account & usage says the sign-in is set by the wrapper, and its tooltip names the wrapper',
+          idle || await signIn());
+        await page.mouse.move(5, 880);
+        await shot('agent-plus-account-wrapper');
+
+        await openTab(t.id);
+        if (!await until(async () => (await tabsOf()).length === 1, 30000, 500)) throw new Error('the conversation did not open in a tab');
+        const c = await conversation(t, 60000);
+        if (!c) throw new Error('the conversation did not load in its tab');
+        const turns = model.turns();
+        await say(c, 'How much of the cache does the nightly load use?');
+        const replied = await until(() => model.turns() > turns && c.evaluate(() => {
+          const m = [...document.querySelectorAll('[data-testid="assistant-message"]')].pop();
+          return !!m && m.innerText.includes('Done.');
+        }), 60000, 500);
+        check(!!replied, 'a conversation whose CLI the wrapper started, signed in with the auth token, gets the fake model\'s reply',
+          { turns: model.turns() - turns, seen: model.seen.slice(-2) });
+        await showSl();
+        if (hasProc) {
+          const cli = await until(() => clis().find((x) => x.sessionId === t.id), 20000, 300);
+          const running = await signInWhere((s) => s.value === 'Auth token');
+          check(!!cli && !!running && running.tooltip.includes(`process ${cli.pid},`) && running.tooltip.includes(wrapper),
+            'with it running, the sign-in is read from its CLI\'s environment in /proc: an auth token, with the process and the wrapper in the tooltip',
+            { cli: cli || clis(), signIn: running || await signIn() });
+        } else {
+          const still = await signInWhere((s) => s.figures);
+          check(!!still && still.value === 'Set by the process wrapper',
+            'with no /proc to read its CLI\'s environment from, the sign-in stays the wrapper\'s while the conversation runs', still || await signIn());
+        }
+        await page.mouse.move(5, 880);
+        await shot('agent-plus-account-wrapper-running');
+
+        if (!await closeTabTitled(t.title)) throw new Error('the conversation\'s tab was not there to close');
+        const ended = await until(async () => !(await tabsOf()).length && !clis().some((x) => x.sessionId === t.id), 30000, 500);
+        if (!ended) throw new Error(`the conversation's CLI did not end with its tab: ${JSON.stringify(clis())}`);
+        await restore();
+        restored = true;
+        const back = await signInWhere((s) => s.idle && s.value === 'API key');
+        check(!!back && !back.tooltip, 'with the settings as they were and no conversation running, the sign-in is the API key of claudeCode.environmentVariables again', back || await signIn());
+      } finally {
+        if (!restored) await restore();
+        if ((await tabsOf()).length) await closeTabTitled(t.title);
+        for (const y of reopen) {
+          await openTab(y.id);
+          const shown = await until(async () => (await claudeTabs()).some((x) => titled(label(x), y.title)), 30000, 500);
+          const drawn = shown && await conversation(y, 60000);
+          check(!!drawn, `the conversation "${y.title}" closed for the step is open in its tab again`, await claudeTabs());
+          if (y === tab0 && drawn) conv = drawn;
+        }
+      }
     });
 
     /* Two conversations in tabs of one group, the second in front. Agent Plus learns which conversation each tab holds

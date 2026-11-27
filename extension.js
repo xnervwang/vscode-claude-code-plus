@@ -847,6 +847,7 @@ function start(context, log, renamed, handing = false) {
     started: () => { watchList(); },
     ready: () => claude.freshAgents(),
     state: (id) => claude.stateOf(id),
+    here: (id) => shownList().includes(id),
     lastUserAt: (file) => lastUser.at(file),
     elsewhere: () => {
       try { claimed = deleteSession.shownElsewhere(planDir()); } catch (_) { claimed = new Map(); }
@@ -901,7 +902,8 @@ function start(context, log, renamed, handing = false) {
     setUnread: (id, on) => { if (typeof globalThis.__cceSetUnread === 'function') globalThis.__cceSetUnread(id, on === true); },
     unseen: (id) => unreadKeys.has(id),
     totals: (id) => sessionTotals.rows(id),
-    login: claudeLogin.reader({ extra: () => vscode.workspace.getConfiguration('claudeCode').get('environmentVariables', []) }),
+    login: claudeLogin.reader({ extra: () => vscode.workspace.getConfiguration('claudeCode').get('environmentVariables', []),
+      wrapper: () => vscode.workspace.getConfiguration('claudeCode').get('claudeProcessWrapper', '') }),
     front: () => activeChat(),
     /* The note above the list that asks whether to hide Claude Code's own list (src/official-list.js). */
     notice: () => (removed() ? null : officialList.notice({ state: context.globalState, command: PREFIX + OFFICIAL_LIST_ANSWER,
@@ -2123,6 +2125,8 @@ function start(context, log, renamed, handing = false) {
     if (e.affectsConfiguration(PREFIX + 'show.conversationLinks')) links.settingChanged();
     if (e.affectsConfiguration(PREFIX + 'show.planBar')) planBar.settingChanged();
     if (e.affectsConfiguration(HIDE_OFFICIAL_LIST_SETTING) || e.affectsConfiguration(SETTING)) { officialSessionList.apply(); sessionList.noticeChanged(); }
+    /* Account & usage says how Claude Code signs in, which these two settings change. */
+    if (e.affectsConfiguration('claudeCode.claudeProcessWrapper') || e.affectsConfiguration('claudeCode.environmentVariables')) sessionList.accountChanged();
     if (e.affectsConfiguration(HIDE_BG_SETTING)) {
       try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the list catches up on its next read */ }
     }

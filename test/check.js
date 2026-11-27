@@ -14935,6 +14935,10 @@ const repo = path.join(__dirname, '..');
       [{ rows: [{ label: 'Sign-in', value: 'Amazon Bedrock' }, NONE_HERE], bars: [], links: [] }, [{ label: 'Sign-in', value: 'API key' }], [],
         [{ label: 'Sign-in', value: 'Not signed in' }, NONE_HERE]],
       'it says how Claude Code signs in, except with a claude.ai account, with no conversation running as with one');
+    const notShown = csl.create(Object.assign({}, deps, { here: (id) => id !== S(1) }));
+    eq([notShown.accountInfo({ sessionId: S(1) }), notShown.accountInfo({}), list.accountInfo({ sessionId: S(1) }).conversation.title],
+      [{ rows: [NONE_HERE], bars: [], links: [] }, { rows: [NONE_HERE], bars: [], links: [] }, 'Lexer escapes'],
+      'a conversation that `claude agents` still lists but no panel of this window shows, as just after its tab closed, gets no figures');
     const early = csl.create(Object.assign({}, deps, { state: (id) => (id === S(2) ? { activity: 'idle' } : null) }));
     eq(early.accountInfo({ sessionId: S(2) }).rows, [{ label: 'This conversation', value: 'No figures yet',
       tooltip: 'Claude Code reports the cost, time and code changes of a conversation once it has had a turn in this window.' }],
@@ -14957,6 +14961,115 @@ const repo = path.join(__dirname, '..');
       const fromSetting = cl.reader({ home: fs.mkdtempSync(path.join(os.tmpdir(), 'cce-login-')), env: {}, extra: () => [{ name: 'ANTHROPIC_API_KEY', value: 'k' }] })().method;
       eq([claudeAi, fromSettings, fromSetting], ['claudeAi', 'bedrock', 'apiKey'],
         'and found in ~/.claude.json, the env of ~/.claude/settings.json and the setting claudeCode.environmentVariables');
+
+      /* A made-up /proc and session registry. The extension host is process 100; 200 is a panel's CLI under it, 300 a CLI
+         under a wrapper that did not exec (its parent 250 is the host's child), 400 a CLI of another window. */
+      const HOST = 100, WRAPPER = '/opt/wrap/claude-wrapper.sh';
+      const fake = () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-login-proc-'));
+        const h = path.join(root, 'home'), proc = path.join(root, 'proc');
+        fs.mkdirSync(path.join(h, '.claude', 'sessions'), { recursive: true });
+        const live = new Set();
+        const ps = (pid, ppid, environ) => {
+          fs.mkdirSync(path.join(proc, String(pid)), { recursive: true });
+          fs.writeFileSync(path.join(proc, String(pid), 'stat'), `${pid} (claude) S ${ppid} ${pid} ${pid} 0 -1 4194304`);
+          if (environ) fs.writeFileSync(path.join(proc, String(pid), 'environ'), Object.entries(environ).map(([k, v]) => `${k}=${v}`).join('\0') + '\0');
+          live.add(pid);
+        };
+        const rec = (pid, sessionId, startedAt, entrypoint = 'claude-vscode') => fs.writeFileSync(path.join(h, '.claude', 'sessions', `${pid}.json`),
+          JSON.stringify({ pid, sessionId, cwd: '/w', startedAt, kind: 'interactive', entrypoint }));
+        ps(HOST, 1);
+        return { h, proc, ps, rec, live, read: (o = {}) => cl.reader(Object.assign({ home: h, env: {}, proc, ownPid: HOST, isAlive: (pid) => live.has(pid) }, o)) };
+      };
+      {
+        const f = fake();
+        const viaWrapper = f.read({ wrapper: () => WRAPPER })();
+        const nothing = f.read()();
+        const blank = f.read({ wrapper: () => '   ' })();
+        fs.writeFileSync(path.join(f.h, '.claude', 'settings.json'), JSON.stringify({ env: { CLAUDE_CODE_USE_BEDROCK: '1' } }));
+        const named = f.read({ wrapper: () => WRAPPER })();
+        eq([viaWrapper, nothing, blank, named],
+          [{ method: 'wrapper', label: 'Set by the process wrapper',
+            tooltip: `Claude Code starts its CLI through the process wrapper ${WRAPPER} (claudeCode.claudeProcessWrapper), which decides how it signs in.` },
+          { method: 'none', label: 'Not signed in' }, { method: 'none', label: 'Not signed in' }, { method: 'bedrock', label: 'Amazon Bedrock' }],
+          'with a process wrapper and no conversation running, the sign-in is the wrapper\'s, with its path in the tooltip; without one, or with a blank one, it is Not signed in; '
+            + 'and a method found elsewhere, here the env of ~/.claude/settings.json, is shown as before');
+      }
+      {
+        const f = fake();
+        f.ps(200, HOST, { ANTHROPIC_AUTH_TOKEN: 't', PATH: '/bin' });
+        f.rec(200, S(1), 1000);
+        const tip = (pid, w) => `Read from the environment of process ${pid}, the Claude Code CLI of this conversation${w ? `, started through the process wrapper ${w}` : ''}.`;
+        const withWrapper = f.read({ wrapper: () => WRAPPER })(S(1));
+        const plain = f.read({ extra: () => [{ name: 'CLAUDE_CODE_USE_VERTEX', value: '1' }] })(S(1));
+        f.ps(250, HOST);
+        f.ps(300, 250, { CLAUDE_CODE_USE_BEDROCK: '1' });
+        f.rec(300, S(2), 2000);
+        const child = f.read({ wrapper: () => WRAPPER })(S(2));
+        f.ps(350, HOST, { CLAUDE_CODE_USE_VERTEX: '1' });
+        f.rec(350, S(1), 3000);
+        const twice = f.read({ wrapper: () => WRAPPER })(S(1));
+        eq([withWrapper, plain, child, twice],
+          [{ method: 'authToken', label: 'Auth token', tooltip: tip(200, WRAPPER) }, { method: 'authToken', label: 'Auth token', tooltip: tip(200) },
+            { method: 'bedrock', label: 'Amazon Bedrock', tooltip: tip(300, WRAPPER) }, { method: 'vertex', label: 'Google Vertex AI', tooltip: tip(350, WRAPPER) }],
+          'with the conversation in front running in this window, the sign-in is read from its own CLI\'s environment in /proc, over what the extension host and the setting give: '
+            + 'also a CLI the wrapper started as its child, and of two processes on the conversation the one started last');
+        eq([f.read({ wrapper: () => WRAPPER })(''), f.read({ extra: () => [{ name: 'ANTHROPIC_API_KEY', value: 'k' }] })('')],
+          [{ method: 'wrapper', label: 'Set by the process wrapper',
+            tooltip: `Claude Code starts its CLI through the process wrapper ${WRAPPER} (claudeCode.claudeProcessWrapper), which decides how it signs in.` },
+          { method: 'apiKey', label: 'API key' }],
+          'with no conversation running here no process is read, though CLIs of this window run, as a panel keeps one ready for a new conversation');
+        fs.writeFileSync(path.join(f.h, '.claude', 'settings.json'), JSON.stringify({ env: { CLAUDE_CODE_USE_VERTEX: '0', CLAUDE_CODE_USE_FOUNDRY: '1' } }));
+        eq(f.read()(S(1)).method, 'foundry', 'and the env of ~/.claude/settings.json still applies over the process\'s environment, as the CLI applies it when it starts');
+      }
+      {
+        const f = fake();
+        f.ps(400, 999, { CLAUDE_CODE_USE_BEDROCK: '1' });
+        f.rec(400, S(4), 1000);
+        f.ps(500, HOST);
+        f.rec(500, S(5), 2000);
+        f.ps(600, HOST, { CLAUDE_CODE_USE_VERTEX: '1' });
+        f.rec(600, S(6), 3000);
+        f.live.delete(600);
+        const others = [S(4), S(5), S(6)].map((id) => f.read({ wrapper: () => WRAPPER })(id).method);
+        f.ps(700, HOST, { PATH: '/bin' });
+        f.rec(700, S(7), 4000);
+        const bare = f.read({ wrapper: () => WRAPPER })(S(7));
+        const bareNone = f.read()(S(7));
+        const noProc = cl.reader({ home: f.h, env: {}, proc: path.join(f.h, 'no-proc'), ownPid: HOST, isAlive: () => true, wrapper: () => WRAPPER })(S(7));
+        eq([others, bare.method, bareNone, noProc.method], [['wrapper', 'wrapper', 'wrapper'], 'wrapper', { method: 'none', label: 'Not signed in',
+          tooltip: 'Read from the environment of process 700, the Claude Code CLI of this conversation.' }, 'wrapper'],
+          'a CLI of another window, one whose environment cannot be read and one whose process has gone are passed over; a CLI whose environment names no method '
+            + 'leaves the sign-in to the wrapper, or Not signed in without one; and where there is no /proc only the wrapper is said');
+      }
+      {
+        const f = fake();
+        let w = '';
+        const r = f.read({ wrapper: () => w, ms: 60000 });
+        const before = r(S(1)).method;
+        w = WRAPPER;
+        const afterSetting = r(S(1)).method;
+        f.ps(200, HOST, { ANTHROPIC_API_KEY: 'k' });
+        f.rec(200, S(1), 1000);
+        eq([before, afterSetting, r(S(1)).method], ['none', 'wrapper', 'apiKey'],
+          'what it read is kept a while, but read again at once when the wrapper setting changes or a process appears in the session registry');
+      }
+      eq(cl.parseEnviron('A=1\0B=x=y\0\0=bad\0C\0'), { A: '1', B: 'x=y' }, 'an environment block is split at NULs and each entry at its first =');
+    }
+    {
+      const asked = [];
+      const tipped = csl.create(Object.assign({}, deps, { state: (id) => (id === S(1) ? { activity: 'idle' } : null), front: () => '',
+        login: (id) => { asked.push(id); return { method: 'wrapper', label: 'Set by the process wrapper', tooltip: 'Claude Code starts its CLI through the process wrapper /w.' }; } }));
+      eq([tipped.accountInfo({ sessionId: S(1) }).rows[0], tipped.accountInfo({ sessionId: S(9) }).rows[0], asked],
+        [{ label: 'Sign-in', value: 'Set by the process wrapper', tooltip: 'Claude Code starts its CLI through the process wrapper /w.' },
+          { label: 'Sign-in', value: 'Set by the process wrapper', tooltip: 'Claude Code starts its CLI through the process wrapper /w.' }, [S(1), '']],
+        'the Sign-in line carries the tooltip it is given, and the sign-in is asked for with the conversation that runs here, or none');
+      tipped.dispose();
+      const src = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+      const at = src.indexOf('login: claudeLogin.reader({'), wiring = at < 0 ? '' : src.slice(at, src.indexOf('}),', at));
+      ((/getConfiguration\('claudeCode'\)\.get\('environmentVariables', \[\]\)/.test(wiring) && /wrapper: \(\) => vscode\.workspace\.getConfiguration\('claudeCode'\)\.get\('claudeProcessWrapper', ''\)/.test(wiring)
+        && /affectsConfiguration\('claudeCode\.claudeProcessWrapper'\) \|\| e\.affectsConfiguration\('claudeCode\.environmentVariables'\)\) sessionList\.accountChanged\(\);/.test(src)) ? ok : bad)(
+        'the window reads claudeCode.environmentVariables and claudeCode.claudeProcessWrapper for the sign-in, and tells the list when either changes');
     }
     calls.length = 0;
     list.noteSeen([S(1), 'x', S(2)], true);

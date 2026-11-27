@@ -142,6 +142,7 @@ function projectOf(dir, folder) {
  *   started()                     optional: called once, when the list first asks for this window's conversations
  *   ready()                       optional: Promise, settled once the states below are fresh
  *   state(sessionId)              { activity, waitingFor } of a conversation that runs, or null for one that does not
+ *   here(sessionId)               optional: whether a panel of this window shows that conversation
  *   lastUserAt(file)              optional: when the user last wrote in transcript `file`, answers on a question card and
  *                                 messages typed while a turn ran included (src/activity.js), or 0
  *   elsewhere()                   Map of session id to { elsewhere, processes } (src/claude-elsewhere.js)
@@ -328,15 +329,17 @@ function create(deps) {
        claude.ai account, and the figures of the conversation in front; without figures, a line says that conversation
        has had no turn here yet, or that none runs here. The core asks with the last conversation it saw in front, which
        may have closed since with no other in its place, so figures are given only for a conversation that still runs
-       here: the one asked for, or else this window's one in front. */
+       here: the one asked for, or else this window's one in front. A list of `claude agents` read just before a tab
+       closed can still have its process, so one that no panel here shows is not counted. */
     accountInfo({ sessionId } = {}) {
-      const runs = (x) => SESSION.test(x) && !!safe(deps.state, null, x);
+      const runs = (x) => SESSION.test(x) && !!safe(deps.state, null, x) && (typeof deps.here !== 'function' || safe(deps.here, false, x) === true);
       const asked = typeof sessionId === 'string' ? sessionId : '';
       const front = String(safe(deps.front, '') || '');
       const id = runs(asked) ? asked : runs(front) ? front : '';
       const rows = id ? safe(deps.totals, [], id) : [];
-      const login = safe(deps.login, null);
-      const top = login && login.method !== 'claudeAi' && login.label ? [{ label: 'Sign-in', value: login.label }] : [];
+      const login = safe(deps.login, null, id);
+      const top = login && login.method !== 'claudeAi' && login.label
+        ? [Object.assign({ label: 'Sign-in', value: login.label }, login.tooltip ? { tooltip: login.tooltip } : {})] : [];
       if (!Array.isArray(rows) || !rows.length) {
         const why = id ? { label: 'This conversation', value: 'No figures yet', tooltip: NOT_YET } : { label: 'This window', value: 'No conversation running', tooltip: NO_FIGURES };
         return { rows: top.concat([why]), bars: [], links: [] };
