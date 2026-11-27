@@ -1445,7 +1445,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           return a && b && a.stripe === 'here' && b.stripe === 'here' && { behind: a, front: b };
         }, 15000, 500);
         const rs = await slRows().catch(() => null);
-        check(!!both, 'with two conversations in tabs of one group, both rows in Agent Plus\'s session list have the solid stripe of one open in this window',
+        check(!!both, 'with two conversations in tabs of one group, both rows in Agent Plus\'s session list have the solid stripe of a conversation open in this window',
           { behind: slFind(rs, tab0), front: slFind(rs, t1) });
         /* The list keeps the hover box it shows while the pointer stays on a row, so the other row is hovered first. */
         const hoverOf = async (t, other) => {

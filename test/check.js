@@ -13189,7 +13189,7 @@ console.log('\nClaude Code\'s own source');
       ok('a tab brought to the front over another is not taken for the one it covers while its own panel has no session yet');
     } else bad(`a tab coming to the front: ${JSON.stringify(o.coming)}`);
     if (JSON.stringify(o.behind) === JSON.stringify(['BACK', 'FRONT', '', 'FRONT', 'TWIN', 'FRONT'])) {
-      ok('a tab behind another in its group is its own conversation, from the panel with its label, which is not visible; never the visible panel of another title');
+      ok('a tab behind another in its group is its own conversation, taken from the panel with its label, which is not visible, and not from the visible panel with another title');
     } else bad(`a tab behind another: ${JSON.stringify(o.behind)}`);
     if (JSON.stringify(o.heard) === JSON.stringify(['C', 'OLD', 'NEW', 'A', 'A2', 'X', '', 'Y', 'Y', 'Y', 'Y']) && JSON.stringify(o.follow) === '[true,false,true]') {
       ok('every Claude Code focus signal fires onDidFocus, including a front panel getting its session id');

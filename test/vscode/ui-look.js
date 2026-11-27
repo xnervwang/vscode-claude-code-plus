@@ -1388,10 +1388,10 @@ const STEPS = [
   {
     name: 'steward-relayed', features: ['steward-send'],
     expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. The last message in it from you '
-      + 'reads "Please check the export query once more, then stop.", after a first line that Claude Code Plus puts before '
-      + 'whatever a steward passes on: Sent by the steward "CSV export and budgets" (and the steward\'s session id) for the user:. '
-      + 'The demo conversation, which is its steward, passed it on and Claude Code Plus typed it in, so it is drawn like any '
-      + 'message you typed; the fake model\'s reply follows it.',
+      + 'reads "Please check the export query once more, then stop.", above which is the first line Claude Code Plus '
+      + 'adds to any message a steward passes on: Sent by the steward "CSV export and budgets" (and the steward\'s '
+      + 'session id) for the user:. The demo conversation, which is its steward, passed it on and Claude Code Plus '
+      + 'typed it in, so it is drawn like any message you typed; the fake model\'s reply follows it.',
     unchanged: null,
     act: async (d) => {
       for (const t of d.threads.slice(1)) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
@@ -2193,10 +2193,10 @@ const STEPS = [
       + 'Plus marks a dialog that waits for you with a filled blue dot on the conversation\'s logo in the session '
       + 'list in the side bar. The tool row of that call has its time on a line of its own above "Bash" and its '
       + 'description, which stays on one line.',
-    unchanged: 'The earlier messages are as before, but higher and dimmed: the conversation has scrolled to show the question, '
-      + 'and Claude Code draws the rows before it greyed out while it waits for the answer. Claude Code also keeps a message of '
-      + 'yours pinned at the top while the rows that answer it scroll up behind it, so some of those rows may be hidden under '
-      + 'it. The tab\'s title has no envelope now that the tab is in front.',
+    unchanged: 'The earlier messages are as before, but higher and dimmed: the conversation has scrolled to show the question. '
+      + 'Claude Code also keeps a message of yours pinned at the top while the rows that answer it scroll up behind '
+      + 'it, so some of those rows may be hidden under it. The tab\'s title has no envelope now that the tab is in '
+      + 'front.',
     act: async (d) => {
       const frame = await live(d);
       const list = await agentList(d);
@@ -2271,9 +2271,9 @@ const STEPS = [
   },
   {
     name: 'view-filter-helper', features: ['view-filter'],
-    expect: 'The helper was picked in the filter: the control names it by the start of its task, and as none of the helper\'s '
-      + 'messages are drawn in this conversation, a note near the top says "No messages loaded for '
-      + 'this agent." and why. The main thread\'s messages are hidden.',
+    expect: 'The footer filter shows the start of the selected helper\'s task as its name. None of the helper\'s messages appear in '
+      + 'this conversation, so a note near the top says "No messages loaded for this agent." and explains why. The '
+      + 'main thread\'s messages are hidden.',
     unchanged: 'The tab bar, side bar and message box are as before.',
     act: async (d) => {
       const frame = await live(d);
@@ -3489,12 +3489,14 @@ const STEPS = [
       + 'turn ended while its tab was behind another one; no dot, and an envelope icon right after its title, before the time. "'
       + C.idle.title + '": this conversation is not open in any tab, terminal or other window; its row has no dot, no envelope and no '
       + 'stripe at the start. "' + C.term.title + '": a '
-      + 'terminal has it open; its logo, title and time are greyed, about half as bright as the other rows, the stripe at its start is a '
-      + 'hollow outline, and a small terminal icon (a box with a prompt sign) comes before its time; no dot. The first four have a solid '
-      + 'stripe at their start: their tabs are open in this window, behind the demo conversation. Each dot is round, '
-      + 'whole, the same size as the others, and touches neither the title nor the stripe. The rows of the demo conversation and its three '
-      + 'short conversations may show what earlier steps left on them. The status bar\'s Conversations entry counts these two among the '
-      + 'conversations that need you.';
+      + 'terminal has it open; its logo, title and time are greyed, about half as bright as the other rows, the '
+      + 'stripe at its start is a hollow outline, and a small terminal icon (a box with a prompt sign) comes before '
+      + 'its time; no dot. The first four have a solid stripe at their start: their tabs are open in this window, '
+      + 'behind the demo conversation. Each dot is round, whole, the same size as the others, and touches neither the '
+      + 'title nor the stripe. The rows of the demo conversation and its three short conversations may show what '
+      + 'earlier steps left on them. The status bar\'s Conversations entry counts both the conversation waiting for '
+      + 'you to allow a Bash command and the one waiting for you to answer a question among the conversations that '
+      + 'need you.';
     /* An undo that also gives the side bar back its width, then moves the pointer off the edge it dragged. */
     const sceneDownWide = async (d) => { await sceneDown(d); await d.widen(); await d.away(); };
 
@@ -3520,10 +3522,10 @@ const STEPS = [
       {
         name: 'agent-plus-states-narrow', features: ['agent-plus-session-list', 'narrow-panel', 'long-title-envelope', 'dot-working', 'dot-waiting', 'unread-envelope', 'agent-plus-elsewhere'],
         expect: sceneSaid(', narrowed to about 220 px, in the dark theme.') + ' In this width the titles are cut short with an '
-          + 'ellipsis, and each row is still one line: the logo with its dot whole and round, the stripe as tall and as wide as in a wide '
-          + 'side bar, and at the end of the row the envelope, the terminal icon and the time, none of them cut, squeezed or pushed past the '
-          + 'side bar\'s right edge. The New bar and the filter chips above the rows may squeeze or wrap, and the figures under ACCOUNT & '
-          + 'USAGE may wrap under their labels; all of it stays readable.',
+          + 'ellipsis, and each row is still one line: the logo, the stripe as tall and as wide as in a wide side '
+          + 'bar, and at the end of the row the envelope, the terminal icon and the time, none of them cut, squeezed '
+          + 'or pushed past the side bar\'s right edge. The New bar and the filter chips above the rows may squeeze '
+          + 'or wrap, and the figures under ACCOUNT & USAGE may wrap under their labels; all of it stays readable.',
         unchanged: 'The demo conversation is in front in the editor, as before.',
         act: async (d) => {
           await sceneUp(d);
@@ -3595,11 +3597,12 @@ const STEPS = [
       },
       {
         name: 'agent-plus-recently-closed', features: ['agent-plus-list-sections'],
-        expect: 'Agent Plus\'s session list with its RECENTLY CLOSED section opened: its band, with a clock icon, the words RECENTLY CLOSED '
-          + 'and a count, has its arrow pointing down, and under it, newest first, "' + C.closedB.title + '" and then "' + C.closedA.title
-          + '", whose tabs this step opened and closed. Each of those two rows ends in "closed now" or "closed 1m" in place of how long ago it '
-          + 'was active, and has a light blue stripe at its start; neither is greyed. The same two conversations\' own rows further down, '
-          + 'under UNGROUPED, have the light blue stripe too. Rows of conversations that earlier steps closed may follow in the section.',
+        expect: 'The RECENTLY CLOSED section is open in Agent Plus\'s session list. Its band has a down arrow, a clock icon, the words '
+          + 'RECENTLY CLOSED and a count. The first two rows below the band are "' + C.closedB.title + '" and "' + C.closedA.title
+          + '", newest first. This step opened and closed both tabs. Each of those two rows ends in "closed now" or '
+          + '"closed 1m" in place of how long ago it was active, and has a light blue stripe at its start; neither is '
+          + 'greyed. The same two conversations\' own rows further down, under UNGROUPED, have the light blue stripe '
+          + 'too. Rows of conversations that earlier steps closed may follow in the section.',
         unchanged: 'The demo conversation is in front in the editor.',
         act: async (d) => {
           const list = await listReady(d);
@@ -3701,9 +3704,10 @@ const STEPS = [
       },
       {
         name: 'agent-plus-account-folded', features: ['agent-plus-account'],
-        expect: 'Agent Plus\'s session list with its ACCOUNT & USAGE band at the top folded: the arrow at its start points right, followed '
-          + 'by a person icon and the words ACCOUNT & USAGE, and nothing of its Claude Code part shows under it: no logo, no THIS '
-          + 'CONVERSATION heading, no figures. The section bands and rows of the list come right after the band, with no gap or stray '
+        expect: 'The ACCOUNT & USAGE band is folded at the top of Agent Plus\'s session list. It starts with a right-pointing arrow, '
+          + 'followed by a person icon and the words ACCOUNT & USAGE. None of the section\'s Claude Code content is '
+          + 'visible below the band: no Claude Code logo, no THIS CONVERSATION heading and no figures. The section '
+          + 'bands and rows of the list come right after the band, with no gap or stray '
           + 'line between. "' + C.figures.title + '", in front in the editor, has just answered a message, so the part has figures to '
           + 'show once the band is opened.',
         unchanged: 'The rows listed before are still there.',
@@ -3906,7 +3910,8 @@ async function main() {
   fs.mkdirSync(opt.out, { recursive: true });
   const started = Date.now();
   /* The salt holds the root folder, so that two runs at once under different temporary folders give the demo conversation
-     different session ids: lib/demo.js stops the demo's sleep by its session id, which would stop the other run's too. */
+     different session ids. lib/demo.js stops the demo's sleep by that id, so with one id for both runs it would stop the
+     other run's sleep too. */
   const d = await demo.open({ pack: opt.pack, vsix: opt.vsix, core: opt.core, cache: opt.cache, root: ROOT, salt: `ui-look:${ROOT}`,
     /* Manual, as in run.js, so that a tool call stops for permission: auto mode needs a check the fake model cannot do. */
     settings: { 'claudeCode.initialPermissionMode': 'default' } });
