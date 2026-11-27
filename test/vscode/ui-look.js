@@ -2024,10 +2024,11 @@ const STEPS = [
   },
   {
     name: 'need-you-count', features: ['need-you-notices'],
-    expect: 'A close-up of the status bar around Agent Plus\'s Conversations entry: on a yellow background it '
-      + 'reads "1 conversation needs you", the conversation of another window that waits for you to approve Bash, '
-      + 'or "2 conversations need you" if the count already includes the demo conversation. Its plan has '
-      + 'questions for you to decide. The conversation here with an unread reply is not counted.',
+    expect: 'A close-up of the status bar around Agent Plus\'s Conversations entry, drawn in the status bar\'s own colours with no '
+      + 'warning background, as Agent Plus leaves it: it reads "1 '
+      + 'conversation needs you", the conversation of another window that waits for you to approve Bash, or "2 conversations '
+      + 'need you" when it already counted the demo conversation, whose plan has questions to decide. The conversation here '
+      + 'with an unread reply is not counted.',
     unchanged: 'The window is as before.',
     act: async (d) => {
       /* The entry's text counts every conversation that needs you, the demo conversation too once Agent Plus has read the
