@@ -1,5 +1,5 @@
 {
-  "core": "f788d247a748a980db289b91c506656a0786f636",
+  "core": "4f98840bc0c819010a2f4dd3078ed1e4246ae14d",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -79,7 +79,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_common.py",
       "from": "shared/plugin/hooks/plan_common.py",
-      "sha256": "d44f27de517b9e5fffbdd67e6098f8d3c811b1dba996b8f9727d28f52ad5cd65"
+      "sha256": "841853986960c13689d4dd120de867d2b5eb6584158d75b64111e0bac805fa39"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan-row.py",
@@ -145,7 +145,7 @@
     {
       "path": "src/token-mode.js",
       "from": "src/token-mode.js",
-      "sha256": "5603bb5304d0dd2d361741d41b4e54c9318fe04fbf4c9aaeb5860aa4a5a28969"
+      "sha256": "665ad69688a2aea8200479a0ce6c05a8a67163d5cfa2fd1f48b7978b717d2944"
     },
     {
       "path": "src/notice-time.js",
@@ -180,22 +180,22 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward-relay.py",
       "from": "shared/plugin/claude/steward-relay.py",
-      "sha256": "206c3bbe8c2830943cb8d1440058b3a5ef9d8ac2b147dfd24cabd10fb8f5a3e7"
+      "sha256": "da73fadde608d25e1e87c331aaf61e35ccb4a61b90f1187f5a7ae4beb8ac14b5"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward.py",
       "from": "shared/plugin/claude/steward.py",
-      "sha256": "a7c1aa5ce54ad14bc75d9b0f89c6c0d2d841f576ab803ca3a3615f6ba2f5d147"
+      "sha256": "fe401e9da8feea656b8dce4c6d01b2be48cec32e7a9dbd33a895db86fd0d0e4c"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward-peek.py",
       "from": "shared/plugin/claude/steward-peek.py",
-      "sha256": "a65b8e40952f36540e8572f6d704a98aa5b3dd2f926a48a6cb16d9e14c5c41ff"
+      "sha256": "2e08e6b3662101960515c9d9d3d45533aede2939f7c3502653b449315d0eaf05"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward_table.py",
       "from": "shared/plugin/claude/steward_table.py",
-      "sha256": "2457bdd0b196cb51c626fc9cecb3f51eabdf1c7b8ceb697afe86f15b2d27af12"
+      "sha256": "0bf466d7e83b4b7d792ae86e078e34ed992216fe2f40befa956f1153204a7bea"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/proc_alive.py",
@@ -210,7 +210,7 @@
     {
       "path": "claude-plugin/agent-work-plan/skills/steward/SKILL.md",
       "from": "shared/plugin/claude/steward-skill.md",
-      "sha256": "1e443f48b3e3abf787b39f1db81bfd1cb97a7ba784e7b3f48d8cb6109fccaef3"
+      "sha256": "418a65a74c2040915327160ee960c4047ac40b49cdf27d4c04c890073ba21de5"
     }
   ]
 }

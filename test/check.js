@@ -10215,7 +10215,7 @@ console.log('\nthe Supervisor panel');
           + 'and prints what the window did');
       } else bad(`list changes from the script gave ${JSON.stringify({ titled, byId, switched })}`);
       const lines = (held.out || '').trim().split(/\r?\n/);
-      if (held.code === 1 && !held.asked.length && lines[0] === 'Not sent: another steward sent this conversation a message in the last 30 minutes:'
+      if (held.code === 1 && !held.asked.length && lines[0] === 'Not sent: another supervisor sent this conversation a message in the last 30 minutes:'
           && lines[1].startsWith(`  - "Night supervisor" (${S(7)}), 5 minutes ago: Rewrite the totals query. x`) && lines[1].endsWith('...') && lines[1].length < 420
           && lines.length === 3 && /run the same command again with --anyway\.$/.test(lines[2]) && !held.out.includes('Old supervisor') && !held.out.includes('mine')
           && forced.code === 0 && forced.asked.length === 1 && forced.asked[0].to === S(2) && forced.asked[0].text === 'Keep the totals query.'
@@ -10223,7 +10223,7 @@ console.log('\nthe Supervisor panel');
         ok('steward-relay.py holds a message back while another supervisor sent the conversation one in the last 30 minutes, printing who, when and the start of it, '
           + 'and how to send anyway; --anyway sends it, and neither an older message nor the supervisor\'s own holds one back');
       } else bad(`the recent-message check gave ${JSON.stringify({ held, forced, mine })}`);
-      if (stranger.code === 1 && !stranger.asked.length && stranger.out.startsWith(`Not done: ${S(9)} does not manage this conversation. Its stewards are "Docs supervisor" (${S(1)}), "Night supervisor" (${S(7)}).`)
+      if (stranger.code === 1 && !stranger.asked.length && stranger.out.startsWith(`Not done: ${S(9)} does not manage this conversation. Its supervisors are "Docs supervisor" (${S(1)}), "Night supervisor" (${S(7)}).`)
           && noValue.code === 2 && /^usage: /.test(noValue.out) && named.asked.length === 0 && /not open in a VS Code window/.test(named.out)) {
         ok('--handoff --to is refused for a session id that is not one of the conversation\'s supervisors, naming those it has, and for one no window shows; a switch without on or off gets the usage');
       } else bad(`--handoff --to and the switches gave ${JSON.stringify({ stranger, named, noValue })}`);
@@ -10339,7 +10339,7 @@ console.log('\nthe Supervisor panel');
       if (listed.status === 0 && listed.stdout.trim() === 'proj-a: /w/proj, /w/lib' && relative.status === 2
           && busy.code === 1 && /busy: it is working/.test(busy.out) && busy.req && busy.req.action === 'close' && busy.req.text === '' && !busy.req.confirmed
           && sure.code === 0 && /^Closed: /.test(sure.out) && sure.req && sure.req.confirmed === true
-          && opened.code === 0 && opened.out.replace(/\r\n/g, '\n').startsWith('Opened: a new conversation was started and its first message sent. It is now ticked for you in the Steward panel.\n')
+          && opened.code === 0 && opened.out.replace(/\r\n/g, '\n').startsWith('Opened: a new conversation was started and its first message sent. It is now ticked for you in the Supervisor panel.\n')
           && opened.out.includes('Session id: ' + S(7)) && opened.req && opened.req.action === 'open' && opened.req.to === '/w/proj'
           && opened.req.text === 'Start on the parser') {
         ok('steward-relay.py lists the open windows and their folders, asks for a close, confirmed or not, and an open of a folder given in full, and prints the new conversation\'s id');
@@ -10719,9 +10719,9 @@ console.log('\nthe Supervisor panel');
       const busy = talk(['--resume', S(4)], S(1), '', `(q) => ({ outcome: 'refused', reason: 'process 4242 runs it', window: ${pids} })`);
       const resumedHere = talk(['--resume', S('d')], S(1), '', `(q) => ({ outcome: 'submitted', reason: '', opened: true, window: ${pids} })`);
       const out = (r) => String((r && (r.out !== undefined ? r.out : r.stdout)) || '').trim();
-      const TICKED = ' It is now ticked for you in the Steward panel.';
+      const TICKED = ' It is now ticked for you in the Supervisor panel.';
       if (JSON.stringify(usage) === '[2,2,2]' && missing.status === 1 && /^Not done: no conversation with that session id was found under /.test(out(missing))
-          && shown.status === 1 && out(shown) === 'Not done: it is already open in the VS Code window "other-win"; a plain send reaches it there once the user ticks it for this steward in the Steward panel.'
+          && shown.status === 1 && out(shown) === 'Not done: it is already open in the VS Code window "other-win"; a plain send reaches it there once the user ticks it for this supervisor in the Supervisor panel.'
           && away.status === 1 && out(away).startsWith(`Not done: no open VS Code window has its folder, ${elsewhere}, as its first folder, and Claude Code opens a stored conversation only in such a window; in any other it would start a new, empty one. Ask the user to open that folder in a window (as its first folder). The open windows:`)
           && out(away).includes(`  proj-a: ${linked ? link : proj}`) && out(away).includes(`  other-win: ${sibling}`)
           && fs.readdirSync(path.join(rdata, relay.RELAY_DIR)).length === 0) {
@@ -10746,9 +10746,9 @@ console.log('\nthe Supervisor panel');
       const handed = talk(['--handoff'], S(2), moved + '\n', `(q) => ({ outcome: 'submitted', reason: '', steward: ${JSON.stringify(S(1))}, stewardTitle: 'Supervisor one' })`);
       const nobody = talk(['--handoff'], S(2), moved, `(q) => ({ outcome: 'notReceived', reason: 'no supervisor of this conversation could be reached (x)' })`);
       const empty = sync(['--handoff'], S(2), '');
-      if (stranger.status === 1 && out(stranger) === 'Not done: no steward manages this conversation, so it cannot be handed off.' + NOT_HANDED
-          && unseen.status === 1 && out(unseen) === 'Not done: no steward of this conversation is open in a VS Code window, so none can be told.' + NOT_HANDED
-          && handed.code === 0 && out(handed).startsWith(`Handed off to the steward "Supervisor one" (${S(1)}): it was told, in a notice that is not the user's message.`)
+      if (stranger.status === 1 && out(stranger) === 'Not done: no supervisor manages this conversation, so it cannot be handed off.' + NOT_HANDED
+          && unseen.status === 1 && out(unseen) === 'Not done: no supervisor of this conversation is open in a VS Code window, so none can be told.' + NOT_HANDED
+          && handed.code === 0 && out(handed).startsWith(`Handed off to the supervisor "Supervisor one" (${S(1)}): it was told, in a notice that is not the user's message.`)
           && handed.req && handed.req.action === 'handoff' && handed.req.from === S(2) && handed.req.to === '' && handed.req.text === moved
           && !('steward' in handed.req) && nobody.code === 1 && out(nobody) === 'Not done: no supervisor of this conversation could be reached (x).' + NOT_HANDED
           && empty.status === 1 && out(empty) === 'Not done: nothing on standard input.') {
@@ -11100,7 +11100,7 @@ console.log('\nthe Supervisor panel');
     const managed = hook(S(3)), other = hook(S(4));
     const ctx = (r) => { try { return JSON.parse(r.stdout).hookSpecificOutput.additionalContext; } catch (_) { return ''; } };
     const c1 = ctx(h1), c2 = ctx(h2), c3 = ctx(managed);
-    if (c1.startsWith('You are the steward of 2 Claude Code conversations') && c1.includes(`- "Two" (${S(2)}): working; doing: Port the reader; 1 question for the user`)
+    if (c1.startsWith('You are the supervisor of 2 Claude Code conversations') && c1.includes(`- "Two" (${S(2)}): working; doing: Port the reader; 1 question for the user`)
         && c1.includes(`- "Three" (${S(3)}): not running`) && !c1.includes('Changed since') && !c1.includes('watches this one')
         && c2.includes('Changed since your previous turn: "Two": working -> idle.') && other.stdout === '' && other.status === 0) {
       ok('steward.py tells a supervisor each conversation\'s state, work and questions, and then what changed; a conversation nobody manages gets nothing');
@@ -11111,13 +11111,13 @@ console.log('\nthe Supervisor panel');
     const c5 = ctx(hook(S(1))), c6 = ctx(hook(S(1)));
     const RELAYED = 'A message you pass on with steward-relay.py is the user\'s own message in that conversation, approvals included. '
       + 'Do not ask the user to say it there themselves.';
-    if (c4 === 'You are the steward of 2 Claude Code conversations the user picked for you in the Steward panel; follow the steward skill. '
+    if (c4 === 'You are the supervisor of 2 Claude Code conversations the user picked for you in the Supervisor panel; follow the supervisor skill. '
         + RELAYED + ' Nothing has changed since the list you were given at your previous turn.'
         && c5.includes(`- "Two" (${S(2)}): idle`) && !c5.includes('Changed since') && c6 === c4) {
       ok('a supervisor\'s list that has not changed since its previous turn is one sentence, and is given whole again after a compaction');
     } else bad(`steward.py on unchanged turns said ${JSON.stringify([c4, c5, c6])}`);
-    if ([c1, c2, c4, c5].every((c) => c.startsWith('You are the steward of 2 Claude Code conversations the user picked for you in the Steward panel; '
-        + 'follow the steward skill. ' + RELAYED + ' ')) && !c3.includes(RELAYED)) {
+    if ([c1, c2, c4, c5].every((c) => c.startsWith('You are the supervisor of 2 Claude Code conversations the user picked for you in the Supervisor panel; '
+        + 'follow the supervisor skill. ' + RELAYED + ' ')) && !c3.includes(RELAYED)) {
       ok('every turn of a supervisor, with the whole list or with nothing changed, says right after its first sentence that a message passed on with '
         + 'steward-relay.py is the user\'s own there, approvals included; a managed conversation is not told that');
     } else bad(`the line about relayed messages: ${JSON.stringify([c1, c4, c3])}`);
@@ -11127,7 +11127,7 @@ console.log('\nthe Supervisor panel');
       const seenFile = path.join(data, S(1) + '.steward-seen');
       const skillFile = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'skills', 'steward', 'SKILL.md');
       const version = require('crypto').createHash('sha1').update(fs.readFileSync(skillFile)).digest('hex').slice(0, 8);
-      const SAY = `The steward skill has changed since your previous turn (it is now version ${version}): load it again with the Skill tool`;
+      const SAY = `The supervisor skill has changed since your previous turn (it is now version ${version}): load it again with the Skill tool`;
       let saved = {};
       try { saved = JSON.parse(fs.readFileSync(seenFile, 'utf8')); } catch (_) { saved = {}; }
       fs.writeFileSync(seenFile, JSON.stringify(Object.assign({}, saved, { skill: '00000000' })));
@@ -11136,14 +11136,14 @@ console.log('\nthe Supervisor panel');
       delete older.skill;
       fs.writeFileSync(seenFile, JSON.stringify(older));
       const v3 = ctx(hook(S(1))), v4 = ctx(hook(S(1)));
-      if (saved.skill === version && ![c1, c2, c4, c5].some((c) => c.includes('steward skill has changed'))
+      if (saved.skill === version && ![c1, c2, c4, c5].some((c) => c.includes('supervisor skill has changed'))
           && v1 === c4 + '\n' + SAY + ' before you act, and follow the new one where the two differ.' && v2 === c4 && v3.includes(SAY) && v4 === c4) {
-        ok('a supervisor is told once to load the steward skill again when the skill has changed since it was last told, or when its record of the last turn is from a build that kept no version; '
+        ok('a supervisor is told once to load the supervisor skill again when the skill has changed since it was last told, or when its record of the last turn is from a build that kept no version; '
           + 'a new supervisor and an unchanged skill add nothing');
       } else bad(`the skill version lines: ${JSON.stringify([saved.skill, version, v1, v2, v3, v4])}`);
     }
-    if (c3.startsWith(`A steward, ${S(1)}, watches this one`) && c3.includes('Do not send it status messages')
-        && c3.includes('starts with the line `Sent by the steward "<title>" (<session id>) for the user:`. Do not send it status messages') && managed.status === 0) {
+    if (c3.startsWith(`A supervisor, ${S(1)}, watches this one`) && c3.includes('Do not send it status messages')
+        && c3.includes('starts with the line `Sent by the supervisor "<title>" (<session id>) for the user:`. Do not send it status messages') && managed.status === 0) {
       ok('a managed conversation is told the session id of the supervisor that watches it and how that supervisor\'s messages start, and is asked to leave questions in its plan instead of messaging the supervisor');
     } else bad(`a managed conversation was told ${JSON.stringify(c3)}`);
     const relayScript = path.join(hooks, 'steward-relay.py');
@@ -11158,8 +11158,8 @@ console.log('\nthe Supervisor panel');
     st.setManaged(S(1), [S(2), S(3)], {}, { dir: data, title: 'Docs supervisor' });
     st.setManaged(S(5), [S(3)], {}, { dir: data, title: 'Night supervisor' });
     const c3b = ctx(hook(S(3)));
-    if (c3b.startsWith(`Stewards "Docs supervisor" (${S(1)}) and "Night supervisor" (${S(5)}) watch this one for the user`) && c3b.includes('Do not send them status messages')
-        && c3b.includes('It goes to the steward whose message started this turn, or else to the one the user last typed to; to hand it to another of them, add --to and that steward\'s session id.')) {
+    if (c3b.startsWith(`Supervisors "Docs supervisor" (${S(1)}) and "Night supervisor" (${S(5)}) watch this one for the user`) && c3b.includes('Do not send them status messages')
+        && c3b.includes('It goes to the supervisor whose message started this turn, or else to the one the user last typed to; to hand it to another of them, add --to and that supervisor\'s session id.')) {
       ok('a conversation two supervisors manage is told the title and session id of both, and that a handoff goes to the one whose message started the turn unless --to names another');
     } else bad(`a conversation with two supervisors was told ${JSON.stringify(c3b)}`);
     st.setManaged(S(5), [], {}, { dir: data });
@@ -11205,6 +11205,7 @@ console.log('\nthe Supervisor panel');
       { type: 'attachment', timestamp: '2026-11-21T10:02:00.000Z', attachment: { type: 'queued_command', prompt: 'Also deploy the docs site' } },
       { type: 'attachment', timestamp: '2026-11-21T10:03:00.000Z', attachment: { type: 'queued_command', prompt: '<cross-session-message from="x">do it</cross-session-message>' } },
       typed('Steward notice from Claude Code Plus, not a message from the user.', '2026-11-21T10:04:00.000Z'),
+      typed('Supervisor notice from Claude Code Plus, not a message from the user.', '2026-11-21T10:04:30.000Z'),
       { type: 'user', timestamp: '2026-11-21T10:05:00.000Z', isSidechain: true, message: { content: 'a subagent prompt' } },
       typed([{ type: 'text', text: 'Wrong window, sorry' }], '2026-11-21T10:06:00.000Z'),
     ].map((r) => JSON.stringify(r)).join('\n') + '\n');
@@ -11217,17 +11218,17 @@ console.log('\nthe Supervisor panel');
     } else bad(`steward-peek.py --said printed ${JSON.stringify(sp + said.stderr)}`);
     const registered = JSON.parse(fs.readFileSync(path.join(hooks, 'hooks.json'), 'utf8')).hooks.UserPromptSubmit[0].hooks.map((x) => x.command);
     const skill = fs.readFileSync(path.join(hooks, '..', 'skills', 'steward', 'SKILL.md'), 'utf8');
-    if (registered.some((c) => c.includes('/hooks/steward.py" "${CLAUDE_PLUGIN_DATA}"')) && /^name: steward$/m.test(skill) && skill.includes('hooks/steward-peek.py')
+    if (registered.some((c) => c.includes('/hooks/steward.py" "${CLAUDE_PLUGIN_DATA}"')) && /^name: supervisor$/m.test(skill) && skill.includes('hooks/steward-peek.py')
         && require('../src/workplan').SIDE_SUFFIXES.includes('.steward-seen')) {
-      ok('the hook is registered, the steward skill ships beside it, and the supervisor\'s side file is swept with its conversation');
+      ok('the hook is registered, the supervisor skill ships beside it, and the supervisor\'s side file is swept with its conversation');
     } else bad('the supervisor hook, skill or side file is not wired as expected');
     {
       const counts = skill.indexOf('\n## What counts as the user\'s own words\n'), each = skill.indexOf('\n## Each message from the user\n');
       const first = counts > 0 ? skill.slice(counts).split('\n')[3] : '';
       if (counts > 0 && counts < each && first.startsWith('A message you send with `steward-relay.py` is the user\'s own message in that conversation.')
           && !/approves nothing/.test(skill)) {
-        ok('the steward skill says what counts as the user\'s own words before it says how to pass a message on, and starts with a message sent with steward-relay.py');
-      } else bad(`the steward skill's section on the user's own words: ${JSON.stringify([counts, each, first])}`);
+        ok('the supervisor skill says what counts as the user\'s own words before it says how to pass a message on, and starts with a message sent with steward-relay.py');
+      } else bad(`the supervisor skill's section on the user's own words: ${JSON.stringify([counts, each, first])}`);
     }
 
     /* Other agents' conversations, keyed `<source id>:<session id>`; the session id keeps its case
@@ -11596,8 +11597,8 @@ console.log('\nthe Supervisor panel');
       { input: 'Anyone?\n', encoding: 'utf8', timeout: 20000, env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: S(1) }) });
       if (sub.code === 0 && sub.to === O(1) && sub.out.trim() === 'Sent: it reached the conversation as the user\'s message.'
           && dra.code === 1 && dra.out.trim() === 'Not sent: the text was left in the conversation\'s message input as a draft.'
-          && flagged.every((r) => r.status === 1 && r.stdout.includes('Not done: a steward can only send plain messages to OpenCode Agent Plus conversations'))
-          && noTaker.status === 1 && noTaker.stdout.trim() === 'Not done: no VS Code window that shows this steward conversation took the request.'
+          && flagged.every((r) => r.status === 1 && r.stdout.includes('Not done: a supervisor can only send plain messages to OpenCode Agent Plus conversations'))
+          && noTaker.status === 1 && noTaker.stdout.trim() === 'Not done: no VS Code window that shows this supervisor conversation took the request.'
           && fs.readdirSync(path.join(sdir, 'relay')).length === 0 && /^OTHER_WAIT_SECONDS = 55$/m.test(fs.readFileSync(relayScript, 'utf8'))) {
         ok('steward-relay.py keeps an OpenCode key\'s case, says a message reached the conversation or was only drafted, refuses --rename, --close and --resume '
           + 'for such a key without leaving a request, waits 55 seconds for an answer, and says no window showing the supervisor took a request that no window took');
@@ -11623,7 +11624,7 @@ console.log('\nthe Supervisor panel');
       const o1 = ohook();
       attendNow(Date.now() - 70000);
       const o2 = ohook();
-      if (o1.startsWith('You are the steward of 5 conversations the user picked for you in the Steward panel (1 Claude Code, 4 OpenCode Agent Plus); follow the steward skill.')
+      if (o1.startsWith('You are the supervisor of 5 conversations the user picked for you in the Supervisor panel (1 Claude Code, 4 OpenCode Agent Plus); follow the supervisor skill.')
           && o1.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): waiting for the user to approve bash in its window; doing: Port the reader; 1 question for the user`)
           && o1.includes(`- "Tidy the tests" (${O(2)}, OpenCode Agent Plus): idle, reply not read by the user`)
           && o1.includes(`- "Five" (${O(5)}, OpenCode Agent Plus): idle, or not open in any window; where its plan is was not recorded`)
@@ -11631,8 +11632,8 @@ console.log('\nthe Supervisor panel');
           && o1.includes(`- "Two" (${S(2)}): `)
           && o1.includes('The conversations of other agents above take only plain messages: no `--rename`, `--close` or `--resume`. While one waits at a prompt '
             + 'for tool approval or an answer to a question, no message reaches it. Ask the user to answer that prompt in that window; nobody else can.')
-          && o1.startsWith('You are the steward of 5 conversations the user picked for you in the Steward panel (1 Claude Code, 4 OpenCode Agent Plus); '
-            + 'follow the steward skill. ' + RELAYED + ' Where they stand now:')
+          && o1.startsWith('You are the supervisor of 5 conversations the user picked for you in the Supervisor panel (1 Claude Code, 4 OpenCode Agent Plus); '
+            + 'follow the supervisor skill. ' + RELAYED + ' Where they stand now:')
           && o2.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): idle, or not open in any window; doing: Port the reader; 1 question for the user`)
           && o2.includes('"Port the parser": waiting for the user to approve bash in its window -> idle, or not open in any window')) {
         ok('steward.py gives each OpenCode conversation its state from Agent Plus\'s attention files (with the tool a wait is for), its plan from the recorded path, and its agent\'s name; '

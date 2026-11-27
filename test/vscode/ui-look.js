@@ -1523,7 +1523,7 @@ const STEPS = [
       const t = d.threads[1];
       await stewardOf(d, [t.id]);
       const said = await relay(d, t.id, ['--handoff'], 'The user asked here for the release notes, which belong in another conversation.');
-      if (!/^Handed off to the steward /.test(said)) throw new Error(`the handoff did not reach the supervisor: ${said}`);
+      if (!/^Handed off to the supervisor /.test(said)) throw new Error(`the handoff did not reach the supervisor: ${said}`);
       if (!await d.until(() => transcriptHas(d, d.sid, `(${t.id}), passed on by Claude Code Plus`), 30000, 1000)) throw new Error('the supervisor did not get the handoff within 30 s');
       await d.sleep(6000);
       await toBottom(d.conv);
@@ -1703,7 +1703,7 @@ const STEPS = [
       if (!/^Sent: /.test(one)) throw new Error(`the first supervisor could not send: ${one}`);
       const words = 'Turn the dry-run flag on by default.';
       const held = await relay(d, d.sid, [t2.id], words);
-      if (!/^Not sent: another steward/.test(held)) throw new Error(`the second message was not held back: ${held}`);
+      if (!/^Not sent: another supervisor/.test(held)) throw new Error(`the second message was not held back: ${held}`);
       const sent = await relay(d, d.sid, ['--anyway', t2.id], words);
       if (!/^Sent: /.test(sent)) throw new Error(`--anyway did not send it: ${sent}`);
       const frame = await thread(d, t2);

@@ -3575,7 +3575,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           if (process.platform === 'win32') {
             check(/^Not done: /.test(handoff) && /inbox/.test(handoff), 'on native Windows a handoff says the supervisor\'s inbox could not be reached', { handoff });
           } else {
-            check(handoff.startsWith('Handed off to the steward ') && handoff.includes(`(${front.id})`) && !!await until(arrivedHand, 30000, 1000),
+            check(handoff.startsWith('Handed off to the supervisor ') && handoff.includes(`(${front.id})`) && !!await until(arrivedHand, 30000, 1000),
               'a managed conversation hands something off: the answer names the supervisor, which gets it as a notice from Claude Code Plus', { handoff, seen: model.seen.slice(handed).map((x) => (x.ask || '').slice(0, 160)) });
             /* Claude Code draws no row for what arrives through the inbox, so the turn that the handoff starts has no
                message on the page to begin at; its reply's duration still runs from the handoff, not from the last
@@ -3694,7 +3694,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
                 try { return fs.readFileSync(transcriptOf({ id: newId }), 'utf8').includes(JSON.stringify(later).slice(1, -1)); } catch (_) { return false; }
               }, 30000, 500) : false;
               const tab = await until(async () => (await claudeTabs()).find((x) => x.active), 10000, 300);
-              check(/^Opened: /.test(resumed) && /It is now ticked for you in the Steward panel\./.test(resumed) && !!arrived2,
+              check(/^Opened: /.test(resumed) && /It is now ticked for you in the Supervisor panel\./.test(resumed) && !!arrived2,
                 'the supervisor opens a conversation no window shows in an editor tab of this window, passes it a message of two lines, which arrives with its line break, and has it ticked',
                 { resumed, arrived: !!arrived2, tab });
               /* The panel is about the conversation in front, which is the resumed one now; the supervisor is brought back.
@@ -4885,7 +4885,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const sentA = await actAs(SA, [X.id], first2);
         const arrivedA = /^Sent: /.test(sentA) && await until(() => inX(first2), 30000, 500);
         const held = await actAs(Q1, [X.id], second2);
-        const forced = /^Not sent: another steward sent this conversation a message in the last 30 minutes/.test(held) ? await actAs(Q1, ['--anyway', X.id], second2) : '';
+        const forced = /^Not sent: another supervisor sent this conversation a message in the last 30 minutes/.test(held) ? await actAs(Q1, ['--anyway', X.id], second2) : '';
         const arrivedB = /^Sent: /.test(forced) && await until(() => inX(second2), 30000, 500);
         const signed = arrivedB && fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(`Sent by the supervisor "${Q1.title}" (${Q1.id}) for the user:\n${second2}`).slice(1, -1));
         check(!!arrivedA && held.includes(`"${SA.title}" (${SA.id})`) && held.includes(first2) && /--anyway/.test(held) && !!arrivedB && !!signed,
@@ -4899,11 +4899,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
            unreachable, and no other supervisor is tried. */
         const gotA = process.platform === 'win32'
           ? /^Not done: no supervisor of this conversation could be reached/.test(handed) && handed.includes(SA.id) && !handed.includes(Q1.id)
-          : handed.startsWith('Handed off to the steward ') && handed.includes(`(${SA.id})`)
+          : handed.startsWith('Handed off to the supervisor ') && handed.includes(`(${SA.id})`)
             && await until(() => { try { return fs.readFileSync(fileOf(SA), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`); } catch (_) { return false; } }, 30000, 1000);
         const notQ1 = !fs.readFileSync(fileOf(Q1), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`);
         const stranger = await actAs(X, ['--handoff', '--to', Q2.id], moved);
-        check(!!gotA && notQ1 && /^Not done: .* does not manage this conversation\. Its stewards are /.test(stranger),
+        check(!!gotA && notQ1 && /^Not done: .* does not manage this conversation\. Its supervisors are /.test(stranger),
           'a managed conversation\'s handoff with --to goes to the supervisor it names, though another supervisor\'s message started its turn, and a --to that names none of its supervisors is refused',
           { handed, stranger });
 
@@ -6004,7 +6004,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const rowOn = newId && await until(async () => { const b = await boxOf(panel, newId); return b && b.checked && b; }, 60000, 1000);
         const quietA = await staleLine(panel);
         const eA = entryOf(profile.folder), eB = entryOf(folderS);
-        check(/^Opened: /.test(opened) && /It is now ticked for you in the Steward panel\./.test(opened) && !!gained && !!rowOn && !quietA,
+        check(/^Opened: /.test(opened) && /It is now ticked for you in the Supervisor panel\./.test(opened) && !!gained && !!rowOn && !quietA,
           'with every window still on the replaced build, the supervisor of all gains the conversation it opened at once: the script reports the tick, stewards.json lists the conversation, and the panel shows it ticked without asking for a reload',
           { opened, gained: !!gained, row: rowOn || (newId && await boxOf(panel, newId)), line: quietA, manages: (table()[front.id] || {}).manages });
         check(!!eA && eA.installed === false && !!eB && eB.installed === false && typeof eA.build === 'string' && eA.build.length > 0 && eA.build === eB.build,
