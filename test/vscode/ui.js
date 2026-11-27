@@ -3977,7 +3977,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /* A new conversation is listed in the Supervisor panel under the name its tab shows: until Claude Code generates a
        title, that is the first message typed in it, not the name Claude Code makes from the folder. The fake model gives
-       no title, so the conversation keeps its first message as its name. */
+       no title. */
     await step('a new conversation in the Supervisor panel after its first message', async () => {
       const TEXT = 'Name this new conversation after its first message';
       const before = new Set(page.frames());

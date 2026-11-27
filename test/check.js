@@ -8441,7 +8441,7 @@ console.log('\na panel whose script never arrived');
     onFailed(other, undefined),
   ];
   if (skipped.every((v) => v === 0) && !timers.length && other.html === 'x') {
-    ok('a script that arrived and threw, one that got through when asked again, a click on the notice and a report without a panel build nothing again');
+    ok('nothing is built again for a script that arrived and threw or never started, one that got through when asked again, a click on the notice, or a call without a panel or a report');
   } else bad(`for those, builds ${JSON.stringify(skipped)} with ${timers.length} timers`);
 
   const gone = { get html() { throw new Error('Webview is disposed'); }, set html(v) { throw new Error('Webview is disposed'); } };
