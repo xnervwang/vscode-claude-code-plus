@@ -3210,7 +3210,16 @@ const STEPS = [
       term: made('term', 'Tidy the logging in the payment client', 'The client now logs one line per request.', 5),
       tab: made('tab', 'Write the changelog for the hotfix', 'The changelog has one entry for the fix.', 3),
       window: made('window', 'Profile the slow report query', 'The query spends most of its time sorting.', 3),
+      closedA: made('closed-a', 'Sort the import log by date', 'The log is sorted by its date column now.', 6),
+      closedB: made('closed-b', 'Count the failed logins per day', 'Most days have under ten failed logins.', 6),
+      groupA: made('group-a', 'Plan the 2.5 release branch', 'The branch is cut from main on Monday.', 2),
+      groupB: made('group-b', 'List the open release blockers', 'Three blockers are open, all in billing.', 2),
+      archived: made('archived', 'Remove the old feature flags', 'Removed the four flags nobody reads.', 6),
+      invoiceA: made('invoice-a', 'Check the invoice totals against the ledger', 'The totals match for every month.', 3),
+      invoiceB: made('invoice-b', 'Send the overdue invoice reminders', 'Sent eleven reminders.', 4),
+      figures: made('figures', 'Estimate the cost of the nightly build', 'About forty minutes of runner time a night.', 3),
     };
+    const GROUP = 'Release prep';
     const SCREEN = 'payments';
     const OTHER_WINDOW_NAME = 'billing-service';
 
@@ -3360,6 +3369,29 @@ const STEPS = [
       try { x.child.kill(); } catch (_) { /* gone */ }
       try { fs.rmSync(x.record, { force: true }); } catch (_) { /* gone */ }
     };
+
+    /* Whether section `key` of the list is open; null while it is not drawn. */
+    const sectionOpen = (list, key) => list.evaluate((k) => {
+      const s = [...document.querySelectorAll('.sl-section')].find((x) => x.dataset.key === k);
+      return s ? s.classList.contains('sl-open') : null;
+    }, key).catch(() => null);
+    async function foldTo(d, list, key, open) {
+      if ((await sectionOpen(list, key)) === open) return;
+      await list.locator(`.sl-section[data-key="${key}"] > .sl-head`).first().click({ timeout: 5000 });
+      if (!await d.until(async () => (await sectionOpen(list, key)) === open, 5000, 200)) throw new Error(`the section ${key} did not ${open ? 'open' : 'fold'}`);
+    }
+    /* Clicks `label` in the menu of the band of the group named `name`. */
+    async function bandMenuPick(d, list, name, label) {
+      const head = list.locator('.sl-section[data-kind="group"] > .sl-head').filter({ has: list.locator('.sl-head-label', { hasText: new RegExp(`^${escapeRe(name)}$`) }) }).first();
+      const item = list.locator('.sl-ctx:not(.sl-ctx-sub) .sl-ctx-item').filter({ hasText: label }).first();
+      for (let i = 0; i < 3; i++) {
+        await head.click({ button: 'right', timeout: 5000 });
+        if (await d.until(() => item.isVisible().catch(() => false), 5000, 200)) { await item.click({ timeout: 3000 }); return; }
+        await d.page.keyboard.press('Escape');
+        await d.sleep(1000);
+      }
+      throw new Error(`the band of the group "${name}" in Agent Plus's session list has no ${label} in its menu`);
+    }
 
     /*
      * One conversation in each state the list draws, beside the others: a turn running, a permission prompt, a question,
@@ -3553,6 +3585,192 @@ const STEPS = [
           return d.sidebar();
         },
         undo: async (d) => { await pointerOff(d, await agentList(d)); leave(d.listWindow); d.listWindow = null; await dropConvos(d, [C.window]); },
+      },
+      {
+        name: 'agent-plus-recently-closed', features: ['agent-plus-list-sections'],
+        expect: 'Agent Plus\'s session list with its RECENTLY CLOSED section opened: its band, with a clock icon, the words RECENTLY CLOSED '
+          + 'and a count, has its arrow pointing down, and under it, newest first, "' + C.closedB.title + '" and then "' + C.closedA.title
+          + '", whose tabs this step opened and closed. Each of those two rows ends in "closed now" or "closed 1m" in place of how long ago it '
+          + 'was active, and has a light blue stripe at its start; neither is greyed. The same two conversations\' own rows further down, '
+          + 'under UNGROUPED, have the light blue stripe too. Rows of conversations that earlier steps closed may follow in the section.',
+        unchanged: 'The demo conversation is in front in the editor.',
+        act: async (d) => {
+          const list = await listReady(d);
+          const pair = [C.closedA, C.closedB];
+          addConvos(d, pair);
+          await listed(d, list, pair);
+          for (const t of pair) { await openHere(d, list, t, 'Is it done?'); await closeTabs(d, [t.title]); }
+          await toDemo(d);
+          const inClosed = () => list.evaluate((ts) => {
+            const got = [...document.querySelectorAll('.sl-section[data-key="closed"] .sl-row .sl-title')].map((e) => e.textContent);
+            return ts.every((t) => got.includes(t));
+          }, pair.map((t) => t.title)).catch(() => false);
+          if (!await d.until(inClosed, 30000, 500)) throw new Error('the two conversations closed are not in Recently closed after 30 s');
+          d.listClosedOpen = await sectionOpen(list, 'closed');
+          await foldTo(d, list, 'closed', true);
+          await pointerOff(d, list);
+          return d.sidebar();
+        },
+        undo: async (d) => {
+          const list = await agentList(d);
+          if (d.listClosedOpen === false) await foldTo(d, list, 'closed', false);
+          await dropConvos(d, [C.closedA, C.closedB]);
+          await pointerOff(d, list);
+        },
+      },
+      {
+        name: 'agent-plus-sections', features: ['agent-plus-list-sections'],
+        expect: 'Agent Plus\'s session list with a group the user made and the Archived section, both opened. A band ' + GROUP.toUpperCase()
+          + ', with a folder icon, its arrow pointing down and the count 2, holds "' + C.groupA.title + '" and "' + C.groupB.title + '", '
+          + 'which this step made into a group from the menu of the two rows and named. Below it an UNGROUPED band holds the other '
+          + 'conversations, those two not among them. Then an ARCHIVED band, its arrow pointing down and the count 1, holds "'
+          + C.archived.title + '", which is listed nowhere else. Each band is a strip set apart from the rows, with a line above and below '
+          + 'it, its label in capitals and its count at the right; the rows under every band have the Claude Code logo and their times. '
+          + 'No row is selected or outlined.',
+        unchanged: 'The demo conversation is in front in the editor.',
+        act: async (d) => {
+          const list = await listReady(d);
+          const three = [C.groupA, C.groupB, C.archived];
+          addConvos(d, three);
+          await listed(d, list, three);
+          for (const t of [C.groupA, C.groupB]) await agentRow(list, t.title).click({ modifiers: ['ControlOrMeta'], timeout: 5000 });
+          await agentMenuPick(d, list, C.groupA.title, 'New Group from 2 Conversations');
+          if (!await d.until(() => list.locator('.sl-head-label.sl-editing').first().isVisible().catch(() => false), 10000, 200)) {
+            throw new Error('the new group did not open its name for typing');
+          }
+          await d.page.keyboard.press('ControlOrMeta+A');
+          await d.page.keyboard.insertText(GROUP);
+          await d.page.keyboard.press('Enter');
+          for (const t of [C.groupA, C.groupB]) await rowWhere(d, list, t.title, (r) => r.section.startsWith('group:'), 15000, 'is not in the group');
+          await agentMenuPick(d, list, C.archived.title, 'Archive');
+          await rowWhere(d, list, C.archived.title, (r) => r.section === 'archived', 15000, 'is not in Archived');
+          d.listArchivedOpen = await sectionOpen(list, 'archived');
+          await foldTo(d, list, 'archived', true);
+          await pointerOff(d, list);
+          return d.sidebar();
+        },
+        /* Archived is folded again while its band still shows, before its one row goes with its transcript. */
+        undo: async (d) => {
+          const list = await agentList(d);
+          if (d.listArchivedOpen === false) await foldTo(d, list, 'archived', false);
+          await bandMenuPick(d, list, GROUP, 'Delete Group');
+          await rowWhere(d, list, C.groupA.title, (r) => r.section === 'ungrouped', 15000, 'is not back in Ungrouped');
+          await dropConvos(d, [C.groupA, C.groupB, C.archived]);
+          await pointerOff(d, list);
+        },
+      },
+      {
+        name: 'agent-plus-search', features: ['agent-plus-list-search'],
+        expect: 'Agent Plus\'s session list searched for "invoice": a search box under the filter chips holds the word, with a magnifier '
+          + 'at its left and an X at its right. Only two rows are left, "' + C.invoiceA.title + '" and "' + C.invoiceB.title + '", and in '
+          + 'each title the word "invoice" is marked with a highlight behind it. No other conversation\'s row is shown, no RECENTLY CLOSED or '
+          + 'ARCHIVED band, and the UNGROUPED band counts 2. There is no line saying that nothing matches. The ACCOUNT & USAGE band, '
+          + 'which lists no conversations, may stay above.',
+        unchanged: 'The demo conversation is in front in the editor.',
+        act: async (d) => {
+          const list = await listReady(d);
+          addConvos(d, [C.invoiceA, C.invoiceB]);
+          await listed(d, list, [C.invoiceA, C.invoiceB]);
+          const box = list.locator('.sl-search input').first();
+          if (!await box.isVisible().catch(() => false)) await d.exec('agentPlus.searchSessions');
+          if (!await d.until(() => box.isVisible().catch(() => false), 10000, 200)) throw new Error('the search box of Agent Plus\'s session list did not open');
+          await box.fill('invoice');
+          const shown = () => list.evaluate(() => [...document.querySelectorAll('.sl-row')].filter((r) => r.offsetParent)
+            .map((r) => (r.querySelector('.sl-title') || {}).textContent).sort().join('\n')).catch(() => '');
+          const want = [C.invoiceA.title, C.invoiceB.title].sort().join('\n');
+          if (!await d.until(async () => (await shown()) === want, 10000, 300)) throw new Error(`the search for "invoice" shows ${JSON.stringify(await shown())}`);
+          await pointerOff(d, list);
+          return d.sidebar();
+        },
+        undo: async (d) => {
+          const list = await agentList(d);
+          const box = list.locator('.sl-search input').first();
+          if (await box.isVisible().catch(() => false)) { await box.fill(''); await box.press('Escape'); }
+          await d.until(async () => !(await box.isVisible().catch(() => false)), 5000, 200);
+          await dropConvos(d, [C.invoiceA, C.invoiceB]);
+          await pointerOff(d, list);
+        },
+      },
+      {
+        name: 'agent-plus-account-folded', features: ['agent-plus-account'],
+        expect: 'Agent Plus\'s session list with its ACCOUNT & USAGE band at the top folded: the arrow at its start points right, followed '
+          + 'by a person icon and the words ACCOUNT & USAGE, and nothing of its Claude Code part shows under it: no logo, no THIS '
+          + 'CONVERSATION heading, no figures. The section bands and rows of the list come right after the band, with no gap or stray '
+          + 'line between. "' + C.figures.title + '", in front in the editor, has just answered a message, so the part has figures to '
+          + 'show once the band is opened.',
+        unchanged: 'The rows listed before are still there.',
+        act: async (d) => {
+          const list = await listReady(d);
+          addConvos(d, [C.figures]);
+          await listed(d, list, [C.figures]);
+          await openHere(d, list, C.figures, 'How long does it take?');
+          const part = () => list.evaluate(() => {
+            const a = [...document.querySelectorAll('.sl-section')].find((x) => x.dataset.key === 'account');
+            return a && !a.classList.contains('sl-hidden') ? a.textContent : '';
+          }).catch(() => '');
+          if (!await d.until(async () => /Claude Code/.test(await part()) && /Estimated cost/.test(await part()), 30000, 500)) {
+            throw new Error(`Account & usage in Agent Plus's list has no figures of the conversation in front within 30 s: ${JSON.stringify(await part())}`);
+          }
+          d.listAccountOpen = await sectionOpen(list, 'account');
+          await foldTo(d, list, 'account', false);
+          await pointerOff(d, list);
+          return d.sidebar();
+        },
+        undo: async (d) => {
+          const list = await agentList(d);
+          if (d.listAccountOpen) await foldTo(d, list, 'account', true);
+          await pointerOff(d, list);
+          await closeTabs(d, [C.figures.title]);
+          await dropConvos(d, [C.figures]);
+          await toDemo(d);
+        },
+      },
+      /*
+       * A folder with no conversations: the folder Claude Code keeps this folder's transcripts in is moved aside for the
+       * step, which both extensions then read as empty. Nothing runs a turn meanwhile. This extension deletes the plans of
+       * conversations whose transcript is gone on its first pass after midnight UTC, so the folder is not away across that
+       * moment. Windows can refuse to move a folder whose files a process holds open.
+       */
+      {
+        name: 'agent-plus-empty', features: ['agent-plus-list-empty'], only: ['linux', 'darwin'],
+        expect: 'Agent Plus\'s session list for a folder that has no Claude Code conversation. Under the New bar and the filter chips, which '
+          + 'all count 0, there are no rows and no section bands: no RECENTLY CLOSED, UNGROUPED or ARCHIVED. In their place a short line, '
+          + 'centred and greyed, reads "No conversations yet". An ACCOUNT & USAGE band may still sit at the top, for the conversation in '
+          + 'front, whose tab stays open. Nothing else is in the side bar.',
+        unchanged: 'The demo conversation is in front in the editor.',
+        act: async (d) => {
+          const list = await listReady(d);
+          const left = 86400000 - (Date.now() % 86400000);
+          if (left < 120000) await d.sleep(left + 90000);
+          const dir = path.dirname(transcriptFile(d, d.threads[0].id));
+          const aside = path.join(path.dirname(d.profile.home), 'look-empty', path.basename(dir));
+          fs.mkdirSync(path.dirname(aside), { recursive: true });
+          fs.renameSync(dir, aside);
+          d.listAside = { dir, aside };
+          const empty = () => list.evaluate(() => {
+            const line = [...document.querySelectorAll('.sl-empty')].find((e) => e.textContent === 'No conversations yet');
+            return !!line && !line.classList.contains('sl-hidden') && !document.querySelector('.sl-row');
+          }).catch(() => false);
+          if (!await d.until(empty, 100000, 500)) throw new Error('Agent Plus\'s session list does not say there are no conversations after 100 s');
+          await pointerOff(d, list);
+          return d.sidebar();
+        },
+        undo: async (d) => {
+          const a = d.listAside;
+          d.listAside = null;
+          if (!a) return;
+          if (!fs.existsSync(a.dir)) fs.renameSync(a.aside, a.dir);
+          else {
+            /* A process wrote into the folder while it was away: the rest goes back beside what it wrote. */
+            for (const n of fs.readdirSync(a.aside)) {
+              const to = path.join(a.dir, n);
+              if (fs.existsSync(to)) d.log('undo', `${n} was written again while the transcripts were away; the moved copy stays in ${a.aside}`);
+              else fs.renameSync(path.join(a.aside, n), to);
+            }
+          }
+          const list = await agentList(d);
+          await agentRowWhere(d, list, titleNow(d, d.threads[0]), () => true, 100000, 'is not listed again');
+        },
       },
     ];
   })(),
