@@ -20,7 +20,8 @@
 # Each platform's run is split into four jobs that run at once, each a run of consecutive window steps of about the same
 # length (CLAUDE_CODE_PLUS_UI_SHARD), and a fifth with the suite inside VS Code and test/check.js. Run by hand, the
 # workflow takes the platforms to run on and a regular expression for the window steps to run; given one, each platform
-# runs those steps in one job, without the suite. To try a fix for a step that fails on one platform:
+# runs those steps in one job, without the suite, and given "suite", the suite alone. To try a fix for a step that fails
+# on one platform:
 #   gh workflow run vscode.yml --ref <branch> -f os=macos-latest -f steps='^the steward panel$'
 name: vscode
 
@@ -36,7 +37,7 @@ on:
         type: string
         default: ubuntu-latest,macos-latest,windows-latest
       steps:
-        description: A regular expression; only the window steps whose names match it run, with the steps every run has. Empty runs all of them, split into jobs.
+        description: A regular expression; only the window steps whose names match it run, with the steps every run has. Empty runs all of them, split into jobs; suite runs only the suite inside VS Code and test/check.js.
         type: string
         default: ''
       upstream:
@@ -77,8 +78,9 @@ jobs:
           node -e '
             const fs = require("fs");
             const os = process.env.OS.split(",").map((x) => x.trim()).filter(Boolean);
-            const parts = process.env.STEPS ? [{ shard: "", part: "steps" }]
-              : [...[1, 2, 3, 4].map((i) => ({ shard: `${i}/4`, part: `${i}-of-4` })), { shard: "suite", part: "suite" }];
+            const suite = { shard: "suite", part: "suite" };
+            const parts = process.env.STEPS === "suite" ? [suite] : process.env.STEPS ? [{ shard: "", part: "steps" }]
+              : [...[1, 2, 3, 4].map((i) => ({ shard: `${i}/4`, part: `${i}-of-4` })), suite];
             const include = os.flatMap((o) => parts.map((p) => ({ os: o, ...p })));
             const newest = process.env.NEWEST === "true";
             const num = (v) => v.split(".").map(Number);
@@ -134,7 +136,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CLAUDE_CODE_PLUS_UI_SHARD: ${{ matrix.shard }}
-      CLAUDE_CODE_PLUS_UI_STEPS_RE: ${{ inputs.steps }}
+      CLAUDE_CODE_PLUS_UI_STEPS_RE: ${{ inputs.steps != 'suite' && inputs.steps || '' }}
       CLAUDE_CODE_PLUS_UI_CLAUDE_CODE: ${{ needs.plan.outputs.claudeCode }}
     steps:
       # Some checks compare source text, so no CRLF on Windows.

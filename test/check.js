@@ -8473,8 +8473,8 @@ console.log('\nlead supervisors: who leads each managed conversation');
   }
   {
     const t = { [A]: sup([X], { all: true, ticked: [], allSince: 1 }), [B]: sup([X], { since: { [X]: 999 } }) };
-    expect('the supervisor that opened a conversation leads it, whoever else has it on a list',
-      sl.plan(t, {}, { opened: { [X]: B } }).next[X], { lead: B, term: 1, at: sl.plan(t, {}, { opened: { [X]: B } }).next[X].at, why: 'opened', was: '' });
+    const opened = sl.plan(t, {}, { now: 77, opened: { [X]: B } }).next[X];
+    expect('the supervisor that opened a conversation leads it, whoever else has it on a list', opened, { lead: B, term: 1, at: 77, why: 'opened', was: '' });
   }
   {
     const t = { [A]: sup([X, Y], { since: { [X]: 5, [Y]: 5 } }), [B]: sup([X, Y], { since: { [X]: 1, [Y]: 9 } }) };
@@ -10907,7 +10907,8 @@ console.log('\nthe Supervisor panel');
             }
           }, 100);
           kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, asked })); });`], { encoding: 'utf8', timeout: 60000 });
-        try { return JSON.parse(r.stdout); } catch (_) { return { error: r.stdout + r.stderr }; }
+        /* Python writes \r\n for each line it prints on Windows. */
+        try { const o = JSON.parse(r.stdout); if (typeof o.out === 'string') o.out = o.out.replace(/\r\n/g, '\n'); return o; } catch (_) { return { error: r.stdout + r.stderr }; }
       };
       const lead = run(S(1), [S(2)], 'Keep the totals query.');
       const watcher = run(S(7), [S(2)], 'Rewrite the totals query.');
@@ -12416,7 +12417,9 @@ console.log('\nthe Supervisor panel');
           }
         }, 100);
         kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, to, req })); });`], { encoding: 'utf8', timeout: 60000 });
-      const parsed = (r) => { try { return JSON.parse(r.stdout); } catch (_) { return { error: r.stdout + r.stderr }; } };
+      const parsed = (r) => {
+        try { const o = JSON.parse(r.stdout); if (typeof o.out === 'string') o.out = o.out.replace(/\r\n/g, '\n'); return o; } catch (_) { return { error: r.stdout + r.stderr }; }
+      };
       const sub = parsed(answering('submitted')), dra = parsed(answering('drafted'));
       const question = 'Should I (Docs) take over "Port the parser"? It is led by Night now. If you agree, Night becomes an observer and I go on with what you asked.';
       const asking = parsed(answering('ask', ['--take-lead', O(1), '--ask'], { question }));
@@ -13545,18 +13548,21 @@ console.log('\nthe workflow in a real VS Code window');
       try { fs.unlinkSync(outFile); } catch (_) { /* never written */ }
       return got || { status: r.status, stderr: (r.stderr || '').slice(0, 300) };
     };
-    const whole = plan(THREE, ''), some = plan('macos-latest', '^the token mode$');
+    const whole = plan(THREE, ''), some = plan('macos-latest', '^the token mode$'), suiteOnly = plan(THREE, 'suite');
     const PARTS = ['1/4', '2/4', '3/4', '4/4', 'suite'];
     expect(Array.isArray(whole) && whole.length === 15 && THREE.split(',').every((o) => JSON.stringify(whole.filter((j) => j.os === o).map((j) => j.shard)) === JSON.stringify(PARTS))
       && new Set(whole.map((j) => `${j.os} ${j.part}`)).size === 15 && whole.every((j) => /^[\w-]+$/.test(j.part)),
     'each platform\'s run is split into four jobs of window steps and one with the suite, each with a name of its own for its artifact', JSON.stringify(whole));
     expect(Array.isArray(some) && some.length === 1 && some[0].os === 'macos-latest' && some[0].shard === '' && some[0].part === 'steps',
       'and a run by hand with a pattern for the steps runs them in one job on each platform it names', JSON.stringify(some));
-    expect(/^\s+env:\s*\n\s+CLAUDE_CODE_PLUS_UI_SHARD: \$\{\{ matrix\.shard \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_STEPS_RE: \$\{\{ inputs\.steps \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_CLAUDE_CODE: \$\{\{ needs\.plan\.outputs\.claudeCode \}\}\s*$/m.test(ui)
+    expect(Array.isArray(suiteOnly) && suiteOnly.length === 3 && suiteOnly.every((j) => j.shard === 'suite' && j.part === 'suite')
+      && JSON.stringify(suiteOnly.map((j) => j.os)) === JSON.stringify(THREE.split(',')),
+    'and one with suite for the steps runs only the suite, in one job on each platform', JSON.stringify(suiteOnly));
+    expect(/^\s+env:\s*\n\s+CLAUDE_CODE_PLUS_UI_SHARD: \$\{\{ matrix\.shard \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_STEPS_RE: \$\{\{ inputs\.steps != 'suite' && inputs\.steps \|\| '' \}\}\s*\n\s+CLAUDE_CODE_PLUS_UI_CLAUDE_CODE: \$\{\{ needs\.plan\.outputs\.claudeCode \}\}\s*$/m.test(ui)
       && /matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.matrix\) \}\}/.test(ui),
-    'and each job is given its part, the pattern and the Claude Code build to install');
-    /* What a push installs: the pinned Agent Plus commit and the newest Claude Code in supported-versions.json. The
-       daily run takes the newest of each instead. */
+    'and each job is given its part, the pattern, which suite does not set, and the Claude Code build to install');
+    /* What a run by hand installs unless told otherwise: the pinned Agent Plus commit and the newest Claude Code in
+       supported-versions.json. The daily run takes the newest of each instead. */
     const pinned = (() => { try { return fs.readFileSync(path.join(__dirname, 'vscode', 'agent-plus-commit'), 'utf8').trim(); } catch (_) { return ''; } })();
     const newestSupported = Object.keys(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'supported-versions.json'), 'utf8')).claudeCode)
       .sort((a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 4; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; }).pop();
@@ -13568,10 +13574,10 @@ console.log('\nthe workflow in a real VS Code window');
       const get = (k) => ((new RegExp(`^${k}=(.*)$`, 'm').exec(text) || [])[1]);
       return { agentPlus: get('agentPlus'), claudeCode: get('claudeCode'), label: get('label') };
     };
-    const onPush = against('false'), daily = against('true');
-    expect(/^[0-9a-f]{40}$/.test(pinned) && onPush.agentPlus === pinned && onPush.claudeCode === newestSupported && onPush.label === '',
-      'a push runs against the Agent Plus commit test/vscode/agent-plus-commit names and the newest Claude Code build supported-versions.json records',
-      JSON.stringify({ pinned, newestSupported, onPush }));
+    const byHand = against('false'), daily = against('true');
+    expect(/^[0-9a-f]{40}$/.test(pinned) && byHand.agentPlus === pinned && byHand.claudeCode === newestSupported && byHand.label === '',
+      'a run by hand runs against the Agent Plus commit test/vscode/agent-plus-commit names and the newest Claude Code build supported-versions.json records',
+      JSON.stringify({ pinned, newestSupported, byHand }));
     expect(daily.agentPlus === '' && daily.claudeCode === '' && daily.label === ', newest upstream'
       && /NEWEST: \$\{\{ github\.event_name == 'schedule' \|\| inputs\.upstream == 'newest' \}\}/.test(ui)
       && /repository: xnervwang\/vscode-agent-plus\s*\n\s+ref: \$\{\{ needs\.plan\.outputs\.agentPlus \}\}/.test(ui)
@@ -15866,23 +15872,25 @@ const repo = path.join(__dirname, '..');
         'two processes each adding one to a count under the lock 1000 times end with 2000, nothing taken over and no lock or temporary file left');
     }
 
-    /* A reader that takes no lock, as the hooks read stewards.json, all through 10000 writes under it. It runs beside the
-       stopped holder below, which spends 5 s waiting. */
+    /* A reader that takes no lock, as the hooks read stewards.json, all through 10000 writes under it. It reads the file
+       as it is, which on Windows can fail for a moment while a write renames the new file over the old one, and through
+       readWhole, which waits such a moment out. It runs beside the stopped holder below, which spends 5 s waiting. */
     const r9 = (() => {
       const d = tmp('lock-readers'), f = path.join(d, 'table.json');
       fs.writeFileSync(f, JSON.stringify({ i: -1 }));
       const reader = start(`
-        const fs = require('fs'), c = JSON.parse(process.argv[1]);
-        let reads = 0, partial = 0, sample = '';
+        const fs = require('fs'), c = JSON.parse(process.argv[1]), L = require(c.lock);
+        let reads = 0, partial = 0, sample = '', whole = 0, missed = 0;
         const errors = {};
         fs.writeFileSync(c.ready, '');
         while (!fs.existsSync(c.stop)) {
+          if (L.readWhole(c.file)) whole++; else missed++;
           let s;
           try { s = fs.readFileSync(c.file, 'utf8'); } catch (e) { errors[e.code] = (errors[e.code] || 0) + 1; continue; }
           reads++;
           try { JSON.parse(s); } catch (_) { partial++; sample = s.slice(0, 60); }
         }
-        process.stdout.write(JSON.stringify({ reads, partial, sample, errors }));`, { file: f, ready: path.join(d, 'ready'), stop: path.join(d, 'stop') });
+        process.stdout.write(JSON.stringify({ reads, partial, sample, errors, whole, missed }));`, { file: f, lock: LOCK_SRC, ready: path.join(d, 'ready'), stop: path.join(d, 'stop') });
       return (async () => {
         await until(() => fs.existsSync(path.join(d, 'ready')), 10000);
         const w = await worker({ file: f, times: 10000, big: 500 }).done;
@@ -15913,9 +15921,24 @@ const repo = path.join(__dirname, '..');
 
     {
       const { w, r, last, left } = await r9;
-      const errors = Object.keys(r.errors || {}).filter((code) => !(win && ['EPERM', 'EACCES', 'EBUSY'].includes(code)));
-      eq([w.error || '', r.partial, r.sample, errors, r.reads > 100, last && last.i, left], ['', 0, '', [], true, 9999, ['ready', 'stop', 'table.json']],
-        `a reader reading the file without the lock all through 10000 writes under it reads whole JSON every time (${r.reads} reads)`);
+      const errors = Object.keys(r.errors || {}).filter((code) => !(win && ['EPERM', 'EACCES', 'EBUSY', 'ENOENT'].includes(code)));
+      eq([w.error ? `${w.error}: ${w.message || ''}` : '', r.partial, r.sample, errors, r.reads > 100, last && last.i, left], ['', 0, '', [], true, 9999, ['ready', 'stop', 'table.json']],
+        `a reader reading the file without the lock all through 10000 writes under it reads whole JSON every time (${r.reads} reads)`
+          + (win ? ', or on Windows fails at a rename' : ''));
+      eq([r.missed, r.whole > 100], [0, true], `and through readWhole it reads the table every time, never nothing (${r.whole} reads)`);
+      const d = tmp('lock-read-whole'), f = path.join(d, 'table.json');
+      const timed = (fn) => { const t0 = Date.now(); const got = fn(); return [got, Date.now() - t0]; };
+      const none = timed(() => lk.readWhole(f));
+      fs.mkdirSync(f + '.lock');
+      const held = timed(() => lk.readWhole(f));
+      fs.rmdirSync(f + '.lock');
+      const own = timed(() => lk.withLock(f, () => lk.readWhole(f)));
+      fs.writeFileSync(f, '{"n": 1');
+      const broken = timed(() => lk.readWhole(f));
+      eq([none[0], none[1] < 50, held[0], held[1] >= lk.READ_WAIT_MS - 5 && held[1] < 2000, own[0], own[1] < 50, broken[0], broken[1] < 50],
+        [null, true, null, true, null, true, null, true],
+        'readWhole gives nothing at once for a file that is not there and not locked, waits READ_WAIT_MS while another holds the lock, '
+          + 'does not wait inside the lock it holds itself, and reads a broken file with no lock as nothing');
     }
 
     /* A holder killed inside the lock. */

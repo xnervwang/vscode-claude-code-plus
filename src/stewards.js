@@ -67,7 +67,7 @@ const duplicates = require('./duplicates');
 const keys = require('./steward-keys');
 const leadsOf = require('./steward-leads');
 const titleMarks = require('./title-marks');
-const { withLock, writeLocked, LockLost } = require('./file-lock');
+const { withLock, writeLocked, readWhole, LockLost } = require('./file-lock');
 
 const FILE = 'stewards.json';
 const VERSION = 4;
@@ -152,8 +152,10 @@ function settle(entries) {
   return out;
 }
 
+/* The file's JSON, or null when there is none yet or it cannot be read; a read that meets another window's write is
+   tried again until that write is done (file-lock.js readWhole). */
 function parse(dir) {
-  try { return JSON.parse(fs.readFileSync(path.join(dir, FILE), 'utf8')); } catch (_) { return null; /* none yet, or caught mid-write */ }
+  return readWhole(path.join(dir, FILE));
 }
 
 /** supervisor id -> { manages, ticked, names, paths, at, all, title, newSince, newSkip, newBefore }, settled, leaving out

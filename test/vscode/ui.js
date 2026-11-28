@@ -1387,7 +1387,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!draftGot && draftGot.outcome === 'notReceived' && REFUSED.test(draftGot.reason || '') && await inputOf(conv) === 'half a sentence' && count(intoDraft) === 0,
           'a message for a conversation whose input holds the user\'s draft is not sent, the one sending it is told why, and the draft is left as it was',
           { got: draftGot, input: await inputOf(conv), arrived: count(intoDraft) });
-        await page.keyboard.press('Control+a');
+        await page.keyboard.press('ControlOrMeta+a');
         await page.keyboard.press('Delete');
         const composing = (name) => conv.evaluate(([sel, type]) => {
           const b = document.querySelector(sel);
@@ -1413,10 +1413,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           'once the composing ends, the same message is sent', { got: afterGot, arrived: afterArrived, input: await inputOf(conv) });
       } finally {
         await conv.locator(SEL).first().click().catch(() => {});
-        await page.keyboard.press('Control+a').catch(() => {});
+        await page.keyboard.press('ControlOrMeta+a').catch(() => {});
         await page.keyboard.press('Delete').catch(() => {});
         await side.locator(SEL).first().click().catch(() => {});
-        await page.keyboard.press('Control+a').catch(() => {});
+        await page.keyboard.press('ControlOrMeta+a').catch(() => {});
         await page.keyboard.press('Delete').catch(() => {});
         await call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)} && x.label.startsWith(arg));
           if (t) await vscode.window.tabGroups.close(t); return true;`, t1.title.slice(0, 12));
@@ -5646,10 +5646,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           return a && b && a.role === 'Lead' && !a.take && b.role === 'Observer' && b.take && { a, b };
         }, 30000, 500);
         const after = sv.leadOf(X.id);
-        check(!!flipped && !!after && after.lead === SA.id && after.why === 'panel' && after.was === Q1.id && !after.pending
-          && sv.holds(Xt, `From your lead supervisor "${Q1.title}": from now on your lead supervisor is "${SA.title}".\n${note}`),
+        const noteText = `From your lead supervisor "${Q1.title}": from now on your lead supervisor is "${SA.title}".\n${note}`;
+        const noted = !!flipped && !!await until(() => sv.holds(Xt, noteText), 15000, 500);
+        check(!!flipped && !!after && after.lead === SA.id && after.why === 'panel' && after.was === Q1.id && !after.pending && noted,
           'once the old lead has sent its note, which reaches the conversation, the supervisor chosen in the panel leads it, and both windows\' panels show the new roles',
-          { over, lead: after, flipped });
+          { over, lead: after, flipped, noted });
         await shot('stewards-taken-over');
       } finally {
         if (panelA) {
@@ -6885,9 +6886,18 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       /* A click anywhere outside the box closes it. The box is placed above its button when it opens, and a footer that
          moves while the page is still settling can end up under it. */
       const closeBox = async (frame) => { await frame.evaluate(() => document.body.click()); await sleep(300); };
-      const infoMode = async (frame, expected) => {
-        await exec('notifications.hideToasts');
+      /* A notice the step before left on its way can come in as a toast after the toasts were cleared and sit over the
+         button, so a click that does not land is tried again after clearing them once more. */
+      const clickInfo = async (frame) => {
+        for (let i = 0; i < 4; i++) {
+          await exec('notifications.clearAll');
+          if (await frame.locator('[data-cce-info]').first().click({ timeout: 5000 }).then(() => true, () => false)) return;
+        }
+        await exec('notifications.clearAll');
         await frame.locator('[data-cce-info]').first().click();
+      };
+      const infoMode = async (frame, expected) => {
+        await clickInfo(frame);
         const read = () => frame.evaluate(() => {
           const b = document.getElementById('cce-info');
           if (!b || b.style.display !== 'block') return null;
@@ -6948,9 +6958,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         console.log(`  -- ${name}`);
         await exec('notifications.clearAll');
         /* An information box left open while the mode changes. */
-        await exec('notifications.hideToasts');
         const openBox = () => frame.evaluate(() => { const b = document.getElementById('cce-info'); return !!b && b.style.display === 'block'; });
-        if (!await openBox()) await frame.locator('[data-cce-info]').first().click();
+        if (!await openBox()) await clickInfo(frame);
         await until(() => frame.evaluate(() => /Token mode/.test((document.getElementById('cce-info') || {}).innerText || '')), 8000, 200);
         await setMode(m.mode);
         const boxSays = () => frame.evaluate(() => {

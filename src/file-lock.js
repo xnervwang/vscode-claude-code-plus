@@ -62,9 +62,10 @@ const holds = new Map();
    files do all the time; such a refusal is tried again rather than taken as an answer. */
 const BUSY = new Set(['EPERM', 'EACCES', 'EBUSY']);
 const busy = (e) => process.platform === 'win32' && !!e && BUSY.has(e.code);
-const RENAME_WAITS_MS = [10, 20, 40, 60, 80];
+/* A reader that opens the file over and over can keep a rename refused for longer than a few tries. */
+const RENAME_WAITS_MS = [10, 20, 40, 60, 80, 120, 160, 200, 250, 300, 350, 400];
 
-/* fs.renameSync, with a refusal on Windows tried again over about a fifth of a second. */
+/* fs.renameSync, with a refusal on Windows tried again over about two seconds. */
 function rename(from, to) {
   for (let i = 0; ; i++) {
     try { fs.renameSync(from, to); return; } catch (e) {
@@ -249,4 +250,29 @@ function writeLocked(file, text) {
   }
 }
 
-module.exports = { withLock, writeLocked, LockLost, LockTimeout, STALE_MS };
+/* How long readWhole() waits for another process that holds the lock. */
+const READ_WAIT_MS = 200;
+
+/**
+ * The JSON in `file`, read without taking the lock, or null when there is none. On Windows a read can fail, or find no
+ * file at all, at the moment writeLocked renames the new file over the old one, and the writer holds the lock all
+ * through it; so a read that fails is tried again while the lock is there, for up to READ_WAIT_MS, and once more after
+ * it goes. Inside withLock on the same file nothing else can be writing it, so a failed read is not tried again.
+ */
+function readWhole(file) {
+  const key = path.resolve(file);
+  const mine = holds.has(key);
+  const until = Date.now() + READ_WAIT_MS;
+  let free = 0;
+  for (;;) {
+    try { return JSON.parse(fs.readFileSync(key, 'utf8')); } catch (_) { /* tried again below */ }
+    if (mine) return null;
+    if (fs.existsSync(key + '.lock')) {
+      free = 0;
+      if (Date.now() >= until) return null;
+      nap(STEP_MIN_MS);
+    } else if (++free > 1) return null;
+  }
+}
+
+module.exports = { withLock, writeLocked, readWhole, LockLost, LockTimeout, STALE_MS, READ_WAIT_MS };
