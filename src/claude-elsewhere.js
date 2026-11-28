@@ -128,8 +128,10 @@ function system(platform = process.platform) {
   }
   if (platform === 'win32') {
     let table = null, tableAt = 0;
-    const read = () => {
-      if (!table || Date.now() - tableAt > TABLE_MS) {
+    /* A process id is soon given to a new process on Windows, so a table read before a record was written may name the
+       process that had its id before. */
+    const read = (since = 0) => {
+      if (!table || Date.now() - tableAt > TABLE_MS || tableAt < since) {
         table = new Map();
         const csv = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
           'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId),$($_.ParentProcessId),$($_.Name)" }']);
@@ -147,9 +149,9 @@ function system(platform = process.platform) {
       parentOf: (pid) => (read().get(pid) || {}).parent || 0,
       tty: () => '',
       env: () => ({}),
-      names: (pid) => {
-        const out = [];
-        for (let p = pid, n = 0; p && n < MAX_ANCESTORS; n++) { const e = read().get(p); if (!e) break; out.push(e.name); p = e.parent; }
+      names: (pid, since) => {
+        const out = [], t = read(since);
+        for (let p = pid, n = 0; p && n < MAX_ANCESTORS; n++) { const e = t.get(p); if (!e) break; out.push(e.name); p = e.parent; }
         return out;
       },
     };
@@ -163,12 +165,17 @@ function records(dir, sys) {
   const out = [];
   for (const n of names) {
     let r;
-    try { r = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { continue; }
+    let written = 0;
+    try {
+      const file = path.join(dir, n);
+      r = JSON.parse(fs.readFileSync(file, 'utf8'));
+      written = fs.statSync(file).mtimeMs;
+    } catch (_) { continue; }
     if (!r || typeof r !== 'object' || !SESSION.test(String(r.sessionId || '')) || !Number.isInteger(r.pid) || r.pid <= 0) continue;
     if (!sys.alive(r.pid)) continue;
     const token = r.procStart == null ? null : sys.startToken(r.pid);
     if (token != null && String(token) !== String(r.procStart)) continue;
-    out.push(r);
+    out.push({ r, written });
   }
   return out;
 }
@@ -203,25 +210,27 @@ function jobNameOf(jobId, root = claudeDir()) {
 function create({ dir = () => path.join(claudeDir(), 'sessions'), sys = system(), ownPid = process.pid, claimed = () => false,
   jobName = (id) => jobNameOf(id), now = Date.now } = {}) {
   const infos = new Map();
-  const info = (pid, t) => {
-    const hit = infos.get(pid);
+  /* Kept by the record's start too: a process id may come back for another process within INFO_MS. */
+  const info = (pid, t, started, written) => {
+    const key = `${pid}:${started}`;
+    const hit = infos.get(key);
     if (hit && t - hit.at < INFO_MS) return hit.value;
     const env = sys.env(pid) || {};
-    const value = { tty: sys.tty(pid) || '', env, names: sys.names(pid) };
+    const value = { tty: sys.tty(pid) || '', env, names: sys.names(pid, written) };
     if (env.TMUX && env.TMUX_PANE) value.tmux = sys.tmuxSession(env.TMUX, env.TMUX_PANE) || '';
     if (env.STY) value.screen = String(env.STY).replace(/^\d+\./, '');
-    infos.set(pid, { at: t, value });
+    infos.set(key, { at: t, value });
     if (infos.size > 512) infos.delete(infos.keys().next().value);
     return value;
   };
-  const place = (r, t) => {
+  const place = (r, t, written) => {
     const where = classify(r);
     const ran = Number.isFinite(r.startedAt) ? lasted(t - r.startedAt) : '';
     const proc = `Process ${r.pid}` + (ran ? `, running for ${ran}` : '');
     const folder = r.cwd ? `Folder: ${tilde(r.cwd)}` : '';
     let label, detail;
     if (where === 'terminal') {
-      const i = info(r.pid, t);
+      const i = info(r.pid, t, r.startedAt, written);
       const program = i.env.TERM_PROGRAM && !['vscode', 'tmux'].includes(i.env.TERM_PROGRAM) ? i.env.TERM_PROGRAM : '';
       label = i.env.TERM_PROGRAM === 'vscode' ? 'a VS Code terminal'
         : i.tmux ? `tmux session "${i.tmux}"`
@@ -253,13 +262,13 @@ function create({ dir = () => path.join(claudeDir(), 'sessions'), sys = system()
     /* Map of session id to { elsewhere, processes }, for every conversation some process has open. */
     scan() {
       const t = now(), out = new Map();
-      for (const r of records(typeof dir === 'function' ? dir() : dir, sys)) {
+      for (const { r, written } of records(typeof dir === 'function' ? dir() : dir, sys)) {
         const row = out.get(r.sessionId) || { elsewhere: [], processes: 0 };
         row.processes++;
         out.set(r.sessionId, row);
         const where = classify(r);
         if (where === 'vscode' && (under(r.pid, ownPid, sys) || claimed(r.sessionId))) continue;
-        if (row.elsewhere.length < MAX_PLACES) row.elsewhere.push(place(r, t));
+        if (row.elsewhere.length < MAX_PLACES) row.elsewhere.push(place(r, t, written));
       }
       return out;
     },

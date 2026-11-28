@@ -110,6 +110,11 @@ const RESUME_SHOW_MS = 30000;
 /* How long a long conversation may take to load once its tab is open. */
 const RESUME_LOAD_MS = 180000;
 const RESUME_SEND_MS = 20000;
+/* How long steward-relay.py waits for a resume's answer (its RESUME_WAIT_SECONDS) before it says the message is typed
+   once the conversation loads. */
+const RESUME_SCRIPT_WAIT_MS = 110000;
+/* The part of a message a supervisor is shown again when it was not sent. */
+const MAX_LATE_TEXT = 600;
 const RESUME_ASK_MS = 500;
 const RESUME_RETRY_MS = 1000;
 
@@ -265,9 +270,34 @@ async function take(planDir, deps) {
       p.then(() => inFlight.delete(p));
       continue;
     }
-    done.push(finish(await carryOut(req, action, to, dir, deps, now)));
+    const r = finish(await carryOut(req, action, to, dir, deps, now));
+    if (action === 'resume') await tellLate(req, r, dir, deps);
+    done.push(r);
   }
   return done;
+}
+
+/* What a supervisor is told when the message it gave with --resume was not sent after its script stopped waiting. */
+function lateText(id, title, reason, text) {
+  const words = String(text || '');
+  return `${stewardTable.NOTICE_HEAD}, not a message from the user: the message you gave with --resume for `
+    + `${title ? `"${title}" (${id})` : id} was not sent: ${reason}. Your command had stopped waiting for the answer by then. `
+    + 'Send the message again; once a window shows the conversation, a plain send reaches it there. The message was:\n'
+    + (words.length > MAX_LATE_TEXT ? words.slice(0, MAX_LATE_TEXT) + '...' : words);
+}
+
+/* steward-relay.py says a resume's message is typed once the conversation loads when it stops waiting for the answer;
+   when the message was then not sent, the supervisor would take it as sent, so the window that tried tells it. */
+async function tellLate(req, r, dir, deps) {
+  const at = deps.now ? deps.now() : Date.now();
+  if (!req.text || r.outcome === 'submitted' || r.outcome === 'refused' || !(at - req.at >= RESUME_SCRIPT_WAIT_MS)) return;
+  const asker = String(req.steward || '').toLowerCase();
+  if (!SESSION.test(asker)) return;
+  const title = (deps.titleOf && deps.titleOf(r.to)) || '';
+  const told = await postHandoff(asker, lateText(r.to, title, r.reason || r.outcome, req.text), deps);
+  r.told = told.outcome === 'submitted';
+  /* No command reads it now. */
+  if (r.told) { try { fs.unlinkSync(path.join(dir, r.id + '.result.json')); } catch (_) { /* gone */ } }
 }
 
 /*
@@ -347,9 +377,11 @@ async function resume(id, text, deps) {
   while (!deps.shows(id)) {
     if (!tab && deps.tabOpen && deps.tabOpen(id)) tab = true;
     if (now() >= (tab ? loadedBy : shownBy)) {
+      /* The text is typed only below, so a resume that stops here has certainly not sent it. */
+      const notTyped = text ? '; the message was not typed into it' : '';
       return tab
-        ? { outcome: 'uncertain', reason: `its tab here opened, but the conversation had not loaded within ${RESUME_LOAD_MS / 1000} seconds`, opened: true }
-        : { outcome: 'uncertain', reason: `Claude Code was asked to open it, but no tab here showed it within ${RESUME_SHOW_MS / 1000} seconds` };
+        ? { outcome: text ? 'notReceived' : 'uncertain', reason: `its tab here opened, but the conversation had not loaded within ${RESUME_LOAD_MS / 1000} seconds${notTyped}`, opened: true }
+        : { outcome: text ? 'notReceived' : 'uncertain', reason: `Claude Code was asked to open it, but no tab here showed it within ${RESUME_SHOW_MS / 1000} seconds${notTyped}` };
     }
     await sleep(RESUME_ASK_MS);
   }
@@ -655,4 +687,4 @@ async function handOff(stewards, from, text, table, deps, to = '') {
 
 module.exports = { take, settled, ranBy, resume, heldBy, opensHere, handoffText, lastUserAt, lastUserCache, turnStart, turnStarter,
   typedBefore, noteTyped, typedForOthers, RELAY_DIR, MAX_AGE_MS, RAN_MS, RAN_WAITS_MS, SENT_FILE, SENDS_FILE, SENDS_KEEP_MS, TYPED_DIR,
-  TYPED_KEEP_MS, FLAGS, LIST, USER_ONLY, ARCHIVE_MAX, RESUME_LOAD_MS, MAX_TITLE, RESUME_SHOW_MS, RESUME_SEND_MS };
+  TYPED_KEEP_MS, FLAGS, LIST, USER_ONLY, ARCHIVE_MAX, RESUME_LOAD_MS, MAX_TITLE, RESUME_SHOW_MS, RESUME_SEND_MS, RESUME_SCRIPT_WAIT_MS, lateText, tellLate };

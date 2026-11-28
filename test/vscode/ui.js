@@ -215,6 +215,8 @@ const LIST_THREADS = {
     turns: [['Find why the nightly export is slow.', 'The export waits on a lock held by the vacuum job that starts at 01:00.']] },
   retitleOpen: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c7', title: 'Count the open tickets per team', days: 0,
     turns: [['Count the open tickets per team.', 'Storage has 14, networking 9 and the console team 3.']] },
+  reopenLater: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6cb', title: 'Check the disk use of the log volume', days: 0,
+    turns: [['Check the disk use of the log volume.', 'It is 71% full; the access logs of the last week take most of it.']] },
   archiveBy: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c8', title: 'Tidy up the old conversations', days: 0,
     turns: [['Keep an eye on the reports work.', 'I will watch it and tell you when it needs you.']] },
   archiveDone: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c9', title: 'Rotate the staging certificates', days: 2,
@@ -752,7 +754,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   };
   /* Closes the Claude Code tab whose label is the start of `title`; false when there is none. */
   const closeTabTitled = (title) => call(`const t = vscode.window.tabGroups.all.flatMap((g) => g.tabs).find((x) => x.input && x.input.viewType === ${JSON.stringify(PANEL_VIEW)}
-    && x.label && arg.startsWith(x.label.replace(/…$/, '')) && x.label.length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, title);
+    && x.label && arg.startsWith(x.label.replace(${TRAILING_MARKS}, '').replace(/…$/, '')) && x.label.replace(${TRAILING_MARKS}, '').length >= 12); if (t) await vscode.window.tabGroups.close(t); return !!t;`, title);
   const slMenu = () => until(() => sl.evaluate(() => {
     const b = document.querySelector('.sl-ctx:not(.sl-ctx-sub)');
     return b ? [...b.querySelectorAll('.sl-ctx-item')].map((x) => x.textContent.replace('\u203a', '').replace('\u2713', '').trim()) : null;
@@ -2948,6 +2950,41 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       }
     });
 
+    /* A dropped tab reopened while the window draws no page, as when the computer sleeps and the connection comes back:
+       with Claude Code's script missing the reopened tab's page cannot load, so the tab is closed again rather than left
+       to come back as an empty conversation, and its conversation stays on the window's list; with the script back, it
+       is reopened from that list and its page shows the conversation. */
+    await step('a reopened tab whose page does not load', async () => {
+      const t = LIST_THREADS.reopenLater;
+      fakeHome.writeThreads(profile.home, profile.folder, [t]);
+      const cc = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
+      const file = path.join(profile.exts, cc, 'webview', 'index.js'), away = file + '.cce-away';
+      let back = false;
+      const putBack = () => { if (back) return; back = true; fs.renameSync(away, file); };
+      const kept = () => call('return typeof globalThis.__cceDroppedKept === "function" ? globalThis.__cceDroppedKept().map((e) => e.sessionId) : null;');
+      const tabOf = async () => (await claudeTabs()).find((x) => titled(x.label, t.title));
+      const count = async () => (await claudeTabs()).length;
+      const before = await count();
+      fs.renameSync(file, away);
+      try {
+        await call('await globalThis.__cceReopenDropped([{ sessionId: arg.id, title: arg.title, fullEditor: true }], 8000); return true;', { id: t.id, title: t.title }, 60000);
+        const closed = await until(async () => (await count()) === before, 10000, 300);
+        const held = await kept();
+        check(!!closed && Array.isArray(held) && held.includes(t.id),
+          'a tab reopened for a dropped conversation whose page does not load is closed again, and the conversation is kept to reopen', { tabs: await claudeTabs(), kept: held });
+        putBack();
+        await call('await globalThis.__cceReopenDropped(undefined, 30000); return true;', undefined, 60000);
+        const open = await until(tabOf, 30000, 500);
+        const loaded = open && await conversation(t, 60000);
+        const left = await kept();
+        check(!!open && !!loaded && Array.isArray(left) && !left.includes(t.id),
+          'once pages load again, the kept conversation is reopened in a tab that shows it, and it leaves the list', { tabs: await claudeTabs(), kept: left });
+      } finally {
+        putBack();
+        if (await tabOf()) await closeTabTitled(t.title);
+      }
+    });
+
     await step('an archived conversation', async () => {
       const t1 = threads[1];
       const tabOf = async () => (await claudeTabs()).find((x) => titled(x.label, t1.title));
@@ -3193,7 +3230,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         }).then((said) => { answered(said); return said; });
       };
       const archivedRow = async (t) => (await slRowsOf(t.id)).some((x) => x.section === 'archived');
-      const supTab = async () => (await claudeTabs()).find((x) => titled(x.label, sup.title));
+      const supTab = async () => (await claudeTabs()).find((x) => titled(String(x.label || '').replace(TRAILING_MARKS, ''), sup.title));
       await showSl();
       if (!await until(async () => { const r = await slRows().catch(() => null); return r && slFind(r, done) && slFind(r, kept); }, 30000, 500)) {
         throw new Error(`the conversations written for this step are not listed: ${JSON.stringify(await slRows().catch(() => null))}`);

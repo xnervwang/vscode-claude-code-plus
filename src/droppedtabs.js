@@ -92,4 +92,35 @@ function settle({ waiting, shown, elsewhere, labels, strip = (t) => t }) {
   return { ready, waiting: still };
 }
 
-module.exports = { find, split, settle, transcriptExists, LIMIT };
+/*
+ * The conversations whose dropped tabs were reopened but whose page has not answered yet, as a window keeps them in its
+ * own storage between starts. Claude Code's record loses the entry of a tab that is missing at its next start; a tab
+ * reopened while the window does not draw its pages (the computer asleep, the connection coming back) has no page, so
+ * it is closed again, and without this list the conversation would be gone at the next start. Entries older than
+ * PENDING_KEEP_MS go.
+ */
+const PENDING_KEEP_MS = 24 * 3600000;
+function pendingOf(stored, now = Date.now()) {
+  return (Array.isArray(stored) ? stored : [])
+    .filter((e) => e && typeof e.sessionId === 'string' && SESSION.test(e.sessionId) && typeof e.at === 'number' && now - e.at < PENDING_KEEP_MS)
+    .map((e) => ({ sessionId: e.sessionId.toLowerCase(), title: typeof e.title === 'string' ? e.title : '', fullEditor: e.fullEditor === true, at: e.at }));
+}
+/* Claude Code's record with the kept conversations it no longer has added at the end. */
+function withPending(record, pending) {
+  const entries = Array.isArray(record) ? record.slice() : [];
+  const have = new Set(entries.map((e) => e && typeof e.sessionId === 'string' && e.sessionId.toLowerCase()));
+  for (const p of pending || []) if (!have.has(p.sessionId)) entries.push({ sessionId: p.sessionId, title: p.title, fullEditor: p.fullEditor });
+  return entries;
+}
+/* The kept list with `list` added, and with `done` taken out. */
+function keepPending(stored, { add = [], done = [], now = Date.now() } = {}) {
+  const gone = new Set(done.map((id) => String(id).toLowerCase()));
+  const kept = pendingOf(stored, now).filter((e) => !gone.has(e.sessionId));
+  for (const t of add) {
+    const id = String(t.sessionId || '').toLowerCase();
+    if (SESSION.test(id) && !gone.has(id) && !kept.some((k) => k.sessionId === id)) kept.push({ sessionId: id, title: t.title || '', fullEditor: t.fullEditor === true, at: now });
+  }
+  return kept;
+}
+
+module.exports = { find, split, settle, transcriptExists, pendingOf, withPending, keepPending, LIMIT, PENDING_KEEP_MS };

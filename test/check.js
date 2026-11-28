@@ -6369,6 +6369,27 @@ console.log('\nwhere else a Claude Code conversation is open');
     if (long.label === 'a terminal' && long.detail.every((l) => l.length <= el.MAX_DETAIL) && el.lasted(3 * 86400e3 + 4 * 3600e3) === '3d 4h' && el.lasted(40e3) === '40s') {
       ok('a folder too long for the label is left to the hover, within the protocol\'s lengths');
     } else bad(`a long folder: ${JSON.stringify(long)}`);
+    /* On Windows a process id is soon given to another process: the names are asked for again when a new process
+       has the id, with the time its record was written, so a process table read before that is read again. */
+    {
+      const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-elsewhere-'));
+      try {
+        const asked = [];
+        const wsys = { alive: () => true, startToken: () => null, parentOf: () => 0, tty: () => '', env: () => ({}), tmuxSession: () => '',
+          names: (pid, since) => { asked.push([pid, since]); return asked.length === 1 ? ['claude.exe', 'pwsh.exe', 'Code.exe'] : ['claude.exe', 'pwsh.exe', 'conhost.exe']; } };
+        const rec = (startedAt) => { const f = path.join(d2, '500.json'); fs.writeFileSync(f, JSON.stringify({ pid: 500, sessionId: S(50), entrypoint: 'cli', kind: 'interactive', cwd: '/', startedAt })); return fs.statSync(f).mtimeMs; };
+        const scanner = el.create({ dir: d2, sys: wsys, ownPid: 4000, now: () => t0 });
+        const m1 = rec(t0 - 60000);
+        const first = scanner.scan().get(S(50)).elsewhere[0].label;
+        const same = scanner.scan().get(S(50)).elsewhere[0].label;
+        const m2 = rec(t0 - 1000);
+        const next = scanner.scan().get(S(50)).elsewhere[0].label;
+        if (first === 'a VS Code terminal in /' && same === first && next === 'a console window in /'
+            && JSON.stringify(asked) === JSON.stringify([[500, m1], [500, m2]])) {
+          ok('the process names are asked for once per process, with the time its record was written, and again when a new process has its id');
+        } else bad(`names asked: ${JSON.stringify({ first, same, next, asked, m1, m2 })}`);
+      } finally { fs.rmSync(d2, { recursive: true, force: true }); }
+    }
     {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-jobs-'));
       try {
@@ -8083,6 +8104,25 @@ console.log('\ntabs VS Code did not restore');
       === JSON.stringify([[id(1)], [id(2)], [], [id(2)], [id(2)], [], []])) {
     ok('a dropped tab whose conversation runs in another window waits, is reopened once it runs nowhere, and is let go if it gets shown here meanwhile');
   } else bad(`the waiting tabs went ${JSON.stringify([ids(sp2.now), ids(sp2.later), ids(st1.ready), ids(st1.waiting), ids(st2.ready), ids(st3.ready), ids(st3.waiting)])}`);
+  /* A reopened tab whose page never answered: its conversation is kept in the window's own list, which outlives Claude
+     Code's record losing it at the next start, until a page answers for it or a day has passed. */
+  {
+    const now = Date.now();
+    const kept = dropped.keepPending([], { add: [{ sessionId: id(7).toUpperCase(), title: 'Dropped', fullEditor: true }, { sessionId: 'bad', title: 'x' }], now });
+    const again = dropped.keepPending(kept, { add: [{ sessionId: id(7), title: 'Dropped' }, { sessionId: id(8), title: 'Also dropped' }], now: now + 1000 });
+    const done = dropped.keepPending(again, { done: [id(7)], now: now + 2000 });
+    const old = dropped.pendingOf(again, now + 1000 + dropped.PENDING_KEEP_MS);
+    // At the next start Claude Code's record no longer has the conversation; the kept one is added to it and found again.
+    const merged = dropped.withPending([{ sessionId: id(1), title: 'Shown in a tab' }], dropped.pendingOf(again, now + 3000));
+    const found = dropped.find({ record: merged, shown: [id(1)], labels: ['Claude Code'], strip, exists: () => true });
+    if (JSON.stringify(kept) === JSON.stringify([{ sessionId: id(7), title: 'Dropped', fullEditor: true, at: now }])
+        && JSON.stringify(again.map((e) => e.sessionId)) === JSON.stringify([id(7), id(8)]) && again[0].at === now
+        && JSON.stringify(done.map((e) => e.sessionId)) === JSON.stringify([id(8)]) && old.length === 0
+        && JSON.stringify(found) === JSON.stringify([{ sessionId: id(7), title: 'Dropped', fullEditor: true }, { sessionId: id(8), title: 'Also dropped', fullEditor: false }])) {
+      ok('a reopened tab whose page did not answer keeps its conversation in the window\'s own list, once, until a page answers or a day has passed; '
+        + 'at the next start it is added to Claude Code\'s record and found to reopen, though a tab left with the default title is there');
+    } else bad(`the kept tabs to reopen were ${JSON.stringify({ kept, again, done, old, found })}`);
+  }
   /* Same title, one restored in a tab and one dropped: the restored tab belongs to the shown conversation, so the
      dropped one is still reopened. */
   {
@@ -10783,24 +10823,26 @@ console.log('\nthe Supervisor panel');
           sent: await run('Go on'), bare: await run(''), never: await run('Go on', { showAfter: 1e9 }),
           broken: await run('Go on', { opens: false }), unsure: await run('Go on', { answer: { outcome: 'uncertain', reason: 'the panel did not report' } }),
           stuck: await run('Go on', { notIn: 1e9 }),
-          slow: await run('Go on', { showAfter: 120, tabAt: 1000 }), loading: await run('Go on', { showAfter: 1e9, tabAt: 1000 }) })))()
+          slow: await run('Go on', { showAfter: 120, tabAt: 1000 }), loading: await run('Go on', { showAfter: 1e9, tabAt: 1000 }),
+          bareNever: await run('', { showAfter: 1e9 }) })))()
           .catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`],
         { encoding: 'utf8', timeout: 30000 }));
       const o = opened;
       if (o.sent && JSON.stringify(o.sent.r) === JSON.stringify({ outcome: 'submitted', opened: true })
           && JSON.stringify(o.sent.log) === JSON.stringify(['open S', 'send Go on', 'send Go on', 'send Go on'])
           && JSON.stringify(o.bare.r) === JSON.stringify({ outcome: 'submitted', reason: '', opened: true }) && o.bare.log.length === 1
-          && o.never.r.outcome === 'uncertain' && !o.never.r.opened && o.never.log.length === 1 && o.never.waited >= relay.RESUME_SHOW_MS
+          && o.never.r.outcome === 'notReceived' && !o.never.r.opened && o.never.log.length === 1 && o.never.waited >= relay.RESUME_SHOW_MS
           && o.broken.r.outcome === 'notReceived' && /could not open it: no such command/.test(o.broken.r.reason) && o.broken.log.length === 1
           && o.unsure.r.outcome === 'uncertain' && o.unsure.r.opened === true && o.unsure.log.length === 2
           && o.stuck.r.outcome === 'notReceived' && o.stuck.r.opened === true && o.stuck.waited >= relay.RESUME_SEND_MS
-          && o.never.r.reason === 'Claude Code was asked to open it, but no tab here showed it within 30 seconds'
+          && o.never.r.reason === 'Claude Code was asked to open it, but no tab here showed it within 30 seconds; the message was not typed into it'
+          && o.bareNever.r.outcome === 'uncertain' && o.bareNever.r.reason === 'Claude Code was asked to open it, but no tab here showed it within 30 seconds'
           && o.slow.r.outcome === 'submitted' && o.slow.r.opened === true && o.slow.waited > relay.RESUME_SHOW_MS
-          && o.loading.r.outcome === 'uncertain' && o.loading.r.opened === true && o.loading.waited >= relay.RESUME_LOAD_MS
-          && /^its tab here opened, but the conversation had not loaded within 180 seconds$/.test(o.loading.r.reason)) {
+          && o.loading.r.outcome === 'notReceived' && o.loading.r.opened === true && o.loading.waited >= relay.RESUME_LOAD_MS
+          && /^its tab here opened, but the conversation had not loaded within 180 seconds; the message was not typed into it$/.test(o.loading.r.reason)) {
         ok('a resumed conversation is opened once and sent the text only after its panel shows it; text the panel did not take is tried again '
           + 'for a while, an unclear send is not retried, and with no text it is only opened; a long one whose tab is open gets minutes to load, '
-          + 'and with no tab at all it is given up after half a minute');
+          + 'and with no tab at all it is given up after half a minute; given up, its text is reported as not sent, since it was never typed');
       } else bad(`resuming in a window: ${JSON.stringify(o)}`);
 
       /* The window's side of resume requests. */
@@ -10866,6 +10908,47 @@ console.log('\nthe Supervisor panel');
           + 'and refuses one that another process or window runs, one asked for by a conversation that is not a supervisor, one the supervisor has not run --resume for, the same call twice, '
           + 'and any request while it cannot ask claude agents');
       } else bad(`resume requests gave ${JSON.stringify({ did: took.did, first: Object.fromEntries(Object.entries(f).map(([k, v]) => [k, why(v) + (v.ticked ? ' ticked' : '')])), again: g, left: took.left, error: took.error })}`);
+
+      /* A resume whose message was not sent after steward-relay.py stopped waiting for it, having said the message is typed
+         once the conversation loads: the supervisor that asked is told in a notice, which quotes the message. */
+      {
+        const lateRun = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+          const fs = require('fs'), os = require('os'), path = require('path');
+          const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
+          const ldir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-late-'));
+          const sup = '5e5e5e5e-0000-4000-8000-000000000001', to = '5e5e5e5e-0000-4000-8000-000000000004', t0 = 1800000000000;
+          const posted = [];
+          const deps = { now: () => t0, titleOf: (id) => (id === to ? 'Parser work' : ''),
+            records: () => [{ sessionId: sup, messagingSocketPath: '/run/sup.sock' }],
+            post: async (addr, text) => { posted.push([addr, text]); return true; } };
+          const late = async (n, age, outcome, text = 'Go on with the parser') => {
+            const id = 'dddddddd-0000-4000-8000-00000000000' + n;
+            fs.writeFileSync(path.join(ldir, id + '.result.json'), '{}');
+            const r = { id, action: 'resume', to, outcome, reason: 'its tab here opened, but the conversation had not loaded within 180 seconds; the message was not typed into it' };
+            await relay.tellLate({ steward: sup, at: t0 - age, text }, r, ldir, deps);
+            return { told: r.told === true, kept: fs.existsSync(path.join(ldir, id + '.result.json')) };
+          };
+          (async () => {
+            const out = { gone: await late(1, relay.RESUME_SCRIPT_WAIT_MS + 1000, 'notReceived'),
+              waiting: await late(2, relay.RESUME_SCRIPT_WAIT_MS - 1000, 'notReceived'),
+              sent: await late(3, relay.RESUME_SCRIPT_WAIT_MS + 1000, 'submitted'),
+              bare: await late(4, relay.RESUME_SCRIPT_WAIT_MS + 1000, 'uncertain', ''), posted, to };
+            fs.rmSync(ldir, { recursive: true, force: true });
+            process.stdout.write(JSON.stringify(out));
+          })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
+        const { gone, waiting, sent: lateSent, bare: lateBare, posted } = lateRun;
+        const said = posted && posted[0] && posted[0][1];
+        const stw = require('../src/stewards');
+        const script = fs.readFileSync(path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py'), 'utf8');
+        const scriptWaits = Number((/^RESUME_WAIT_SECONDS = (\d+)$/m.exec(script) || [])[1]) * 1000;
+        if (gone && gone.told && !gone.kept && !waiting.told && waiting.kept && !lateSent.told && !lateBare.told && posted.length === 1 && posted[0][0] === '/run/sup.sock'
+            && said.startsWith(stw.NOTICE_HEAD + ', not a message from the user: the message you gave with --resume for "Parser work" (' + lateRun.to + ') was not sent: its tab here opened')
+            && said.endsWith('The message was:\nGo on with the parser') && stw.isNotice(said)
+            && scriptWaits === relay.RESUME_SCRIPT_WAIT_MS) {
+          ok('a resume\'s message not sent after steward-relay.py stopped waiting is told to the supervisor that asked, in a notice quoting it; '
+            + 'not while the script still waits, not once it was sent, and not for a resume with no message; the wait matches the script\'s');
+        } else bad(`late resume notices: ${JSON.stringify({ lateRun, scriptWaits })}`);
+      }
 
       /* Handoffs: to one supervisor of the conversation, the one the user typed to last, or the next that can be reached. */
       const hdir = path.join(root, 'relay-handoff'), htdir = path.join(root, 'relay-handoff-transcripts');

@@ -1804,17 +1804,46 @@ function start(context, log, renamed, handing = false) {
   const isClaudeTab = (t) => t.input instanceof vscode.TabInputWebview && String(t.input.viewType).includes('claudeVSCodePanel');
   const claudeLabels = () => vscode.window.tabGroups.all.flatMap((g) => g.tabs.filter(isClaudeTab).map((t) => t.label));
   const stripMark = (t) => tabdot.withoutMark(stewardMarks.withoutMarks(t));
-  const reopenTabs = async (list, why) => {
+  /* A reopened tab counts once its page has answered (answersReady). Until then its conversation stays in this window's
+     list of those to reopen (droppedTabs.pendingOf); a tab whose page has not answered in REOPEN_ANSWER_MS, as when the
+     window does not draw its pages, is closed again, since Claude Code would bring it back after a restart as an empty
+     new conversation. */
+  const PENDING_KEY = 'droppedTabsPending', REOPEN_ANSWER_MS = 60000, REOPEN_LOOK_MS = 1000;
+  const keepPending = (change) => context.workspaceState.update(PENDING_KEY, droppedTabs.keepPending(context.workspaceState.get(PENDING_KEY), change))
+    .then(undefined, (e) => log.appendLine(`keeping the Claude Code tabs still to reopen: ${e && e.message}`));
+  const answeredIn = (t, tab, answerMs = REOPEN_ANSWER_MS) => new Promise((resolve) => {
+    const until = Date.now() + answerMs;
+    const look = () => {
+      if (answersReady.has(t.sessionId)) { resolve(true); return; }
+      if (Date.now() < until) { setTimeout(look, REOPEN_LOOK_MS); return; }
+      const still = tab && vscode.window.tabGroups.all.some((g) => g.tabs.includes(tab));
+      /* A page that runs without answering, as one this extension could not patch, still gives the tab its title,
+         shortened by Claude Code to its first characters. */
+      const named = still && (() => { const l = stripMark(tab.label).replace(/…$/, ''); return !!l && l !== 'Claude Code' && String(t.title).startsWith(l); })();
+      if (still && !named) {
+        Promise.resolve(vscode.window.tabGroups.close(tab)).catch(() => {});
+        log.appendLine(`Closed the tab reopened for "${t.title}" (${t.sessionId}): its page did not load within ${answerMs / 1000} s; it is reopened once this window is in front`);
+      }
+      resolve(false);
+    };
+    look();
+  });
+  const reopenTabs = async (list, why, answerMs = REOPEN_ANSWER_MS) => {
     const group = vscode.window.tabGroups.activeTabGroup, front = group && group.activeTab;
     const at = front ? group.tabs.indexOf(front) : -1, column = group && group.viewColumn;
     let reopened = 0;
+    await keepPending({ add: list });
+    const checks = [];
     for (const t of list) {
       try {
         await vscode.commands.executeCommand('claude-vscode.editor.open', t.sessionId, undefined, undefined, undefined, t.fullEditor,
           { programmatic: 'pin-to-panel' });
+        const g = vscode.window.tabGroups.activeTabGroup, tab = g && g.activeTab && isClaudeTab(g.activeTab) ? g.activeTab : null;
+        checks.push(answeredIn(t, tab, answerMs).then((ok) => (ok ? t.sessionId : '')));
         reopened++;
       } catch (e) { log.appendLine(`reopening "${t.title}" (${t.sessionId}): ${e && e.message}`); }
     }
+    const settled = Promise.all(checks).then((ids) => keepPending({ done: ids.filter(Boolean) })).catch(() => {});
     log.appendLine(`Reopened ${reopened} Claude Code tab(s) VS Code did not restore${why}: ${list.map((t) => `"${t.title}" (${t.sessionId})`).join(', ')}`);
     if (reopened) vscode.window.setStatusBarMessage(`Reopened ${reopened} Claude Code tab${reopened === 1 ? '' : 's'} VS Code did not restore`, 10000);
     if (at >= 0 && FOCUS_GROUP[column - 1]) {
@@ -1823,7 +1852,24 @@ function start(context, log, renamed, handing = false) {
         await vscode.commands.executeCommand('workbench.action.openEditorAtIndex', at);
       } catch (_) { /* the reopened tab stays in front */ }
     }
+    return settled;
   };
+  const sessionsElsewhere = () => { try { return typeof globalThis.__cceSessionsElsewhere === 'function' ? globalThis.__cceSessionsElsewhere() : []; } catch (_) { return []; } };
+  const sessionsShown = () => { try { return typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown() : []; } catch (_) { return []; } };
+  /* The kept conversations still not shown anywhere, reopened; those shown by now are taken off the list. */
+  const reopenKept = (why, answerMs) => {
+    const kept = droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY));
+    if (!kept.length) return Promise.resolve();
+    let again = [];
+    try { again = droppedTabs.find({ record: kept, shown: [...sessionsShown(), ...sessionsElsewhere()], labels: claudeLabels(), strip: stripMark }); } catch (_) { again = []; }
+    const gone = kept.filter((k) => !again.some((a) => a.sessionId === k.sessionId)).map((k) => k.sessionId);
+    const dropped = gone.length ? keepPending({ done: gone }) : Promise.resolve();
+    return dropped.then(() => (again.length ? reopenTabs(again, why, answerMs) : undefined));
+  };
+  /* For the window test: reopens `list` as a dropped tab is reopened, with `answerMs` in place of REOPEN_ANSWER_MS, or with
+     no list the kept conversations; resolves once each has its outcome. __cceDroppedKept reads the kept list. */
+  globalThis.__cceReopenDropped = (list, answerMs = REOPEN_ANSWER_MS) => (Array.isArray(list) ? reopenTabs(list, '', answerMs) : reopenKept('', answerMs));
+  globalThis.__cceDroppedKept = () => droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY));
   let droppedTries = 0, droppedTimer = setTimeout(function lookForDropped() {
     droppedTimer = undefined;
     const atStart = globalThis.__cceTabsAtStart, shown = globalThis.__cceSessionsShown;
@@ -1835,9 +1881,17 @@ function start(context, log, renamed, handing = false) {
     const elsewhere = () => { try { return typeof globalThis.__cceSessionsElsewhere === 'function' ? globalThis.__cceSessionsElsewhere() : []; } catch (_) { return []; } };
     let lost, waiting;
     try {
-      ({ now: lost, later: waiting } = droppedTabs.split({ record: atStart, shown: shown(), elsewhere: elsewhere(), labels: claudeLabels(), strip: stripMark }));
+      const record = droppedTabs.withPending(atStart, droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY)));
+      ({ now: lost, later: waiting } = droppedTabs.split({ record, shown: shown(), elsewhere: elsewhere(), labels: claudeLabels(), strip: stripMark }));
     } catch (e) { log.appendLine('looking for Claude Code tabs VS Code did not restore: ' + (e && e.message)); return; }
     if (lost.length) reopenTabs(lost, '').catch(() => {});
+    /* Those whose reopened tab was closed again are tried once more when this window comes to the front. */
+    let retried = 0;
+    if (typeof vscode.window.onDidChangeWindowState === 'function') context.subscriptions.push(vscode.window.onDidChangeWindowState((s) => {
+      if (!s.focused || Date.now() - retried < REOPEN_ANSWER_MS) return;
+      retried = Date.now();
+      reopenKept(' now that this window is in front').catch(() => {});
+    }));
     if (!waiting.length) return;
     log.appendLine(`Waiting to reopen ${waiting.length} Claude Code tab(s) VS Code did not restore, whose conversation is still running in `
       + `another window: ${waiting.map((t) => `"${t.title}" (${t.sessionId})`).join(', ')}`);
@@ -1882,6 +1936,8 @@ function start(context, log, renamed, handing = false) {
     if (loadTimer) clearTimeout(loadTimer);
     if (droppedTimer) clearTimeout(droppedTimer);
     if (globalThis.__cceTabsAtStart) delete globalThis.__cceTabsAtStart;
+    delete globalThis.__cceReopenDropped;
+    delete globalThis.__cceDroppedKept;
     if (globalThis.__cceSessionsShown) delete globalThis.__cceSessionsShown;
     if (globalThis.__cceSessionsElsewhere) delete globalThis.__cceSessionsElsewhere;
   } });
