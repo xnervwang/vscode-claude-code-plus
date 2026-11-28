@@ -12,8 +12,7 @@ on:
   schedule:
     # Four times a day, offset off the hour to avoid the minute everyone else picks.
     - cron: '17 1,7,13,19 * * *'
-  push:
-    branches: [main]
+  # Not on a push: a push to main runs only the checks in tests.yml.
   workflow_dispatch:
 
 permissions:
