@@ -27,7 +27,7 @@ Open `Claude Code Plus: Settings` for all 36 settings. Most take effect without 
 | Reopening Claude Code tabs VS Code did not restore | Set `claudeCodePlus.reopenDroppedTabs` to off. |
 | Patch and restore Claude Code's files | Run `Claude Code Plus: Remove from Claude Code (restore original files)`, or uninstall. |
 
-Message appearance: `claudeCodePlus.userMessageColor` and `claudeCodePlus.userMessageEdge`. The language of the badge on a message a supervisor sent for you: `claudeCodePlus.supervisorBadgeLanguage` (auto, `zh` or `en`).
+Message appearance: `claudeCodePlus.userMessageColor` and `claudeCodePlus.userMessageEdge`. The language of the badge on a message a supervisor sent for you: `claudeCodePlus.supervisorBadgeLanguage` (`auto`, `chinese` or `english`).
 
 ## Commands
 

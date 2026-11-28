@@ -155,7 +155,8 @@
     '[data-cce-sup-head]{display:flex;flex-wrap:nowrap;align-items:center;column-gap:.6em;margin:0 0 .4em;min-width:0;container-type:inline-size;}',
     SUP_IN.trim() + '::before{flex:none;white-space:nowrap !important;margin-inline-end:0 !important;}',
     SUP_IN + '[data-cce-sup-badge]{display:block;flex:0 1 auto;min-width:0;padding:0 .7em;border:1px solid #c084fc;border-radius:999px;background:#3b2a52;'
-      + 'color:#e9d5ff !important;font-size:.9em;line-height:1.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      + 'color:#e9d5ff !important;font-size:.9em;line-height:1.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+      + 'text-decoration:none !important;cursor:pointer;}',
     SUP_IN + '[data-cce-sup-short]{display:none;}',
     SUP_IN + '[data-cce-sup-open]{flex:none;color:#a78bfa !important;font-size:.85em;text-decoration:underline;cursor:pointer;white-space:nowrap;}',
     'body.vscode-light ' + SUP_IN + '[data-cce-sup-badge]{background:#ede9fe;border-color:#7c3aed;color:#5b21b6 !important;}',
@@ -188,12 +189,13 @@
       var info = supInfo(block);
       if (!info || typeof h !== 'function') return null;
       supStyle(supLangNow());
-      var name = info.title || info.steward.slice(0, 8);
+      var name = info.title || info.steward.slice(0, 8), href = STEWARD_LINK + 'session=' + info.steward + '&source=claude-code';
+      /* The badge opens the supervisor too, which is the only way to open it while a narrow panel hides the link. */
       return h('div', { 'data-cce-sup-head': info.steward, children: [
-        h('span', { 'data-cce-sup-badge': '', children: [
+        h('a', { 'data-cce-sup-badge': '', role: 'button', href: href, children: [
           h('span', { 'data-cce-sup-full': '', 'data-cce-sup-name': name }, 'full'),
           h('span', { 'data-cce-sup-short': '', 'data-cce-sup-name': name }, 'short')] }, 'badge'),
-        h('a', { 'data-cce-sup-open': '', role: 'button', href: STEWARD_LINK + 'session=' + info.steward + '&source=claude-code' }, 'open')] });
+        h('a', { 'data-cce-sup-open': '', role: 'button', href: href }, 'open')] });
     } catch (e) { return null; }
   };
   if (typeof window === 'object' && window) {

@@ -145,8 +145,8 @@
           "type": "string",
           "enum": [
             "auto",
-            "zh",
-            "en"
+            "chinese",
+            "english"
           ],
           "enumDescriptions": [
             "The language you write in, in the conversation: Chinese when your last few messages are mostly Chinese, English when they are mostly English, and otherwise VS Code's display language.",

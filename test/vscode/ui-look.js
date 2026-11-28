@@ -1493,7 +1493,7 @@ const STEPS = [
   },
   {
     name: 'steward-relayed-chinese', features: ['supervisor-badge'],
-    expect: 'The same conversation and message, with claudeCodePlus.supervisorBadgeLanguage set to zh: the badge now reads '
+    expect: 'The same conversation and message, with claudeCodePlus.supervisorBadgeLanguage set to chinese: the badge now reads '
       + 'the compass emoji, then the Chinese word for supervisor, the title "CSV export and budgets" inside Chinese corner brackets, and the Chinese for '
       + '"sent this for you"; the link beside it is the Chinese for "open the supervisor conversation", with the arrow. The supervisor\'s title is unchanged; '
       + 'the message text below is still in English. The time, the badge and the link stay on one row; a badge too long for it ends '
@@ -1501,7 +1501,7 @@ const STEPS = [
       + 'replaced the English words, and the layout.',
     unchanged: 'The rest of the conversation, the purple bar and tint, and the lighter shade on the supervisor\'s sentence.',
     act: async (d) => {
-      await setting(d, 'claudeCodePlus.supervisorBadgeLanguage', 'zh');
+      await setting(d, 'claudeCodePlus.supervisorBadgeLanguage', 'chinese');
       const frame = await thread(d, d.threads[1]);
       if (!await d.until(() => frame.evaluate(() => { const c = document.querySelector('style[data-cce-sup]'); return !!c && c.getAttribute('data-cce-sup-lang') === 'zh'; }), 15000, 300)) {
         throw new Error('the badge did not change to Chinese');

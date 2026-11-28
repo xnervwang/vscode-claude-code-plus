@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 
 const SETTING = 'supervisorBadgeLanguage';
-const CHOICES = ['auto', 'zh', 'en'];
+const CHOICES = ['auto', 'chinese', 'english'];
 const SENT = 'Supervisor "{0}" sent this for you';
 const OPEN = 'Open supervisor';
 /* The entries each translation in src/l10n carries for the badge. */
@@ -22,7 +22,8 @@ const KEYS = [SENT, OPEN];
 const L10N_DIR = path.join(__dirname, 'l10n');
 const SCRIPTS = { 'zh-cn': 'bundle.l10n.zh-cn.json', 'zh-tw': 'bundle.l10n.zh-tw.json' };
 
-const choiceOf = (v) => (CHOICES.includes(v) ? v : 'auto');
+/* The setting's value as the page reads it: 'zh', 'en' or 'auto'. */
+const choiceOf = (v) => (v === 'chinese' ? 'zh' : v === 'english' ? 'en' : 'auto');
 /* A language tag such as en or zh-cn, or ''; nothing else may reach the stylesheet. */
 const uiOf = (v) => (/^[a-z]{2,3}(?:-[a-z0-9]{2,8}){0,3}$/i.test(String(v || '')) ? String(v).toLowerCase() : '');
 

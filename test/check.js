@@ -15833,7 +15833,7 @@ let supervisorSends = Promise.resolve();
     const name = find(h, 'data-cce-sup-full').props['data-cce-sup-name'];
     return { lang: style.attrs['data-cce-sup-lang'], steward: h.props['data-cce-sup-head'], full: generated(style.textContent, 'full', name),
       short: generated(style.textContent, 'short', find(h, 'data-cce-sup-short').props['data-cce-sup-name']), open: generated(style.textContent, 'open', ''),
-      href: find(h, 'data-cce-sup-open').props.href };
+      href: find(h, 'data-cce-sup-open').props.href, badgeHref: find(h, 'data-cce-sup-badge').props.href };
   };
   const zhTyped = ['这个徽章的颜色不对，改一下', '然后跑一下测试'];
   const enTyped = ['please make the badge purple', 'then run the window tests again'];
@@ -15856,10 +15856,10 @@ let supervisorSends = Promise.resolve();
     tw: ['🧭 主管「Multi lead」代你發送', '打開主管對話 ↗'], notTyped: [zhFull], oldSheet: [enFull], noWords: [enFull] };
   const off = Object.keys(exp).filter((k) => !cases[k] || cases[k].full !== exp[k][0] || (exp[k][1] && cases[k].open !== exp[k][1]));
   if (!off.length && cases.zh.short === '🧭 Multi lead' && cases.zh.steward === 'aca6238e-6640-4377-beec-cf1363596a9d'
-      && cases.zh.href === 'vscode://xnervwang.claude-code-plus/open?session=aca6238e-6640-4377-beec-cf1363596a9d&source=claude-code' && cases.zh.lang === 'zh' && cases.en.lang === 'en') {
+      && cases.zh.href === 'vscode://xnervwang.claude-code-plus/open?session=aca6238e-6640-4377-beec-cf1363596a9d&source=claude-code' && cases.zh.badgeHref === cases.zh.href && cases.zh.lang === 'zh' && cases.en.lang === 'en') {
     ok('the badge follows the language of the user\'s own last messages, leaving out supervisors\' messages, notices, tags, tool results and other sessions; '
       + 'too little to tell follows the display language; the setting overrides both; traditional Chinese with a traditional display language; '
-      + 'English when the stylesheet has no words; the words are the page\'s own generated content, the link opens the supervisor through Agent Plus, and the narrow badge is the title alone');
+      + 'English when the stylesheet has no words; the words are the page\'s own generated content, the link and the badge open the supervisor through Agent Plus, and the narrow badge is the title alone');
   } else bad(`the badge's words: ${JSON.stringify({ off, cases })}`);
   const css = read('97-supervisor-rows.js');
   if (/@container \(max-width: 420px\)\{' \+ SUP_IN \+ '\[data-cce-sup-full\]\{display:none;\}' \+ SUP_IN \+ '\[data-cce-sup-short\]\{display:inline;\}'/.test(css)
@@ -15884,7 +15884,7 @@ let supervisorSends = Promise.resolve();
 
   /* The host's side: the setting, the display language and the words, in the live stylesheet. */
   const badge = require('../src/supervisor-badge');
-  const prop = /--cce-supervisor:"([A-Za-z0-9+/=]+)"/.exec(webview.liveCss({ supervisor: badge.live('zh', 'zh-CN') }));
+  const prop = /--cce-supervisor:"([A-Za-z0-9+/=]+)"/.exec(webview.liveCss({ supervisor: badge.live('chinese', 'zh-CN') }));
   const back = prop ? JSON.parse(Buffer.from(prop[1], 'base64').toString('utf8')) : null;
   const pkg = require('../package.json').contributes.configuration.properties['claudeCodePlus.' + badge.SETTING];
   const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
@@ -15892,7 +15892,7 @@ let supervisorSends = Promise.resolve();
       && back[2]['zh-tw'].open === '打開主管對話' && back[2].en.sent === badge.SENT
       && JSON.stringify(badge.live('fr', 'x;y{')) === JSON.stringify(['auto', '', badge.words()])
       && webview.liveCss({ enabled: false, supervisor: badge.live('auto', 'en') }).includes('--cce-supervisor')
-      && pkg && JSON.stringify(pkg.enum) === '["auto","zh","en"]' && pkg.default === 'auto'
+      && pkg && JSON.stringify(pkg.enum) === '["auto","chinese","english"]' && pkg.default === 'auto' && badge.live('english', 'en')[0] === 'en'
       && ext.includes('supervisor: supervisorBadge.live(cfg().get(PREFIX + supervisorBadge.SETTING, \'auto\'), vscode.env.language),')
       && /const LIVE_SETTINGS = \[[^\]]*PREFIX \+ supervisorBadge\.SETTING\]/.test(ext)) {
     ok('the live stylesheet carries the badge setting, the display language and the words from src/l10n, with marks off too; '

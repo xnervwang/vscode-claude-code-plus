@@ -1547,10 +1547,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await shot('supervisor-badge-english');
       const setLang = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('supervisorBadgeLanguage', arg === null ? undefined : arg, vscode.ConfigurationTarget.Global); return true;`, v);
       try {
-        await setLang('zh');
+        await setLang('chinese');
         const zh = await until(async () => { const b = await badgeOf(); return b && b.lang === 'zh' && b; }, 20000, 500);
         check(!!zh && zh.full === `\u{1F9ED} 主管「${lead.title}」代你发送` && zh.open === '打开主管对话 ↗',
-          'with claudeCodePlus.supervisorBadgeLanguage set to zh the badge is in Chinese at once', zh || await badgeOf());
+          'with claudeCodePlus.supervisorBadgeLanguage set to chinese the badge is in Chinese at once', zh || await badgeOf());
         await shot('supervisor-badge-chinese');
       } finally { await setLang(null); }
       check(!!await until(async () => { const b = await badgeOf(); return b && b.lang === 'en'; }, 20000, 500), 'and back in English once the setting is auto again', await badgeOf());
@@ -1559,9 +1559,11 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       if (!await conversation(lead, 60000)) throw new Error('the supervisor\'s conversation did not open');
       await exec('claude-vscode.editor.open', tab0.id);
       conv = await conversation(tab0, 30000) || conv;
-      await conv.locator('[data-cce-sup-open]').last().click();
+      /* A panel narrower than the badge's room hides the link, and then the badge itself is what opens the supervisor. */
+      const link = conv.locator('[data-cce-sup-open]').last(), wide = await link.isVisible().catch(() => false);
+      await (wide ? link : conv.locator('[data-cce-sup-badge]').last()).click();
       const opened = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, lead.title)), 30000, 500);
-      check(!!opened, 'a click on the badge\'s link opens the supervisor\'s conversation', opened || await claudeTabs());
+      check(!!opened, `a click on the badge's ${wide ? 'link' : 'badge, as the panel is too narrow for the link,'} opens the supervisor's conversation`, opened || await claudeTabs());
       if (opened) await call('const t = vscode.window.tabGroups.activeTabGroup.activeTab; if (t) await vscode.window.tabGroups.close(t); return true;');
       await exec('claude-vscode.editor.open', tab0.id);
       conv = await conversation(tab0, 30000) || conv;
