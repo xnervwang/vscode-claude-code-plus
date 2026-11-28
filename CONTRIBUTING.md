@@ -93,11 +93,11 @@ These checks cannot catch changes to class names or test ids used by the in-page
 
 ## In a real VS Code window
 
-`.github/workflows/vscode.yml` runs `test/vscode/run.js` on Linux, macOS, and Windows. It runs on pushes to `main` or a `ci/` branch, on pull requests, daily at 09:43 UTC, and by hand.
+`.github/workflows/vscode.yml` runs `test/vscode/run.js` on Linux, macOS, and Windows. It runs daily at 09:43 UTC and by hand. Pushes and pull requests run only `.github/workflows/tests.yml`. Before a release, run it by hand on `main` with every step. On a branch, run it by hand with `steps` set to the steps the change touches.
 
 Except for the daily run and manual runs with the `upstream` input set to `newest`, the workflow installs the newest Claude Code build recorded in `supported-versions.json`. `node build/update-versions.js -w` writes that file; see its section below. On the runs that install that build, the workflow builds the Agent Plus `.vsix` from the commit in `test/vscode/agent-plus-commit`. The file contains only the full commit hash. To update Agent Plus, change that file in a commit of its own.
 
-The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". A daily run that fails while runs on `main` pass means a newer Claude Code or Agent Plus needs a change here. If the scheduled run fails, GitHub sends a notification, but pushes can still proceed.
+The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". A daily run that fails while a run by hand on the same commit passes means a newer Claude Code or Agent Plus needs a change here. If the scheduled run fails, GitHub sends a notification, but pushes can still proceed.
 
 In each job, the runner:
 

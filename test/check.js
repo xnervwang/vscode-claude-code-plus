@@ -13521,8 +13521,9 @@ console.log('\nthe workflow in a real VS Code window');
   }
   if (!ui) bad('.github/workflows/vscode.yml is missing');
   else {
-    expect(/^\s+push:\s*\n(\s*#.*\n)*\s+branches:\s*\[main,\s*'ci\/\*\*'\]/m.test(ui) && /^\s+pull_request:/m.test(ui) && /^\s+workflow_dispatch:/m.test(ui),
-      'vscode.yml runs on a push to main or to a ci/ branch, on a pull request, and by hand');
+    const triggers = ((/^on:\n((?:[ #].*\n|\n)*)/m.exec(ui) || [])[1] || '').split('\n').map((l) => (/^  ([a-z_]+):/.exec(l) || [])[1]).filter(Boolean);
+    expect(JSON.stringify(triggers) === JSON.stringify(['schedule', 'workflow_dispatch']),
+      'vscode.yml runs once a day and by hand, and not on a push or a pull request, which run only tests.yml', JSON.stringify(triggers));
     const cron = (text) => ((/cron:\s*'([^']+)'/.exec(text) || [])[1] || '').trim().split(/\s+/);
     const [minute, hour, ...days] = cron(ui);
     const others = fs.readdirSync(dir).filter((n) => n.endsWith('.yml') && n !== 'vscode.yml').map((n) => cron(read(path.join(dir, n))))

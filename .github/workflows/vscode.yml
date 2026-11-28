@@ -7,10 +7,11 @@
 # tests workflow runs on Linux only and without either install. This one installs the newest VS Code, Claude Code and
 # Agent Plus on each of the three and runs the extension in a real window (test/vscode/run.js): it drives the window,
 # checks what it shows, compares crops of this extension's elements with the approved copies for that platform, and then
-# checks the patched files from inside VS Code. On a push, Claude Code is the newest build supported-versions.json
-# records and Agent Plus the commit test/vscode/agent-plus-commit names, both moved on on purpose; once a day it runs
-# against the newest of each, since either can change without a commit here, and a failure then says this extension
-# has to follow.
+# checks the patched files from inside VS Code. It runs once a day and by hand, not on a push or a pull request, which
+# run only the checks of tests.yml: a full run takes three platforms for a quarter of an hour. Run by hand, Claude Code is
+# by default the newest build supported-versions.json records and Agent Plus the commit test/vscode/agent-plus-commit
+# names, both moved on on purpose; once a day it runs against the newest of each, since either can change without a
+# commit here, and a failure then says this extension has to follow or that a change here broke a step.
 #
 # The results folder of each job is kept as an artifact whether the run passed or not: the screenshots of every step,
 # the crops, a diff image of each crop that failed, what each page of the window held when a step failed, and VS Code's
@@ -24,10 +25,7 @@
 name: vscode
 
 on:
-  push:
-    # Try a change to this workflow on a ci/ branch first.
-    branches: [main, 'ci/**']
-  pull_request:
+  # A change to this workflow is tried by running it by hand on its branch.
   schedule:
     # 09:43 UTC. Not on the hour or the half hour, when the scheduler is busiest, and apart from upstream-check.yml's.
     - cron: '43 9 * * *'
@@ -51,10 +49,10 @@ permissions:
   contents: read
 
 jobs:
-  # The jobs of the run below, one per platform and part, and what they run against: a push runs against the Agent Plus
-  # commit in test/vscode/agent-plus-commit and the newest Claude Code in supported-versions.json, so that a change in
-  # either does not turn main red; the daily run, against the newest of each, and fails to say that this extension has
-  # to follow them.
+  # The jobs of the run below, one per platform and part, and what they run against: a run by hand, by default, against
+  # the Agent Plus commit in test/vscode/agent-plus-commit and the newest Claude Code in supported-versions.json, so that
+  # a change in either does not fail it; the daily run, against the newest of each, and fails to say that this extension
+  # has to follow them.
   plan:
     runs-on: ubuntu-latest
     outputs:
