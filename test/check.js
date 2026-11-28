@@ -16560,7 +16560,7 @@ const repo = path.join(__dirname, '..');
     await new Promise((resolve) => setTimeout(resolve, 600));
     eq(fired, 1, 'changes that arrive together are reported once');
     eq([csl.FEATURES, list.sessionActions], [['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose', 'sessionsNotice'],
-      { open: ['tab', 'sidebar'], create: ['tab', 'sidebar'], rename: true, delete: true, own: [] }], 'the features and the actions Claude Code can carry out');
+      { open: ['tab', 'sidebar'], create: ['tab', 'sidebar'], temporary: ['tab'], rename: true, delete: true, own: [] }], 'the features and the actions Claude Code can carry out');
     let note = { text: 'x'.repeat(400), actions: [1, 2, 3, 4] }, notes = 0;
     const noted = csl.create(Object.assign({}, deps, { notice: () => note }));
     noted.onDidChangeSessionsNotice(() => notes++);

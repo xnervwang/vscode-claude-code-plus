@@ -303,7 +303,8 @@ function create(deps) {
     onDidChangeSessions: event(listeners),
     /* For the source: a transcript, a state or a place changed. */
     changed: fire,
-    sessionActions: Object.freeze({ open: ['tab', 'sidebar'], create: ['tab', 'sidebar'], rename: true, delete: true, own: [] }),
+    /* `temporary`: where a temporary conversation can be started (src/temporary.js). */
+    sessionActions: Object.freeze({ open: ['tab', 'sidebar'], create: ['tab', 'sidebar'], temporary: ['tab'], rename: true, delete: true, own: [] }),
     async runSessionAction(action, sessionIds, args = {}) {
       const ids = Array.isArray(sessionIds) ? sessionIds.filter((id) => typeof id === 'string' && SESSION.test(id)) : [];
       const where = args && args.where === 'sidebar' ? 'sidebar' : 'tab';
