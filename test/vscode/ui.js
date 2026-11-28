@@ -5782,7 +5782,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           && !sv.holds(M, stop), 'an observer\'s message is refused, with the lead named and the take-over question to ask first', { refusedO1 });
         const ask1 = await sv.run(O1, ['--take-lead', M.id, '--ask']);
         const ticket1 = ticketOf(O1);
-        check(ask1.startsWith('Ask the user exactly this, word for word, and end your turn without acting on the conversation:')
+        check(ask1.startsWith('Ask the user this, word for word, and end your turn without acting on the conversation:')
           && ask1.includes(`Should I ("${O1.title}") take over "${M.title}"? It is led by "${L.title}" now. If you agree, "${L.title}" becomes an observer and I go on with what you asked.`)
           && !!ticket1 && ticket1.term === term0,
           '--take-lead --ask records a ticket at the conversation\'s lead term and prints, word for word, the question to put to the user, which names the observer, the conversation and its lead', { ask1, ticket1 });
@@ -5854,8 +5854,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const stillSent = await sendAs(L, still);
         const early = 'Please also run the integration tests.';
         const waitW = await sendAs(W, early);
-        check(toldHand && /^Sent: /.test(stillSent) && /^Not sent: "[^"]*" is being handed over from .* to you; wait for .*'s hand-over\.$/.test(waitW) && !sv.holds(M, early),
-          'the old lead is told to hand the conversation over and leads it until it does, so its messages go through, while the new one\'s messages are refused with "wait for the hand-over"',
+        check(toldHand && /^Sent: /.test(stillSent) && /^Not sent: "[^"]*" is being handed over from .* to you; send it nothing until a notice says you lead it\.$/.test(waitW) && !sv.holds(M, early),
+          'the old lead is told to hand the conversation over and leads it until it does, so its messages go through, while the new one\'s messages are refused until a notice says it leads the conversation',
           { toldHand, stillSent, waitW });
 
         /* L's hand-over note reaches M first, with a line the window writes naming both; then W leads M, in the next lead

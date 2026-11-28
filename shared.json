@@ -1,5 +1,5 @@
 {
-  "core": "5604009f89b825dc3396c73ca27e6d26cb6de5ea",
+  "core": "9f88c0aa9fd6242f622392e8a6112d8dde796115",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -191,27 +191,27 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward-relay.py",
       "from": "shared/plugin/claude/steward-relay.py",
-      "sha256": "f8d76c69d8e607c0d6f1cd27bb907deb01a9023eb80f4b08d8a9d6336402a853"
+      "sha256": "e6e746412d72b2d9894484676cffb75035de281513a88325e59c0e07b5f67d36"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward.py",
       "from": "shared/plugin/claude/steward.py",
-      "sha256": "b48d971c154e16ba22f69c3e07b90d34ec56163777d8c7f77454d0b0e09ae8dd"
+      "sha256": "9c979867363d7310e0e19db1726c0d72a1c11e586208d3420f7cbdbe7775ce15"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward-peek.py",
       "from": "shared/plugin/claude/steward-peek.py",
-      "sha256": "c3ada8c0e6fcf9aa452d6d1600ba1715bc997bba1a36ccb9b7be868e801cbdc3"
+      "sha256": "6364b9d1c3ce7542c1e4f95a99bd020ba654b132e692726b264e25aaf7796960"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward_table.py",
       "from": "shared/plugin/claude/steward_table.py",
-      "sha256": "cc0e1e924a436828b176a120313656b1f772ba8504d1adf59e3b49cb0611c0b3"
+      "sha256": "ab1b929eccc16e72c29d8accbbb0fceef45c650de91044914b539224e63bfba2"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward-send-guard.py",
       "from": "shared/plugin/claude/steward-send-guard.py",
-      "sha256": "d1c55bd5c711d3aa6781de35f349b0c7949d22e3ec864147bbdb94de9a74ec97"
+      "sha256": "279ed147693aa8e48d1f8a8bee9a95ec9e797d0d3e0e3fdc33d4307fa555445c"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/proc_alive.py",
@@ -226,7 +226,7 @@
     {
       "path": "claude-plugin/agent-work-plan/skills/supervisor/SKILL.md",
       "from": "shared/plugin/claude/steward-skill.md",
-      "sha256": "8ce0bf14d3c42817284b878f73025b247bad446c720707b7f50515e35ee9fcc6"
+      "sha256": "f6062f4e9a4061a4763c987b3f72cacdfc35290cacb522d77b63268f67c7818b"
     }
   ]
 }

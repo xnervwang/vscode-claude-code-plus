@@ -742,7 +742,7 @@ function notLead(st, asker, key, req, deps) {
   const lead = leads.leadOf(st.table, st.leads, key), e = st.leads[key];
   const name = titled(deps, key);
   if (e && e.pending && e.pending.to === asker) {
-    return `${name} is being handed over from ${titled(deps, lead)} to you; wait for ${titled(deps, lead)}'s hand-over.`;
+    return `${name} is being handed over from ${titled(deps, lead)} to you; send it nothing until a notice says you lead it.`;
   }
   if (!lead) return `${name} has no lead supervisor now; run ${SCRIPT} --take-lead ${key} --ask and ask the user.`;
   if (lead !== asker) {

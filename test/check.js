@@ -10931,7 +10931,7 @@ console.log('\nthe Supervisor panel');
           && watcher.code === 1 && !watcher.asked.length && watcher.out.trim() === `Not sent: "Totals report" is led by "Docs supervisor" (${S(1)}); you observe it. `
             + `To act on it, run steward-relay.py --take-lead ${S(2)} --ask and ask the user.`
           && forced.code === 2 && !forced.asked.length
-          && forced.out.startsWith(gone('anyway', 'only a conversation\'s lead sends it messages, so no other supervisor\'s message holds yours back') + '\nusage: ')) {
+          && forced.out.startsWith(gone('anyway', 'only a conversation\'s lead sends it messages') + '\nusage: ')) {
         ok('of two supervisors of one conversation, steward-relay.py sends the lead\'s message whatever the other one sent it lately, and refuses the other one\'s, '
           + 'writing no request, with the lead\'s title and session id and the command that asks the user to take it over; the script refuses --anyway with a usage error saying it is gone');
       } else bad(`the lead and the observer from the script gave ${JSON.stringify({ lead, watcher, forced })}`);
@@ -11527,10 +11527,10 @@ console.log('\nthe Supervisor panel');
       const handed = talk(['--handoff'], S(2), moved + '\n', `(q) => ({ outcome: 'submitted', reason: '', steward: ${JSON.stringify(S(1))}, stewardTitle: 'Supervisor one' })`);
       const nobody = talk(['--handoff'], S(2), moved, `(q) => ({ outcome: 'notReceived', reason: 'no supervisor of this conversation could be reached (x)' })`);
       const empty = sync(['--handoff'], S(2), '');
-      if (stranger.status === 1 && out(stranger) === 'Not done: no supervisor manages this conversation, so it cannot be handed off.' + NOT_HANDED
-          && leaderless.status === 1 && out(leaderless) === 'Not done: no supervisor leads this conversation now, so it cannot be handed off.' + NOT_HANDED
-          && unseen.status === 1 && out(unseen) === 'Not done: its lead supervisor is not open in a VS Code window, so it cannot be told.' + NOT_HANDED
-          && handed.code === 0 && out(handed).startsWith(`Handed off to your lead supervisor "Supervisor one" (${S(1)}): it was told, in a notice that is not the user's message.`)
+      if (stranger.status === 1 && out(stranger) === 'Not done: no supervisor manages this conversation.' + NOT_HANDED
+          && leaderless.status === 1 && out(leaderless) === 'Not done: the supervisors of this conversation only observe it now.' + NOT_HANDED
+          && unseen.status === 1 && out(unseen) === 'Not done: its lead supervisor is not open in a VS Code window.' + NOT_HANDED
+          && handed.code === 0 && out(handed).startsWith(`Handed off to your lead supervisor "Supervisor one" (${S(1)}), marked as not from the user.`)
           && handed.req && handed.req.action === 'handoff' && handed.req.from === S(2) && handed.req.to === S(1) && handed.req.text === moved
           && handed.req.term === 2 && handed.req.seq === 1
           && !('steward' in handed.req) && nobody.code === 1 && out(nobody) === 'Not done: no supervisor of this conversation could be reached (x).' + NOT_HANDED
@@ -11901,11 +11901,11 @@ console.log('\nthe Supervisor panel');
     const c5 = ctx(hook(S(1))), c6 = ctx(hook(S(1)));
     const RELAYED = 'A message you pass on with steward-relay.py to a conversation you lead is the user\'s own message there, approvals included. '
       + 'Do not ask the user to say it there themselves.';
-    const OBSERVED = 'A conversation you observe you only read and report on; act on it only after the user agrees that you take it over, as the skill says.';
+    const OBSERVED = 'Read and report on a conversation you observe; do not act on it until the user agrees that you take it over, as the skill says.';
     const DECISIONS = 'Release, push a tag, approve, merge or speak for the user in public only on the user\'s own words: what the user types here, '
       + 'or what your lead supervisor\'s messages say apart from sentences marked as the supervisor\'s arrangement.';
     if (c4 === 'You are the supervisor of 2 Claude Code conversations the user picked for you in the Supervisor panel; follow the supervisor skill. '
-        + RELAYED + ' Nothing has changed since the list you were given at your previous turn.'
+        + RELAYED + ' Nothing has changed since your previous turn.'
         && c5.includes(`- "Two" (${S(2)}): lead; idle`) && !c5.includes('Changed since') && c6 === c4) {
       ok('a supervisor\'s list that has not changed since its previous turn is one sentence, and is given whole again after a compaction');
     } else bad(`steward.py on unchanged turns said ${JSON.stringify([c4, c5, c6])}`);
@@ -11987,7 +11987,7 @@ console.log('\nthe Supervisor panel');
         && !c3c.includes(S(1)) && c3d === notOpen(`"Night supervisor" (${S(5)})`)
         && r1.startsWith(split + ' Where they stand now:\n') && r1.includes(`- "Three" (${S(3)}): observer (lead: "Night supervisor"); not running`)
         && r1.endsWith(`\nLead changes since your previous turn: you no longer lead "Three" ("Night supervisor" (${S(5)}) does) and observe it now.`)
-        && r1b === split + ' Nothing has changed since the list you were given at your previous turn.') {
+        && r1b === split + ' Nothing has changed since your previous turn.') {
       ok('after a change of lead the conversation is told once who leads it now and who did before, with the hand-over note left for it and the whole note about the new lead, '
         + 'and afterwards only the one line; the lead that lost it gets its whole list again, with the conversation as observed and one line saying so, and afterwards only the one sentence');
     } else bad(`a change of lead gave ${JSON.stringify([c3c, c3d, r1, r1b])}`);
@@ -12438,11 +12438,11 @@ console.log('\nthe Supervisor panel');
       { input: 'Anyone?\n', encoding: 'utf8', timeout: 20000, env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: S(1) }) });
       if (sub.code === 0 && sub.to === O(1) && sub.out.trim() === 'Sent: it reached the conversation as the user\'s message.' && sub.req && sub.req.term === 0 && sub.req.seq === 1
           && asking.code === 0 && asking.req && asking.req.action === 'take-lead' && asking.req.ask === true && asking.req.to === O(1)
-          && asking.out.startsWith(`Ask the user exactly this, word for word, and end your turn without acting on the conversation:\n\n${question}\n\n`)
+          && asking.out.startsWith(`Ask the user this, word for word, and end your turn without acting on the conversation:\n\n${question}\n\n`)
           && asking.out.includes(`Then run steward-relay.py --take-lead ${O(1)}, without --ask.`)
           && dra.code === 1 && dra.out.trim() === 'Not sent: the text was left in the conversation\'s message input as a draft.'
           && flagged.every((r) => r.status === 1 && r.stdout.includes('Not done: a supervisor can only send plain messages to OpenCode Agent Plus conversations'))
-          && noTaker.status === 1 && noTaker.stdout.trim() === 'Not done: no VS Code window that shows this supervisor conversation took the request.'
+          && noTaker.status === 1 && noTaker.stdout.trim() === 'Not done: no VS Code window showing this supervisor conversation took the request.'
           && fs.readdirSync(path.join(sdir, 'relay')).length === 0 && /^OTHER_WAIT_SECONDS = 55$/m.test(fs.readFileSync(relayScript, 'utf8'))) {
         ok('steward-relay.py keeps an OpenCode key\'s case, says a message reached the conversation or was only drafted, refuses --rename, --close and --resume '
           + 'for such a key without leaving a request but asks for --take-lead --ask, waits 55 seconds for an answer, and, when no window takes the request, says that no window showing the supervisor took it');
