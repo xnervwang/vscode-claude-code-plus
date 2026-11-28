@@ -1846,6 +1846,8 @@ function start(context, log, renamed, handing = false) {
     };
     look();
   });
+  /* Conversations whose reopened tab has not answered yet: they are neither reopened again nor taken off the list. */
+  const awaiting = new Set();
   const reopenTabs = async (list, why, answerMs = REOPEN_ANSWER_MS) => {
     const group = vscode.window.tabGroups.activeTabGroup, front = group && group.activeTab;
     const at = front ? group.tabs.indexOf(front) : -1, column = group && group.viewColumn;
@@ -1857,7 +1859,8 @@ function start(context, log, renamed, handing = false) {
         await vscode.commands.executeCommand('claude-vscode.editor.open', t.sessionId, undefined, undefined, undefined, t.fullEditor,
           { programmatic: 'pin-to-panel' });
         const g = vscode.window.tabGroups.activeTabGroup, tab = g && g.activeTab && isClaudeTab(g.activeTab) ? g.activeTab : null;
-        checks.push(answeredIn(t, tab, answerMs).then((ok) => (ok ? t.sessionId : '')));
+        awaiting.add(t.sessionId);
+        checks.push(answeredIn(t, tab, answerMs).then((ok) => { awaiting.delete(t.sessionId); return ok ? t.sessionId : ''; }));
         reopened++;
       } catch (e) { log.appendLine(`reopening "${t.title}" (${t.sessionId}): ${e && e.message}`); }
     }
@@ -1876,7 +1879,7 @@ function start(context, log, renamed, handing = false) {
   const sessionsShown = () => { try { return typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown() : []; } catch (_) { return []; } };
   /* Reopens the kept conversations that no window shows; those shown somewhere by now are taken off the list. */
   const reopenKept = (why, answerMs) => {
-    const kept = droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY));
+    const kept = droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY)).filter((k) => !awaiting.has(k.sessionId));
     if (!kept.length) return Promise.resolve();
     let again = [];
     try { again = droppedTabs.find({ record: kept, shown: [...sessionsShown(), ...sessionsElsewhere()], labels: claudeLabels(), strip: stripMark }); } catch (_) { again = []; }
@@ -1885,7 +1888,8 @@ function start(context, log, renamed, handing = false) {
     return dropped.then(() => (again.length ? reopenTabs(again, why, answerMs) : undefined));
   };
   /* Hooks for the window test. __cceReopenDropped(list, answerMs) reopens `list`, or the kept conversations when there
-     is no list, and resolves when each tab has answered or been closed. */
+     is no list, and resolves when each tab has answered or been closed. __cceReopenOnFocus = false stops the reopening
+     when the window comes to the front. */
   globalThis.__cceReopenDropped = (list, answerMs = REOPEN_ANSWER_MS) => (Array.isArray(list) ? reopenTabs(list, '', answerMs) : reopenKept('', answerMs));
   globalThis.__cceDroppedKept = () => droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY));
   let droppedTries = 0, droppedTimer = setTimeout(function lookForDropped() {
@@ -1906,7 +1910,7 @@ function start(context, log, renamed, handing = false) {
     /* Coming to the front, the window reopens the conversations whose tab it closed. */
     let retried = 0;
     if (typeof vscode.window.onDidChangeWindowState === 'function') context.subscriptions.push(vscode.window.onDidChangeWindowState((s) => {
-      if (!s.focused || Date.now() - retried < REOPEN_ANSWER_MS) return;
+      if (!s.focused || Date.now() - retried < REOPEN_ANSWER_MS || globalThis.__cceReopenOnFocus === false) return;
       retried = Date.now();
       reopenKept(' now that this window is in front').catch(() => {});
     }));
@@ -1956,6 +1960,7 @@ function start(context, log, renamed, handing = false) {
     if (globalThis.__cceTabsAtStart) delete globalThis.__cceTabsAtStart;
     delete globalThis.__cceReopenDropped;
     delete globalThis.__cceDroppedKept;
+    delete globalThis.__cceReopenOnFocus;
     if (globalThis.__cceSessionsShown) delete globalThis.__cceSessionsShown;
     if (globalThis.__cceSessionsElsewhere) delete globalThis.__cceSessionsElsewhere;
   } });

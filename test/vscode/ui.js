@@ -4814,6 +4814,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       /* Background tabs load at a reload too, so each one's page runs. */
       await setLoad(true);
       let first = 0;
+      /* The window coming to the front would reopen the kept conversation while no page runs; the reload starts a host
+         without this setting. */
+      await call('globalThis.__cceReopenOnFocus = false; return true;');
       moveAway();
       try {
         await call('await globalThis.__cceReopenDropped([{ sessionId: arg.id, title: arg.title, fullEditor: true }], 8000); return true;', { id: A.id, title: A.title }, 60000);
