@@ -27,10 +27,20 @@
   // Each reply's context share and estimated cost, saved when it settles. The two are stored separately so that each
   // can follow its own switch. A WeakMap keyed by the message object.
   var atMsg = new WeakMap();
+  // Short labels on purpose: this string is prepended to every reply's first line, so each extra
+  // character comes out of the body width. Spell them out here if you prefer the long form.
+  var shareLabel = function(pct){ return 'ctx ' + pct + '%'; };
+  var costLabel = function(usd){ return 'cost $' + (usd < 1 ? usd.toFixed(3) : usd.toFixed(2)); };
+  /* The figures as the line shows them, with the numbers they came from: those are what is kept on disk
+     (77-kept-figures.js), so that a kept reply is labelled exactly as the newest one is. */
+  var figuresOf = function(pct, usd){
+    var share = typeof pct === 'number' ? shareLabel(pct) : '';
+    var cost = typeof usd === 'number' && usd > 0 ? costLabel(usd) : '';
+    return share || cost ? { share: share, cost: cost, pct: share ? pct : null, usd: cost ? usd : null } : null;
+  };
   var figuresNow = function(){
     var u = sessionRef && sessionRef.usageData && sessionRef.usageData.value;
     if (!u) return null;
-    var share = '', cost = '';
     /*
      * Share of the WHOLE context window, which is what /context reports - deliberately not the panel meter's figure.
      *
@@ -44,13 +54,7 @@
      * clamp that used to hide how far past the compaction point a conversation had gone is gone with it.
      */
     var win = u.contextWindow || 0;
-    // Short labels on purpose: this string is prepended to every reply's first line, so each extra
-    // character comes out of the body width. Spell them out here if you prefer the long form.
-    if (win > 0) share = 'ctx ' + Math.round(u.totalTokens / win * 100) + '%';
-    if (typeof u.totalCost === 'number' && u.totalCost > 0) {
-      cost = 'cost $' + (u.totalCost < 1 ? u.totalCost.toFixed(3) : u.totalCost.toFixed(2));
-    }
-    return share || cost ? { share: share, cost: cost } : null;
+    return figuresOf(win > 0 ? Math.round(u.totalTokens / win * 100) : null, u.totalCost);
   };
   var figuresText = function(f){
     if (!f) return '';
@@ -80,10 +84,13 @@
   // A reply this page never saw as the newest closed its turn before the page was loaded - the history of a reopened
   // conversation. Its own share and spend were never seen, and the current ones are not its, so it gets its model and
   // effort and no figures. Handing it the current figures would put the same total under every reply in the history.
-  var statAt = function(m, live, effort){
+  // The exception is a reply whose figures an earlier page kept on disk (77-kept-figures.js): those are its own, and
+  // they are shown. `rows` is how many rows the reply has on the page, which tells that file when a kept reply grows.
+  var statAt = function(m, live, effort, rows){
     if (!m) return '';
     var fig = atMsg.get(m);
-    if (live) { fig = figuresNow(); if (fig) atMsg.set(m, fig); }
+    if (live) { fig = figuresNow(); if (fig) atMsg.set(m, fig); fig = keptLive(m, fig, rows); }
+    else fig = keptOf(m) || fig;
     var text = figuresText(fig), who = whoFor(m, effort);
     return text && who ? text + ' ' + String.fromCharCode(183) + ' ' + who : (text || who || '');
   };

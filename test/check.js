@@ -978,7 +978,10 @@ console.log('\nthe model pill comparison');
 console.log('\na reopened conversation');
 {
   const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'src', 'page', f), 'utf8');
-  const box = { out: {}, window: {}, sessionRef: null, isOn: () => true, isOff: () => false };
+  /* Nothing kept on disk here (77-kept-figures.js has its own section): the newest reply shows what was worked out, an
+     older one what it had. */
+  const box = { out: {}, window: {}, sessionRef: null, isOn: () => true, isOff: () => false,
+    keptLive: (m, fig) => fig, keptOf: () => null };
   new vm.Script(`(function(){${read('70-meter.js')}\n${read('75-turn-stats.js')}\n;` +
     'out.fillWindow = fillWindow; out.statAt = statAt;})()', { filename: 'reopened' }).runInNewContext(box);
   const session = (usage, pick) => ({
@@ -15726,6 +15729,234 @@ console.log('\nwhere the checks find Agent Plus');
         + 'also with GIT_DIR set as in a commit hook');
     } else bad(`finding Agent Plus from a linked worktree: ${JSON.stringify([fromLinked, stale, inHook])}`);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+
+/* ── each reply's figures, kept for a panel opened again ──
+   src/reply-figures.js keeps one small file per conversation; src/page/77-kept-figures.js decides which replies to
+   keep and shows the kept ones. Both halves are run here: the module on a temporary folder, the fragment with
+   75-turn-stats.js in a stand-in page whose session, turn state and messages to and from the extension are scripted. */
+console.log('\neach reply\'s figures, kept for a panel opened again');
+{
+  const rf = require('../src/reply-figures');
+  const same = (got, want, msg) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g === w) ok(msg); else bad(`${msg}: got ${g}, want ${w}`); };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-figures-'));
+  const S1 = '11111111-1111-4111-8111-111111111111', S2 = '22222222-2222-4222-8222-222222222222';
+  const U = (n) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  try {
+    // Written, read back, and merged: a reply sent again takes its place as the newest, and nothing new writes nothing.
+    same(rf.keep(dir, S1, [[U(1), 21, 0.052]]), true, 'a reply\'s figures are written to its conversation\'s file');
+    same(rf.read(rf.fileOf(dir, S1)), [[U(1), 21, 0.052]], 'and read back as they were sent');
+    rf.keep(dir, S1, [[U(2), 22, null]]);
+    const before = fs.statSync(rf.fileOf(dir, S1)).mtimeMs;
+    same(rf.keep(dir, S1, [[U(2), 22, null]]), false, 'figures the file already holds write nothing');
+    same(fs.statSync(rf.fileOf(dir, S1)).mtimeMs, before, 'and leave the file as it was');
+    rf.keep(dir, S1, [[U(1), 23, 0.06]]);
+    same(rf.read(rf.fileOf(dir, S1)), [[U(2), 22, null], [U(1), 23, 0.06]], 'a reply kept again takes its new figures and the newest place');
+    const raw = JSON.parse(fs.readFileSync(rf.fileOf(dir, S1), 'utf8'));
+    same([raw.v, Array.isArray(raw.replies)], [1, true], 'the file says its shape and holds the replies as a list');
+    same(fs.readdirSync(dir).filter((n) => n.endsWith('.tmp')), [], 'and no temporary file is left beside it');
+
+    // Rows that are not a reply's figures are not kept.
+    same(rf.keep(dir, S1, [['not-a-uuid', 1, 1], [U(3), -1, null], [U(4), NaN, Infinity], [U(5), null, null], 'x', null]), false,
+      'rows without a reply\'s uuid or without a usable figure are dropped, and write nothing');
+    same([rf.keep(dir, 'nope', [[U(1), 1, 1]]), rf.keep(dir, '../' + S1, [[U(1), 1, 1]]), rf.fileOf(dir, '')], [false, false, ''],
+      'a conversation id that is not one names no file');
+
+    // A damaged file counts as holding nothing, and the next write starts it again.
+    for (const [what, text] of [['cut short', '{"v":1,"replies":[["' + U(1)], ['not JSON', 'garbage'], ['another shape', '[1,2,3]'],
+      ['a list of the wrong things', '{"v":1,"replies":"x"}'], ['empty', '']]) {
+      fs.writeFileSync(rf.fileOf(dir, S2), text);
+      const got = rf.read(rf.fileOf(dir, S2));
+      if (got.length === 0) ok(`a file that is ${what} reads as holding nothing`); else bad(`a file that is ${what} read as ${JSON.stringify(got)}`);
+    }
+    fs.writeFileSync(rf.fileOf(dir, S2), JSON.stringify({ v: 1, replies: [[U(1), 5, 0.5], ['bad'], [U(2), 'x', 0.7]] }));
+    same(rf.read(rf.fileOf(dir, S2)), [[U(1), 5, 0.5], [U(2), null, 0.7]], 'in a file with some bad rows, the good ones are read');
+    fs.writeFileSync(rf.fileOf(dir, S2), 'garbage');
+    rf.keep(dir, S2, [[U(9), 9, 0.9]]);
+    same(rf.read(rf.fileOf(dir, S2)), [[U(9), 9, 0.9]], 'a damaged file is replaced by the next write');
+    same(rf.read(path.join(dir, 'missing.json')), [], 'a missing file reads as holding nothing');
+
+    // The bounds: replies per file, then files.
+    const many = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-figures-many-'));
+    try {
+      for (let i = 1; i <= 7; i++) rf.keep(many, S1, [[U(i), i, null]], { max: 5 });
+      same(rf.read(rf.fileOf(many, S1)).map((r) => r[1]), [3, 4, 5, 6, 7], 'a file keeps the newest replies up to its limit, the oldest going first');
+      same(rf.MAX_REPLIES >= 1000 && rf.MAX_FILES >= 100, true, `the limits are ${rf.MAX_REPLIES} replies a conversation and ${rf.MAX_FILES} conversations`);
+    } finally { fs.rmSync(many, { recursive: true, force: true }); }
+    const cap = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-figures-cap-'));
+    try {
+      const ids = [1, 2, 3, 4, 5].map((n) => `${String(n).repeat(8)}-0000-4000-8000-000000000000`);
+      const age = (id, s) => fs.utimesSync(rf.fileOf(cap, id), new Date(1e12 + s * 1000), new Date(1e12 + s * 1000));
+      for (let i = 0; i < 4; i++) { rf.keep(cap, ids[i], [[U(1), 1, null]], { maxFiles: 4 }); age(ids[i], i); }
+      rf.keep(cap, ids[0], [[U(2), 2, null]], { maxFiles: 4 });
+      age(ids[0], 9);
+      same(ids.slice(0, 4).map((id) => fs.existsSync(rf.fileOf(cap, id))), [true, true, true, true],
+        'writing to a conversation that has a file already removes no other');
+      rf.keep(cap, ids[4], [[U(1), 1, null]], { maxFiles: 4 });
+      same(ids.map((id) => fs.existsSync(rf.fileOf(cap, id))), [true, false, true, true, true],
+        'a new file past the limit of files removes the one changed longest ago, leaving as many as the limit');
+    } finally { fs.rmSync(cap, { recursive: true, force: true }); }
+
+    // The extension's side: asked, kept, forgotten with the conversation.
+    const sent = [], all = [];
+    let on = true, shown = true;
+    const store = rf.create({ dir: () => dir, on: () => on, sendTo: (id, m) => { if (!shown) return false; sent.push([id, m]); return true; },
+      sendAll: (m) => all.push(m) });
+    store.keep(S1, [[U(7), 30, 1.5]]);
+    store.ask(S1);
+    same(sent.map(([id, m]) => [id, m.type, m.sessionId, m.replies.slice(-1)]), [[S1, 'cce_figures', S1, [[U(7), 30, 1.5]]]],
+      'asked for a conversation\'s figures, the extension sends them to the panel showing it');
+    shown = false;
+    store.ask(S1);
+    same(all.map((m) => [m.type, m.sessionId]), [['cce_figures', S1]], 'and to every panel when no panel is found for it');
+    store.ask('22222222-2222-4222-8222-000000000009');
+    same(all[1] && all[1].replies, [], 'a conversation with nothing kept is answered with nothing, so the page stops asking');
+    on = false;
+    store.keep(S1, [[U(8), 31, 1.6]]);
+    store.ask(S1);
+    same([rf.read(rf.fileOf(dir, S1)).some((r) => r[0] === U(8)), all.length], [false, 2], 'with the extension removed or being uninstalled nothing is kept or sent');
+    on = true;
+    store.forget(S1);
+    same(fs.existsSync(rf.fileOf(dir, S1)), false, 'a conversation deleted from the session list takes its file with it');
+    let threw = null;
+    try { store.forget(S1); store.forget('nope'); } catch (e) { threw = e; }
+    same(threw, null, 'forgetting a conversation with no file, or with no proper id, is quiet');
+  } catch (e) { bad(`the kept figures module threw: ${(e && e.stack) || e}`); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+
+  // The two messages in the patched host.
+  try {
+    const edit = host.EDITS.find((e) => e.name === 'panel messages');
+    const r = require('../src/edits').applyEdits('function eT($,J){let Q=`Received message from webview: ${bl0(J)}`;$.info(Q)}', [edit]);
+    const got = [];
+    const henv = { bl0: (m) => JSON.stringify(m), __cceFiguresKeepHook: (s, rows) => got.push(['keep', s, rows]), __cceFiguresAskHook: (s) => got.push(['ask', s]) };
+    henv.globalThis = henv;
+    vm.createContext(henv);
+    if (!r.error) vm.runInContext(r.out + ';eT({info(){}},{type:"cce_figures_keep",sessionId:"s1",replies:[["u",1,2]]});'
+      + 'eT({info(){}},{type:"cce_figures_keep",sessionId:"s1",replies:"x"});eT({info(){}},{type:"cce_figures_keep",replies:[]});'
+      + 'eT({info(){}},{type:"cce_figures_ask",sessionId:"s1"});eT({info(){}},{type:"cce_figures_ask"});', henv);
+    same([r.error || '', got], ['', [['keep', 's1', [['u', 1, 2]]], ['ask', 's1']]],
+      'in the patched host, a reply\'s figures to keep and a request for a conversation\'s reach their hooks, and malformed ones do not');
+  } catch (e) { bad(`the kept figures' messages in the host threw: ${(e && e.stack) || e}`); }
+
+  // The page's side, with 75-turn-stats.js.
+  try {
+    const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'src', 'page', f), 'utf8');
+    const listeners = [], posts = [];
+    const state = { sid: S1, busy: false, unsettled: [], scheduled: 0, msgs: [] };
+    const box = {
+      out: {}, window: { addEventListener: (type, fn) => { if (type === 'message') listeners.push(fn); } },
+      document: { querySelectorAll: () => state.msgs },
+      acquireVsCodeApi: () => ({ postMessage: (m) => posts.push(JSON.parse(JSON.stringify(m))) }),
+      sigValue: (name) => (name === 'sessionId' ? state.sid : undefined), sigOn: (name) => (name === 'busy' ? state.busy : false),
+      ASSIST: 'assist', UUIDS_OF: new WeakMap(), unsettle: (el) => state.unsettled.push(el), schedule: () => { state.scheduled++; },
+      isOn: () => true, isOff: () => false, sessionRef: null, Date, Map, Set, WeakMap, JSON, Array, String, Math,
+    };
+    new vm.Script(`(function(){${read('75-turn-stats.js')}\n${read('77-kept-figures.js')}\n;`
+      + 'out.statAt = statAt; out.follow = keptFollow;})()', { filename: 'kept figures' }).runInNewContext(box);
+    const usage = (tokens, cost) => { box.sessionRef = { usageData: { value: { totalTokens: tokens, totalCost: cost, contextWindow: 200000, maxOutputTokens: 0 } } }; };
+    const reply = (n) => ({ uuid: U(n), model: 'claude-opus-5-5', timestamp: n });
+    const answer = (sid, replies) => listeners.forEach((fn) => fn({ data: { type: 'from-extension', message: { type: 'cce_figures', sessionId: sid, replies } } }));
+    const keeps = () => posts.filter((m) => m.type === 'cce_figures_keep').map((m) => [m.sessionId, m.replies]);
+    const asks = () => posts.filter((m) => m.type === 'cce_figures_ask').map((m) => m.sessionId);
+
+    // A conversation opened again: asked for, and its kept figures shown where they belong.
+    usage(40000, 0);
+    box.out.follow();
+    same(asks(), [S1], 'a panel showing a conversation asks the extension for its kept figures');
+    box.out.follow();
+    same(asks().length, 1, 'and does not ask again within the second');
+    const el = {};
+    box.UUIDS_OF.set(el, [U(1)]);
+    state.msgs = [el, {}];
+    answer(S2, [[U(1), 99, 9]]);
+    same(box.out.statAt(reply(1), false, ''), 'opus-5-5', 'figures sent for another conversation are ignored');
+    answer(S1, [[U(1), 12, 0.5], [U(2), 20, 1.25]]);
+    same([state.unsettled.length, state.scheduled > 0], [1, true], 'when they arrive, the settled replies that have some are labelled again');
+    same(box.out.statAt(reply(1), false, ''), 'ctx 12% · cost $0.500 · opus-5-5', 'an older reply shows the figures kept for it');
+    same(box.out.statAt(reply(3), false, ''), 'opus-5-5', 'a reply with nothing kept, from before any was, still shows none');
+    same(box.out.statAt({ model: 'claude-opus-5-5', timestamp: 1 }, false, ''), 'opus-5-5', 'nor does a reply whose message has no uuid');
+    box.out.follow();
+    same(asks().length, 1, 'once they have arrived the panel stops asking');
+
+    // The newest reply when the panel opened has its kept figures, not what the page works out now (no cost yet).
+    same(box.out.statAt(reply(2), true, '', 3), 'ctx 20% · cost $1.25 · opus-5-5', 'the newest reply shows its kept figures, not the poorer ones worked out after a reload');
+    same(keeps(), [], 'and nothing is sent for it, since its figures came from the file');
+
+    // The next turn: the old newest stays as it was kept, even when the usage moves before the new reply is drawn.
+    state.busy = true;
+    box.out.statAt(reply(2), true, '', 3);
+    usage(42000, 0);
+    same(box.out.statAt(reply(2), true, '', 3), 'ctx 20% · cost $1.25 · opus-5-5', 'when the next turn moves the usage before its reply is drawn, the kept reply keeps its figures');
+    same(box.out.statAt(reply(4), true, '', 1), 'ctx 21% · opus-5-5', 'the reply being written shows the figures worked out now');
+    same(box.out.statAt(reply(2), false, ''), 'ctx 20% · cost $1.25 · opus-5-5', 'and the one before it its kept figures');
+    same(keeps(), [], 'nothing is sent while the turn runs');
+    usage(43000, 1.4);
+    state.busy = false;
+    box.out.statAt(reply(4), true, '', 2);
+    box.out.statAt(reply(4), true, '', 2);
+    same(keeps(), [[S1, [[U(4), 22, 1.4]]]], 'the end of the turn sends the reply\'s figures once');
+    usage(43000, 1.45);
+    box.out.statAt(reply(4), true, '', 2);
+    same(keeps().slice(1), [[S1, [[U(4), 22, 1.45]]]], 'and again when they change before the next turn starts');
+    state.busy = true;
+    box.out.statAt(reply(4), true, '', 2);
+    usage(44000, 1.45);
+    box.out.statAt(reply(5), true, '', 1);
+    same(keeps().length, 2, 'a reply taking the newest place sends nothing for the one before when that one has not changed since it was sent');
+    usage(45000, 1.45);
+    box.out.statAt(reply(5), true, '', 2);
+    box.out.statAt(reply(6), true, '', 1);
+    same(keeps().slice(2), [[S1, [[U(5), 23, 1.45]]]], 'one overtaken in its own turn is kept as it last showed');
+    state.busy = false;
+    box.out.statAt(reply(6), true, '', 1);
+
+    // A kept reply that grows in a turn of its own (one started without a typed message) is written again.
+    const k = keeps().length;
+    usage(45000, 1.45);
+    answer(S1, []);
+    state.sid = S2;
+    box.out.follow();
+    answer(S2, [[U(10), 30, 2]]);
+    same(asks().slice(-1), [S2], 'a panel moving to another conversation asks for that one\'s');
+    same(box.out.statAt(reply(1), false, ''), 'opus-5-5', 'and drops the previous conversation\'s');
+    usage(60000, 0);
+    same(box.out.statAt(reply(10), true, '', 4), 'ctx 30% · cost $2.00 · opus-5-5', 'its newest reply shows what was kept for it');
+    state.busy = true;
+    box.out.statAt(reply(10), true, '', 4);
+    usage(62000, 0);
+    box.out.statAt(reply(10), true, '', 4);
+    usage(64000, 0.3);
+    same(box.out.statAt(reply(10), true, '', 6), 'ctx 32% · cost $0.300 · opus-5-5', 'once it grows during a turn it shows what is worked out now');
+    state.busy = false;
+    box.out.statAt(reply(10), true, '', 6);
+    same(keeps().slice(k), [[S2, [[U(10), 32, 0.3]]]], 'and is kept again when that turn ends');
+
+    // A panel opened in the middle of a turn: the reply it watches finish is kept once the file's figures have come.
+    state.sid = '33333333-3333-4333-8333-333333333333';
+    state.busy = true;
+    box.out.follow();
+    usage(20000, 0.2);
+    box.out.statAt(reply(20), true, '', 1);
+    state.busy = false;
+    box.out.statAt(reply(20), true, '', 2);
+    same(keeps().slice(k + 1), [], 'before the panel knows what is kept, nothing is sent');
+    answer(state.sid, []);
+    box.out.statAt(reply(20), true, '', 2);
+    same(keeps().slice(k + 1), [[state.sid, [[U(20), 10, 0.2]]]], 'once it knows, the newest reply is kept with what it shows');
+    // A turn so short that no sweep saw it running: its reply is first seen with the turn over, and kept all the same.
+    usage(22000, 0.25);
+    box.out.statAt(reply(21), true, '', 1);
+    same(keeps().slice(k + 2), [[state.sid, [[U(21), 11, 0.25]]]], 'a reply whose whole turn fell between two sweeps is kept as well');
+    // Both figures switched off: nothing to show, so nothing is kept or asked for.
+    const n = posts.length;
+    box.isOff = (key) => key === 'contextShare' || key === 'cost';
+    usage(24000, 0.3);
+    box.out.statAt(reply(22), true, '', 1);
+    state.sid = '44444444-4444-4444-8444-444444444444';
+    box.out.follow();
+    box.isOff = () => false;
+    same(posts.slice(n), [], 'with the share and the cost both switched off, no figures are kept and none are asked for');
+  } catch (e) { bad(`the kept figures in a page threw: ${(e && e.stack) || e}`); }
 }
 
 /* ── with Agent Plus ──

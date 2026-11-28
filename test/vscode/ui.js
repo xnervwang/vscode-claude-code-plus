@@ -4622,6 +4622,119 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /*
+     * A reply's context share and cost, through a reload (src/reply-figures.js, src/page/77-kept-figures.js). Two turns
+     * are run in the conversation, so that the first reply is frozen behind the second and the second is the newest when
+     * the window reloads. After the reload both show what they showed before, the newest one included, though the
+     * figures the page works out for it after a reload start their cost from nothing. Every reply the page did not watch
+     * being written - those of the test's own transcript, written before any page - still shows no figures, and every
+     * reply kept shows exactly what its conversation's file holds.
+     */
+    await step('reply figures through a reload', async () => {
+      const kept = path.join(profile.user, 'User', 'globalStorage', 'xnervwang.claude-code-plus', 'reply-figures', tab0.id + '.json');
+      const keptRows = () => { try { return JSON.parse(fs.readFileSync(kept, 'utf8')).replies || []; } catch (_) { return []; } };
+      const money = (usd) => 'cost ' + String.fromCharCode(36) + (usd < 1 ? usd.toFixed(3) : usd.toFixed(2));
+      const label = (r) => [typeof r[1] === 'number' ? 'ctx ' + r[1] + '%' : '', typeof r[2] === 'number' && r[2] > 0 ? money(r[2]) : '']
+        .filter(Boolean).join(' · ');
+      const records = () => { try { return fs.readFileSync(transcriptOf(tab0), 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (_) { return {}; } }); } catch (_) { return []; } };
+      /* The uuid of the first reply row after the message that says `text`. */
+      const replyTo = (text) => {
+        const recs = records(), at = recs.findIndex((r) => r.type === 'user' && JSON.stringify(r.message || '').includes(text));
+        const reply = at < 0 ? null : recs.slice(at + 1).find((r) => r.type === 'assistant' && typeof r.uuid === 'string');
+        return reply ? reply.uuid : null;
+      };
+      const sessions = path.join(profile.home, '.claude', 'sessions');
+      const status = () => {
+        let names = [];
+        try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return null; }
+        for (const n of names) {
+          try { const d = JSON.parse(fs.readFileSync(path.join(sessions, n), 'utf8')); if (d.sessionId === tab0.id) return d.status || null; } catch (_) { /* being written */ }
+        }
+        return null;
+      };
+      /* Each reply on the page, as the uuid of the message its first marked row belongs to and the figures on that row. */
+      const onPage = (f) => f.evaluate(() => {
+        /* The page keeps a stamp's parts together with no-break spaces and word joiners (35-marks.js breakable). */
+        const joiner = String.fromCharCode(0x2060);
+        const fiber = (el) => { for (const k in el) if (k.indexOf('__reactFiber') === 0) return el[k]; return null; };
+        const messageOf = (el) => {
+          for (let x = fiber(el), i = 0; x && i < 40; x = x.return, i++) {
+            const p = x.memoizedProps;
+            if (p && p.message && typeof p.message.timestamp === 'number') return p.message;
+          }
+          return null;
+        };
+        return [...document.querySelectorAll('[data-testid="assistant-message"]')].map((r) => {
+          const first = r.querySelector('[data-cce-ts]'), m = first ? messageOf(first) : null;
+          const stamp = first ? first.getAttribute('data-cce-ts').split(joiner).join('').split(String.fromCharCode(160)).join(' ') : '';
+          const share = /ctx \d+%/.exec(stamp), cost = /cost [$][\d.]+/.exec(stamp);
+          return { uuid: m && typeof m.uuid === 'string' ? m.uuid : '', figures: [share && share[0], cost && cost[0]].filter(Boolean).join(' · ') };
+        }).filter((x) => x.uuid);
+      }).catch(() => []);
+      const shownFor = async (f, id) => ((await onPage(f)).find((x) => x.uuid === id) || {}).figures;
+      const send = async (text) => {
+        await conv.locator('[contenteditable][role="textbox"]').first().click();
+        await page.keyboard.type(text);
+        await page.keyboard.press('Enter');
+      };
+
+      await exec('workbench.action.closeAllEditors');
+      await exec('claude-vscode.editor.open', tab0.id);
+      conv = await conversation(tab0, 60000);
+      if (!conv) throw new Error('the conversation did not open');
+      model.release();
+      const asks = ['note the figures of this turn', 'and the figures of the next one'], ids = [];
+      for (const text of asks) {
+        await send(text);
+        const id = await until(() => replyTo(text), 30000, 300);
+        if (!id) throw new Error('no reply to "' + text + '" reached the transcript');
+        if (!await until(() => status() === 'idle', 30000, 300)) note('the conversation was still ' + status() + ' 30 s after "' + text + '" was answered');
+        ids.push(id);
+        /* The next message waits until the reply shows its figures, as a reader's would. A turn of the fake model is over
+           within a sweep or two, and a reply that no sweep saw as the newest shows no figures in any case. */
+        if (!await until(async () => /ctx \d+%/.test(await shownFor(conv, id) || ''), 15000, 300)) note('the reply to "' + text + '" showed no figures within 15 s');
+      }
+      const [first, second] = ids;
+      const written = await until(() => { const rows = keptRows(); return ids.every((id) => rows.some((r) => r[0] === id)) && rows; }, 15000, 300);
+      const before = { first: await shownFor(conv, first), second: await shownFor(conv, second) };
+      check(!!written && /ctx \d+%/.test(before.first || '') && /ctx \d+%/.test(before.second || ''),
+        'the figures of both replies are written to the conversation\'s file once their turns end, and both show them',
+        { before, file: written ? written.filter((r) => ids.includes(r[0])) : keptRows() });
+      const fileSays = (id) => { const r = (written || []).find((x) => x[0] === id); return r ? label(r) : null; };
+      check(fileSays(first) === before.first && fileSays(second) === before.second, 'and the file holds exactly what they show',
+        { before, file: { first: fileSays(first), second: fileSays(second) } });
+
+      await reloadAndWait(tab0);
+      conv = await conversation(tab0, 60000);
+      if (!conv) throw new Error('the conversation did not draw after the reload');
+      const after = await until(async () => {
+        const a = { first: await shownFor(conv, first), second: await shownFor(conv, second) };
+        return a.first === before.first && a.second === before.second && a;
+      }, 30000, 500) || { first: await shownFor(conv, first), second: await shownFor(conv, second) };
+      check(after.first === before.first, 'after a reload, a reply frozen behind a newer one still shows its figures', { before: before.first, after: after.first });
+      /* The cost the panel itself has after the reload, which the newest reply's kept figures stand in for. */
+      const liveCost = await conv.evaluate(() => {
+        const el = document.querySelector('[data-testid="assistant-message"]');
+        let x = null;
+        for (const k in el || {}) if (k.indexOf('__reactFiber') === 0) x = el[k];
+        for (let i = 0; x && i < 80; x = x.return, i++) {
+          const p = x.memoizedProps;
+          if (p && p.session && p.session.usageData && p.session.usageData.value) return p.session.usageData.value.totalCost;
+        }
+        return null;
+      }).catch(() => null);
+      check(after.second === before.second, 'and so does the newest one, with its cost', { before: before.second, after: after.second, liveCost });
+      if (liveCost !== 0) note('after the reload the panel\'s own cost was ' + liveCost + ', not 0, so the newest reply\'s kept cost was not what made the difference');
+      const rows = keptRows(), shown = await onPage(conv);
+      const strays = shown.filter((x) => { const r = rows.find((y) => y[0] === x.uuid); return (r ? label(r) : '') !== x.figures; });
+      const unkept = shown.filter((x) => !rows.some((y) => y[0] === x.uuid));
+      const ownFirst = records().find((r) => r.type === 'assistant' && typeof r.uuid === 'string');
+      check(!strays.length && unkept.length > 0 && !!ownFirst && unkept.some((x) => x.uuid === ownFirst.uuid),
+        'every reply shows exactly the figures kept for it, and a reply from before any were kept - the transcript\'s own - still shows none',
+        { strays, unkept: unkept.length, ownFirst: ownFirst && ownFirst.uuid, replies: shown.length });
+      await shot('reply-figures-after-reload');
+    });
+
+    /*
      * A record the test keeps in the extension host from the moment watchHost() is called: each change of the window's
      * tabs (each group's labels, the tab in front starred), each change of the set of conversations Claude Code's host
      * marks unread, which it sends with the open conversations, and each change of the set whose state the host has,

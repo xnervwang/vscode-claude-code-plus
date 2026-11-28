@@ -40,6 +40,7 @@ const stoppedWork = require('./src/stoppedwork');
 const replyImages = require('./src/reply-images');
 const conversationLinks = require('./src/conversation-links');
 const planBars = require('./src/plan-bar');
+const replyFigures = require('./src/reply-figures');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
 const { transcriptOf, projectsDir, projectFolders, claudeDir, writeAtomic } = require('./src/claude-files');
@@ -903,6 +904,7 @@ function start(context, log, renamed, handing = false) {
         forget: (id) => {
           try { sessionPins.setPinned(pinsFile(), id, false); } catch (_) { /* not pinned */ }
           try { sessionColors.setColor(colorsFile(), [id], null); } catch (_) { /* not coloured */ }
+          keptFigures.forget(id);
         },
       });
       for (const r of results) log.appendLine(`session list: deleting ${r.sessionId}: ${r.outcome}${r.reason ? ` (${r.reason})` : ''}`);
@@ -1288,6 +1290,18 @@ function start(context, log, renamed, handing = false) {
   globalThis.__ccePlanAskHook = (id) => { planBar.ask(id); };
   globalThis.__ccePlanOpenHook = (id, part) => { planBar.open(id, part).catch((e) => log.appendLine('plan bar: ' + ((e && e.message) || e))); };
   context.subscriptions.push({ dispose: () => { delete globalThis.__ccePlanAskHook; delete globalThis.__ccePlanOpenHook; } });
+  /* Each reply's context share and cost, kept per conversation when the page sees it settle and handed back when a panel
+     opens the conversation again (src/reply-figures.js, src/page/77-kept-figures.js). */
+  const keptFigures = replyFigures.create({
+    dir: () => path.join(context.globalStorageUri.fsPath, replyFigures.DIR),
+    on: () => !removed() && !uninstalling(),
+    sendTo: (id, m) => typeof globalThis.__cceToPanel === 'function' && globalThis.__cceToPanel(id, m) === true,
+    sendAll: (m) => { if (typeof globalThis.__cceToAllPanels === 'function') globalThis.__cceToAllPanels(m); },
+    log: (m) => log.appendLine(m),
+  });
+  globalThis.__cceFiguresKeepHook = (id, rows) => { keptFigures.keep(id, rows); };
+  globalThis.__cceFiguresAskHook = (id) => { keptFigures.ask(id); };
+  context.subscriptions.push({ dispose: () => { delete globalThis.__cceFiguresKeepHook; delete globalThis.__cceFiguresAskHook; } });
   /* vscode://xnervwang.claude-code-plus/open?session=<id>, the link a supervisor gives for a conversation it names; a link
      the page made for another agent's conversation also says which (&source=). */
   context.subscriptions.push(vscode.window.registerUriHandler({

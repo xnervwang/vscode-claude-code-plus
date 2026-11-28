@@ -87,6 +87,7 @@
     try { wirePlanBar(); ensurePlanBar(); } catch (e) {}
     marksFollowSwitches();
     if (!isOn()) { sweep(); return; }
+    try { keptFollow(); } catch (e) {}
     if (sessionRef) indexTitles(sessionRef);
     for (var i = 0; i < bubbles.length; i++) {
       // A row already built for a block carries the block's message, so only the blocks without one are walked up to it.
@@ -242,7 +243,7 @@
           var bits = [];
           var t0 = turnStartFor(promptTs, cx.message.timestamp);
           if (t0 !== null && !isOff('replyDuration')) { var d = dur(cx.message.timestamp - t0); if (d) bits.push(d); }
-          var st = statAt(cx.message, j === msgs.length - 1, effHere);
+          var st = statAt(cx.message, j === msgs.length - 1, effHere, rows.length);
           if (st) bits.push(st);
           if (!effHere && cx.message.model) effortPending.add(msgs[j]);
           if (bits.length) v += '  ' + bits.join(' ' + String.fromCharCode(183) + ' ');
