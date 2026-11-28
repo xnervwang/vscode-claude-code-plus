@@ -4820,6 +4820,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       moveAway();
       try {
         await call('await globalThis.__cceReopenDropped([{ sessionId: arg.id, title: arg.title, fullEditor: true }], 8000); return true;', { id: A.id, title: A.title }, 60000);
+        /* A page that ran anyway, as from a copy of the script the webview kept, named its tab: nothing here can be tested. */
+        if (await tabOf(A)) {
+          note('a page ran with Claude Code\'s script moved away, so no tab whose page never ran could be made here');
+          putBack();
+          await call('globalThis.__cceReopenOnFocus = undefined; return true;');
+          await setLoad(undefined);
+          await exec('workbench.action.closeAllEditors');
+          return;
+        }
         const resumed = await call('return await globalThis.__cceResume(arg.id, arg.text, 8000);', { id: B.id, text: 'Go on with the comparison.' }, 90000);
         const held = await kept();
         check(Array.isArray(held) && held.includes(A.id) && !(await tabOf(A)),
