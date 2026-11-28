@@ -364,24 +364,30 @@ async function heldElsewhere(id, deps, managed) {
  * Opens a stored conversation in an editor tab of this window and, given `text`, sends the text once a panel of this
  * window shows the conversation. deps: open(id), shows(id) -> whether a panel here has the conversation and its page
  * takes answers, tabOpen(id) -> whether this window has a tab for it, loaded or still loading, deliver(id, text) -> a
- * send's result, sleep(ms) and now() for tests. A tab must appear within RESUME_SHOW_MS; once it has, the conversation
- * may take up to RESUME_LOAD_MS to load. The result has opened: true as soon as a tab of this window holds the
- * conversation, even if the text was not sent after that.
+ * send's result, giveUp(id) -> Promise<whether it closed the tab of a conversation that did not load>, and loadMs,
+ * sleep(ms) and now() for tests. A tab must appear within RESUME_SHOW_MS; once it has, the conversation may take up to
+ * RESUME_LOAD_MS to load. The result has opened: true while a tab of this window holds the conversation, even if the
+ * text was not sent after that.
  */
 async function resume(id, text, deps) {
   const now = deps.now || Date.now;
   const sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   try { await deps.open(id); } catch (e) { return { outcome: 'notReceived', reason: 'Claude Code could not open it: ' + ((e && e.message) || e) }; }
-  const shownBy = now() + RESUME_SHOW_MS, loadedBy = now() + RESUME_LOAD_MS;
+  const shownBy = now() + RESUME_SHOW_MS, loadedBy = now() + (deps.loadMs || RESUME_LOAD_MS);
   let tab = false;
   while (!deps.shows(id)) {
     if (!tab && deps.tabOpen && deps.tabOpen(id)) tab = true;
     if (now() >= (tab ? loadedBy : shownBy)) {
       /* The text is typed only below, so a resume that stops here has certainly not sent it. */
       const notTyped = text ? '; the message was not typed into it' : '';
-      return tab
-        ? { outcome: text ? 'notReceived' : 'uncertain', reason: `its tab here opened, but the conversation had not loaded within ${RESUME_LOAD_MS / 1000} seconds${notTyped}`, opened: true }
-        : { outcome: text ? 'notReceived' : 'uncertain', reason: `Claude Code was asked to open it, but no tab here showed it within ${RESUME_SHOW_MS / 1000} seconds${notTyped}` };
+      if (!tab) return { outcome: text ? 'notReceived' : 'uncertain', reason: `Claude Code was asked to open it, but no tab here showed it within ${RESUME_SHOW_MS / 1000} seconds${notTyped}` };
+      /* A tab whose page never ran has nothing of the conversation to keep, and after a restart Claude Code would bring it
+         back as an empty new conversation. */
+      let closed = false;
+      try { closed = deps.giveUp ? (await deps.giveUp(id)) === true : false; } catch (_) { closed = false; }
+      const loaded = `its tab here opened, but the conversation had not loaded within ${(deps.loadMs || RESUME_LOAD_MS) / 1000} seconds${notTyped}`;
+      return closed ? { outcome: text ? 'notReceived' : 'uncertain', reason: `${loaded}; the tab was closed again, since its page never ran` }
+        : { outcome: text ? 'notReceived' : 'uncertain', reason: loaded, opened: true };
     }
     await sleep(RESUME_ASK_MS);
   }

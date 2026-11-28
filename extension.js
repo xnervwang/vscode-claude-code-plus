@@ -1140,15 +1140,34 @@ function start(context, log, renamed, handing = false) {
   /* A stored conversation a supervisor asked for, in an editor tab here (src/relay.js). Without `programmatic`, Claude Code
      would also make the editor the user's preferred place to open conversations. The text waits until the new tab's
      page says it listens for that conversation (src/page/91-answer.js); an answer handed over earlier is lost. */
-  const resumeConversation = (sessionId, text) => relay.resume(sessionId, text, {
-    open: (id) => {
-      answersReady.delete(id);
-      return vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, AS_FULL_EDITOR, { programmatic: 'pin-to-panel' });
-    },
-    shows: (id) => claude.source.canDeliver(id) && answersReady.has(id),
-    tabOpen: (id) => shownList().includes(id),
-    deliver: (id, words) => claude.source.deliverAnswer(id, words, {}),
-  });
+  const resumeConversation = (sessionId, text, loadMs) => {
+    let tab = null;
+    return relay.resume(sessionId, text, {
+      open: async (id) => {
+        answersReady.delete(id);
+        await vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, AS_FULL_EDITOR, { programmatic: 'pin-to-panel' });
+        const g = vscode.window.tabGroups.activeTabGroup;
+        tab = g && g.activeTab && isClaudeTab(g.activeTab) ? g.activeTab : null;
+      },
+      shows: (id) => claude.source.canDeliver(id) && answersReady.has(id),
+      tabOpen: (id) => shownList().includes(id),
+      deliver: (id, words) => claude.source.deliverAnswer(id, words, {}),
+      /* Its page never ran when the tab still has Claude Code's default title: a page that runs names the tab after
+         the conversation. */
+      giveUp: async (id) => {
+        const still = tab && !answersReady.has(id) && vscode.window.tabGroups.all.some((g) => g.tabs.includes(tab));
+        const label = still ? stripMark(tab.label).trim() : '';
+        if (!still || (label && label !== 'Claude Code')) return false;
+        await vscode.window.tabGroups.close(tab);
+        log.appendLine(`Closed the tab opened for a supervisor's resume of ${id}: its page did not load`);
+        return true;
+      },
+      loadMs,
+    });
+  };
+  /* For the window test: a supervisor's resume, with `loadMs` in place of how long a conversation may take to load. */
+  globalThis.__cceResume = (id, text, loadMs) => resumeConversation(id, text, loadMs);
+  context.subscriptions.push({ dispose: () => { delete globalThis.__cceResume; } });
   const steward = stewardView.create(vscode, {
     activeChat, freshAgents: () => claude.freshAgents(), readPlan, titles: readTitles.titles, since: readTitles.since,
     agentsFresh: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders())), resume: resumeConversation,

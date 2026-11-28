@@ -10809,12 +10809,13 @@ console.log('\nthe Supervisor panel');
       /* A window opens the conversation, waits for its panel, and only then sends; text not received is tried again. */
       const opened = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
         const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
-        const run = async (text, { showAfter = 2, notIn = 2, opens = true, answer, tabAt = Infinity } = {}) => {
+        const run = async (text, { showAfter = 2, notIn = 2, opens = true, answer, tabAt = Infinity, closes } = {}) => {
           let t = 0, polls = 0, tries = 0;
           const log = [];
           const r = await relay.resume('S', text, { now: () => t, sleep: async (ms) => { t += ms; },
             open: async (id) => { log.push('open ' + id); if (!opens) throw new Error('no such command'); },
             shows: () => ++polls > showAfter, tabOpen: () => t >= tabAt,
+            giveUp: closes === undefined ? undefined : async (id) => { log.push('give up ' + id); return closes; },
             deliver: async (id, words) => { log.push('send ' + words); return answer ? answer : ++tries > notIn ? { outcome: 'submitted' }
               : { outcome: 'notReceived', reason: 'the panel has no message input' }; } });
           return { r, log, waited: t };
@@ -10824,7 +10825,8 @@ console.log('\nthe Supervisor panel');
           broken: await run('Go on', { opens: false }), unsure: await run('Go on', { answer: { outcome: 'uncertain', reason: 'the panel did not report' } }),
           stuck: await run('Go on', { notIn: 1e9 }),
           slow: await run('Go on', { showAfter: 120, tabAt: 1000 }), loading: await run('Go on', { showAfter: 1e9, tabAt: 1000 }),
-          bareNever: await run('', { showAfter: 1e9 }) })))()
+          bareNever: await run('', { showAfter: 1e9 }),
+          closed: await run('Go on', { showAfter: 1e9, tabAt: 1000, closes: true }), kept: await run('Go on', { showAfter: 1e9, tabAt: 1000, closes: false }) })))()
           .catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`],
         { encoding: 'utf8', timeout: 30000 }));
       const o = opened;
@@ -10839,10 +10841,14 @@ console.log('\nthe Supervisor panel');
           && o.bareNever.r.outcome === 'uncertain' && o.bareNever.r.reason === 'Claude Code was asked to open it, but no tab here showed it within 30 seconds'
           && o.slow.r.outcome === 'submitted' && o.slow.r.opened === true && o.slow.waited > relay.RESUME_SHOW_MS
           && o.loading.r.outcome === 'notReceived' && o.loading.r.opened === true && o.loading.waited >= relay.RESUME_LOAD_MS
-          && /^its tab here opened, but the conversation had not loaded within 180 seconds; the message was not typed into it$/.test(o.loading.r.reason)) {
+          && /^its tab here opened, but the conversation had not loaded within 180 seconds; the message was not typed into it$/.test(o.loading.r.reason)
+          && o.closed.r.outcome === 'notReceived' && o.closed.r.opened === undefined && JSON.stringify(o.closed.log) === JSON.stringify(['open S', 'give up S'])
+          && /; the message was not typed into it; the tab was closed again, since its page never ran$/.test(o.closed.r.reason)
+          && o.kept.r.outcome === 'notReceived' && o.kept.r.opened === true && !/closed/.test(o.kept.r.reason)) {
         ok('a resumed conversation is opened once and sent the text only after its panel shows it; text the panel did not take is tried again '
           + 'for a while, an unclear send is not retried, and with no text it is only opened; a long one whose tab is open gets minutes to load, '
-          + 'and with no tab at all it is given up after half a minute; given up, its text is reported as not sent, since it was never typed');
+          + 'and with no tab at all it is given up after half a minute; given up, its text is reported as not sent, since it was never typed, '
+          + 'and a tab whose page never ran is closed again and not reported as open');
       } else bad(`resuming in a window: ${JSON.stringify(o)}`);
 
       /* The window's side of resume requests. */
@@ -11147,12 +11153,13 @@ console.log('\nthe Supervisor panel');
       const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
       const answerPage = fs.readFileSync(path.join(__dirname, '..', 'src', 'page', '91-answer.js'), 'utf8');
       const readyId = (/var ANSWERS_READY = '([^']+)';/.exec(answerPage) || [])[1];
-      if (/open: \(id\) => \{\s*answersReady\.delete\(id\);\s*return vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, AS_FULL_EDITOR, \{ programmatic: 'pin-to-panel' \}\);\s*\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*tabOpen: \(id\) => shownList\(\)\.includes\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
+      if (/open: async \(id\) => \{\s*answersReady\.delete\(id\);\s*await vscode\.commands\.executeCommand\('claude-vscode\.editor\.open', id, undefined, undefined, undefined, AS_FULL_EDITOR, \{ programmatic: 'pin-to-panel' \}\);[^}]{0,240}\},\s*shows: \(id\) => claude\.source\.canDeliver\(id\) && answersReady\.has\(id\),\s*tabOpen: \(id\) => shownList\(\)\.includes\(id\),\s*deliver: \(id, words\) => claude\.source\.deliverAnswer\(id, words, \{\}\),/.test(ext)
+          && /giveUp: async \(id\) => \{[\s\S]{0,400}?label !== 'Claude Code'\)\) return false;\s*await vscode\.window\.tabGroups\.close\(tab\);/.test(ext)
           && /agentsFresh: \(\) => waiting\.listAgents\(pluginInstall\.findClaude\(claudeFolders\(\)\)\), resume: resumeConversation,/.test(ext)
           && readyId && ext.includes(`const ANSWERS_READY = '${readyId}', answersReady = new Set();`)
           && /if \(key !== ANSWERS_READY\) \{ claude\.answered\(key, sent, reason, detail\); return; \}/.test(ext)) {
         ok('the window opens a stored conversation with Claude Code\'s own command, sends only once that tab\'s page says it listens, '
-          + 'keeps that word out of the answers it waits for, and asks claude agents afresh');
+          + 'closes the tab again when its page never ran, keeps that word out of the answers it waits for, and asks claude agents afresh');
       } else bad('extension.js does not wire the resume request as expected');
       /* Bringing a window to the front runs its own `code` CLI: the remote server's, or the desktop's, which sits inside
          the app on macOS and beside resources/app on Linux and Windows, and is told this VS Code's user data folder. */
