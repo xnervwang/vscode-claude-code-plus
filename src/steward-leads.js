@@ -160,9 +160,8 @@ function plan(table, leads, { now = Date.now(), gone = () => false, alive = () =
 }
 
 /*
- * The lead of `key` to name to others now: the one its entry names; else the one a window would give it at its next
- * pass (plan); else, when only a supervisor of all conversations covers it and none has it on its list yet, the one of
- * `supervisors` that started managing it first.
+ * The lead of `key` to report to others. When plan assigns none, because only a supervisor of all conversations covers
+ * `key` and no list has it yet, the lead is the first of `supervisors` to have started managing `key`.
  */
 function leadNow(table, leads, key, supervisors = []) {
   const lead = leadOf(table, leads, key);

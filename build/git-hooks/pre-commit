@@ -15,5 +15,10 @@
 #
 # It runs the whole check suite rather than the record alone. The suite is seconds long, it is what has to pass before a
 # commit anyway, and one entry point means there is no second list of what gets checked to keep in step.
+#
+# Git exports GIT_DIR, GIT_INDEX_FILE and the like to a hook. The suite runs git in scratch repositories of its own, and
+# with those set every such call would act on this repository instead, so they are cleared first.
 
-exec node "$(git rev-parse --show-toplevel)/test/check.js"
+top=$(git rev-parse --show-toplevel) || exit 1
+unset $(git rev-parse --local-env-vars)
+cd "$top" && exec node test/check.js

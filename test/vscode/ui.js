@@ -5855,7 +5855,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const early = 'Please also run the integration tests.';
         const waitW = await sendAs(W, early);
         check(toldHand && /^Sent: /.test(stillSent) && /^Not sent: "[^"]*" is being handed over from .* to you; send it nothing until a notice says you lead it\.$/.test(waitW) && !sv.holds(M, early),
-          'the old lead is told to hand the conversation over and leads it until it does, so its messages go through, while the new one\'s messages are refused until a notice says it leads the conversation',
+          'the old lead is told to hand the conversation over and stays the lead until it has, so its messages still go through; the new lead\'s messages are refused until a notice tells it that it leads the conversation',
           { toldHand, stillSent, waitW });
 
         /* L's hand-over note reaches M first, with a line the window writes naming both; then W leads M, in the next lead

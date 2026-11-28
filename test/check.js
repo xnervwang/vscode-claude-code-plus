@@ -49,6 +49,8 @@ let failures = 0;
    happen. Counted and printed with the total, because a green run that verified less than the last green run is the one
    result nobody would otherwise notice. */
 let skipped = 0;
+/* Why the checks with Agent Plus (test/with-core.js) did not run, or ''. */
+let withoutCore = '';
 let passed = 0;
 const ok = (msg) => { passed++; console.log('  ok    ' + msg); };
 const bad = (msg) => { failures++; console.log('  FAIL  ' + msg); };
@@ -9693,7 +9695,7 @@ console.log('\nthe Supervisor panel');
         const everyOff = st.read(D2)[S1];
         const freedPage = latest();
         const every = { on: everyOn, lockedPage, locked, grown, off: everyOff, freedPage, keptAway, goneLater };
-        /* Hidden, the panel's passes do not read the list; shown again, it reads it at once. */
+        /* Hidden, the panel does not read the list. Shown again, it reads it at once. */
         view.visible = false;
         visibility();
         await v._pass();
@@ -9739,8 +9741,8 @@ console.log('\nthe Supervisor panel');
           && /\bchecked\b/.test(box(out.allTicked, own)) && !/data-mixed/.test(box(out.allTicked, own))) {
         ok('ticking a group box ticks every conversation in it, and clearing it clears them, leaving other groups as they were');
       } else bad(`the group box gave ${JSON.stringify([out.groupOn, out.groupOff])}`);
-      if (out.reshown && out.reshown.read > 0 && out.reshown.renamed) ok('a Supervisor panel shown again reads the conversations at once and shows a name changed while it was hidden');
-      else bad(`a Supervisor panel shown again after hiding: ${JSON.stringify(out.reshown)}`);
+      if (out.reshown && out.reshown.read > 0 && out.reshown.renamed) ok('hidden and shown again, the Supervisor panel reads the conversations at once and shows the new name');
+      else bad(`the Supervisor panel, hidden and shown again: ${JSON.stringify(out.reshown)}`);
       if (out.idle === 0) ok('with the panel never shown and no supervisor in this window, nothing is read');
       else bad(`a hidden panel with no supervisor still listed conversations ${out.idle} time(s)`);
       if (out.stillTicked[S(1)] && out.cleared[S(1)] === undefined) ok('a window that may not write shared files changes nothing; Clear empties the list');
@@ -13858,7 +13860,7 @@ console.log('\nthe window test\'s own parts');
   const installedAp = (() => {
     try { const d = fs.readdirSync(process.env.VSCODE_EXTENSIONS || '').filter((n) => /^xnervwang\.agent-plus-\d/.test(n)).sort().pop(); return d ? path.join(process.env.VSCODE_EXTENSIONS, d) : ''; } catch (_) { return ''; }
   })();
-  const apDir = [installedAp, process.env.AGENT_WORK_PLAN_DIR, path.join(__dirname, '..', '..', 'vscode-agent-plus')]
+  const apDir = [installedAp, require('./agent-plus-checkout').find().dir]
     .find((d) => d && fs.existsSync(path.join(d, 'package.json')));
   const apPkg = apDir ? JSON.parse(fs.readFileSync(path.join(apDir, 'package.json'), 'utf8')) : null;
   if (apPkg) {
@@ -15671,6 +15673,61 @@ console.log('\nRestricted Mode');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
+/* ── where the checks find Agent Plus ──
+   test/agent-plus-checkout.js: AGENT_WORK_PLAN_DIR, a checkout beside this repository, or one beside its main worktree
+   for a linked worktree; one older than the commit the window tests build is not used. */
+console.log('\nwhere the checks find Agent Plus');
+{
+  const { find } = require('./agent-plus-checkout');
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-ap-find-')));
+  /* Without git's GIT_* variables: run from a commit hook, GIT_DIR would point these at this repository instead. */
+  const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+  const git = (dir, args) => cp.spawnSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { encoding: 'utf8', env: gitEnv });
+  const fake = (d) => {
+    fs.mkdirSync(path.join(d, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(d, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(d, 'src', 'host.js'), '');
+    fs.writeFileSync(path.join(d, 'test', 'fake-vscode.js'), '');
+  };
+  try {
+    const alone = path.join(tmp, 'a', 'vscode-claude-code-plus');
+    fs.mkdirSync(alone, { recursive: true });
+    const none = find({ root: alone, env: {} });
+    fake(path.join(tmp, 'a', 'vscode-agent-plus'));
+    const beside = find({ root: alone, env: {} });
+    if (none.dir === '' && /^no Agent Plus checkout at .*; set AGENT_WORK_PLAN_DIR to one$/.test(none.why)
+        && beside.dir === path.join(tmp, 'a', 'vscode-agent-plus')) {
+      ok('with no Agent Plus checkout the checks say where they looked, and they use one beside this repository');
+    } else bad(`finding Agent Plus beside this repository: ${JSON.stringify([none, beside])}`);
+
+    const main = path.join(tmp, 'm', 'vscode-claude-code-plus'), linked = path.join(tmp, 'w', 'feature');
+    fs.mkdirSync(path.join(main, 'test', 'vscode'), { recursive: true });
+    fs.writeFileSync(path.join(main, 'test', 'vscode', 'agent-plus-commit'), '0123456789abcdef0123456789abcdef01234567\n');
+    git(main, ['init', '-q']);
+    git(main, ['add', '-A']);
+    git(main, ['commit', '-q', '-m', 'one']);
+    git(main, ['worktree', 'add', '-q', linked]);
+    fake(path.join(tmp, 'm', 'vscode-agent-plus'));
+    const fromLinked = find({ root: linked, env: {} });
+    const old = path.join(tmp, 'old-agent-plus');
+    fake(old);
+    git(old, ['init', '-q']);
+    git(old, ['commit', '-q', '--allow-empty', '-m', 'old']);
+    const stale = find({ root: linked, env: { AGENT_WORK_PLAN_DIR: old } });
+    /* As in a commit hook, where git sets GIT_DIR for every process it starts. */
+    const savedGitDir = process.env.GIT_DIR;
+    process.env.GIT_DIR = path.join(tmp, 'not-a-repository');
+    let inHook;
+    try { inHook = find({ root: linked, env: { AGENT_WORK_PLAN_DIR: old } }); }
+    finally { if (savedGitDir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = savedGitDir; }
+    if (fromLinked.dir === path.join(tmp, 'm', 'vscode-agent-plus') && stale.dir === '' && inHook.dir === '' && inHook.why === stale.why
+        && stale.why.startsWith(`the Agent Plus checkout at ${old} does not hold 0123456, the commit the window tests build`)) {
+      ok('a linked worktree uses the Agent Plus checkout beside its main worktree, and a checkout without the commit the window tests build is not used and named, '
+        + 'also with GIT_DIR set as in a commit hook');
+    } else bad(`finding Agent Plus from a linked worktree: ${JSON.stringify([fromLinked, stale, inHook])}`);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+
 /* ── with Agent Plus ──
    test/with-core.js activates Agent Plus from its checkout beside this one, then this extension, in Agent
    Plus's stand-in VS Code. It runs as a child with an empty home folder, since both extensions write under it. Without
@@ -15686,6 +15743,8 @@ console.log('\nwith Agent Plus');
     try { verdicts = JSON.parse(r.stdout); } catch (_) { verdicts = null; }
     if (!Array.isArray(verdicts) || !verdicts.length) bad(`the run with Agent Plus did not report: ${(r.stderr || r.stdout || '').slice(0, 400)}`);
     else for (const [kind, msg] of verdicts) (kind === 'ok' ? ok : kind === 'note' ? note : bad)(msg);
+    const missed = Array.isArray(verdicts) && verdicts.find(([kind, msg]) => kind === 'note' && /^the two were not run together: /.test(msg));
+    if (missed) withoutCore = missed[1].replace(/^the two were not run together: /, '');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
@@ -17132,6 +17191,9 @@ const repo = path.join(__dirname, '..');
   fs.rmSync(scratch, { recursive: true, force: true });
   fs.rmSync(SHARED_HOME, { recursive: true, force: true });
   const ran = `${passed} passed` + (skipped ? `, ${skipped} skipped for want of an install here` : '');
+  /* CI runs these with Agent Plus checked out beside this repository; said last, so that a run here that left them out
+     does not read as having run them. */
+  if (withoutCore) console.log(`\nnot run here: the checks with Agent Plus, since ${withoutCore}`);
   console.log(failures ? `\n${failures} check(s) failed (${ran})` : `\nall checks passed (${ran})`);
   process.exit(failures ? 1 : 0);
 });

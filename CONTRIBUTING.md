@@ -114,7 +114,7 @@ The runner splits the steps using `test/vscode/step-seconds.json`, which records
 Manual runs take three inputs:
 
 - `os` lists the runners separated by commas and defaults to `ubuntu-latest,macos-latest,windows-latest`.
-- `steps` is a regular expression matched against the window step names, as listed in `test/vscode/step-seconds.json`. When it is set, each listed platform runs a single job: the matching window steps plus the four steps every job runs. It skips `suite/` and `test/check.js`. The value `suite` is the exception: each platform then runs only the fifth job, `suite/` and `test/check.js`.
+- `steps` is a regular expression matched against the window step names, as listed in `test/vscode/step-seconds.json`. When it is set, each listed platform runs a single job: the matching window steps plus the four steps every job runs. That job skips `suite/` and `test/check.js`. If `steps` is `suite`, each platform instead runs only the fifth job, which runs both.
 - `upstream` defaults to `pinned`. Set it to `newest` to use the same versions as the daily run.
 
 To run one step on macOS from a branch:
@@ -142,7 +142,7 @@ On Linux, the test stage runs in a network namespace with loopback only. It uses
 
 The `--out` folder holds a screenshot of every step in `shots/`, crops in `actual/<platform>/`, a diff image for each failed crop in `diff/<platform>/`, and VS Code logs in `logs/`. When a step fails, `pages/<step>/` holds two files for each page of the window: a `.txt` file with its address and text, and an `.html` file with its markup. Only elements this extension draws are cropped, never Claude Code's or VS Code's own. If one of ours sits between two Claude Code elements, it gets its own crop.
 
-Each job uploads its `--out` folder as `vscode-<OS>-<part>` whether it passes or fails. `<part>` is `1-of-4` to `4-of-4` for the four window-step jobs, `suite` for the fifth or a manual run with `steps` set to `suite`, or `steps` for a manual run with any other `steps`. Each job's artifact has crops only for the steps that job ran. `test/vscode/update-baseline.js`, below, takes one artifact at a time.
+Each job uploads its `--out` folder as `vscode-<OS>-<part>` whether it passes or fails. The four window-step jobs use `1-of-4` through `4-of-4` as `<part>`. The fifth job uses `suite`. A manual run with `steps` set uses `suite` when `steps` is `suite`, and `steps` for any other value. Each job's artifact has crops only for the steps that job ran. `test/vscode/update-baseline.js`, below, takes one artifact at a time.
 
 Each crop is compared pixel by pixel with the approved copy for its platform. A pixel differs when any channel differs by more than 32 of 255. A crop fails when more than 0.2% of its pixels differ, or its width or height differs by more than one pixel. Times in crops are masked.
 

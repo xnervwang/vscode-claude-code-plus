@@ -4,8 +4,7 @@
 
 'use strict';
 /*
- * Both extensions together: Agent Plus from its own checkout (AGENT_WORK_PLAN_DIR, or vscode-agent-plus beside
- * this repository) activated first, as VS Code activates a dependency, then this one, in one stand-in VS Code: Agent
+ * Both extensions together: Agent Plus from its own checkout (as test/agent-plus-checkout.js finds it) activated first, as VS Code activates a dependency, then this one, in one stand-in VS Code: Agent
  * Plus's own test/fake-vscode.js. The Claude Code source has to be taken, its conversation drawn in the Conversations
  * tree, its tab followed by the work plan view with the plan notice on top, and answers to its questions handed to the
  * panel and reported back.
@@ -53,11 +52,12 @@ async function run() {
     bad(`refusing to run with HOME at ${os.homedir()}: test/check.js runs this with an empty HOME under ${tmp}`);
     return;
   }
-  const core = process.env.AGENT_WORK_PLAN_DIR || path.join(root, '..', 'vscode-agent-plus');
-  if (!fs.existsSync(path.join(core, 'src', 'host.js')) || !fs.existsSync(path.join(core, 'test', 'fake-vscode.js'))) {
-    note(`no Agent Plus checkout at ${core}: the two were not run together`);
+  const found = require('./agent-plus-checkout').find();
+  if (!found.dir) {
+    note(`the two were not run together: ${found.why}`);
     return;
   }
+  const core = found.dir;
   /* The plugin's hooks are held to src/workplan.js by test/check.js; Agent Plus's reader is what draws the plans
      now, so the two readers have to agree on the states and the limits. */
   {
@@ -313,8 +313,8 @@ async function run() {
       const first = ap.stewardOf('opencode-plus', OC);
       eq([!!both, listed(), first && [first.sourceId, first.sessionId], changes > 0],
         [true, [['claude-code', STEWARD, 'Docs supervisor'], ['claude-code', SECOND, 'Night supervisor']], ['claude-code', STEWARD], true],
-        'with Agent Plus\'s stewardList and a table that names no lead, stewardsOf names both supervisors of an OpenCode Agent Plus conversation with their titles, '
-          + 'the one that started managing it first as its lead, first; stewardOf gives that lead, although the user typed to the other one last, and the change reached onDidChangeStewards');
+        'with Agent Plus\'s stewardList and a table that names no lead, stewardsOf lists both supervisors of an OpenCode Agent Plus conversation with their titles, '
+          + 'starting with its lead, the supervisor that managed it earlier; stewardOf gives that supervisor, though the user typed to the other one last; the change reached onDidChangeStewards');
     }
     if (!(Array.isArray(ap.features) && ap.features.includes('sessionList') && typeof ap.sessionDeletionDue === 'function')) {
       note('this Agent Plus has no \'sessionList\': its session list was not run with Claude Code\'s conversations');

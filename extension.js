@@ -1307,9 +1307,8 @@ function start(context, log, renamed, handing = false) {
     try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
   };
-  /* The supervisors of conversation `key`, as Agent Plus asks for them: its lead first, marked, the observers after it
-     (src/steward-leads.js). With no lead in the file yet, as in a table no window of this build has written back, the
-     lead is the one the Supervisor panel would give it. */
+  /* The supervisors of conversation `key` for Agent Plus: the lead first, with `lead: true`, then the observers
+     (src/steward-leads.js). */
   const userAtOf = relay.lastUserCache();
   const stewardTitleOf = (id, table) => (table[id] && table[id].title) || steward.titleOf(id);
   const stewardsOfKey = (key) => {
