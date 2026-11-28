@@ -159,4 +159,17 @@ function plan(table, leads, { now = Date.now(), gone = () => false, alive = () =
   return { next, changes };
 }
 
-module.exports = { leadsOf, ticketsOf, leadOf, roleOf, managedKeys, candidates, rankOf, plan, WHY, KINDS, INTROS };
+/*
+ * The lead of `key` to name to others now: the one its entry names; else the one a window would give it at its next
+ * pass (plan); else, when only a supervisor of all conversations covers it and none has it on its list yet, the one of
+ * `supervisors` that started managing it first.
+ */
+function leadNow(table, leads, key, supervisors = []) {
+  const lead = leadOf(table, leads, key);
+  if (lead) return lead;
+  const next = plan(table, leads).next[key];
+  if (next && next.lead) return next.lead;
+  return supervisors.length ? first(table, supervisors, key) : '';
+}
+
+module.exports = { leadsOf, ticketsOf, leadOf, leadNow, roleOf, managedKeys, candidates, rankOf, plan, WHY, KINDS, INTROS };

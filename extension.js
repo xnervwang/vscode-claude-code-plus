@@ -1308,12 +1308,14 @@ function start(context, log, renamed, handing = false) {
     try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
   };
   /* The supervisors of conversation `key`, as Agent Plus asks for them: its lead first, marked, the observers after it
-     (src/steward-leads.js). */
+     (src/steward-leads.js). With no lead in the file yet, as in a table no window of this build has written back, the
+     lead is the one the Supervisor panel would give it. */
   const userAtOf = relay.lastUserCache();
   const stewardTitleOf = (id, table) => (table[id] && table[id].title) || steward.titleOf(id);
   const stewardsOfKey = (key) => {
-    const st = stewards.state(planDir()), table = st.table, lead = stewardLeads.leadOf(table, st.leads, key);
-    return stewards.stewardsOf(table, key).sort((a, b) => (b === lead) - (a === lead))
+    const st = stewards.state(planDir()), table = st.table, of = stewards.stewardsOf(table, key);
+    const lead = stewardLeads.leadNow(table, st.leads, key, of);
+    return of.sort((a, b) => (b === lead) - (a === lead))
       .map((s) => Object.assign({ sessionId: s, title: stewardTitleOf(s, table) }, s === lead ? { lead: true } : {}));
   };
   /* Their titles change without the table changing, on a rename; the leads are checked here too, as a backstop to the folder watch. */

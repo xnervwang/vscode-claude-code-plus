@@ -312,9 +312,9 @@ async function run() {
       const both = await until(() => listed().length === 2 && changes > 0, 10000);
       const first = ap.stewardOf('opencode-plus', OC);
       eq([!!both, listed(), first && [first.sourceId, first.sessionId], changes > 0],
-        [true, [['claude-code', SECOND, 'Night supervisor'], ['claude-code', STEWARD, 'Docs supervisor']], ['claude-code', SECOND], true],
-        'with Agent Plus\'s stewardList, stewardsOf names both supervisors of an OpenCode Agent Plus conversation with their titles, ordered by when the user last typed to each, most recent first; '
-          + 'stewardOf gives the first of them, and the change reached onDidChangeStewards');
+        [true, [['claude-code', STEWARD, 'Docs supervisor'], ['claude-code', SECOND, 'Night supervisor']], ['claude-code', STEWARD], true],
+        'with Agent Plus\'s stewardList and a table that names no lead, stewardsOf names both supervisors of an OpenCode Agent Plus conversation with their titles, '
+          + 'the one that started managing it first as its lead, first; stewardOf gives that lead, although the user typed to the other one last, and the change reached onDidChangeStewards');
     }
     if (!(Array.isArray(ap.features) && ap.features.includes('sessionList') && typeof ap.sessionDeletionDue === 'function')) {
       note('this Agent Plus has no \'sessionList\': its session list was not run with Claude Code\'s conversations');
