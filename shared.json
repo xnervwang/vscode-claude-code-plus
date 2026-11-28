@@ -1,5 +1,5 @@
 {
-  "core": "04b83c1ac1cca82c1f3d01ec39c1749210ca573d",
+  "core": "83c4c1196af34d171415a6b6eff71b3878e6d33f",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -79,7 +79,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan_common.py",
       "from": "shared/plugin/hooks/plan_common.py",
-      "sha256": "15cc36ad5e918b7daee0f9ce4443ef92f02f1894ce1d7903ebb5455975db8bef"
+      "sha256": "1ee0f4f09c16babed23e9f90764dd3b617800e0d47525a223718563d65f1eacd"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/plan-row.py",
@@ -89,7 +89,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/retitle.py",
       "from": "shared/plugin/hooks/retitle.py",
-      "sha256": "9128809d90f94da868dd57797f436c21b9981d60975ad0f3f34613bae4b08a94"
+      "sha256": "4a679c20382392bd790b7b44f78629e970a8039f15014614e67eaf98c480797c"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/changes.py",
@@ -141,7 +141,7 @@
       "path": "claude-plugin/agent-work-plan/skills/retitle/SKILL.md",
       "from": "shared/plugin/skills/retitle/SKILL.md",
       "fill": "shared/plugin/claude/retitle-skill.txt",
-      "sha256": "477e9f25fc1172a85c6d4f6b3ab269191946182a2b5ed4746981c8e4d510c8ec"
+      "sha256": "3b3e9b0be30212076d9a3679926765ac7d6d546e42fad74388d9202e3ad5856e"
     },
     {
       "path": "src/python-runtime.js",
@@ -191,7 +191,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward-relay.py",
       "from": "shared/plugin/claude/steward-relay.py",
-      "sha256": "666aad082cbdd5bc5ff46341c627de9915e25488e69010b2d3dc299126178bc6"
+      "sha256": "74b2816f3955bb6de6085cd2769df595ace05e014ff8af6429d04a964ffac0ab"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward.py",
@@ -221,7 +221,7 @@
     {
       "path": "claude-plugin/agent-work-plan/skills/supervisor/SKILL.md",
       "from": "shared/plugin/claude/steward-skill.md",
-      "sha256": "e157d38b4d69c05ec7c86e8327ab15f31b065d38fe816ca6dd87850cacde1181"
+      "sha256": "67da340c802fdd7102c5c668e2f729604c25bff550f6eb92f278bff8bd63e793"
     }
   ]
 }
