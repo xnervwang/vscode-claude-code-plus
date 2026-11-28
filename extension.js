@@ -319,8 +319,8 @@ async function activate(context) {
     handing = !!old && !earlier;
   } catch (_) { /* not there */ }
   if (earlier) { standAside(context, log, earlier); return; }
-  /* The title of a tab Claude Code creates without one of its own (src/host.js). The log line is what tells, after a
-     tab came back empty, whether it was opened with its conversation's title. */
+  /* The title of a tab Claude Code creates without one of its own (src/host.js). The log line tells, after a tab came
+     back empty, whether it was opened with its conversation's title. */
   globalThis.__cceTitleOf = (sessionId) => {
     let title = '';
     try { title = claudeSessionList.titleOf(sessionId); } catch (_) { title = ''; }
@@ -1915,8 +1915,8 @@ function start(context, log, renamed, handing = false) {
     if (!enabled() || removed() || cfg().get(REOPEN_SETTING, true) === false) return;
     const elsewhere = () => { try { return typeof globalThis.__cceSessionsElsewhere === 'function' ? globalThis.__cceSessionsElsewhere() : []; } catch (_) { return []; } };
     let lost, waiting;
-    /* A kept conversation whose tab came back by itself, as one titled for its conversation does, is off the list:
-       closing that tab later must not have the window reopen it. */
+    /* A kept conversation whose tab is open again leaves the list: closing that tab later must not have the window
+       reopen it. A tab titled for its conversation comes back by itself. */
     try {
       const here = new Set(shown());
       const back = droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY)).filter((k) => here.has(k.sessionId)).map((k) => k.sessionId);

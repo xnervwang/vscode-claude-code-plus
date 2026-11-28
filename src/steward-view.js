@@ -11,9 +11,9 @@
  * supervisor has no way to reach it; ticked ones among them are counted, with a button to untick them.
  *
  * Of the supervisors that manage a conversation one leads it, and only the lead acts on it; the others observe it
- * (src/steward-leads.js). Each row the supervisor in front manages says which it is, a row it observes has a button
- * that makes it the lead once the user confirms, and with a managed conversation in front a line names its lead and its
- * observers.
+ * (src/steward-leads.js). Each row the supervisor in front manages says whether that supervisor leads or observes it.
+ * A row it observes has a button that makes it the lead once the user confirms. With a managed conversation in front,
+ * a line names its lead and its observers.
  *
  * The Claude Code candidates are the conversations `claude agents --json` reports, less `claude --bg` sessions and
  * `claude -p` workers, which belong to the conversation that started them; and the stopped conversations whose plans
@@ -181,7 +181,6 @@ const EYE = '<svg viewBox="0 0 16 16" width="1.1em" height="1.1em" aria-hidden="
   + 'stroke-width="1.3" d="M1.5 8C3.2 5 5.4 3.5 8 3.5S12.8 5 14.5 8C12.8 11 10.6 12.5 8 12.5S3.2 11 1.5 8Z"/>'
   + '<circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg>';
 const eyesText = (n) => `Also managed by ${n} other supervisor${n === 1 ? '' : 's'}`;
-/* A conversation's title in quotes, or its id when there is none. */
 const quoted = (name, id) => (name && name !== id ? `"${name}"` : id);
 /* The hover label of a row's "Lead" or "Observer" and of its "Lead it from here" button. */
 const LEAD_WHY = 'This supervisor leads it: only the lead acts on a conversation, and the other supervisors that manage it observe it';
@@ -312,7 +311,7 @@ function body(model) {
     : '<span class="role"></span>');
   /* A disabled button gets no pointer events, so the label is on a wrapper. */
   const take = (c) => `<span class="take" data-why="${esc(takeWhy(c))}"><button data-take-lead="${esc(c.sessionId)}" ${c.pending ? 'disabled' : ''}>Lead it from here</button></span>`;
-  /* The eye's list: the lead first, marked as such, then the ones that observe. */
+  /* The eye's list puts the lead first, marked, then the observers. */
   const eyeList = (eyes) => {
     const link = (e) => `<a href="#" data-open="${esc(e.id)}">${esc(e.name)}</a>`;
     const lead = eyes.find((e) => e.lead), rest = eyes.filter((e) => !e.lead);
@@ -342,7 +341,6 @@ function body(model) {
       ? `<p class="empty">${name} is an ${esc(model.other.agent)} conversation, which cannot be a supervisor. To have it managed, bring a Claude Code conversation to the front and tick it there.</p>`
       : `<p class="empty">${name} is a ${esc(model.other.agent)} conversation, which can neither be a supervisor nor be managed.</p>`;
   }
-  /* For a managed conversation in front: who leads it and who observes it. */
   const named = (e) => `<a href="#" data-open="${esc(e.id)}">${esc(e.name)}</a>`;
   const led = model.ledBy ? `<p class="led">${model.ledBy.lead ? `Led by ${named(model.ledBy.lead)}` : 'No supervisor leads it now'}${
     model.ledBy.observers.length ? `; observed by ${model.ledBy.observers.map(named).join(', ')}` : ''}</p>` : '';
@@ -579,7 +577,7 @@ function create(vscode, deps) {
   };
   /*
    * The table and its leads. A managed conversation with no lead entry yet, as in a table from before leads that no
-   * window has written back, gets the one a window that writes the table would give it, as src/relay.js reads it.
+   * window has written back, is given the lead a window that writes the table would assign, here as in src/relay.js.
    */
   const leadsNow = () => {
     const st = stewards.state(deps.dir), leads = Object.assign({}, st.leads);
@@ -590,7 +588,7 @@ function create(vscode, deps) {
     return { table: st.table, leads };
   };
   /* A row's lead and the role of the supervisor in front, for the panel: { role, lead, leadName, pending, eyes }, `eyes`
-     being the other supervisors that manage it, its lead first. */
+     being the other supervisors that manage it. */
   const leadOfRow = (st, front, id, all) => {
     const lead = leadsMod.leadOf(st.table, st.leads, id), e = st.leads[id];
     const role = front && st.table[front] ? leadsMod.roleOf(st.table, st.leads, front, id) : '';
@@ -726,16 +724,17 @@ function create(vscode, deps) {
   };
 
   /*
-   * Notices for the supervisors whose panel this window shows. A notice starts a turn in an idle supervisor, so it is sent
-   * only if a conversation began waiting for the user, has more questions for the user than at the last pass, ended a
-   * turn that this supervisor's message started or while the supervisor's plan names it, or has background work that ended
-   * without finishing. Waits, questions, ended work and duplicate processes go to the conversation's lead alone
-   * (src/steward-leads.js), and only the lead is given its questions; an observer hears of a conversation only when its
-   * own plan names it, without the questions. A lead no window shows hears nothing until it is back or another
-   * supervisor leads the conversation, which is then told where it stands. The record of which supervisor was given each
-   * question (src/steward-watch.js given) keeps it from being put to the user twice. A supervisor gets at most one notice
-   * per NOTICE_GAP_MS; conversations often stop within a minute of each other. What a supervisor has been told is read
-   * from its file once and written back as it changes.
+   * Notices for the supervisors whose panel this window shows. A notice starts a turn in an idle supervisor, so it is
+   * sent only when a conversation starts to wait for the user or has more questions than at the last pass, when it ends
+   * a turn that this supervisor's message started or ends one while the supervisor's plan names it, or when its
+   * background work ends without finishing. Waits, questions, ended work and duplicate processes go to the
+   * conversation's lead alone (src/steward-leads.js), and only the lead is given its questions; an observer hears of a
+   * conversation only when its own plan names it, without the questions. A lead that no window shows hears nothing
+   * until a window shows it again, or until another supervisor leads the conversation; that supervisor is then told
+   * where it stands. The record of which supervisor was given each question (src/steward-watch.js given) keeps it from
+   * being put to the user twice. A supervisor gets at most one notice per NOTICE_GAP_MS; conversations often stop
+   * within a minute of each other. What a supervisor has been told is read from its file once and written back as it
+   * changes.
    */
   const pending = new Map(), sentAt = new Map(), asked = new Map(), told = new Map(), workAt = new Map();
   /* When each conversation was first seen stopped after working or running background work. Its state counts as
@@ -836,7 +835,7 @@ function create(vscode, deps) {
       const rec = live().find((r) => r && r.sessionId === steward && typeof r.messagingSocketPath === 'string');
       const t = toldOf(steward), names = Object.assign({}, table[steward].names), details = {}, asks = {};
       const given = watch.loadGiven(deps.dir), giving = [];
-      // The lead the question was given to, when that is another supervisor (a lead before this one gave it on).
+      // The other supervisor the question was given to, when that one leads the conversation now.
       const holder = (id, k) => { const g = given[id] && given[id][k]; return g && g.steward !== steward && ownerOf(id) === g.steward ? g.steward : ''; };
       for (const c of list) {
         const now = last.get(c.id);
@@ -1021,8 +1020,9 @@ function create(vscode, deps) {
      the watch was set. */
   let relayWatch = null, relaying = false;
   /*
-   * Who is alive, for the table's leads (stewards.setLiveness): a supervisor some live window shows. One that none has
-   * shown for DEAD_AFTER_MS, as this window has seen it, is gone; a window that starts counts from its start.
+   * Who is alive, for the table's leads (stewards.setLiveness): a supervisor shown in some live window. One that none
+   * has shown for DEAD_AFTER_MS, as far as this window has seen, is gone; this window counts that time from when it
+   * started.
    */
   const missingSince = new Map();
   const leadsSince = Date.now();
@@ -1044,10 +1044,11 @@ function create(vscode, deps) {
   const leadWords = { first: 'it was ticked for you first', opened: 'you opened it', new: 'a switch of yours added it first',
     migrated: 'you managed it first', takeover: 'the user agreed', panel: 'the user chose you in the Supervisor panel',
     dead: 'its lead was gone for 10 minutes', dropped: 'its lead stopped managing it', archived: 'its lead was archived' };
-  /* The notices of a change of lead this window made (stewards.onLeadChange). */
+  /* Sends the notices for each change of lead this window made (stewards.onLeadChange). */
   const leadChanged = (changes) => {
     for (const c of changes) {
-      /* A first lead is the user's tick or the supervisor's own opening, and the roster says so; an upgrade tells nobody. */
+      /* A first lead is the user's tick or the supervisor's own opening, and the roster says so; a lead given when an
+         older table is upgraded is announced to nobody. */
       if (['first', 'opened', 'new', 'migrated'].includes(c.why) && !c.from) continue;
       const name = nameOf(c.key) ? `"${nameOf(c.key)}"` : c.key;
       if (c.to) {
@@ -1067,11 +1068,11 @@ function create(vscode, deps) {
   };
   const leadHook = stewards.onLeadChange((changes) => { if (writes()) leadChanged(changes); });
   /*
-   * "Lead it from here" on a row that supervisor `sup` observes. Once the user confirms in a modal dialog, `sup` becomes
-   * its lead (stewards.takeLead). A lead that is alive hands the conversation over first, and is told to send its note
-   * as after a take-over the user agreed to in a supervisor conversation (src/relay.js); stewards.js makes the change
-   * when the note is in, or after HAND_OVER_MS. Returns takeLead's answer, or null when nothing was asked or the user
-   * did not confirm.
+   * "Lead it from here" on a row that supervisor `sup` observes. Once the user confirms in a modal dialog, `sup`
+   * becomes its lead (stewards.takeLead). A lead that is alive hands the conversation over first and is told to send
+   * its note, the same as for a take-over the user agreed to in a supervisor conversation (src/relay.js); stewards.js
+   * makes the change when the note is in, or after HAND_OVER_MS. Returns takeLead's answer, or null when nothing was
+   * asked or the user did not confirm.
    */
   const TAKE_OVER = 'Take over';
   const takeOver = async (sup, key) => {
@@ -1257,7 +1258,7 @@ function create(vscode, deps) {
   return {
     dispose() {
       leadHook.dispose();
-      try { relay.release(deps.dir, process.pid); } catch (_) { /* another window's sweep answers what this one held */ }
+      try { relay.release(deps.dir, process.pid); } catch (_) { /* another window's sweep answers this one's requests */ }
       clearInterval(timer);
       link.dispose();
       reg.dispose();

@@ -320,12 +320,12 @@ const EDITS = [
       + `catch(cceE){}${panel}.iconPath=cceSetup||{light:${logo},dark:${logo}}`,
   },
   /*
-   * A new tab takes its conversation's title from the session list a page last asked for. In a window that draws no
-   * page, as one left in the background, no page has asked, and every tab opened there starts with the default title
-   * "Claude Code". Claude Code records that title as the tab's, and after a reload it finds a page that never ran by
-   * that record's title, which it refuses for the default one: the tab comes back as an empty new conversation. Here
-   * the tab takes the title this extension reads from the conversation's transcript (__cceTitleOf in extension.js)
-   * when Claude Code has none. The tab's page, once it runs, names it as before.
+   * A new tab takes its conversation's title from the session list a page last asked for. A window left in the
+   * background draws no page, so no page there has asked, and every tab opened there starts with the default title
+   * "Claude Code". Claude Code records that title as the tab's. After a reload it finds the conversation of a page that
+   * never ran by that recorded title, but not by the default title, so the tab comes back as an empty new conversation.
+   * Here the tab takes the title this extension reads from the conversation's transcript (__cceTitleOf in extension.js)
+   * when Claude Code has none. Once the tab's page runs, the page names the tab.
    */
   {
     name: 'a new tab takes its conversation\'s title',

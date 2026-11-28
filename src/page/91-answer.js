@@ -65,8 +65,8 @@
   /* Why the answer cannot go into the input now, or null. The input's own text comes back with 'draft', so that the
      host can see whether it typed that text itself. */
   var MAX_DRAFT = 8000;
-  /* Text still being composed with an input method is not in the input yet, and typing into the input then would mix
-     the two. */
+  /* Text still being composed with an input method is not in the input yet; typing an answer meanwhile would mix the
+     two. */
   var composing = false;
   if (typeof document.addEventListener === 'function') {
     document.addEventListener('compositionstart', function(){ composing = true; }, true);
@@ -92,7 +92,7 @@
    * With `confirm`, the panel tells the host it is ready and types the answer only if the host's go arrives within
    * GO_WAIT_MS, so an answer that reaches the panel late, after a lost connection or a frozen page, is never typed
    * after the host has reported it (ANSWER_READY_MS in src/claude-source.js). The host's message gives this time as
-   * goWaitMs; these two are what an earlier host, which gives none, allowed for.
+   * goWaitMs. These two are the times for a host of an earlier build, whose message gives none.
    */
   var GO_WAIT_MS = 2000;
   /* The longest time between the page saying it is ready and Enter, which the host's message gives as sendMs; after it
@@ -233,12 +233,12 @@
     answerResult(m.id, false, 'drafted');
   };
 
-  /* A supervisor's new conversation (src/relay.js). The host opened this tab with the first message already in its input,
-     and asks every panel of the window to send it. Only a panel with no conversation yet whose input holds exactly that
-     text sends it, once per id, and it answers when its conversation has a session id. No conversation yet means no
-     message in it: Claude Code gives a new tab its session id a few seconds after it starts, before anything is sent,
-     and a page that was slow to get to the request would otherwise never send it. Where the session has no messages
-     signal, it means no session id. */
+  /* A supervisor's new conversation (src/relay.js). The host opened this tab with the first message already in its
+     input, and asks every panel of the window to send it. A panel sends it only if its input holds exactly that text
+     and it has no conversation yet, and only once per id; it answers once its conversation has a session id. No
+     conversation yet means no message in it: Claude Code gives a new tab its session id a few seconds after it starts,
+     before anything is sent, and a page that was slow to get to the request would otherwise never send it. Where the
+     session has no messages signal, it means no session id. */
   var submittedNew = {};
   var NEW_ID_WAIT_MS = 15000;
   var submitResult = function(id, sent, reason, sessionId){

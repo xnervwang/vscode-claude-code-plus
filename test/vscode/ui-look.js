@@ -567,7 +567,7 @@ async function stewardPanel(d) {
 }
 const stewardsFile = (d) => path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
 /* Writes a table, under its lock, in which supervisor `lead` leads conversation `t` and supervisor `observer` observes
-   it, as the panels would have it had `lead` ticked it first. Each is one of the demo's threads. */
+   it, as the panels would write it if `lead` had ticked it first. Each is one of the demo's threads. */
 function leadTable(d, lead, observer, t) {
   const { withLock, writeLocked } = require('../../src/file-lock');
   const file = stewardsFile(d), now = Date.now();
@@ -597,8 +597,8 @@ async function severalPanel(d) {
   d.several = frame;
   return frame;
 }
-/* Brings the conversation the demo conversation and another supervisor both manage to the front, and waits for its
-   panel's line naming its lead. */
+/* Brings to the front the conversation that both the demo conversation and another supervisor manage, and waits for
+   its panel's line naming its lead. */
 async function ledLine(d, frame) {
   await d.exec('claude-vscode.editor.open', d.threads[2].id);
   if (!await d.until(() => frame.evaluate(() => { const p = document.querySelector('.led'); return !!p && /^Led by /.test(p.textContent); }).catch(() => false), 20000, 500)) {
@@ -606,7 +606,7 @@ async function ledLine(d, frame) {
   }
   await d.sleep(500);
 }
-/* Clicks "Lead it from here" in the row of the conversation the demo conversation observes, and waits for VS Code's dialog. */
+/* Clicks "Lead it from here" in the row the demo conversation observes, and waits for VS Code's dialog. */
 async function askTakeOver(d, frame) {
   await d.exec('claude-vscode.editor.open', d.sid);
   const button = frame.locator(`button[data-take-lead="${d.threads[2].id}"]`).first();
@@ -614,8 +614,8 @@ async function askTakeOver(d, frame) {
   await button.click();
   if (!await d.until(() => dialog(d), 10000, 300)) throw new Error('no dialog asked before the take-over');
 }
-/* Moves the start of the hand-over under way for `key` back past the ten minutes its lead has, as if they had passed,
-   under the table's lock as a window writes it: the next window that writes the table then makes the change itself. */
+/* Moves the start of the hand-over under way for `key` back by more than the ten minutes its lead has to finish it,
+   under the table's lock, as a window would; the next window to write the table then makes the change itself. */
 function passHandOver(d, key) {
   const { withLock, writeLocked } = require('../../src/file-lock');
   withLock(stewardsFile(d), () => {
@@ -1619,10 +1619,11 @@ const STEPS = [
     },
   },
   /* Several supervisors, with the demo conversation in front: its Supervisor panel greys another supervisor's box, which says
-     why on hover, and the row of a conversation another supervisor also ticked says whether the demo conversation leads it
-     or observes it and ends in an eye with their number; hovering over the eye lists them, the lead first. The other
-     supervisor is set by writing the table, as its own panel would, and ticked the conversation first, so it leads it: the
-     row's "Lead it from here" asks in a dialog and, agreed, waits for that lead's hand-over. In both themes. */
+     why on hover, and the row of a conversation another supervisor also ticked says whether the demo conversation leads
+     it or observes it and ends in an eye with their number; hovering over the eye lists them, the lead first. The other
+     supervisor is set by writing the table, as its own panel would, and ticked the conversation first, so it leads it:
+     the row's "Lead it from here" asks in a dialog, and once the user agrees it waits for that lead's hand-over. In
+     both themes. */
   ...['dark', 'light'].flatMap((tone) => {
     const sfx = tone === 'light' ? '-light' : '';
     const features = ['steward-several', 'steward-panel', 'steward-lead', ...(tone === 'light' ? ['light-theme'] : [])];
@@ -1931,8 +1932,8 @@ const STEPS = [
      set" leads it and "Why does the nightly export skip archived rows?" observes it. The observer runs the supervisor's
      script itself, as a Bash call the fake model brings and Claude Code asks to run, and the fake model's reply gives
      what the script printed: its message to the led conversation refused, with the lead named; then the take-over
-     question; then, after the user's yes, the answer that the lead is asked to hand the conversation over. The last step
-     has the lead send its hand-over note. */
+     question; then, after the user's yes, the answer saying the lead is asked to hand the conversation over. The last
+     step has the lead send its hand-over note. */
   {
     name: 'steward-observer-refused', features: ['steward-observer-refused'],
     expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. It is one of the two supervisors of "Add a dry-run flag '

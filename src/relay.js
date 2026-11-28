@@ -19,18 +19,19 @@
  * folder is `to`, since Claude Code starts a new conversation there. It is refused while a window shows the
  * conversation or a process runs it, so that it never runs twice. `handoff` goes the other way: a conversation hands
  * something it thinks belongs elsewhere to its lead supervisor (`from` is then the one asking). A window showing the lead
- * takes it and posts it, as a notice and never as the user's message, to the lead's inbox.
+ * takes it and posts it to the lead's inbox as a notice, never as the user's message.
  *
  * Every message a supervisor sends starts with a line naming that supervisor (fromLine in src/stewards.js). A window that
- * sends one records it in SENDS_FILE, which the supervisors' lists show the last of.
+ * sends one records it in SENDS_FILE; the supervisors' lists show the latest one.
  *
- * Only a conversation's lead acts on it (src/steward-leads.js): a send, rename, close, resume, archive or hand-over from
- * any other supervisor is refused, with the lead named, and so is one written under an earlier lead term. The check is
- * made against the table as it is when the window acts, read again after the transcript is waited for. `take-lead` is how
- * an observer becomes the lead: with `ask` it records the question the supervisor puts to the user and gives its words;
- * without, it carries out the user's yes, which counts only when the user typed it in the supervisor conversation after
- * the question. A lead that is alive then hands the conversation over with `hand-over`, whose note reaches the
- * conversation first; stewards.js makes the change itself when the old lead is gone or has not handed over in time.
+ * Only a conversation's lead acts on it (src/steward-leads.js): a send, rename, close, resume, archive or hand-over
+ * from any other supervisor is refused, with the lead named, and so is one written under an earlier lead term. The
+ * check is made against the table as it is when the window acts: it is read again after waiting for the transcript.
+ * `take-lead` is how an observer becomes the lead: with `ask` it records the question the supervisor puts to the user
+ * and returns its wording; without `ask`, it acts on the user's yes, which counts only when the user typed it in the
+ * supervisor conversation after the question. A lead that is alive then hands the conversation over with `hand-over`,
+ * whose note reaches the conversation first; stewards.js makes the change itself when the old lead is gone or has not
+ * handed over in time.
  *
  * An `archive` request names Claude Code conversations in `ids`, the first of them also in `to`. deps.archive decides for
  * each whether it may be archived in Agent Plus's session list and says why not. As with the list actions below, the
@@ -44,12 +45,11 @@
  * session, notices, handoffs, rows Claude Code wrote and texts Claude Code Plus typed into the panel for someone else
  * (TYPED_DIR) do not count.
  *
- * Any process can write a request file. A window carries one out only if the supervisor leads the conversation (for
- * `open`, the list actions and `take-lead`, only if the one asking is a supervisor; for `resume`, also when no supervisor
- * manages the conversation; for `handoff`, only if the one asking has a lead), and the asker's own transcript has the
- * tool call that ran steward-relay.py for it in the
- * last RAN_MS (ranBy), with the action's flag, and at most once per call. For an archive, that call names every
- * conversation in the request.
+ * Any process can write a request file. A window carries one out only if the asker's own transcript has the tool call
+ * that ran steward-relay.py for it in the last RAN_MS (ranBy), with the action's flag, at most once per call, and only
+ * if the asker may ask for it. Most actions need the conversation's lead. `open`, the list actions and `take-lead` need
+ * only a supervisor; a `resume` is also carried out when no supervisor manages the conversation; a `handoff` needs the
+ * asking conversation to have a lead. For an archive, that call names every conversation in the request.
  *
  * Another agent's conversation takes only a plain send; its `to` is a key `<source id>:<session id>`
  * (src/steward-keys.js), and Agent Plus's deliver() passes the text on to the window that can type into it
@@ -87,8 +87,8 @@ const { typedAt } = require('./activity');
 const { withLock, writeLocked } = require('./file-lock');
 
 const RELAY_DIR = 'relay';
-/* steward-relay.py writes <id>.v4.json since leads came in; a window of an earlier build takes only <id>.json, so it
-   never carries out a request without checking the lead. */
+/* steward-relay.py names its requests <id>.v4.json, and a window of an earlier build takes only <id>.json, so that
+   window never carries out a request without checking the lead. */
 const REQUEST = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.v4)?\.json$/i;
 /* Requests older than this are dropped; steward-relay.py stops waiting before then. */
 const MAX_AGE_MS = 60000;
@@ -188,7 +188,6 @@ function readSent(dir, now) {
   return d;
 }
 
-/* A supervisor's recent messages to each conversation, which the supervisors' lists show the last of. */
 function noteSend(dir, key, steward, title, text, now) {
   try { withLock(path.join(dir, SENDS_FILE), () => noteSendLocked(dir, key, steward, title, text, now)); } catch (_) { /* this send is then not listed */ }
 }
@@ -262,14 +261,14 @@ function enqueue(line, job) {
   tail.then(() => { if (queues.get(line) === tail) queues.delete(line); });
   return run;
 }
-/* Conversations a resume in this window is opening: a plain send to one waits for the resume rather than missing it. */
+/* Conversations being opened by a resume in this window: a plain send to one waits until the resume is done. */
 const resuming = new Set();
 
 /*
- * The requests this window has taken and not yet answered, by id, with the file that holds each: <id>.taken-<pid> until
- * it starts to act on the conversation, <id>.doing-<pid> from then. release() hands them back when the window goes away,
- * and another window's sweep does the same for a window that died: a request not started yet is put back for any window
- * to take, and one that was started is answered as uncertain, since its effect is not known.
+ * The file of each request this window has taken and not yet answered, by id: <id>.taken-<pid> until it starts to act
+ * on the conversation, <id>.doing-<pid> from then. release() hands them back when the window goes away, and another
+ * window's sweep does the same for a window that died: a request not started yet is put back for any window to take,
+ * and one that was started is answered as uncertain, since its effect is not known.
  */
 const holding = new Map();
 const CLAIM = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(taken|doing)-(\d+)$/i;
@@ -298,7 +297,7 @@ function sweep(dir, names, pid, now) {
     handBack(dir, m[1], path.join(dir, name), m[2] === 'doing', Number(m[3]), now);
   }
 }
-/* Hands back what this window holds, as it closes or reloads (`pid` is its process). */
+/* Hands back the requests this window holds when it closes or reloads; `pid` is its process. */
 function release(planDir, pid = process.pid, now = Date.now()) {
   const dir = path.join(planDir, RELAY_DIR);
   for (const [id, h] of [...holding]) {
@@ -307,12 +306,10 @@ function release(planDir, pid = process.pid, now = Date.now()) {
     handBack(dir, id, h.file, h.started, pid, now);
   }
 }
-/* The conversation a request is for, as take() lines requests up. */
 const targetOf = (req) => {
   const action = req.action === undefined ? 'send' : req.action;
   return action === 'open' || LIST.includes(action) ? String(req.to || '') : keys.managedId(req.to) || String(req.to || '').toLowerCase();
 };
-/* Whether a request of lower seq for the same conversation is still unanswered in any window. */
 function waitingBehind(dir, names, req, id, now) {
   if (typeof req.seq !== 'number') return false;
   const target = targetOf(req);
@@ -374,7 +371,7 @@ function take(planDir, deps) {
     const held = { dir, file: taken, started: false };
     holding.set(id, held);
     /* Called just before the window acts on the conversation: from then on, a window that goes away leaves the request
-       answered as uncertain rather than handed to another window. */
+       answered as uncertain. */
     const begin = () => {
       const doing = path.join(dir, `${id}.doing-${deps.pid}`);
       try { fs.renameSync(held.file, doing); held.file = doing; } catch (_) { /* answered as it is */ }
@@ -464,9 +461,9 @@ function takesHere(action, to, deps, req) {
 }
 
 /*
- * A resume takes a minute or more, and two windows whose first folder is the conversation's could each take one of two
- * supervisors' resumes of it. <id>.opening names the window process opening it; another window does not open it while
- * that process lives, for at most OPENING_MS.
+ * A resume takes a minute or more, and two supervisors may each ask to resume the same conversation; two windows whose
+ * first folder is the conversation's could then each take one. <id>.opening names the window process opening it;
+ * another window does not open it while that process lives, for at most OPENING_MS.
  */
 const OPENING_MS = RESUME_SHOW_MS + RESUME_LOAD_MS + RESUME_SEND_MS + 60000;
 function openingElsewhere(dir, id, pid, now) {
@@ -717,7 +714,7 @@ const { manages } = stewardTable;
 /*
  * The table and its leads as the file has them now. A managed conversation with no lead entry yet, as one ticked a
  * moment ago or a table from before leads, gets one first when this window may write the table (deps.update); if it
- * may not, the lead is worked out as a window that writes would, and not written.
+ * may not, it works the lead out the same way without writing it.
  */
 function leadState(deps) {
   let st = deps.leadState ? deps.leadState() : { table: deps.stewards() || {}, leads: {}, tickets: {} };
@@ -765,9 +762,10 @@ function leadQuestion(deps, asker, key, lead) {
 
 /*
  * --take-lead: with `ask`, records the question the supervisor is about to put to the user; without, carries out the
- * user's yes. The yes counts only when the message right before the call was typed by the user, after the question,
+ * user's yes, which counts only when the message right before the call was typed by the user, after the question,
  * and nobody else took the lead meanwhile. A live lead then hands it over (stewards.js update makes the change once
- * the old lead has sent its note, or after HAND_OVER_MS); a lead that is gone, or none, gives it at once.
+ * the old lead has sent its note, or after HAND_OVER_MS); when the lead is gone, or there is none, the conversation
+ * changes hands at once.
  */
 function takeLead(req, asker, key, file, call, dir, deps, now) {
   if (!deps.update) return { outcome: 'notReceived', reason: 'this window cannot change the table' };
@@ -821,12 +819,12 @@ function takeLead(req, asker, key, file, call, dir, deps, now) {
 const handOverAsked = (key, conversation, to) => `The user agreed to hand ${conversation} over to ${to}. Run ${SCRIPT} --hand-over ${key} `
   + `with a short note for it in a here-document: what you had asked it to do, and that ${to} takes over.`;
 
-/* The line a hand-over note starts with, after the line naming the supervisor that sends it. */
+/* The first line of a hand-over note, after the line naming the supervisor that sends it. */
 const handLine = (deps, from, to) => `From your lead supervisor ${titled(deps, from)}: from now on your lead supervisor is ${titled(deps, to)}.`;
-/* The line the new lead's first message starts with when its lead came to it without a note. */
+/* The line that starts the new lead's first message when no hand-over note came before it. */
 const introLine = (deps, to, was, why) => `From your new lead supervisor ${titled(deps, to)}: `
   + (was ? `${titled(deps, was)} ${introWhy(why)}.` : 'no supervisor led you before.');
-/* How the lead before came to stop leading, as the new lead's first message says it. */
+/* Why the old lead stopped leading, in the words of the new lead's first message. */
 const introWhy = (why) => (why === 'unhanded' ? 'did not hand you over' : why === 'dropped' ? 'no longer manages you'
   : why === 'archived' ? 'was archived' : 'is no longer open');
 
@@ -905,7 +903,7 @@ async function carryOut(req, action, to, dir, deps, now, begin = () => {}) {
     }
   }
   if (action === 'take-lead') return takeLead(req, asker, to, file, call, dir, deps, deps.now ? deps.now() : Date.now());
-  /* Read again now: the table may have changed while the transcript was being waited for. */
+  /* Read again now: the table may have changed while this window waited for the transcript. */
   const st = leadState(deps);
   if (LEAD_ONLY.includes(action) && !(action === 'resume' && !leads.candidates(st.table, to).length)) {
     const no = notLead(st, asker, to, req, deps);
@@ -989,22 +987,22 @@ async function carryOut(req, action, to, dir, deps, now, begin = () => {}) {
 }
 
 /*
- * A lead's hand-over: its note goes into the conversation first, and the lead changes once it is in. When the
- * conversation is not open in any window here or elsewhere, the note is kept for the conversation's next turn instead
- * (steward.py shows it once) and the lead changes all the same.
+ * A lead's hand-over: the note goes into the conversation, and then the lead changes. When the conversation is not open
+ * in any window here or elsewhere, the note is kept for the conversation's next turn instead (steward.py shows it once)
+ * and the lead changes all the same.
  */
 async function handOver(from, key, signed, to, deps) {
   let r = { outcome: 'notReceived', reason: 'the conversation is not open in this window' };
-  /* Marked first: a window that goes away between the note and the change leaves the change to stewards.js after
-     HAND_OVER_MS, which then does not tell the new lead that no note was sent. */
+  /* Marked first: if a window goes away between the note and the change, stewards.js makes the change after
+     HAND_OVER_MS and does not tell the new lead that no note was sent. */
   if (deps.update) {
     deps.update(({ leads: L }) => {
       const e = L[key];
       if (e && e.pending && e.pending.to === to) L[key] = Object.assign({}, e, { pending: Object.assign({}, e.pending, { sending: deps.now ? deps.now() : Date.now() }) });
     });
   }
-  /* Another agent's conversation reads no note kept for its next turn (hooks/steward.py is Claude Code's), so its note
-     goes through Agent Plus as a message, and its own plugin says the lead changed. */
+  /* Another agent's conversation cannot read a note kept for its next turn (hooks/steward.py is Claude Code's), so its
+     note is sent through Agent Plus as a message, and its own plugin says the lead changed. */
   const other = keys.isOther(key);
   if (other) r = deps.deliverOther ? await deps.deliverOther(key, signed) : r;
   else if (deps.shownHere(key)) r = await deps.deliver(key, signed);

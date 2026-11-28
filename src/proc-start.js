@@ -38,7 +38,7 @@ function psStart(pid) {
 
 /* A `ps` takes milliseconds and blocks the extension host, and a lock's waiter asks about the same pid every few
    milliseconds, so outside Linux a start is kept per pid: this process's own for good, another's for CACHE_MS. A kept
-   start is trusted only to say a pid still has the start asked about; alive() reads again before it calls a process
+   start can only confirm that a pid still has the start asked about; alive() reads again before it calls a process
    gone. */
 const CACHE_MS = 10000;
 const CACHE_MAX = 64;
@@ -65,9 +65,9 @@ function startOf(pid) {
 }
 
 /**
- * Whether process `pid` is running and, when `start` is given and the process's start can be read, started at `start`
- * (from startOf). A pid running with another start was given to a later process after the one recorded ended. On Linux
- * a zombie counts as gone: it has ended, and only its parent has not collected it yet.
+ * Whether process `pid` is running and, given `start` (from startOf), is the process that started then; where the start
+ * cannot be read, only the pid is checked. On Linux a zombie counts as gone: it has ended, and only its parent has not
+ * collected it yet.
  */
 function alive(pid, start) {
   if (!valid(pid)) return false;

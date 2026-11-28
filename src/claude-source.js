@@ -48,13 +48,13 @@ const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e)
    "not received". */
 const ANSWER_WAIT_MS = 15000;
 /*
- * A panel whose page waits for a go (src/page/91-answer.js) is given ANSWER_READY_MS to say it is ready, and
- * ANSWER_GO_MS after that for its result. The message tells the page to wait ANSWER_GO_WAIT_MS for the go after it says
- * it is ready, and to press Enter within ANSWER_SEND_MS of saying so or take the text back out; it then waits up to
- * 800 ms for the input to empty. A panel out of sight, in a window in the background, gets its messages and runs its
- * timers a second or more late, so each of these leaves room for that, and ANSWER_SEND_MS is well inside ANSWER_GO_MS so
- * that the page's result arrives while the host still waits. No go is sent after ANSWER_READY_MS, so such a panel types
- * nothing once the host has reported.
+ * The host waits ANSWER_READY_MS for a panel whose page waits for a go (src/page/91-answer.js) to say it is ready, then
+ * ANSWER_GO_MS for its result. Its message gives the page two limits, both counted from when the page says it is ready:
+ * ANSWER_GO_WAIT_MS for the go to arrive, and ANSWER_SEND_MS to press Enter, after which the page takes the text back
+ * out. The page then waits up to 800 ms for the input to empty. A panel out of sight, in a window in the background,
+ * gets its messages and runs its timers a second or more late, so each of these leaves room for that, and
+ * ANSWER_SEND_MS is well inside ANSWER_GO_MS so that the page's result arrives while the host still waits. No go is
+ * sent after ANSWER_READY_MS, so such a panel types nothing once the host has reported.
  */
 const ANSWER_READY_MS = 10000;
 const ANSWER_GO_WAIT_MS = 6000;
@@ -449,8 +449,8 @@ function createClaudeSource(deps) {
     onDidChangePlanNotice: noticeChanged.event,
     onDidChangeStewards: stewardsChanged.event,
 
-    /* Agent Plus asks these so that another agent's conversation is told which supervisor leads it and hands that one
-       its messages: every supervisor of the conversation, its lead first and marked (`lead: true`, which a core with
+    /* Agent Plus asks these to tell another agent's conversation which supervisor leads it, and to hand that supervisor
+       the conversation's messages: the conversation's supervisors, the lead first with `lead: true` (which a core with
        'stewardLead' keeps), and the lead alone, or null when it has none. */
     stewardsOf(sourceId, sessionId) {
       if (!enabled() || typeof deps.stewardsOf !== 'function') return [];

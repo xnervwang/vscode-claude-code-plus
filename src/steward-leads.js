@@ -4,7 +4,7 @@
 
 'use strict';
 /*
- * The lead supervisor of each managed conversation: the one supervisor that may act on it. The others that manage it
+ * Each managed conversation has one lead supervisor, the only one that may act on it. The others that manage it
  * only observe. stewards.json keeps one entry per managed conversation under "leads" (src/stewards.js), and every
  * window and the plugin's hooks (steward_table.py) read a lead the same way, through leadOf below:
  *
@@ -13,20 +13,20 @@
  *                         "intro": <one of INTROS>, "handed": true } }
  *
  * "term" goes up by one at every change of lead. A request carries the term it was written under, and a window refuses
- * it when the term has moved on since (src/relay.js): a request written for one lead never runs for the next, even when
- * the same supervisor leads again later. "pending" is a hand-over the user agreed to that the old lead has not finished;
- * "tell" is a note for the conversation that could not be sent, which its next turn shows once. "intro" says that the
- * lead came to it without a hand-over note, so its first message starts by saying so (src/relay.js), and "handed" that
- * the old lead's note was sent.
+ * it when the term has moved on since (src/relay.js), even if the same supervisor leads again. "pending" is a hand-over
+ * the user agreed to that the old lead has not finished; "tell" is a note for the conversation that could not be sent,
+ * which its next turn shows once. "intro" says that the lead came to it without a hand-over note, so its first message
+ * starts by saying so (src/relay.js), and "handed" that the old lead's note was sent.
  *
- * Only a window writes the entries, under the table's lock and only when the term it read is still the file's, so two
+ * Only a window writes the entries, under the table's lock and only when the file still has the term it read, so two
  * windows that decide at the same moment change a lead once. Everything here is a pure function of the table.
  */
 const keys = require('./steward-keys');
 
 const WHY = ['first', 'opened', 'new', 'migrated', 'takeover', 'panel', 'dead', 'dropped', 'archived', 'none'];
 const KINDS = ['handover', 'intro', 'farewell'];
-/* Why the lead's first message must say how it came to lead: its lead did not hand it over, was gone, or there was none. */
+/* Why a new lead's first message must say how it got the conversation: the old lead did not hand it over, was gone,
+   or there was none. */
 const INTROS = ['unhanded', 'dead', 'archived', 'dropped', 'none'];
 const SESSION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_TELL = 4000;
@@ -73,9 +73,8 @@ function ticketsOf(d) {
 const onList = (table, s, key) => !!table[s] && table[s].manages.includes(key);
 
 /*
- * The lead of `key`: the one its entry names, as long as that one is a supervisor that still has `key` on its list and
- * `key` is not itself a supervisor. Otherwise "": a window assigns one at its next pass. steward_table.py's lead_of
- * reads it the same way.
+ * The lead of `key`: the supervisor its entry names, while that supervisor still has `key` on its list and `key` is
+ * not itself a supervisor. Otherwise "": a window assigns one at its next pass.
  */
 function leadOf(table, leads, key) {
   const e = leads && leads[key];
@@ -89,7 +88,6 @@ function roleOf(table, leads, s, key) {
   return leadOf(table, leads, key) === s ? 'lead' : 'observer';
 }
 
-/* Every conversation some supervisor has on its list. */
 function managedKeys(table) {
   const out = new Set();
   for (const s of Object.keys(table)) for (const k of table[s].manages) if (!table[k]) out.add(k);
@@ -99,35 +97,36 @@ function managedKeys(table) {
 /* The supervisors with `key` on their list, in table order. */
 const candidates = (table, key) => Object.keys(table).filter((s) => onList(table, s, key));
 
-/* When `s` started managing `key`: the time recorded for it, else when its switch was turned on, else its entry's time. */
+/* When `s` started managing `key`: its "since" time for `key`, falling back to when one of its switches was turned on
+   and then to its entry's own time. */
 function rankOf(table, s, key) {
   const t = table[s];
   return num(t.since && t.since[key]) || num(t.allSince) || num(t.newSince) || num(t.at);
 }
 
-/* The one of `list` that started managing `key` first; between equal times, the lower session id. */
+/* Which of `list` started managing `key` first; ties go to the lower session id. */
 function first(table, list, key) {
   return list.slice().sort((a, b) => (rankOf(table, a, key) - rankOf(table, b, key)) || (a < b ? -1 : a > b ? 1 : 0))[0] || '';
 }
 
-/* Whether `s` has `key` only because one of its switches added it, rather than ticked by hand or opened by it. */
+/* Whether `s` has `key` only because one of its switches added it: it neither ticked `key` by hand nor opened it. */
 const bySwitch = (table, s, key) => {
   const t = table[s];
   return !!t && (t.all || t.newSince > 0) && !(t.ticked || []).includes(key);
 };
 
 /*
- * The leads the table should have now, from the `leads` it has: `next` (the whole map) and `changes`, one
+ * Works out the leads the table should have now from its current `leads`: `next` (the whole map) and `changes`, one
  * { key, from, to, why, term } for each conversation whose lead changed.
  *
- * - A conversation with no lead gets one: the supervisor in `opened` (key -> supervisor) that opened it, else the one
- *   that started managing it first; `migrated` says the table came from a version without leads.
- * - A lead that no longer manages its conversation, or is no supervisor now, gives way ("dropped").
- * - A lead `gone(s)` says is gone ("dead" or "archived") gives way to the one a pending hand-over names, else the first
- *   of the others that is not gone.
- * A new lead is taken from those `alive(s)` when there are any, else from those not gone. With nobody left, the lead
- * is "" ("none"). A conversation nobody manages any more loses its entry. A pending hand-over to someone who no longer
- * manages the conversation, or is gone, is dropped.
+ * - A conversation with no lead gets one: the supervisor that opened it, as `opened` (key -> supervisor) records, else
+ *   the one that started managing it first; `migrated` says the table came from a version without leads.
+ * - A lead that no longer manages its conversation, or is no longer a supervisor, gives way ("dropped").
+ * - A lead for which `gone(s)` returns "dead" or "archived" gives way to the one a pending hand-over names, else the
+ *   first of the others that is not gone.
+ * A new lead is chosen among the supervisors `alive(s)` accepts, or, when none is alive, among those not gone. With
+ * nobody left, the lead is "" ("none"). A conversation nobody manages any more loses its entry. A pending hand-over to
+ * someone who no longer manages the conversation, or is gone, is dropped.
  */
 function plan(table, leads, { now = Date.now(), gone = () => false, alive = () => true, opened = {}, migrated = false } = {}) {
   const next = {}, changes = [];

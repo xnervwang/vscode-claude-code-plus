@@ -82,14 +82,14 @@ const path = require('path');
     typed(B, 'yes');
     ran(B, `--take-lead ${X}`);
     await run();
-    expect('taking over without having asked is refused', result(noTicket) && result(noTicket).outcome === 'refused' && /no take-over question/.test(result(noTicket).reason), result(noTicket));
+    expect('a take-over with no question asked first is refused', result(noTicket) && result(noTicket).outcome === 'refused' && /no take-over question/.test(result(noTicket).reason), result(noTicket));
 
     clock += 1000;
     const ask = request({ steward: B, action: 'take-lead', ask: true, to: X, seq: 5 });
     ran(B, `--take-lead ${X} --ask`);
     await run();
     const q = result(ask);
-    expect('asking gives the question to put to the user, with both names and the conversation\'s',
+    expect('with ask, take-lead returns the question to put to the user, naming both supervisors and the conversation',
       q && q.outcome === 'ask' && /Should I \("Beta"\) take over "Export"\? It is led by "Alpha" now/.test(q.question || '') && st.state(dir).tickets[`${B} ${X}`], q);
 
     clock += 1000;
@@ -109,7 +109,7 @@ const path = require('path');
     ran(B, `--take-lead ${X}`);
     await run();
     let s1 = st.state(dir);
-    expect('with the user\'s yes and the lead alive, the hand-over starts: the lead stays, and it is told to hand over',
+    expect('with the user\'s yes and the lead alive, the hand-over starts: the lead does not change yet, and the old lead is told to hand over',
       result(ask2) && result(ask2).outcome === 'ask' && result(yes) && result(yes).outcome === 'pending' && s1.leads[X].lead === A && s1.leads[X].pending && s1.leads[X].pending.to === B
         && posted.some((p) => p[0] === A && /--hand-over/.test(p[1])), [result(yes), s1.leads[X]]);
 
@@ -127,8 +127,8 @@ const path = require('path');
     await run();
     const s2 = st.state(dir);
     const note = delivered.find((d) => d[1].includes('Beta follows it up.'));
-    expect('only the lead handing over can send the hand-over', result(wrong) && result(wrong).outcome === 'refused', result(wrong));
-    expect('the hand-over note reaches the conversation with a first line naming both, and then the new lead leads, one term on',
+    expect('only the old lead can send the hand-over', result(wrong) && result(wrong).outcome === 'refused', result(wrong));
+    expect('the hand-over note reaches the conversation with a first line naming both, and then the new supervisor is the lead, with the lead term one higher',
       note && /From your lead supervisor "Alpha": from now on your lead supervisor is "Beta"\./.test(note[1]) && s2.leads[X].lead === B && s2.leads[X].term === s1.leads[X].term + 1
         && !s2.leads[X].pending, [note, s2.leads[X]]);
 
@@ -149,7 +149,7 @@ const path = require('path');
     ran(A, X, 'Picking this up.');
     await run();
     const introText = delivered.find((d) => d[1].includes('Picking this up.'));
-    expect('a hand-over not made in time is made without the note, and the new lead\'s first message starts by saying so',
+    expect('a hand-over the old lead does not finish in time is made without its note, and the new lead\'s first message starts by saying so',
       s3.leads[X].lead === A && s3.leads[X].why === 'panel' && introText && /From your new lead supervisor "Alpha": "Beta" did not hand you over\./.test(introText[1])
         && !st.state(dir).leads[X].intro, [s3.leads[X], introText]);
 
@@ -182,7 +182,7 @@ const path = require('path');
       ran(first, `--hand-over ${O}`, 'The parser port is half done.');
       await relay.take(dir, odeps); await relay.settled();
       const s4 = st.state(dir);
-      expect('an OpenCode conversation\'s hand-over note goes through Agent Plus as a message, the lead changes, and no note is kept for a next turn',
+      expect('an OpenCode conversation\'s hand-over note is sent through Agent Plus as a message; the lead changes, and no note is kept for the conversation\'s next turn',
         result(oid) && result(oid).outcome === 'submitted' && others.length === 1 && others[0][0] === O && /from now on your lead supervisor is/.test(others[0][1])
           && s4.leads[O].lead === second && !s4.leads[O].tell, [result(oid), others, s4.leads[O]]);
     }

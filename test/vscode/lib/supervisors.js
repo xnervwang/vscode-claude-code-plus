@@ -4,16 +4,17 @@
 
 'use strict';
 /*
- * Acting as a supervisor, and as the user around it, in the window steps of ui.js, with no model behind it. A
+ * Plays a supervisor, and the user around it, in the window steps of ui.js, with no model behind it. A
  * supervisor runs steward-relay.py from a tool call, and the window carries a request out only once the asker's own
  * transcript has that call (src/relay.js ranBy), so run() appends the call before the script starts and the call's
  * result once it ends. says() appends a message the user typed, or one that came from elsewhere, which is what the
  * window reads to decide whether the user agreed to a take-over (src/relay.js typedBefore).
  *
- * request() writes a request file itself, as an older or another build of the script would, so that a step sees what
- * the window does with a request the script would have refused before writing it. edit() changes stewards.json under
- * its lock (src/file-lock.js) without working anything out, as when time has passed: a ticket or a hand-over made long
- * ago, or a lead changed by another window. A conversation is { id, title, folder }, its folder the one it was started in.
+ * request() writes a request file itself, as some other build of the script would, so that a step sees what the window
+ * does with a request the script would have refused before writing it. edit() changes stewards.json under its lock
+ * (src/file-lock.js) without working the leads out again, for a state that would otherwise take time or another window:
+ * a ticket or a hand-over made long ago, or a lead changed by another window. A conversation is { id, title, folder },
+ * where folder is the one it was started in.
  */
 const crypto = require('crypto');
 const cp = require('child_process');
@@ -41,8 +42,8 @@ function create({ home }) {
     return null;
   };
 
-  /* A message in `t`'s transcript after its last one: typed by the user, or with `from` arrived another way ('peer' for a
-     message from another session, as Claude Code records one). Returns its time. */
+  /* A message in `t`'s transcript after its last one, typed by the user, or, with `from`, one that came another way
+     ('peer' for a message from another session, as Claude Code records one). Returns its time. */
   const says = (t, text, from) => {
     const at = new Date();
     const peer = from === 'peer';
@@ -60,9 +61,9 @@ function create({ home }) {
     toolId: `toolu_lead_${crypto.randomBytes(4).toString('hex')}`, command: lineOf(args, input), description: 'Act for the user' });
 
   /*
-   * `t` runs the script with `args` and `input` on its standard input; resolves to what it printed. The tool call is in
-   * the transcript before the script starts, unless `before` is given: then the script starts first, `before()` is
-   * awaited, and the call is appended after it, so that a window that took the request waits for it meanwhile.
+   * Runs the script as `t` with `args`, and `input` on its standard input, and resolves to what it printed. The tool
+   * call is written to the transcript before the script starts; with `before`, the script starts first, `before()` is
+   * awaited, and only then is the call appended, so that a window that has taken the request has to wait for it.
    */
   const run = (t, args, input, { before } = {}) => {
     let answered = before ? null : call(t, args, input);
@@ -80,9 +81,9 @@ function create({ home }) {
   };
 
   /*
-   * Writes request `req` (src/relay.js's fields: action, to, text, term, seq, ask, ...) from supervisor `t` as the file
-   * an older script names <id>.json (`old`) or as this build's <id>.v4.json, with `t`'s tool call for it (`args`, `input`)
-   * in its transcript; resolves to the window's answer, or null when none came.
+   * Writes request `req` from supervisor `t` (with src/relay.js's fields: action, to, text, term, seq, ask, ...) as the
+   * file an older script names <id>.json (`old`) or as this build's <id>.v4.json, with `t`'s tool call for it (`args`,
+   * `input`) in its transcript; resolves to the window's answer, or null when none came.
    */
   const request = async (t, req, { args, input, old = false, ms = ANSWER_MS } = {}) => {
     const id = crypto.randomUUID();
@@ -104,11 +105,11 @@ function create({ home }) {
     return r;
   };
 
-  /* stewards.json as the file has it, or null. */
+  /* The parsed stewards.json, or null. */
   const table = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return null; } };
   /* The lead entry of `key`, or null. */
   const leadOf = (key) => { const d = table(); return (d && d.leads && d.leads[key]) || null; };
-  /* Changes the file as `fn(d)` changes the parsed table, under the file's lock, with its revision counted up. */
+  /* Under the file's lock, applies `fn(d)` to the parsed table and writes it back with its revision one higher. */
   const edit = (fn) => withLock(file, () => {
     const d = JSON.parse(fs.readFileSync(file, 'utf8'));
     fn(d);
@@ -134,7 +135,7 @@ function create({ home }) {
   };
   /* Whether `t`'s transcript holds `text` anywhere, as JSON writes it. */
   const holds = (t, text) => { try { return fs.readFileSync(transcript(t), 'utf8').includes(JSON.stringify(text).slice(1, -1)); } catch (_) { return false; } };
-  /* How many times `t`'s transcript holds `text` in a user row of its own. */
+  /* The number of user rows in `t`'s transcript whose whole text is `text`. */
   const userRows = (t, text) => {
     let lines = [];
     try { lines = fs.readFileSync(transcript(t), 'utf8').split('\n'); } catch (_) { return 0; }

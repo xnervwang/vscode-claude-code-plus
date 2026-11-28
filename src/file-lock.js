@@ -5,22 +5,23 @@
 'use strict';
 /*
  * A lock around a read-change-write of a file that every VS Code window on this machine writes (stewards.json, and the
- * relay's shared JSON files): the directory <file>.lock, made with mkdir, which only one process at a time can make.
+ * relay's shared JSON files): the directory <file>.lock, which mkdir creates for only one process at a time.
  * Its owner.json names the holder, { pid, start, token, at }, with start as src/proc-start.js reads it and token 16
  * random hex digits.
  *
  * A waiter takes the lock over only from a holder that is gone (its pid not running, or running with another start,
  * so given to a later process), from one that has held it for STALE_MS, or, when owner.json cannot be read, once the
  * directory is OWNERLESS_MS old: a holder writes owner.json right after making the directory. A holder that is only
- * slow, or stopped for a while, keeps the lock. A holder that was taken over from finds out when it writes: writeLocked
- * checks the token just before its rename and throws LockLost instead, so the file keeps what the new holder wrote.
+ * slow, or stopped for a while, keeps the lock. A holder whose lock was taken over finds out when it writes:
+ * writeLocked checks the token just before its rename and throws LockLost instead, so the file keeps what the new
+ * holder wrote.
  *
  * The directory is always moved aside to a name of its own before it is removed, by a waiter taking it over as by its
- * holder releasing it, and what was moved is checked to be the lock meant: of two processes removing one lock, only
- * the one whose rename succeeds goes on, and a lock made in between is put back rather than removed.
+ * holder releasing it, and the remover then checks that it moved the lock it saw. Of two processes removing one lock,
+ * only the one whose rename succeeds goes on, and a lock made in between is put back.
  *
  * The wait blocks the extension host, which is what keeps the change and the read it is based on together, so fn has
- * to be synchronous. The wait is normally nothing, and longest when a window stopped while holding the lock.
+ * to be synchronous. The wait is normally none; it is longest when a window stopped while holding the lock.
  */
 const crypto = require('crypto');
 const fs = require('fs');
@@ -55,17 +56,17 @@ class LockTimeout extends Error {
   }
 }
 
-/* The locks this process holds, by the full path of the locked file: the token in their owner.json. */
+/* The token in owner.json of each lock this process holds, by the full path of the locked file. */
 const holds = new Map();
 
 /* Windows refuses some file operations for a moment while another process has the file open, as readers of these
-   files do all the time; such a refusal is tried again rather than taken as an answer. */
+   files do all the time; those errors are retried. */
 const BUSY = new Set(['EPERM', 'EACCES', 'EBUSY']);
 const busy = (e) => process.platform === 'win32' && !!e && BUSY.has(e.code);
-/* A reader that opens the file over and over can keep a rename refused for longer than a few tries. */
+/* A reader that opens the file over and over can make a rename fail for longer than a few tries. */
 const RENAME_WAITS_MS = [10, 20, 40, 60, 80, 120, 160, 200, 250, 300, 350, 400];
 
-/* fs.renameSync, with a refusal on Windows tried again over about two seconds. */
+/* fs.renameSync, retried on Windows for about two seconds. */
 function rename(from, to) {
   for (let i = 0; ; i++) {
     try { fs.renameSync(from, to); return; } catch (e) {
@@ -84,7 +85,7 @@ function readOwner(dir) {
   } catch (_) { return null; }
 }
 
-/* The directory's identity, which a rename keeps: what tells a lock with no owner.json from one made after it. */
+/* The directory's identity, which a rename keeps. It tells a lock with no owner.json from one made after it. */
 function identity(dir) {
   try { const s = fs.statSync(dir, { bigint: true }); return `${s.dev}:${s.ino}`; } catch (_) { return null; }
 }
@@ -97,9 +98,9 @@ function removeDir(dir) {
 }
 
 /*
- * Writes owner.json into a directory this process has just made, and answers whether it holds the lock: only if no
- * other owner.json got there first. The text goes into a file of its own and is then linked to the name, so owner.json
- * is never seen half written and is never replaced.
+ * Writes owner.json into a directory this process has just made. Returns true when this process now holds the lock,
+ * which it does only if no other owner.json got there first. The text goes into a file of its own and is then linked to
+ * the name, so owner.json is never seen half written and is never replaced.
  */
 function claim(dir, text) {
   const owner = path.join(dir, OWNER);
@@ -113,7 +114,7 @@ function claim(dir, text) {
     return true;
   } catch (e) {
     if (e && (e.code === 'EEXIST' || e.code === 'ENOENT')) return false;
-    /* A file system with no hard links: made in place, still only where there is none. */
+    /* On a file system with no hard links, owner.json is written in place, still only if there is none. */
     try { fs.writeFileSync(owner, text, { flag: 'wx' }); return true; } catch (e2) {
       if ((e2 && (e2.code === 'EEXIST' || e2.code === 'ENOENT')) || busy(e2)) return false;
       throw e2;
@@ -156,7 +157,8 @@ function why(seen, now) {
   return age > STALE_MS ? `process ${o.pid} has held it for ${Math.round(age / 1000)} s` : '';
 }
 
-/* Whether the directory moved to `away` is the lock seen: the same owner, or with none the same directory. */
+/* Whether the directory moved to `away` is the lock seen: it has the same owner, or, for a lock seen without one, it
+   is the same directory. */
 function sameLock(away, seen) {
   const o = readOwner(away);
   if (seen.owner) return !!o && o.token === seen.owner.token;
@@ -164,15 +166,14 @@ function sameLock(away, seen) {
 }
 
 /*
- * Removes the lock seen in `dir` by moving it aside first, and answers whether this call removed it. A lock moved that
- * is not the one seen, made in the moment between, is put back where its holder looks for it.
+ * Removes the lock seen in `dir` by moving it aside first; returns true when this call removed it.
  */
 function drop(dir, seen, log) {
   const away = `${dir}.stale-${random(8)}`;
   try { rename(dir, away); } catch (_) { return false; }
   if (sameLock(away, seen)) { removeDir(away); return true; }
   try { rename(away, dir); } catch (_) {
-    /* Another lock is in place by now; this one's holder finds its token gone when it writes. */
+    /* Another lock is in place by now. */
     removeDir(away);
   }
   log(`${dir} changed while it was being removed, and was left to its new holder`);
@@ -191,10 +192,9 @@ function sweep(dir, now) {
 }
 
 /**
- * Runs fn() while this process holds the lock of `file`, and returns what fn returns. fn writes `file` with
- * writeLocked. Called again for the same file from inside fn, it runs the inner fn under the lock already held.
- * Throws LockTimeout after opts.waitMs (WAIT_MS by default) without the lock; opts.log, if given, is told of each
- * take-over.
+ * Runs fn() while this process holds the lock of `file` and returns its result; fn writes `file` with writeLocked.
+ * Called again for the same file from inside fn, it runs the inner fn under the lock already held. Throws LockTimeout
+ * after opts.waitMs (WAIT_MS by default) without the lock; opts.log, if given, is told of each take-over.
  */
 function withLock(file, fn, opts = {}) {
   const key = path.resolve(file);
@@ -231,8 +231,9 @@ function withLock(file, fn, opts = {}) {
 }
 
 /**
- * Writes `text` to `file` whole, from inside withLock(file, ...): a temporary file renamed over it, but only while this
- * process still holds the lock. If it was taken over, throws LockLost and leaves the file as the new holder wrote it.
+ * Writes `text` to `file` whole, from inside withLock(file, ...), by renaming a temporary file over it, but only while
+ * this process still holds the lock. If it was taken over, throws LockLost and leaves the file as the new holder wrote
+ * it.
  */
 function writeLocked(file, text) {
   const key = path.resolve(file);
@@ -256,8 +257,8 @@ const READ_WAIT_MS = 200;
 /**
  * The JSON in `file`, read without taking the lock, or null when there is none. On Windows a read can fail, or find no
  * file at all, at the moment writeLocked renames the new file over the old one, and the writer holds the lock all
- * through it; so a read that fails is tried again while the lock is there, for up to READ_WAIT_MS, and once more after
- * it goes. Inside withLock on the same file nothing else can be writing it, so a failed read is not tried again.
+ * through it; so a failed read is retried for as long as the lock is held, up to READ_WAIT_MS, and once more after the
+ * lock is released. Inside withLock on the same file nothing else can be writing it, so one read is enough.
  */
 function readWhole(file) {
   const key = path.resolve(file);

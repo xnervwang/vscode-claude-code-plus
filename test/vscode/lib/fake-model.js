@@ -184,8 +184,8 @@ const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return
 const nameAsked = (ask) => { const m = NAME_ASK.exec(typedText(ask)); return m ? NAMED_REPLY(m[1].toLowerCase(), m[2]) : null; };
 const echoAsked = (ask) => { const m = ECHO_ASK.exec(typedText(ask)); return m ? Buffer.from(m[1], 'base64').toString('utf8') : null; };
 const commandAsked = (ask) => { const m = COMMAND_ASK.exec(lastAsk(ask) || ''); return m ? Buffer.from(m[1], 'base64').toString('utf8') : null; };
-/* What a command COMMAND_REQUEST asked for printed, when this request brings its result back, or null. Claude Code shows
-   a long output folded to its first line, so the reply gives the whole of it. */
+/* The output of the command a COMMAND_REQUEST asked for, when this request brings its result back, or null. Claude Code
+   shows a long output folded to its first line, so the reply gives the whole of it. */
 const COMMAND_DESCRIPTION = 'Run the command given';
 function commandPrinted(ask) {
   const msgs = Array.isArray(ask.messages) ? ask.messages : [];

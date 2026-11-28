@@ -16,7 +16,7 @@ const { spawn } = require('child_process');
 
 const HELPER = path.join(__dirname, '..', 'helper');
 const SECRETS = ['--use-inmemory-secretstorage', ...(process.platform === 'linux' ? ['--password-store=basic'] : [])];
-/* How long a lead supervisor no window shows keeps its conversations before another supervisor leads them, in place
+/* How long a lead supervisor can go unshown in every window before another supervisor leads its conversations, in place
    of ten minutes (CLAUDE_CODE_PLUS_LEAD_DEAD_MS, src/steward-view.js). Longer than a reload, so that a window that
    reloads keeps its leads. */
 const LEAD_DEAD_MS = 60000;

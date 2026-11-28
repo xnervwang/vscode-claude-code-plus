@@ -228,7 +228,7 @@ function sweepOrphans(opts = {}) {
   let deleted = 0, kept = 0;
   let closed = [];
   try { closed = fs.readdirSync(path.join(dir, CLOSED_DIR)).filter((n) => PLAN_FILE.test(n)).map((n) => path.join(CLOSED_DIR, n)); } catch (_) { /* none */ }
-  /* What a managed conversation was last told of its lead supervisor (hooks/steward.py), one file per conversation. */
+  /* The last note each managed conversation got about its lead supervisor (hooks/steward.py), one file each. */
   try { closed = closed.concat(fs.readdirSync(path.join(dir, TOLD_DIR)).filter((n) => PLAN_FILE.test(n)).map((n) => path.join(TOLD_DIR, n))); } catch (_) { /* none */ }
   for (const name of names.concat(closed)) {
     if (!SIDE_FILE.test(path.basename(name))) continue;

@@ -134,9 +134,9 @@ function summarize(file) {
 }
 
 /*
- * The title the list gives a conversation (row() in create()), read from its transcript, or '' when it has none. It is
- * asked while Claude Code creates a tab (src/host.js), so it reads the file in one go, at its head and its tail, as
- * summarize() does.
+ * Reads a conversation's title from its transcript, the one the list gives it in row() of create(), or '' when there is
+ * none. It is asked while Claude Code creates a tab (src/host.js), so it uses summarize(), which reads only the head
+ * and the tail of the file, synchronously.
  */
 function titleOf(sessionId, transcript = transcriptOf) {
   const file = SESSION.test(String(sessionId || '')) ? transcript(sessionId) : '';

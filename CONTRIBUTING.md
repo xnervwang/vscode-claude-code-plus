@@ -93,11 +93,11 @@ These checks cannot catch changes to class names or test ids used by the in-page
 
 ## In a real VS Code window
 
-`.github/workflows/vscode.yml` runs `test/vscode/run.js` on Linux, macOS, and Windows. It runs daily at 09:43 UTC and by hand. Pushes and pull requests run only `.github/workflows/tests.yml`. Before a release, run it by hand on `main` with every step. On a branch, run it by hand with `steps` set to the steps the change touches, or to `suite` for only the suite inside VS Code and `test/check.js`.
+`.github/workflows/vscode.yml` runs `test/vscode/run.js` on Linux, macOS, and Windows. The workflow runs daily at 09:43 UTC. You can also start it by hand. Pushes and pull requests run only `.github/workflows/tests.yml`. Before a release, start `vscode.yml` by hand on `main` and leave `steps` empty to run all window steps. For a manual run on a branch, set `steps` to a regular expression that matches the names of the window steps your change touches (listed in `test/vscode/step-seconds.json`). Set `steps` to `suite` to run only the suite inside VS Code and `test/check.js` when those checks cover your change.
 
 Except for the daily run and manual runs with the `upstream` input set to `newest`, the workflow installs the newest Claude Code build recorded in `supported-versions.json`. `node build/update-versions.js -w` writes that file; see its section below. On the runs that install that build, the workflow builds the Agent Plus `.vsix` from the commit in `test/vscode/agent-plus-commit`. The file contains only the full commit hash. To update Agent Plus, change that file in a commit of its own.
 
-The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". A daily run that fails while a run by hand on the same commit passes means a newer Claude Code or Agent Plus needs a change here. If the scheduled run fails, GitHub sends a notification, but pushes can still proceed.
+The daily run installs the newest Claude Code from the marketplace and builds the Agent Plus `.vsix` from the head of its default branch. Its job names end in ", newest upstream". If the daily run fails, start the workflow by hand on the commit the daily run tested, with the default inputs. If that run passes, the extension needs a change for a newer version of Claude Code or Agent Plus. If the scheduled run fails, GitHub sends a notification, but pushes can still proceed.
 
 In each job, the runner:
 

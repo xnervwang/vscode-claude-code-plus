@@ -12,9 +12,9 @@
  * src/relay.js writes it too, in the window that shows a supervisor: when that supervisor asks to change its own list, and
  * when it ticks a conversation the supervisor has just opened.
  *
- * A conversation can have several supervisors, and each one ticks it on its own, but only one of them leads it: the one
- * that may act on it (src/steward-leads.js). The others observe it. A supervisor has none: a conversation that becomes a
- * supervisor leaves every list it was on.
+ * A conversation can have several supervisors, each of which ticks it on its own. Only its lead may act on it
+ * (src/steward-leads.js); the others observe it. A supervisor has none: a conversation that becomes a supervisor leaves
+ * every list it was on.
  *
  *   { "version": 3, "stewards": { "<supervisor session id>": { "manages": ["<key>", ...],
  *                                                          "ticked": ["<key>", ...],
@@ -35,11 +35,11 @@
  * version and never writes one, so that it does not drop what the later build added.
  *
  * "since" records when the supervisor started managing each conversation, and "allSince" when it turned "All, including
- * new ones" on: the first of the supervisors of a conversation to manage it is the one that leads it when nobody does.
+ * new ones" on: when a conversation has no lead, the supervisor that started managing it first leads it.
  * "tickets" are the take-over questions a supervisor asked the user (src/relay.js), and "rev" counts the writes.
  *
- * Every write happens under the file's lock (src/file-lock.js) and reads the file again inside it, so two windows that
- * change the table at the same moment both keep their change, and a lead is changed once.
+ * Every write takes the file's lock (src/file-lock.js) and reads the file again while holding it, so two windows that
+ * write the table at the same moment both keep their edits, and a lead changes only once.
  *
  * "all" is there only when the user ticked "All, including new ones": the panel in the supervisor's window then keeps
  * "manages" equal to every conversation open in a VS Code window that is no supervisor (src/steward-view.js). "ticked" is
@@ -75,9 +75,9 @@ const MAX_MANAGED = 100;
 const MAX_NAME = 200;
 /* How long to wait for a supervisor's inbox to accept a notice. */
 const POST_TIMEOUT_MS = 3000;
-/* A hand-over the old lead has not finished in this time is made without its note. */
+/* When the old lead has not finished a hand-over within this time, it is made without its note. */
 const HAND_OVER_MS = 10 * 60 * 1000;
-/* A take-over question is answered within this time, or asked again. */
+/* The user's yes to a take-over question counts only within this time of the question. */
 const TICKET_MS = 30 * 60 * 1000;
 
 const ids = (list, not) => [...new Set((Array.isArray(list) ? list : [])
@@ -152,7 +152,7 @@ function settle(entries) {
   return out;
 }
 
-/* The file's JSON, or null when there is none yet or it cannot be read; a read that meets another window's write is
+/* The file's JSON, or null when there is none yet or it cannot be read; a read made during another window's write is
    tried again until that write is done (file-lock.js readWhole). */
 function parse(dir) {
   return readWhole(path.join(dir, FILE));
@@ -169,7 +169,7 @@ function newer(dir = planDir()) {
   return d && typeof d.version === 'number' && d.version > VERSION ? d.version : 0;
 }
 
-/* The file's shape of `table`. */
+/* `table` as the file stores it. */
 function stewardsOut(table) {
   const out = {};
   for (const [id, v] of Object.entries(table)) {
@@ -210,17 +210,18 @@ let leadListeners = [];
 function onLeadChange(fn) { leadListeners.push(fn); return { dispose: () => { leadListeners = leadListeners.filter((f) => f !== fn); } }; }
 
 /*
- * Reads the table, applies `change` to it and writes it back, all under the file's lock. `change(state)` gets
- * { table, leads, tickets } (the table settled, the leads as read) and may change any of them in place or return a new
- * table. The leads are then worked out again (steward-leads.js plan) with `opened` (key -> supervisor) for a
- * conversation a supervisor has just opened, and hand-overs past HAND_OVER_MS are made. The file is written only when
- * something changed. Returns { table, leads, tickets, changes, wrote }, or the state as read when the file is of a
- * later version, which this build never writes.
+ * Reads the table, applies `change` to it and writes it back, all under the file's lock. `change(state)` gets { table,
+ * leads, tickets } (the table settled, the leads as read) and may change any of them in place or return a new table.
+ * steward-leads.js plan then works the leads out again, with `opened` mapping each conversation a supervisor has just
+ * opened to that supervisor, and hand-overs pending for longer than HAND_OVER_MS are made without their note. The file
+ * is written only when something changed. Returns { table, leads, tickets, changes, wrote }, or the state as read when
+ * the file is of a later version, which this build never writes.
  */
 function update(dir = planDir(), change = () => {}, opts = {}) {
   for (let tries = 0; ; tries++) {
     try { return updateOnce(dir, change, opts); } catch (e) {
-      /* Another window took the lock over from this one, which was too slow; its change was not written, so it is made again. */
+      /* Another window took the lock over from this one, which was too slow, so this window's change was not
+         written; it is made again. */
       if (!(e instanceof LockLost) || tries >= 2) throw e;
     }
   }
@@ -244,7 +245,8 @@ function updateOnce(dir, change, { now = Date.now(), opened = {} } = {}) {
       if (!e.pending || now - e.pending.at < HAND_OVER_MS) continue;
       const to = e.pending.to;
       state.leads[k] = { lead: to, term: e.term + 1, at: now, why: e.pending.by === 'panel' ? 'panel' : 'takeover', was: e.lead };
-      /* A note that was on its way may have arrived; the new lead's first message then says nothing of how it came. */
+      /* A note that was on its way may have arrived, so the new lead's first message does not say how it got the
+         conversation. */
       if (!e.pending.sending) state.leads[k].intro = 'unhanded';
       else state.leads[k].handed = true;
       if (e.tell) state.leads[k].tell = e.tell;
@@ -272,10 +274,10 @@ function updateOnce(dir, change, { now = Date.now(), opened = {} } = {}) {
 }
 
 /*
- * The user's choice in the Supervisor panel that `sup` lead `key`. As with a take-over the user agreed to in a
+ * Makes `sup` the lead of `key`, as the user chose in the Supervisor panel. As with a take-over the user agreed to in a
  * supervisor conversation (src/relay.js takeLead), a lead that is alive hands the conversation over first (the caller
- * tells it to); one that is gone, or none, gives it at once. Returns { outcome: 'lead' | 'pending' | 'refused', reason,
- * lead }, where `lead` is the lead before.
+ * tells it to); when the lead is gone, or there is none, the conversation changes hands at once. Returns { outcome:
+ * 'lead' | 'pending' | 'refused', reason, lead }, `lead` being the lead it had before.
  */
 function takeLead(dir, key, sup, { by = 'panel', now = Date.now() } = {}) {
   let out = { outcome: 'refused', reason: 'that supervisor does not manage the conversation', lead: '' };
@@ -346,7 +348,7 @@ function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now
     { now, opened: key ? { [key]: id } : {} }).table;
 }
 
-/* setManaged's change to `all`, the settled table, which it returns. */
+/* Applies setManaged's change to `all`, the settled table, and returns it. */
 function setIn(all, id, list, names, { now, every, ticked, paths, title, later, before }) {
   const was = all[id];
   const keepAll = typeof every === 'boolean' ? every : !!(was && was.all);
