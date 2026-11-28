@@ -179,9 +179,11 @@ function projectOf(dir, folder) {
  *   elsewhere()                   Map of session id to { elsewhere, processes } (src/claude-elsewhere.js)
  *   isSteward(sessionId)
  *   open(sessionId, where)        Promise; opens it in a tab or the sidebar of this window
- *   create(where)                 Promise<session id or ''>
+ *   create(where, { temporary })  Promise<session id, '', or { refused: reason }>; a temporary one is registered by
+ *                                 this extension once it has an id (src/temporary.js)
  *   rename(sessionId, title)      Promise<{ outcome, reason }>
- *   remove(sessionIds)            Promise<[{ sessionId, outcome, reason }]>
+ *   remove(sessionIds, { temporary })  Promise<[{ sessionId, outcome, reason }]>; with temporary, only conversations
+ *                                 Agent Plus holds as temporary, and their scratch session folders too
  *   describe(sessionIds)          Promise<[{ sessionId, what }]>
  *   officialLists()               { archived, groups } from Claude Code, or null while it cannot be read
  *   pinned(), colors()            this extension's pins and title colours
@@ -315,7 +317,8 @@ function create(deps) {
       };
       if (action === 'open') return each((id) => deps.open(id, where).then(() => ({})));
       if (action === 'create') {
-        const r = await call(() => deps.create(where));
+        const r = await call(() => deps.create(where, { temporary: !!args && args.temporary === true }));
+        if (r && typeof r.refused === 'string') return { results: [{ sessionId: '', outcome: 'refused', reason: r.refused }] };
         return { results: [r && r.error ? { sessionId: '', outcome: 'failed', reason: r.error } : { sessionId: typeof r === 'string' ? r : '', outcome: 'done', reason: '' }] };
       }
       if (action === 'rename') {
@@ -328,7 +331,7 @@ function create(deps) {
         });
       }
       if (action === 'delete') {
-        const r = await call(() => deps.remove(ids));
+        const r = await call(() => deps.remove(ids, { temporary: !!args && args.temporary === true }));
         if (r && r.error) return { results: ids.map((id) => ({ sessionId: id, outcome: 'failed', reason: r.error })) };
         return { results: Array.isArray(r) ? r : [] };
       }

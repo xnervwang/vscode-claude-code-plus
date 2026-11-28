@@ -432,11 +432,12 @@ function createClaudeSource(deps) {
     protocol: PROTOCOL,
     /* 'brief': Agent Plus shows the conversation's brief when its row is clicked. 'shows': it asks shows(). 'stewards'
        and 'stewardList': it asks stewardOf() and stewardsOf(), for any agent's conversation. 'prefill': its Work plan
-       view's rows get a pen that calls prefill(). */
+       view's rows get a pen that calls prefill(). 'temporary': the session list's create and delete take temporary,
+       and the tab of a temporary conversation is marked (src/temporary.js). */
     get features() {
       const on = enabled();
       return ['shows'].concat(on && briefOn() ? ['brief'] : [], on && typeof deps.stewardsOf === 'function' ? ['stewards', 'stewardList'] : [],
-        prefills ? ['prefill'] : [], list ? LIST_FEATURES : []);
+        prefills ? ['prefill'] : [], list ? LIST_FEATURES : [], list && typeof deps.temporary === 'function' && deps.temporary() ? ['temporary'] : []);
     },
     id: ID,
     label: 'Claude Code',

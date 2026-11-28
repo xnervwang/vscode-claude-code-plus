@@ -48,7 +48,8 @@ const tokenMode = require('./src/token-mode');
 const noticeTime = require('./src/notice-time');
 const waiting = require('./src/waiting');
 const waitingFor = require('./src/waiting-for');
-const { createClaudeSource, isPanelTab, ANSWER_GO_WAIT_MS, ANSWER_SEND_MS } = require('./src/claude-source');
+const { createClaudeSource, isPanelTab, ANSWER_GO_WAIT_MS, ANSWER_SEND_MS, ID: CLAUDE_SOURCE_ID } = require('./src/claude-source');
+const temporaryConversations = require('./src/temporary');
 const { agentOfTab } = require('./src/other-agents');
 const coreLink = require('./src/core-link');
 const hookSettings = require('./src/hook-settings');
@@ -857,6 +858,13 @@ function start(context, log, renamed, handing = false) {
   const sessionTotals = sessionTotalsOf.create({ changed: () => { sessionList.accountChanged(); } });
   globalThis.__cceSessionTotalsHook = (id, totals) => { try { sessionTotals.note(id, totals); } catch (_) { /* the next report */ } };
   const effortFiles = (id) => installs(webview, true).map((d) => path.join(d, 'webview', webview.EFFORT_PREFIX + id + '.css'));
+  /* Temporary conversations (src/temporary.js). Agent Plus's exports arrive once it registers this extension's source. */
+  const temporary = temporaryConversations.create({ core: () => agentCore, sourceId: CLAUDE_SOURCE_ID, log: (line) => log.appendLine(line) });
+  const scratchOf = (id) => {
+    let names = [];
+    try { names = fs.readdirSync(path.join(claudeDir(), 'scratch')); } catch (_) { names = []; }
+    return temporaryConversations.scratchDirs(claudeDir(), names, id);
+  };
   /* Through the panel showing it, so its CLI hears of it too; otherwise in its transcript, which no process has open. */
   const renameAnywhere = async (id, title) => {
     if (claude.source.canDeliver(id)) {
@@ -886,26 +894,40 @@ function start(context, log, renamed, handing = false) {
     isSteward: (id) => enabled() && !removed() && stewardMarks.stewardIds(stewardTable()).includes(String(id).toLowerCase()),
     open: (id, where) => vscode.commands.executeCommand('claude-vscode.editor.open', id, undefined, undefined, undefined, AS_FULL_EDITOR,
       { programmatic: where === 'sidebar' ? 'cce-pin-to-sidebar' : 'pin-to-panel' }),
-    /* A new conversation has no id until its first message is sent, so the core is answered without one. */
-    create: async (where) => {
-      await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, AS_FULL_EDITOR,
-        { programmatic: where === 'sidebar' ? 'cce-pin-to-sidebar' : 'pin-to-panel' });
+    /* A new conversation has no id until its first message is sent, so the core is answered without one. A temporary
+       one is registered once its panel has that id (src/temporary.js); the sidebar shows one conversation after
+       another in the same view, so a new one there cannot be told apart, and it is refused. */
+    create: async (where, { temporary: temp = false } = {}) => {
+      if (temp && where === 'sidebar') return { refused: 'Claude Code Plus starts a temporary conversation only in a tab' };
+      if (temp && !temporary.available()) return { refused: 'Agent Plus has no temporary conversations' };
+      if (temp) temporary.arm();
+      try {
+        await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, AS_FULL_EDITOR,
+          { programmatic: where === 'sidebar' ? 'cce-pin-to-sidebar' : 'pin-to-panel' });
+      } finally {
+        if (temp) setTimeout(() => temporary.disarm(), 1000);
+      }
       return '';
     },
     rename: (id, title) => renameAnywhere(id, title),
-    remove: async (ids) => {
+    remove: async (ids, { temporary: temp = false } = {}) => {
+      /* The delete Agent Plus asks for once a temporary conversation's grace period is over: only one it holds as
+         temporary, and its scratch session folder as well. */
+      const refusedNow = temp ? ids.filter((id) => !temporary.isTemporary(id)) : [];
+      if (temp) ids = ids.filter((id) => temporary.isTemporary(id));
       let shown;
       try { shown = typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown() : null; } catch (_) { shown = null; }
       const results = claudeSessionList.deleteChecked(ids, {
         shown, running: deleteSession.runningSessions(), elsewhere: deleteSession.shownElsewhere(planDir()),
-        findAll: (want) => deleteSession.findAll(want, { planDir: planDir(), extra: effortFiles }),
+        findAll: (want) => deleteSession.findAll(want, { planDir: planDir(), extra: temp ? (id) => effortFiles(id).concat(scratchOf(id)) : effortFiles }),
         remove: (found) => deleteSession.remove(found),
         forget: (id) => {
           try { sessionPins.setPinned(pinsFile(), id, false); } catch (_) { /* not pinned */ }
           try { sessionColors.setColor(colorsFile(), [id], null); } catch (_) { /* not coloured */ }
         },
       });
-      for (const r of results) log.appendLine(`session list: deleting ${r.sessionId}: ${r.outcome}${r.reason ? ` (${r.reason})` : ''}`);
+      for (const id of refusedNow) results.push({ sessionId: id, outcome: 'refused', reason: 'Agent Plus does not hold it as a temporary conversation' });
+      for (const r of results) log.appendLine(`session list: deleting ${r.sessionId}${temp ? ' (temporary)' : ''}: ${r.outcome}${r.reason ? ` (${r.reason})` : ''}`);
       try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* the panels catch up */ }
       sessionList.changed();
       return results;
@@ -968,6 +990,7 @@ function start(context, log, renamed, handing = false) {
     timeZone: () => clientZone(),
     isSteward: (id) => enabled() && !removed() && stewardMarks.stewardIds(stewardTable()).includes(String(id).toLowerCase()),
     stewardsOf: (sourceId, sessionId) => (enabled() && !removed() ? stewardsOfKey(stewardKeys.keyOf(sourceId, sessionId)) : []),
+    temporary: () => !removed(),
     typed: (text) => relay.noteTyped(planDir(), text),
     listAgents: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders()), undefined,
       { file: path.join(planDir(), AGENTS_FILE), ms: AGENTS_SHARE_MS, write: !replaced() && !uninstalling() }),
@@ -1179,6 +1202,7 @@ function start(context, log, renamed, handing = false) {
   globalThis.__cceResume = (id, text, loadMs) => resumeConversation(id, text, loadMs);
   context.subscriptions.push({ dispose: () => { delete globalThis.__cceResume; } });
   const steward = stewardView.create(vscode, {
+    makeTemporary: (id) => temporary.register(id, 'supervisor'),
     activeChat, freshAgents: () => claude.freshAgents(), readPlan, titles: readTitles.titles, since: readTitles.since,
     agentsFresh: () => waiting.listAgents(pluginInstall.findClaude(claudeFolders())), resume: resumeConversation,
     live: () => hostStates(), unread: () => unreadKeys, reveal: (sessionId) => claude.source.reveal(sessionId), shownHere,
@@ -1403,6 +1427,15 @@ function start(context, log, renamed, handing = false) {
     agentCore = r.core;
     decideWaits();
     decideReopen();
+    /* A conversation registered as temporary, or kept by the user, changes its tab's hourglass and Claude Code's own list. */
+    if (r.core && typeof r.core.onDidChangeTemporary === 'function') {
+      try {
+        context.subscriptions.push(r.core.onDidChangeTemporary(() => {
+          try { if (typeof globalThis.__cceRefreshTabIcons === 'function') globalThis.__cceRefreshTabIcons(); } catch (_) { /* next change */ }
+          try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
+        }));
+      } catch (e) { log.appendLine('temporary conversations: ' + ((e && e.message) || e)); }
+    }
     claude.refocus();
     links.attach(r.core);
     planBar.attach(r.core);
@@ -1724,17 +1757,26 @@ function start(context, log, renamed, handing = false) {
   globalThis.__cceTabIcon = (panel, state, run, home, sessionId, unread) => {
     try {
       claude.track(panel, sessionId);
-      const title = tabdot.withoutMark(panel.title);
-      if (panel.title !== title) panel.title = title;
-      if (typeof sessionId === 'string' && sessionId) {
+      const has = typeof sessionId === 'string' && !!sessionId;
+      if (state === 'plain' && !has) temporary.setUp(panel);
+      if (has) temporary.seen(panel, sessionId);
+      let title = tabdot.withoutMark(panel.title);
+      if (has) {
         const on = enabled() && !removed();
         const t = on ? stewardTable()[sessionId.toLowerCase()] : null, unseen = on && unread === true;
-        const named = t || unseen || stewardMarks.withoutMarks(panel.title) !== panel.title ? readTitles.titles({ sessionId }) || {} : {};
-        const next = stewardMarks.tabTitle(panel.title, stewardTabs.get(panel) || null, named.custom, t ? stewardMarks.size(t) : 0,
+        const named = t || unseen || stewardMarks.withoutMarks(title) !== title ? readTitles.titles({ sessionId }) || {} : {};
+        const next = stewardMarks.tabTitle(title, stewardTabs.get(panel) || null, named.custom, t ? stewardMarks.size(t) : 0,
           named.custom || named.ai, unseen, envelope.envelope(vscode));
+        title = next.title;
         if (next.kept) stewardTabs.set(panel, next.kept); else stewardTabs.delete(panel);
-        if (panel.title !== next.title) panel.title = next.title;
       }
+      /* The hourglass goes first, after the other marks are worked out; the title is set once, so it does not flicker. */
+      if (temporary.marks(panel, sessionId)) {
+        title = titleMarks.withTemporary(title);
+        const kept = stewardTabs.get(panel);
+        if (kept) stewardTabs.set(panel, Object.assign({}, kept, { shown: title }));
+      } else if (titleMarks.withoutMarks(title) !== title && title.startsWith(titleMarks.HOURGLASS)) title = titleMarks.withoutMarks(title);
+      if (panel.title !== title) panel.title = title;
       if (!enabled() || removed() || typeof home !== 'string') return undefined;
       const host = state === 'pending' || run === 'waiting_input' ? 'waiting'
         : run === 'running' || bgWorking.has(sessionId) ? 'running' : 'idle';
@@ -1808,13 +1850,15 @@ function start(context, log, renamed, handing = false) {
     const t0 = Date.now();
     const listed = showBackground() ? bgSessions.withoutDaemons(entries, cwd) : bgSessions.withoutBackground(entries, cwd);
     const out = enabled() ? stewardMarks.cleaned(listed) : listed;
+    /* A temporary conversation is in no session list (src/temporary.js), Claude Code's own included. */
+    const kept = Array.isArray(out) ? out.filter((e) => !(e && typeof e.sessionId === 'string' && temporary.isTemporary(e.sessionId))) : out;
     const ms = Date.now() - t0;
     if (listsLogged < 8 || ms >= 200) {
       listsLogged++;
       log.appendLine(`${new Date().toISOString().slice(11, 23)} session list built: ${Array.isArray(entries) ? entries.length : '?'} sessions, `
-        + `${Array.isArray(out) ? out.length : '?'} shown, ${ms} ms in this extension`);
+        + `${Array.isArray(kept) ? kept.length : '?'} shown, ${ms} ms in this extension`);
     }
-    return out;
+    return kept;
   };
   const keepFirst = setTimeout(keepPinned, 60000);
   const keepTimer = setInterval(keepPinned, 30 * 60000);

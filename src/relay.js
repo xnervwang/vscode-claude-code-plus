@@ -62,12 +62,13 @@
  * it does this, if that window may write the table (writesTable in src/steward-view.js); a supervisor of all
  * conversations gets the tick too, which would otherwise wait for the next pass of the panel in its own window.
  *
- *   <plan dir>/relay/<id>.v4.json       { id, steward, from, action, to, text, confirmed, ask, term, seq, at }
+ *   <plan dir>/relay/<id>.v4.json       { id, steward, from, action, to, text, confirmed, ask, temp, term, seq, at }
  *                                       written by steward-relay.py (an older script wrote <id>.json, with no term)
  *   <plan dir>/relay/<id>.taken-<pid>   the request, claimed by window <pid> with a rename
  *   <plan dir>/relay/<id>.doing-<pid>   the same once the window has started to act on the conversation
  *   <plan dir>/relay/<id>.opening       the window process opening conversation <id> for a resume
- *   <plan dir>/relay/<id>.result.json   { outcome, reason, sessionId, opened, ticked, window, steward, stewardTitle }
+ *   <plan dir>/relay/<id>.result.json   { outcome, reason, sessionId, opened, ticked, temporary, temporaryReason, window,
+ *                                       steward, stewardTitle }
  *                                       read and removed by steward-relay.py
  *   <plan dir>/relay/sent.json          { "<asker> <to> <tool call id> <action>": <ms> }
  *   <plan dir>/relay/sends.json         { "<key>": [{ steward, title, at, text }] }, the last SENDS_KEEP_MS
@@ -140,11 +141,11 @@ const RESUME_RETRY_MS = 1000;
  * supervisor's, or for a handoff that of the conversation handing off. It must be the asker's own, not a subagent's, at
  * most RAN_MS old, and its command must contain `to` (a session id; for `open`, the folder; for `take` and `drop`, what
  * the supervisor named), the text and each of `also`; the line that runs the script must carry the flag of `action` and none of the
- * others, with --confirmed when `confirmed` is set and, for a switch, the value right after the flag. A subagent's call
+ * others, with --confirmed when `confirmed` is set, --temp when `temp` is, and, for a switch, the value right after the flag. A subagent's call
  * that would otherwise match sets found.sidechain. Claude Code writes a tool call to the transcript before running it,
  * so the call is already there while the script waits for an answer.
  */
-function ranBy(file, to, text, now = Date.now(), action = 'send', confirmed = false, found = {}, also = [], ask = null) {
+function ranBy(file, to, text, now = Date.now(), action = 'send', confirmed = false, found = {}, also = [], ask = null, temp = false) {
   let tail = '';
   let fd;
   try {
@@ -172,6 +173,7 @@ function ranBy(file, to, text, now = Date.now(), action = 'send', confirmed = fa
       const line = c.slice(c.lastIndexOf('\n', c.indexOf(SCRIPT)) + 1).split('\n')[0];
       if (Object.entries(FLAGS).some(([a, flag]) => new RegExp(`(^|\\s)${flag}(\\s|$)`).test(line) !== (a === action))) continue;
       if (confirmed && !line.includes(CONFIRMED)) continue;
+      if (temp && !/(^|\s)--temp(\s|$)/.test(line)) continue;
       if (ask !== null && new RegExp(`(^|\\s)${ASK}(\\s|$)`).test(line) !== ask) continue;
       if (SWITCHES.includes(action) && !new RegExp(`(^|\\s)${FLAGS[action]}\\s+${to}(\\s|$)`).test(line)) continue;
       if (r.isSidechain) { found.sidechain = true; continue; }
@@ -872,17 +874,19 @@ async function carryOut(req, action, to, dir, deps, now, begin = () => {}) {
   const { text, why } = listing || archiving || action === 'take-lead' ? { text: '' } : textFor(action === 'hand-over' ? 'send' : action, req.text);
   if (why) return { outcome: 'refused', reason: why };
   const confirmed = action === 'close' && req.confirmed === true;
+  /* Only a conversation opened new can start out temporary; an existing one is made temporary by the user alone. */
+  if (req.temp === true && action !== 'open') return { outcome: 'refused', reason: 'only a new conversation opened with --open can be temporary' };
   const file = deps.transcriptOf(asker);
   const seen = {};
   const needle = action === 'rename' ? String(req.text || '').trim() : text;
   const ask = action === 'take-lead' ? req.ask === true : null;
   /* A hand-off's command names no conversation: the one asking is the conversation itself, and `to` is its lead. */
   const named = handoff ? '' : to;
-  let call = file ? ranBy(file, named, needle, now, action, confirmed, seen, ids, ask) : null;
+  let call = file ? ranBy(file, named, needle, now, action, confirmed, seen, ids, ask, req.temp === true) : null;
   const sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   for (let i = 0; file && !call && i < RAN_WAITS_MS.length; i++) {
     await sleep(RAN_WAITS_MS[i]);
-    call = ranBy(file, named, needle, deps.now ? deps.now() : Date.now(), action, confirmed, seen, ids, ask);
+    call = ranBy(file, named, needle, deps.now ? deps.now() : Date.now(), action, confirmed, seen, ids, ask, req.temp === true);
   }
   if (!call && (listing || archiving) && seen.sidechain) {
     return { outcome: 'refused', reason: archiving ? 'a subagent ran it; only the supervisor conversation itself, at the user\'s request, archives conversations'
@@ -979,6 +983,17 @@ async function carryOut(req, action, to, dir, deps, now, begin = () => {}) {
   if (r && typeof r.sessionId === 'string' && r.sessionId) out.sessionId = r.sessionId;
   if (r && r.opened === true) out.opened = true;
   if (ticked) out.ticked = true;
+  /* A conversation opened with `temp` is registered with Agent Plus as temporary once it has its id (src/temporary.js). */
+  if (action === 'open' && req.temp === true) {
+    let made = null;
+    if (!opened) made = { ok: false, reason: 'its session id was not known' };
+    else if (!deps.makeTemporary) made = { ok: false, reason: 'this window cannot make a conversation temporary' };
+    else {
+      try { made = await deps.makeTemporary(opened); } catch (e) { made = { ok: false, reason: (e && e.message) || String(e) }; }
+    }
+    out.temporary = !!(made && made.ok === true);
+    if (!out.temporary) out.temporaryReason = (made && made.reason) || 'Agent Plus did not say why';
+  }
   if (r && Array.isArray(r.results)) out.results = r.results.concat(others);
   else if (others.length) out.results = others;
   if (r && typeof r.steward === 'string' && r.steward) { out.steward = r.steward; out.stewardTitle = r.stewardTitle || ''; }

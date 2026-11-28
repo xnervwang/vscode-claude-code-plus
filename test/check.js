@@ -8286,7 +8286,7 @@ console.log('\ndeleting an archived conversation');
     } finally { fs.rmSync(wroot, { recursive: true, force: true }); }
     const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
     if (/const results = claudeSessionList\.deleteChecked\(ids, \{\s*shown, running: deleteSession\.runningSessions\(\), elsewhere: deleteSession\.shownElsewhere\(planDir\(\)\),/.test(ext)
-        && /findAll: \(want\) => deleteSession\.findAll\(want, \{ planDir: planDir\(\), extra: effortFiles \}\)/.test(ext)) {
+        && /findAll: \(want\) => deleteSession\.findAll\(want, \{ planDir: planDir\(\), extra: (?:temp \? \(id\) => effortFiles\(id\)\.concat\(scratchOf\(id\)\) : )?effortFiles \}\)/.test(ext)) {
       ok('a delete from Agent Plus\'s session list checks once more whether this window, another window or a running process has each conversation, then removes the files found for it');
     } else bad('extension.js does not check open conversations before a delete from the session list');
   }
@@ -15355,10 +15355,10 @@ console.log('\nthe token mode');
       ok('in Custom each feature follows its own setting, and no mode writes those settings');
     } else bad(`custom ${JSON.stringify(h.custom)}, all ${JSON.stringify(h.allAgain)}, custom again ${JSON.stringify(h.customAgain)}, writes ${JSON.stringify(r.updates)}`);
     const f = r.features || {}, d = r.redraws || {};
-    const LIST = ',"sessions","sessionImport","accountInfo","sessionSeen","sessionClose","sessionsNotice"]';
+    const LIST = ',"sessions","sessionImport","accountInfo","sessionSeen","sessionClose","sessionsNotice","temporary"]';
     if (f.interface === '["shows","prefill"' + LIST && f.essential === '["shows","stewards","stewardList","prefill"' + LIST
         && f.all === '["shows","brief","stewards","stewardList","prefill"' + LIST && d.interface > 0 && d.essential > 0 && d.all > 0) {
-      ok('the brief is offered to Agent Plus only in a mode that runs it, and supervisors only in one that runs the work plan, prefill and the session list in every mode, and every change of mode redraws its list');
+      ok('the brief is offered to Agent Plus only in a mode that runs it, and supervisors only in one that runs the work plan, prefill, the session list and its temporary conversations in every mode, and every change of mode redraws its list');
     } else bad(`features ${JSON.stringify(f)}, redraws ${JSON.stringify(d)}`);
     const told = r.told || [];
     if (told.length === 1 && /^Claude Code Plus: the token mode is Essential features, so claudeCodePlus\.conversationBrief has no effect/.test(told[0][0])
@@ -15762,6 +15762,152 @@ const repo = path.join(__dirname, '..');
   await require('./shared-copies.js')(t, repo);
   console.log('\nthe package');
   await require('./pack-check.js')(t, repo);
+
+  /* ── temporary conversations ──
+     Claude Code's part of Agent Plus's temporary conversations (src/temporary.js): the panel Claude Code sets up while a
+     temporary open is armed is the new one, and it is registered with Agent Plus once it reports its session id; the
+     session list's create and delete pass temporary on; a supervisor's open with temp is registered by 'supervisor' and
+     only with --temp in the command that ran the script. */
+  console.log('\ntemporary conversations');
+  {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-temporary-')));
+    try {
+    const tmod = require('../src/temporary');
+    const TS = (n) => `7e7e7e7e-0000-4000-8000-00000000000${n}`;
+    const held = new Set(), asked = [], logs = [];
+    let coreNow = {
+      features: ['temporary'],
+      isTemporary: (source, id) => source === 'claude-code' && held.has(id),
+      addTemporary: async (source, id, o) => {
+        asked.push([source, id, o && o.by]);
+        if (id === TS(9)) return { ok: false, reason: 'the session list saw a user message from it 5 minutes ago' };
+        held.add(id);
+        return { ok: true };
+      },
+    };
+    const t = tmod.create({ core: () => coreNow, sourceId: 'claude-code', log: (l) => logs.push(l) });
+    const p1 = { n: 1 }, p2 = { n: 2 }, p3 = { n: 3 }, p4 = { n: 4 };
+    const unarmed = t.setUp(p1, 1000);
+    t.arm(1000);
+    const armed = t.setUp(p2, 1500), second = t.setUp(p3, 1600);
+    t.arm(2000);
+    const late = t.setUp(p4, 2000 + tmod.ARM_MS + 1);
+    t.arm(3000);
+    t.disarm();
+    const disarmed = t.setUp(p4, 3001);
+    const beforeId = [t.marks(p2, ''), t.marks(p1, ''), t.marks(p3, '')];
+    const registered = await t.seen(p2, TS(1));
+    const again = t.seen(p2, TS(1)), other = t.seen(p1, TS(2));
+    const afterId = [t.marks({}, TS(1)), t.marks(p2, TS(1)), t.isTemporary(TS(2))];
+    const refused = await t.register(TS(9), 'supervisor');
+    const byNow = asked.slice();
+    coreNow = { features: [] };
+    const without = [t.available(), t.isTemporary(TS(1)), await t.register(TS(3), 'source')];
+    eq([unarmed, armed, second, late, disarmed, beforeId, registered, again, other, afterId, refused, byNow, without],
+      [false, true, false, false, false, [true, false, false], { ok: true, reason: '' }, null, null, [true, true, false],
+        { ok: false, reason: 'the session list saw a user message from it 5 minutes ago' },
+        [['claude-code', TS(1), 'source'], ['claude-code', TS(9), 'supervisor']],
+        [false, false, { ok: false, reason: 'Agent Plus has no temporary conversations' }]],
+      'only the first panel set up while a temporary open is armed, and not after the arm expires or is withdrawn, is the new temporary one; it is marked before it has an id, '
+        + 'registered with Agent Plus by \'source\' when it reports one, and once only; a supervisor\'s registration goes by \'supervisor\' and Agent Plus\'s refusal comes back with its reason; '
+        + 'with an Agent Plus without temporary conversations nothing is temporary');
+    eq(tmod.scratchDirs('/h/.claude', ['-w-proj', '-w-lib'], TS(1)), [path.join('/h/.claude', 'scratch', '-w-proj', TS(1)), path.join('/h/.claude', 'scratch', '-w-lib', TS(1))],
+      'a temporary conversation\'s delete also takes its scratch session folder under each project folder');
+
+    /* The session list passes temporary on to create and remove, and a refusal comes back as one. */
+    const csl = require('../src/claude-session-list');
+    const made = [], removed = [];
+    const tlist = csl.create({ projects: () => path.join(root, 'temp-projects'), state: () => null, elsewhere: () => new Map(), isSteward: () => false,
+      open: async () => {}, rename: async () => ({ outcome: 'submitted' }), describe: async () => [],
+      create: async (where, o) => { made.push([where, o]); return where === 'sidebar' && o.temporary ? { refused: 'Claude Code Plus starts a temporary conversation only in a tab' } : ''; },
+      remove: async (ids, o) => { removed.push([ids, o]); return ids.map((id) => ({ sessionId: id, outcome: 'done', reason: '' })); },
+      officialLists: () => null, pinned: () => [], colors: () => ({}), setUnread: () => {}, totals: () => [], front: () => '', titleOf: () => '', notice: () => null });
+    const res = (r) => r.results.map((x) => [x.sessionId, x.outcome, x.reason]);
+    eq([res(await tlist.runSessionAction('create', [], { where: 'tab', temporary: true })),
+      res(await tlist.runSessionAction('create', [], { where: 'sidebar', temporary: true })),
+      res(await tlist.runSessionAction('create', [], { where: 'tab' })),
+      res(await tlist.runSessionAction('delete', [TS(1)], { temporary: true })), made, removed],
+    [[['', 'done', '']], [['', 'refused', 'Claude Code Plus starts a temporary conversation only in a tab']], [['', 'done', '']], [[TS(1), 'done', '']],
+      [['tab', { temporary: true }], ['sidebar', { temporary: true }], ['tab', { temporary: false }]], [[[TS(1)], { temporary: true }]]],
+    'create and delete hand temporary to the window, and a temporary create the window refuses comes back refused with its reason');
+
+    /* The window: a temporary create is armed, a sidebar one refused; a temporary delete only for what Agent Plus holds,
+       with the scratch folder; the hourglass goes on the tab's title after the other marks; Claude Code's own list leaves
+       temporary conversations out; the source lists 'temporary'. */
+    const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+    const create = (() => { const a = ext.indexOf('    create: async (where, { temporary: temp = false } = {}) => {'); return a < 0 ? '' : ext.slice(a, ext.indexOf('\n    },\n', a)); })();
+    const remove = (() => { const a = ext.indexOf('    remove: async (ids, { temporary: temp = false } = {}) => {'); return a < 0 ? '' : ext.slice(a, ext.indexOf('\n    },\n', a)); })();
+    const icon = (() => { const a = ext.indexOf('globalThis.__cceTabIcon = '); return a < 0 ? '' : ext.slice(a, ext.indexOf('if (!enabled() || removed() || typeof home', a)); })();
+    eq([/where === 'sidebar'\) return \{ refused: /.test(create), /temporary\.arm\(\);/.test(create) && /temporary\.disarm\(\)/.test(create),
+      /ids\.filter\(\(id\) => !temporary\.isTemporary\(id\)\)/.test(remove) && /concat\(scratchOf\(id\)\)/.test(remove),
+      /state === 'plain' && !has\) temporary\.setUp\(panel\)/.test(icon) && /if \(has\) temporary\.seen\(panel, sessionId\)/.test(icon)
+        && /titleMarks\.withTemporary\(title\)/.test(icon) && (icon.match(/panel\.title = /g) || []).length === 1,
+      /temporary\.isTemporary\(e\.sessionId\)/.test(ext), /makeTemporary: \(id\) => temporary\.register\(id, 'supervisor'\)/.test(ext),
+      /onDidChangeTemporary\(/.test(ext)],
+    [true, true, true, true, true, true, true],
+    'the window arms a temporary create and refuses one in the sidebar, deletes as temporary only what Agent Plus holds as temporary, with its scratch folder, '
+      + 'marks the tab of a new temporary panel and registers it on its id, setting the title once, leaves temporary conversations out of Claude Code\'s own list, '
+      + 'registers a supervisor\'s temporary open, and redraws when Agent Plus\'s temporary conversations change');
+    /* In a child process: the source requires vscode, which a stub stands in for. */
+    const vstub = path.join(root, 'temp-vscode-stub.js');
+    fs.writeFileSync(vstub, 'module.exports = { TabInputWebview: class { constructor(v) { this.viewType = v; } } };');
+    const fscript = `
+      const Module = require('module'), realResolve = Module._resolveFilename;
+      Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(vstub)} : realResolve.call(this, request, ...rest); };
+      const C = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+      const of = (temporary, sessionList) => {
+        const c = C.createClaudeSource({ planDir: () => '/plans', enabled: () => false, sessionList, temporary });
+        return (c.source || c).features.includes('temporary');
+      };
+      const list = {};
+      process.stdout.write(JSON.stringify([of(() => true, list), of(() => false, list), of(undefined, list), of(() => true, null)]));`;
+    let fgot;
+    try { fgot = JSON.parse(cp.execFileSync(process.execPath, ['-e', fscript], { encoding: 'utf8', timeout: 30000 })); }
+    catch (e) { fgot = String(e.message).slice(0, 300); }
+    eq(fgot, [true, false, false, false],
+      'the Claude Code source lists \'temporary\', with its session list and in every mode, while this extension takes temporary creates and deletes');
+
+    /* A supervisor's open with temp: registered by 'supervisor' when --temp is on the command line, and refused for any
+       other action. */
+    const tdir = path.join(root, 'temp-relay'), ttr = path.join(root, 'temp-relay-transcripts');
+    fs.mkdirSync(path.join(tdir, 'relay'), { recursive: true });
+    fs.mkdirSync(ttr, { recursive: true });
+    const nowT = Date.now(), sup = TS(5), tfile = path.join(ttr, sup + '.jsonl');
+    const callT = (uuid, id, command) => JSON.stringify({ type: 'assistant', uuid, timestamp: new Date(nowT - 20000).toISOString(), isSidechain: false,
+      message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command, description: 'x' } }] } });
+    const pyT = 'python3 /p/hooks/steward-relay.py';
+    fs.writeFileSync(tfile, [callT('t1', 'toolu_t1', `${pyT} --open /w/proj --temp <<'EOF'\nCheck the disk use once\nEOF`),
+      callT('t2', 'toolu_t2', `${pyT} --open /w/proj <<'EOF'\nPort the reader\nEOF`),
+      callT('t3', 'toolu_t3', `${pyT} --open /w/proj --temp <<'EOF'\nOne more check\nEOF`)].join('\n') + '\n');
+    const out = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+      const fs = require('fs'), path = require('path');
+      const relay = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'relay.js'))});
+      const dir = ${JSON.stringify(tdir)}, sup = ${JSON.stringify(sup)}, now = ${nowT};
+      const R = (n) => 'cccccccc-0000-4000-8000-00000000000' + n, S = (n) => '7e7e7e7e-0000-4000-8000-00000000000' + n;
+      const put = (id, req) => fs.writeFileSync(path.join(dir, relay.RELAY_DIR, id + '.json'), JSON.stringify(Object.assign({ id, steward: sup, at: now }, req)));
+      put(R(1), { action: 'open', to: '/w/proj', text: 'Check the disk use once', temp: true });
+      put(R(2), { action: 'open', to: '/w/proj', text: 'Port the reader', temp: true });
+      put(R(3), { action: 'open', to: '/w/proj', text: 'One more check', temp: true });
+      put(R(4), { action: 'rename', to: S(6), text: 'A title', temp: true });
+      const made = [];
+      let n = 0;
+      const deps = { shownHere: () => true, folders: () => ['/w/proj'], stewards: () => ({ [sup]: { manages: [S(6)], names: {}, at: 0, all: false } }),
+        transcriptOf: (id) => (id === sup ? ${JSON.stringify(tfile)} : ''), pid: 79, now: () => now, sleep: async () => {},
+        open: async () => ({ outcome: 'submitted', sessionId: S(7 + n++) }), manage: () => true,
+        rename: async () => ({ outcome: 'submitted' }),
+        makeTemporary: async (id) => { made.push(id); return id === S(8) ? { ok: false, reason: 'not new' } : { ok: true }; } };
+      (async () => {
+        const results = Object.fromEntries((await relay.take(dir, deps)).map((r) => [r.id, [r.outcome, r.temporary === undefined ? null : r.temporary, r.temporaryReason || '', r.reason || '']]));
+        process.stdout.write(JSON.stringify({ results, made }));
+      })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
+    const RT = (n) => `cccccccc-0000-4000-8000-00000000000${n}`;
+    const r = out.results || {};
+    eq([r[RT(1)] && r[RT(1)].slice(0, 2), r[RT(2)] && r[RT(2)][0], r[RT(3)] && r[RT(3)].slice(0, 3), r[RT(4)], out.made && out.made.length],
+      [['submitted', true], 'refused', ['submitted', false, 'not new'], ['refused', null, '', 'only a new conversation opened with --open can be temporary'], 2],
+      'a supervisor\'s open with temp is made temporary through Agent Plus, the answer saying so or why not; one whose command lacks --temp is not taken as the supervisor\'s, '
+        + 'and temp on any other action is refused');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
 
   console.log('\nthe lock around a file every window writes (src/file-lock.js, src/proc-start.js)');
   {

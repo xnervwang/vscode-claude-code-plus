@@ -1108,6 +1108,7 @@ function create(vscode, deps) {
         shownAnywhere: (id) => shownNow().has(id),
         transcriptOf: deps.transcriptOf, deliver: deps.deliver, rename: deps.rename, close: deps.close, open: deps.open,
         resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsFresh || deps.freshAgents,
+        makeTemporary: deps.makeTemporary,
         records: deps.records, post: deps.post, titleOf, deliverOther: (key, text) => stewardCore.deliverTo(core(), key, text),
         later: (r) => deps.log(`supervisor relay to ${r.to}: ${r.outcome}${r.reason ? ' (' + r.reason + ')' : ''}`),
         manage: (steward, id) => {

@@ -1,5 +1,5 @@
 {
-  "core": "9f88c0aa9fd6242f622392e8a6112d8dde796115",
+  "core": "ebd8dec781ea0dcf2e20607185576593bc5928c9",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -176,7 +176,7 @@
     {
       "path": "src/title-marks.js",
       "from": "src/title-marks.js",
-      "sha256": "313c8ab8f80b95f9e0f555e72c89ed6d4bd0de805601fc69ffadb609231eda3c"
+      "sha256": "4cafa419447808ce5d7b97d15ddcca3448186f60c2bae4cabf6b378994c76600"
     },
     {
       "path": "src/window-entries.js",
@@ -191,7 +191,7 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward-relay.py",
       "from": "shared/plugin/claude/steward-relay.py",
-      "sha256": "e6e746412d72b2d9894484676cffb75035de281513a88325e59c0e07b5f67d36"
+      "sha256": "551fa07a5f476aceb8dc991b90e5b2ab3549dc26ee6d751bc510883e055798e9"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward.py",
@@ -226,7 +226,7 @@
     {
       "path": "claude-plugin/agent-work-plan/skills/supervisor/SKILL.md",
       "from": "shared/plugin/claude/steward-skill.md",
-      "sha256": "f6062f4e9a4061a4763c987b3f72cacdfc35290cacb522d77b63268f67c7818b"
+      "sha256": "18220bfaf66b70eda18bc1b32cf376ff7cbed98aeb732ed8a685e4757065ea37"
     }
   ]
 }
