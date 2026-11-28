@@ -48,7 +48,7 @@ const tokenMode = require('./src/token-mode');
 const noticeTime = require('./src/notice-time');
 const waiting = require('./src/waiting');
 const waitingFor = require('./src/waiting-for');
-const { createClaudeSource, isPanelTab } = require('./src/claude-source');
+const { createClaudeSource, isPanelTab, ANSWER_GO_WAIT_MS, ANSWER_SEND_MS } = require('./src/claude-source');
 const { agentOfTab } = require('./src/other-agents');
 const coreLink = require('./src/core-link');
 const hookSettings = require('./src/hook-settings');
@@ -992,7 +992,7 @@ function start(context, log, renamed, handing = false) {
       try { return typeof globalThis.__cceAnswer === 'function' && globalThis.__cceAnswer(sessionId) === true; } catch (_) { return false; }
     },
     hand: (sessionId, text, key, confirm) => (confirm && typeof globalThis.__cceToPanel === 'function'
-      ? globalThis.__cceToPanel(sessionId, { type: 'cce_answer', sessionId, text, id: key, confirm: true }) === true
+      ? globalThis.__cceToPanel(sessionId, { type: 'cce_answer', sessionId, text, id: key, confirm: true, goWaitMs: ANSWER_GO_WAIT_MS, sendMs: ANSWER_SEND_MS }) === true
       : globalThis.__cceAnswer(sessionId, text, key) === true),
     confirms: (sessionId) => confirming.has(sessionId),
     /* Every panel: only the one holding the answer acts on it, and the conversation may have moved to another panel. */

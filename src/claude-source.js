@@ -49,12 +49,17 @@ const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e)
 const ANSWER_WAIT_MS = 15000;
 /*
  * A panel whose page waits for a go (src/page/91-answer.js) is given ANSWER_READY_MS to say it is ready, and
- * ANSWER_GO_MS after that for its result. The page presses Enter within GO_SEND_MS (3 seconds) of saying it is ready, or
- * takes the text back out, and then waits up to 800 ms for the input to empty. No go is sent after ANSWER_READY_MS, so
- * such a panel types nothing once the host has reported.
+ * ANSWER_GO_MS after that for its result. The message tells the page to wait ANSWER_GO_WAIT_MS for the go after it says
+ * it is ready, and to press Enter within ANSWER_SEND_MS of saying so or take the text back out; it then waits up to
+ * 800 ms for the input to empty. A panel out of sight, in a window in the background, gets its messages and runs its
+ * timers a second or more late, so each of these leaves room for that, and ANSWER_SEND_MS is well inside ANSWER_GO_MS so
+ * that the page's result arrives while the host still waits. No go is sent after ANSWER_READY_MS, so such a panel types
+ * nothing once the host has reported.
  */
 const ANSWER_READY_MS = 10000;
-const ANSWER_GO_MS = 5000;
+const ANSWER_GO_WAIT_MS = 6000;
+const ANSWER_SEND_MS = 8000;
+const ANSWER_GO_MS = 12000;
 
 /*
  * The reasons the panel script (src/page/91-answer.js) gives for not sending. In each of these the answer is not in the
@@ -740,4 +745,5 @@ function createClaudeSource(deps) {
 }
 
 module.exports = { createClaudeSource, isPanelTab, outcomeOf, prefillOutcomeOf, emitter, PROTOCOL, ID, EXTENSION_ID, ANSWER_WAIT_MS, ANSWER_READY_MS, ANSWER_GO_MS,
+  ANSWER_GO_WAIT_MS, ANSWER_SEND_MS,
   PREFILL_MS };

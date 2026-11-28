@@ -11062,12 +11062,14 @@ console.log('\nthe Supervisor panel');
       } else bad(`steward-relay.py options: ${JSON.stringify({ listed: [listed.status, listed.stdout], relative: relative.status, busy, sure, opened })}`);
 
       /* The new tab's side (src/page/91-answer.js): only a panel with no conversation yet whose input holds exactly the
-         text sends it, once, and answers with the id its conversation then gets. */
+         text sends it, once, and answers with the id its conversation then gets. A new tab that Claude Code has already
+         given its session id, with no message in it yet, is still one; one with messages is not. */
       const page = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
         const vm = require('vm'), fs = require('fs');
         const read = (f) => fs.readFileSync(${JSON.stringify(path.join(__dirname, '..', 'src', 'page'))} + '/' + f, 'utf8');
-        const make = (text, sid) => {
+        const make = (text, sid, messages) => {
           const posted = [], session = { sessionId: { value: sid } };
+          if (messages) session.messages = { value: messages };
           const box = { textContent: text, focus() {}, dispatchEvent(e) { if (e.key === 'Enter') { this.textContent = ''; setTimeout(() => { session.sessionId.value = 'NEW-ID'; }, 300); } return true; } };
           const ctx = { out: {}, window: { addEventListener() {}, KeyboardEvent: function(t, o) { Object.assign(this, o); }, getSelection: () => ({ removeAllRanges() {}, addRange() {} }) },
             document: { querySelector: () => box, createRange: () => ({ selectNodeContents() {}, collapse() {} }), execCommand() {} },
@@ -11077,13 +11079,18 @@ console.log('\nthe Supervisor panel');
           return { submit: ctx.out.submitNew, posted, box };
         };
         const fresh = make('Start on the parser', undefined), other = make('Start on the parser', 'OLD-ID'), draft = make('something else', undefined);
-        for (const p of [fresh, other, draft]) { p.submit({ type: 'cce_submit', id: 'o1', text: 'Start on the parser' }); }
+        const early = make('Start on the parser', 'EARLY-ID', []), used = make('Start on the parser', 'USED-ID', [{ type: 'user' }]);
+        for (const p of [fresh, other, draft, early, used]) { p.submit({ type: 'cce_submit', id: 'o1', text: 'Start on the parser' }); }
         setTimeout(() => fresh.submit({ type: 'cce_submit', id: 'o1', text: 'Start on the parser' }), 100);
-        setTimeout(() => process.stdout.write(JSON.stringify({ fresh: fresh.posted, other: other.posted, draft: draft.posted, left: [other.box.textContent, draft.box.textContent] })), 1500);`],
+        setTimeout(() => process.stdout.write(JSON.stringify({ fresh: fresh.posted, other: other.posted, draft: draft.posted, early: early.posted, used: used.posted,
+          left: [other.box.textContent, draft.box.textContent, early.box.textContent, used.box.textContent] })), 1500);`],
         { encoding: 'utf8', timeout: 30000 }));
       if (JSON.stringify(page.fresh) === JSON.stringify([{ type: 'cce_submit_result', id: 'o1', sent: true, reason: '', sessionId: 'NEW-ID' }])
-          && page.other.length === 0 && page.draft.length === 0 && JSON.stringify(page.left) === JSON.stringify(['Start on the parser', 'something else'])) {
-        ok('a new tab sends the supervisor\'s first message once and answers with its conversation\'s id; a panel with a conversation, or other text in its input, does nothing');
+          && page.other.length === 0 && page.draft.length === 0 && page.used.length === 0
+          && JSON.stringify(page.early) === JSON.stringify([{ type: 'cce_submit_result', id: 'o1', sent: true, reason: '', sessionId: 'EARLY-ID' }])
+          && JSON.stringify(page.left) === JSON.stringify(['Start on the parser', 'something else', '', 'Start on the parser'])) {
+        ok('a new tab sends the supervisor\'s first message once and answers with its conversation\'s id, also when Claude Code gave it the id before any message; '
+          + 'a panel with a conversation that has messages, or other text in its input, does nothing');
       } else bad(`a new tab's first message: ${JSON.stringify(page)}`);
     }
 
@@ -13365,6 +13372,57 @@ console.log('\nanswering from the Conversations tab');
         && got2.box === 'left there') {
         ok('in a browser an answer is typed and sent while the focus stays in the field the user is in; with confirm it waits for the go, and nothing is typed when the go comes too late; text left in the input is sent back with the refusal');
       } else bad(`answer with the focus elsewhere and a go: ${at2 === -1 ? 'no result (exit ' + r2.status + ')' : JSON.stringify(got2)}`);
+
+      /* The same page out of sight, where every timer of the panel's frame runs about a second late, as in a window in the
+         background. With the times the host gives, a go three seconds after the page said it was ready is still taken,
+         and one seven seconds after is not; without them, as from an earlier host, three seconds is too late. An Enter
+         that does not empty the input is given up 800 ms by the clock after it, not after sixteen late timers. */
+      const mark4 = ['CCE', 'SLOW:'].join('-');
+      const html4 = '<!doctype html><html><body><pre id="out"></pre><iframe id="f"></iframe><script>'
+        + 'var posted = [], sent = [], stuck = false, goAt = {};'
+        + 'var f = document.getElementById("f"), fw = f.contentWindow, d = f.contentDocument;'
+        + 'fw.acquireVsCodeApi = function(){ return { postMessage: function(m){ posted.push({ m: m, t: Date.now() }); } }; };'
+        + 'var late = fw.setTimeout; fw.setTimeout = function(fn, ms){ return late.call(fw, fn, (ms || 0) + 950); };'
+        + 'var box = d.createElement("div"); box.setAttribute("role", "textbox"); box.setAttribute("aria-label", "Message input");'
+        + 'box.contentEditable = "plaintext-only"; d.body.appendChild(box);'
+        + 'box.addEventListener("keydown", function(e){ if (e.key !== "Enter" || e.shiftKey) return; e.preventDefault(); if (stuck) return; sent.push(box.textContent); box.textContent = ""; });'
+        + 'var s = d.createElement("script"); s.textContent = ' + pageScript + '; d.body.appendChild(s);'
+        + 'var to = function(m){ fw.postMessage({ type: "from-extension", message: m }, "*"); };'
+        + 'var answer = function(text, id, times){ to(Object.assign({ type: "cce_answer", sessionId: "S", text: text, id: id, confirm: true }, times || {})); };'
+        + 'var go = function(id){ goAt[id] = Date.now(); to({ type: "cce_answer_go", id: id }); };'
+        + 'var given = { goWaitMs: 6000, sendMs: 8000 };'
+        + 'setTimeout(function(){ answer("three seconds", "g1", given); }, 2500);'
+        + 'setTimeout(function(){ go("g1"); }, 5500);'
+        + 'setTimeout(function(){ answer("no times given", "g2"); }, 8000);'
+        + 'setTimeout(function(){ go("g2"); }, 11000);'
+        + 'setTimeout(function(){ answer("seven seconds", "g3", given); }, 12000);'
+        + 'setTimeout(function(){ go("g3"); }, 19000);'
+        + 'setTimeout(function(){ stuck = true; answer("stuck", "g4", given); }, 20000);'
+        + 'setTimeout(function(){ go("g4"); }, 20500);'
+        + 'setTimeout(function(){ document.getElementById("out").textContent = "' + mark4 + '" + JSON.stringify({ posted: posted, sent: sent, goAt: goAt,'
+        + '  box: box.textContent }); }, 30000);'
+        + '</script></body></html>';
+      const dir4 = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-answer-slow-'));
+      const file4 = path.join(dir4, 'panel.html');
+      fs.writeFileSync(file4, html4);
+      const r4 = cp.spawnSync(browser, ['--headless=new', '--no-sandbox', '--disable-gpu', '--virtual-time-budget=40000', '--dump-dom',
+        'file://' + file4], { encoding: 'utf8', timeout: 120000 });
+      fs.rmSync(dir4, { recursive: true, force: true });
+      const at4 = (r4.stdout || '').indexOf(mark4);
+      let got4 = null;
+      try {
+        got4 = JSON.parse(r4.stdout.slice(at4 + mark4.length, r4.stdout.indexOf('<', at4)).replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&').replace(/&quot;/g, '"'));
+      } catch (_) { got4 = null; }
+      const results4 = got4 ? got4.posted.filter((x) => x.m.type === 'cce_answer_result' && /^g\d$/.test(x.m.id)).map((x) => [x.m.id, x.m.sent, x.m.reason]) : [];
+      const gaveUp = got4 ? got4.posted.find((x) => x.m.type === 'cce_answer_result' && x.m.id === 'g4' && x.m.reason === 'left-in-input') : null;
+      const tookG4 = gaveUp && got4.goAt.g4 ? gaveUp.t - got4.goAt.g4 : null;
+      if (got4 && JSON.stringify(results4) === JSON.stringify([['g1', false, 'ready'], ['g1', true, ''], ['g2', false, 'ready'], ['g2', false, 'late'],
+        ['g3', false, 'ready'], ['g3', false, 'late'], ['g4', false, 'ready'], ['g4', false, 'left-in-input']])
+          && JSON.stringify(got4.sent) === JSON.stringify(['three seconds']) && got4.box === '' && tookG4 !== null && tookG4 < 4000) {
+        ok('in a panel whose timers run a second late, a go that comes within the time the host gave is taken and the answer sent, one after it or, '
+          + 'without a time given, after two seconds is not, and an Enter that leaves the text in the input is given up by the clock');
+      } else bad(`answer in a panel out of sight: ${at4 === -1 ? 'no result (exit ' + r4.status + ')' : JSON.stringify({ results4, sent: got4 && got4.sent, tookG4, box: got4 && got4.box })}`);
 
       /* A prefill in the same framed page, with the focus in the field around it and a session found the way the panel's
          is, through the send button's React props. */

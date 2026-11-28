@@ -3011,7 +3011,26 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const tabNew = await until(async () => { const x = await claudeTabs(); return x.length === tabsBefore + 1 && x.find((y) => y.active) && x; }, 30000, 500);
       check(!!tabNew, 'New in tab opens a new Claude Code tab', await tabs());
       /* Its page takes the focus as it starts; the next step's menu would close under it. */
-      await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]') && !document.querySelector('[class*="userMessage_"]'), 60000);
+      const fresh = await frameWhere(() => !!document.querySelector('[contenteditable][role="textbox"]') && !document.querySelector('[class*="userMessage_"]'), 60000);
+      /* Claude Code can give a new tab its session id before anything is sent in it; its messages are then still none,
+         which is how a supervisor's new tab knows itself (src/page/91-answer.js submitNew). */
+      const early = fresh ? await until(async () => {
+        const s = await fresh.evaluate(() => {
+          const send = document.querySelector('button[type="submit"][data-permission-mode]');
+          const k = send && Object.keys(send).find((x) => x.startsWith('__reactFiber$'));
+          for (let n = k ? send[k] : null, i = 0; n && i < 60; n = n.return, i++) {
+            const p = n.memoizedProps;
+            if (p && p.session && p.session.agentMapAgents) {
+              const id = p.session.sessionId && p.session.sessionId.value, m = p.session.messages && p.session.messages.value;
+              return { id: typeof id === 'string' ? id : '', messages: Array.isArray(m) ? m.length : null };
+            }
+          }
+          return null;
+        }).catch(() => null);
+        return s && s.id && s;
+      }, 15000, 500) : null;
+      if (!early) note('the new tab had no session id 15 s after it started, so its messages before the first one are not looked at');
+      else check(early.messages === 0, 'a new tab that Claude Code has given its session id before its first message has no messages yet', early);
       await sleep(2000);
       await shot('new-in-tab');
     });

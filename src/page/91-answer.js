@@ -91,18 +91,22 @@
   /*
    * With `confirm`, the panel tells the host it is ready and types the answer only if the host's go arrives within
    * GO_WAIT_MS, so an answer that reaches the panel late, after a lost connection or a frozen page, is never typed
-   * after the host has reported it (ANSWER_READY_MS in src/claude-source.js).
+   * after the host has reported it (ANSWER_READY_MS in src/claude-source.js). The host's message gives this time as
+   * goWaitMs; these two are what an earlier host, which gives none, allowed for.
    */
   var GO_WAIT_MS = 2000;
-  /* The longest time between the page saying it is ready and Enter; after it the text is taken back out, since a
-     throttled timer must not send it once the host has stopped waiting. */
+  /* The longest time between the page saying it is ready and Enter, which the host's message gives as sendMs; after it
+     the text is taken back out, since a throttled timer must not send it once the host has stopped waiting. */
   var GO_SEND_MS = 3000;
+  var given = function(v, d){ return typeof v === 'number' && v > 0 ? v : d; };
+  var goWaitOf = function(m){ return given(m && m.goWaitMs, GO_WAIT_MS); };
+  var sendOf = function(m){ return given(m && m.sendMs, GO_SEND_MS); };
   var awaitingGo = {};
   /* A prefill passes `go`, which the host's go then runs in place of typing an answer. */
   var waitForGo = function(m, go){
     var at = Date.now();
     var drop = function(){ if (awaitingGo[m.id]) { delete awaitingGo[m.id]; answerResult(m.id, false, 'late'); } };
-    awaitingGo[m.id] = { m: m, at: at, go: go, timer: setTimeout(drop, GO_WAIT_MS) };
+    awaitingGo[m.id] = { m: m, at: at, go: go, timer: setTimeout(drop, goWaitOf(m)) };
     answerResult(m.id, false, 'ready');
   };
   var takeGo = function(id){
@@ -110,11 +114,11 @@
     if (!w) return;
     delete awaitingGo[id];
     clearTimeout(w.timer);
-    if (Date.now() - w.at > GO_WAIT_MS) { answerResult(id, false, 'late'); return; }
+    if (Date.now() - w.at > goWaitOf(w.m)) { answerResult(id, false, 'late'); return; }
     if (w.go) { w.go(); return; }
     var no = refusal(w.m);
     if (no) { answerResult(id, false, no.reason, no.detail); return; }
-    typeAnswer(w.m, w.at + GO_SEND_MS);
+    typeAnswer(w.m, w.at + sendOf(w.m));
   };
   /* Typed with the caret placed in the input rather than by focusing it. The panel can be on screen beside the one the
      user is typing in, and taking the focus would move the user's next keys into this conversation's input. */
@@ -150,11 +154,12 @@
     try {
       box.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
     } catch (e) { /* checked below */ }
-    var waited = 0;
+    /* 800 ms by the clock: in a panel out of sight each 50 ms step can take a second. */
+    var started = Date.now();
     var look = function(){
       var now = currentInput(box);
       if (!inputText(now)) { dropDraft(text); done(true, ''); return; }
-      if ((waited += 50) < 800) { setTimeout(look, 50); return; }
+      if (Date.now() - started < 800) { setTimeout(look, 50); return; }
       if (squash(now.textContent) === squash(text)) emptyInput(now);
       dropDraft(text);
       done(false, 'left-in-input', inputDetail(box, now));
@@ -230,7 +235,10 @@
 
   /* A supervisor's new conversation (src/relay.js). The host opened this tab with the first message already in its input,
      and asks every panel of the window to send it. Only a panel with no conversation yet whose input holds exactly that
-     text sends it, once per id, and it answers when its conversation has a session id. */
+     text sends it, once per id, and it answers when its conversation has a session id. No conversation yet means no
+     message in it: Claude Code gives a new tab its session id a few seconds after it starts, before anything is sent,
+     and a page that was slow to get to the request would otherwise never send it. Where the session has no messages
+     signal, it means no session id. */
   var submittedNew = {};
   var NEW_ID_WAIT_MS = 15000;
   var submitResult = function(id, sent, reason, sessionId){
@@ -239,18 +247,18 @@
   };
   var submitNew = function(m){
     if (submittedNew[m.id]) return;
-    var sid = sigValue('sessionId');
-    if (typeof sid === 'string' && sid) return;
+    var sid = sigValue('sessionId'), said = sigValue('messages');
+    if (typeof sid === 'string' && sid && !(Array.isArray(said) && said.length === 0)) return;
     var box = document.querySelector(ANSWER_INPUT);
     if (!box || !squash(m.text) || squash(box.textContent) !== squash(m.text)) return;
     submittedNew[m.id] = true;
     pressSend(box, m.text, function(sent, reason){
       if (!sent) { submitResult(m.id, false, reason, ''); return; }
-      var waited = 0;
+      var since = Date.now();
       var look = function(){
         var now = sigValue('sessionId');
         if (typeof now === 'string' && now) { submitResult(m.id, true, '', now); return; }
-        if ((waited += 250) < NEW_ID_WAIT_MS) { setTimeout(look, 250); return; }
+        if (Date.now() - since < NEW_ID_WAIT_MS) { setTimeout(look, 250); return; }
         submitResult(m.id, true, '', '');
       };
       look();
