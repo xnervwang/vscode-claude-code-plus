@@ -6386,7 +6386,7 @@ console.log('\nwhere else a Claude Code conversation is open');
         const next = scanner.scan().get(S(50)).elsewhere[0].label;
         if (first === 'a VS Code terminal in /' && same === first && next === 'a console window in /'
             && JSON.stringify(asked) === JSON.stringify([[500, m1], [500, m2]])) {
-          ok('the process names are asked for once per process, with the time its record was written, and again when a new process has its id');
+          ok('a process\'s names are read once, given the time its record was written, and read again when a new process takes over its id');
         } else bad(`names asked: ${JSON.stringify({ first, same, next, asked, m1, m2 })}`);
       } finally { fs.rmSync(d2, { recursive: true, force: true }); }
     }
@@ -8120,7 +8120,7 @@ console.log('\ntabs VS Code did not restore');
         && JSON.stringify(done.map((e) => e.sessionId)) === JSON.stringify([id(8)]) && old.length === 0
         && JSON.stringify(found) === JSON.stringify([{ sessionId: id(7), title: 'Dropped', fullEditor: true }, { sessionId: id(8), title: 'Also dropped', fullEditor: false }])) {
       ok('a reopened tab whose page did not answer keeps its conversation in the window\'s own list, once, until a page answers or a day has passed; '
-        + 'at the next start it is added to Claude Code\'s record and found to reopen, though a tab left with the default title is there');
+        + 'at the next start it is added to Claude Code\'s record and is found to reopen even when a tab with the default title is open');
     } else bad(`the kept tabs to reopen were ${JSON.stringify({ kept, again, done, old, found })}`);
   }
   /* Same title, one restored in a tab and one dropped: the restored tab belongs to the shown conversation, so the
@@ -8757,9 +8757,9 @@ console.log('\nbackground sessions left out of the session list');
       const shownToo = ids(bg.withoutDaemons([{ id: P(1) }, { id: P(2) }], cwd, root));
       if (JSON.stringify(kinds) === JSON.stringify(want) && JSON.stringify(hidden) === JSON.stringify([P(1), P(4)])
           && JSON.stringify(shownToo) === JSON.stringify([P(1), P(2)]) && JSON.stringify(bg.HUMAN_ORIGIN_FROM) === '[2,1,234]') {
-        ok('a claude -p a VS Code conversation ran, which records the panel\'s entry point, is left out by its first prompt: one given to claude -p, '
-          + 'or one with no origin from a version that marks typed prompts, past attached records, meta records and tool results; '
-          + 'a typed prompt, a message from another session and a prompt from an older version keep it listed, and a file with no prompt yet is read again');
+        ok('a claude -p run from a VS Code conversation, which records the panel\'s entry point, is left out by its first prompt, read past attached '
+          + 'records, meta records and tool results: one given to claude -p, or one without an origin from a version that marks typed prompts. '
+          + 'Sessions whose first prompt was typed, came from another session or is from an older version are listed; a file with no prompt yet is read again');
       } else bad(`first prompts read as ${JSON.stringify({ kinds, hidden, shownToo })}`);
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
@@ -10881,8 +10881,8 @@ console.log('\nthe Supervisor panel');
           && o.kept.r.outcome === 'notReceived' && o.kept.r.opened === true && !/closed/.test(o.kept.r.reason)) {
         ok('a resumed conversation is opened once and sent the text only after its panel shows it; text the panel did not take is tried again '
           + 'for a while, an unclear send is not retried, and with no text it is only opened; a long one whose tab is open gets minutes to load, '
-          + 'and with no tab at all it is given up after half a minute; given up, its text is reported as not sent, since it was never typed, '
-          + 'and a tab whose page never ran is closed again and not reported as open');
+          + 'and with no tab at all it is given up after half a minute. When it gives up, the text is reported as not sent, since it was never typed, '
+          + 'and a tab whose page never ran is closed and not reported as open');
       } else bad(`resuming in a window: ${JSON.stringify(o)}`);
 
       /* The window's side of resume requests. */
@@ -10985,8 +10985,8 @@ console.log('\nthe Supervisor panel');
             && said.startsWith(stw.NOTICE_HEAD + ', not a message from the user: the message you gave with --resume for "Parser work" (' + lateRun.to + ') was not sent: its tab here opened')
             && said.endsWith('The message was:\nGo on with the parser') && stw.isNotice(said)
             && scriptWaits === relay.RESUME_SCRIPT_WAIT_MS) {
-          ok('a resume\'s message not sent after steward-relay.py stopped waiting is told to the supervisor that asked, in a notice quoting it; '
-            + 'not while the script still waits, not once it was sent, and not for a resume with no message; the wait matches the script\'s');
+          ok('when a resume\'s message was not sent after steward-relay.py stopped waiting, the supervisor that asked gets a notice that quotes the message; '
+            + 'there is none while the script still waits, once the message was sent, or for a resume with no message, and the wait matches the script\'s');
         } else bad(`late resume notices: ${JSON.stringify({ lateRun, scriptWaits })}`);
       }
 

@@ -12,9 +12,9 @@
  * reads both fields as Claude Code does, leaving out `claude --bg`, `claude -p` and daemon sessions.
  *
  * The entry point comes from the environment of the process: a `claude -p` that a conversation in VS Code runs from
- * Bash inherits "claude-vscode" and records it. Such a session is told apart by its first prompt. Claude Code marks
- * one a person typed with origin.kind "human" and, from 2.1.277, one given to `claude -p` with turnOrigin "sdk"; a
- * prompt with neither, written by a version that marks typed ones (HUMAN_ORIGIN_FROM), was not typed either.
+ * Bash inherits "claude-vscode" and records it, so its first prompt decides. Claude Code marks a prompt a person typed
+ * with origin.kind "human" and, from 2.1.277, one given to `claude -p` with turnOrigin "sdk". A prompt with neither
+ * mark was not typed either, if the version that wrote it marks typed prompts (HUMAN_ORIGIN_FROM).
  *
  * With the setting off, the patched host has Claude Code keep its SDK and daemon sessions too (src/host.js), so that
  * `claude -p` sessions can be listed; daemon sessions are left out still. They are Claude Code's own background
@@ -39,11 +39,11 @@ const SDK = /^sdk-(?:cli|ts|py)$/;
 const RAN = /"type":"(?:cost-state|last-prompt)"/;
 const HIDDEN = new Set(['bg', 'daemon', 'daemon-worker', 'sdk', 'empty']);
 const DAEMON = new Set(['daemon', 'daemon-worker']);
-/* The first version seen to mark a prompt a person typed with origin.kind "human"; older transcripts mark neither. */
+/* The first version seen to mark typed prompts with origin.kind "human"; older transcripts mark neither. */
 const HUMAN_ORIGIN_FROM = [2, 1, 234];
 const kinds = new Map();
 
-/* Whether version string `v` ("2.1.277") is at least `from`. */
+/* Whether version `v`, such as "2.1.277", is at least `from`. */
 function atLeast(v, from) {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(String(v || ''));
   if (!m) return false;
@@ -63,7 +63,6 @@ function isPrompt(r) {
   return Array.isArray(c) && c.some((b) => b && b.type === 'text') && !c.some((b) => b && b.type === 'tool_result');
 }
 
-/* 'sdk' for a prompt that no person typed, '' otherwise. */
 function promptKind(r) {
   if (r.origin && r.origin.kind === 'human') return '';
   if (r.turnOrigin === 'sdk') return 'sdk';
@@ -78,11 +77,10 @@ function folderName(cwd) {
 }
 
 /*
- * What the first record with a parent link says: its sessionKind, or 'sdk' for an SDK entry point. With neither, 'sdk'
- * when the first prompt was not typed by a person and '' when it was, or when the part read has no prompt. With no
- * record with a parent link, 'empty' when the whole file shows the session ran and has settled. Null for a session not
- * started yet, a record still being written, a file with no prompt yet that is still changing, or a file that cannot
- * be read.
+ * The session's kind from the first record with a parent link: its sessionKind, or 'sdk' for an SDK entry point.
+ * Otherwise the first prompt decides: 'sdk' if it was not typed, '' if it was or if the part read has no prompt.
+ * 'empty' for a file with no such record that shows the session ran and has settled. Null while the session has not
+ * started, a record is still being written, a new file has no prompt yet, or the file cannot be read.
  */
 function kindOf(file, now = Date.now()) {
   let fd;
@@ -124,7 +122,6 @@ function kindOf(file, now = Date.now()) {
       size = Math.min(st.size, MAX_BYTES);
       readHead();
     }
-    /* No prompt in what was read: as a typed conversation, unless the file may still get its first prompt. */
     return whole && now - st.mtimeMs < SETTLED_MS ? null : '';
   } catch (_) {
     return null;

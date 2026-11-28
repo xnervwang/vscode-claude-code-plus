@@ -110,10 +110,10 @@ const RESUME_SHOW_MS = 30000;
 /* How long a long conversation may take to load once its tab is open. */
 const RESUME_LOAD_MS = 180000;
 const RESUME_SEND_MS = 20000;
-/* How long steward-relay.py waits for a resume's answer (its RESUME_WAIT_SECONDS) before it says the message is typed
-   once the conversation loads. */
+/* How long steward-relay.py waits for a resume's answer, as RESUME_WAIT_SECONDS there. After that it tells the
+   supervisor that the message will be typed once the conversation loads. */
 const RESUME_SCRIPT_WAIT_MS = 110000;
-/* The part of a message a supervisor is shown again when it was not sent. */
+/* How much of an unsent message the notice quotes. */
 const MAX_LATE_TEXT = 600;
 const RESUME_ASK_MS = 500;
 const RESUME_RETRY_MS = 1000;
@@ -277,7 +277,6 @@ async function take(planDir, deps) {
   return done;
 }
 
-/* What a supervisor is told when the message it gave with --resume was not sent after its script stopped waiting. */
 function lateText(id, title, reason, text) {
   const words = String(text || '');
   return `${stewardTable.NOTICE_HEAD}, not a message from the user: the message you gave with --resume for `
@@ -286,8 +285,7 @@ function lateText(id, title, reason, text) {
     + (words.length > MAX_LATE_TEXT ? words.slice(0, MAX_LATE_TEXT) + '...' : words);
 }
 
-/* steward-relay.py says a resume's message is typed once the conversation loads when it stops waiting for the answer;
-   when the message was then not sent, the supervisor would take it as sent, so the window that tried tells it. */
+/* Once its command has stopped waiting, the supervisor learns that the message was not sent only from this notice. */
 async function tellLate(req, r, dir, deps) {
   const at = deps.now ? deps.now() : Date.now();
   if (!req.text || r.outcome === 'submitted' || r.outcome === 'refused' || !(at - req.at >= RESUME_SCRIPT_WAIT_MS)) return;
@@ -364,7 +362,7 @@ async function heldElsewhere(id, deps, managed) {
  * Opens a stored conversation in an editor tab of this window and, given `text`, sends the text once a panel of this
  * window shows the conversation. deps: open(id), shows(id) -> whether a panel here has the conversation and its page
  * takes answers, tabOpen(id) -> whether this window has a tab for it, loaded or still loading, deliver(id, text) -> a
- * send's result, giveUp(id) -> Promise<whether it closed the tab of a conversation that did not load>, and loadMs,
+ * send's result, giveUp(id) -> Promise<boolean>, which closes the tab of a conversation that did not load, and loadMs,
  * sleep(ms) and now() for tests. A tab must appear within RESUME_SHOW_MS; once it has, the conversation may take up to
  * RESUME_LOAD_MS to load. The result has opened: true while a tab of this window holds the conversation, even if the
  * text was not sent after that.
@@ -378,10 +376,9 @@ async function resume(id, text, deps) {
   while (!deps.shows(id)) {
     if (!tab && deps.tabOpen && deps.tabOpen(id)) tab = true;
     if (now() >= (tab ? loadedBy : shownBy)) {
-      /* The text is typed only below, so a resume that stops here has certainly not sent it. */
       const notTyped = text ? '; the message was not typed into it' : '';
       if (!tab) return { outcome: text ? 'notReceived' : 'uncertain', reason: `Claude Code was asked to open it, but no tab here showed it within ${RESUME_SHOW_MS / 1000} seconds${notTyped}` };
-      /* A tab whose page never ran has nothing of the conversation to keep, and after a restart Claude Code would bring it
+      /* A tab whose page never ran holds nothing of the conversation, and after a restart Claude Code would bring it
          back as an empty new conversation. */
       let closed = false;
       try { closed = deps.giveUp ? (await deps.giveUp(id)) === true : false; } catch (_) { closed = false; }

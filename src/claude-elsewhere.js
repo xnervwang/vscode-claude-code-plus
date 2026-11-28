@@ -128,8 +128,8 @@ function system(platform = process.platform) {
   }
   if (platform === 'win32') {
     let table = null, tableAt = 0;
-    /* A process id is soon given to a new process on Windows, so a table read before a record was written may name the
-       process that had its id before. */
+    /* Windows soon reuses a process id, so a table read before a record was written may name the process that had the
+       id before. */
     const read = (since = 0) => {
       if (!table || Date.now() - tableAt > TABLE_MS || tableAt < since) {
         table = new Map();
@@ -210,7 +210,7 @@ function jobNameOf(jobId, root = claudeDir()) {
 function create({ dir = () => path.join(claudeDir(), 'sessions'), sys = system(), ownPid = process.pid, claimed = () => false,
   jobName = (id) => jobNameOf(id), now = Date.now } = {}) {
   const infos = new Map();
-  /* Kept by the record's start too: a process id may come back for another process within INFO_MS. */
+  /* Keyed by the record's start as well as the pid: within INFO_MS the pid may be given to another process. */
   const info = (pid, t, started, written) => {
     const key = `${pid}:${started}`;
     const hit = infos.get(key);

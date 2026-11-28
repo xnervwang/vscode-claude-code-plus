@@ -43,7 +43,7 @@
   "restored tabs keep their envelopes": 46,
   "a restored tab opened late": 54,
   "restored tabs through three reloads": 61,
-  "tabs whose page never ran, through a reload": 90,
+  "tabs whose page never ran, through a reload": 120,
   "two windows": 128,
   "a steward reopening a conversation in the window of its folder": 25,
   "several stewards for one conversation": 52,

@@ -1165,7 +1165,7 @@ function start(context, log, renamed, handing = false) {
       loadMs,
     });
   };
-  /* For the window test: a supervisor's resume, with `loadMs` in place of how long a conversation may take to load. */
+  /* Hook for the window test: a supervisor's resume with a shorter load timeout. */
   globalThis.__cceResume = (id, text, loadMs) => resumeConversation(id, text, loadMs);
   context.subscriptions.push({ dispose: () => { delete globalThis.__cceResume; } });
   const steward = stewardView.create(vscode, {
@@ -1823,10 +1823,9 @@ function start(context, log, renamed, handing = false) {
   const isClaudeTab = (t) => t.input instanceof vscode.TabInputWebview && String(t.input.viewType).includes('claudeVSCodePanel');
   const claudeLabels = () => vscode.window.tabGroups.all.flatMap((g) => g.tabs.filter(isClaudeTab).map((t) => t.label));
   const stripMark = (t) => tabdot.withoutMark(stewardMarks.withoutMarks(t));
-  /* A reopened tab counts once its page has answered (answersReady). Until then its conversation stays in this window's
-     list of those to reopen (droppedTabs.pendingOf); a tab whose page has not answered in REOPEN_ANSWER_MS, as when the
-     window does not draw its pages, is closed again, since Claude Code would bring it back after a restart as an empty
-     new conversation. */
+  /* A reopened tab's conversation stays on this window's list of tabs to reopen until its page answers. If the page
+     has not answered within REOPEN_ANSWER_MS, as happens in a window that does not draw its pages, the tab is closed:
+     after a restart Claude Code would bring it back as an empty new conversation. */
   const PENDING_KEY = 'droppedTabsPending', REOPEN_ANSWER_MS = 60000, REOPEN_LOOK_MS = 1000;
   const keepPending = (change) => context.workspaceState.update(PENDING_KEY, droppedTabs.keepPending(context.workspaceState.get(PENDING_KEY), change))
     .then(undefined, (e) => log.appendLine(`keeping the Claude Code tabs still to reopen: ${e && e.message}`));
@@ -1836,8 +1835,8 @@ function start(context, log, renamed, handing = false) {
       if (answersReady.has(t.sessionId)) { resolve(true); return; }
       if (Date.now() < until) { setTimeout(look, REOPEN_LOOK_MS); return; }
       const still = tab && vscode.window.tabGroups.all.some((g) => g.tabs.includes(tab));
-      /* A page that runs without answering, as one this extension could not patch, still gives the tab its title,
-         shortened by Claude Code to its first characters. */
+      /* A page that runs names the tab after its conversation, shortened to the title's first characters, even when this
+         extension could not patch it to answer. */
       const named = still && (() => { const l = stripMark(tab.label).replace(/…$/, ''); return !!l && l !== 'Claude Code' && String(t.title).startsWith(l); })();
       if (still && !named) {
         Promise.resolve(vscode.window.tabGroups.close(tab)).catch(() => {});
@@ -1875,7 +1874,7 @@ function start(context, log, renamed, handing = false) {
   };
   const sessionsElsewhere = () => { try { return typeof globalThis.__cceSessionsElsewhere === 'function' ? globalThis.__cceSessionsElsewhere() : []; } catch (_) { return []; } };
   const sessionsShown = () => { try { return typeof globalThis.__cceSessionsShown === 'function' ? globalThis.__cceSessionsShown() : []; } catch (_) { return []; } };
-  /* The kept conversations still not shown anywhere, reopened; those shown by now are taken off the list. */
+  /* Reopens the kept conversations that no window shows; those shown somewhere by now are taken off the list. */
   const reopenKept = (why, answerMs) => {
     const kept = droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY));
     if (!kept.length) return Promise.resolve();
@@ -1885,8 +1884,8 @@ function start(context, log, renamed, handing = false) {
     const dropped = gone.length ? keepPending({ done: gone }) : Promise.resolve();
     return dropped.then(() => (again.length ? reopenTabs(again, why, answerMs) : undefined));
   };
-  /* For the window test: reopens `list` as a dropped tab is reopened, with `answerMs` in place of REOPEN_ANSWER_MS, or with
-     no list the kept conversations; resolves once each has its outcome. __cceDroppedKept reads the kept list. */
+  /* Hooks for the window test. __cceReopenDropped(list, answerMs) reopens `list`, or the kept conversations when there
+     is no list, and resolves when each tab has answered or been closed. */
   globalThis.__cceReopenDropped = (list, answerMs = REOPEN_ANSWER_MS) => (Array.isArray(list) ? reopenTabs(list, '', answerMs) : reopenKept('', answerMs));
   globalThis.__cceDroppedKept = () => droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY));
   let droppedTries = 0, droppedTimer = setTimeout(function lookForDropped() {
@@ -1904,7 +1903,7 @@ function start(context, log, renamed, handing = false) {
       ({ now: lost, later: waiting } = droppedTabs.split({ record, shown: shown(), elsewhere: elsewhere(), labels: claudeLabels(), strip: stripMark }));
     } catch (e) { log.appendLine('looking for Claude Code tabs VS Code did not restore: ' + (e && e.message)); return; }
     if (lost.length) reopenTabs(lost, '').catch(() => {});
-    /* Those whose reopened tab was closed again are tried once more when this window comes to the front. */
+    /* Coming to the front, the window reopens the conversations whose tab it closed. */
     let retried = 0;
     if (typeof vscode.window.onDidChangeWindowState === 'function') context.subscriptions.push(vscode.window.onDidChangeWindowState((s) => {
       if (!s.focused || Date.now() - retried < REOPEN_ANSWER_MS) return;

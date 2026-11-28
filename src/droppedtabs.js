@@ -93,11 +93,10 @@ function settle({ waiting, shown, elsewhere, labels, strip = (t) => t }) {
 }
 
 /*
- * The conversations whose dropped tabs were reopened but whose page has not answered yet, as a window keeps them in its
- * own storage between starts. Claude Code's record loses the entry of a tab that is missing at its next start; a tab
- * reopened while the window does not draw its pages (the computer asleep, the connection coming back) has no page, so
- * it is closed again, and without this list the conversation would be gone at the next start. Entries older than
- * PENDING_KEEP_MS go.
+ * Conversations reopened as dropped tabs whose page has not answered yet, kept in the window's own storage between
+ * starts. Claude Code's record loses the entry of a tab that is missing at its next start. A tab reopened while the
+ * window does not draw its pages (the computer asleep, the connection coming back) has no page, so it is closed again;
+ * this list is then all that keeps its conversation. Entries older than PENDING_KEEP_MS go.
  */
 const PENDING_KEEP_MS = 24 * 3600000;
 function pendingOf(stored, now = Date.now()) {
@@ -105,14 +104,13 @@ function pendingOf(stored, now = Date.now()) {
     .filter((e) => e && typeof e.sessionId === 'string' && SESSION.test(e.sessionId) && typeof e.at === 'number' && now - e.at < PENDING_KEEP_MS)
     .map((e) => ({ sessionId: e.sessionId.toLowerCase(), title: typeof e.title === 'string' ? e.title : '', fullEditor: e.fullEditor === true, at: e.at }));
 }
-/* Claude Code's record with the kept conversations it no longer has added at the end. */
+/* Claude Code's record, with the kept conversations it no longer lists appended. */
 function withPending(record, pending) {
   const entries = Array.isArray(record) ? record.slice() : [];
   const have = new Set(entries.map((e) => e && typeof e.sessionId === 'string' && e.sessionId.toLowerCase()));
   for (const p of pending || []) if (!have.has(p.sessionId)) entries.push({ sessionId: p.sessionId, title: p.title, fullEditor: p.fullEditor });
   return entries;
 }
-/* The kept list with `list` added, and with `done` taken out. */
 function keepPending(stored, { add = [], done = [], now = Date.now() } = {}) {
   const gone = new Set(done.map((id) => String(id).toLowerCase()));
   const kept = pendingOf(stored, now).filter((e) => !gone.has(e.sessionId));

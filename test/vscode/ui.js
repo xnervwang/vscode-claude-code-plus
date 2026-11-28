@@ -980,7 +980,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const listedWhenShown = background.filter((b) => b.listedWhenShown).map((b) => b.title);
       check(background.length === 4 && !(await backgroundShown()).length,
         'with claudeCodePlus.hideBackgroundSessions on, the list leaves out the claude --bg, claude -p and daemon sessions, '
-        + 'also a claude -p that a VS Code conversation ran, which records the panel\'s entry point', await backgroundShown());
+        + 'including a claude -p run from a VS Code conversation', await backgroundShown());
       await setHide(false);
       try {
         const shown = await until(async () => { const b = await backgroundShown(); return listedWhenShown.every((x) => b.includes(x)) && b; }, 30000, 500);
@@ -4765,12 +4765,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /*
-     * A Claude Code tab whose page never ran, as in a window that does not draw its pages, has no conversation in its
-     * state and Claude Code's default title, so after a restart Claude Code brings it back as an empty new conversation
-     * when more than one such tab is left. A tab this extension reopened for a dropped conversation, or opened for a
-     * supervisor's resume, is closed again when its page does not load, so none of them comes back empty. Two tabs that
-     * Claude Code opened itself show that the step sees the empty conversations it is looking for. With the page's
-     * script moved away, no page runs; the script is put back once the reload has started.
+     * A Claude Code tab whose page never ran (its window did not draw it) keeps Claude Code's default title and no
+     * conversation in its state. After a restart Claude Code brings such a tab back as an empty new conversation. For a
+     * few seconds after starting, Claude Code also replaces any tab with that title whose page has not appeared, which
+     * can catch a tab opened then. A tab this extension reopened for a dropped conversation, or opened for a supervisor's
+     * resume, is closed again when its page does not load, so after a reload neither comes back empty. Two tabs Claude
+     * Code opened itself go through a second reload, to show what becomes of a tab that is left. The page's script is
+     * moved away so that no page runs, and put back once each reload has begun.
      */
     await step('tabs whose page never ran, through a reload', async () => {
       const { neverRanReopened: A, neverRanResumed: B, neverRanOpenedOne: C1, neverRanOpenedTwo: C2 } = LIST_THREADS;
@@ -4780,11 +4781,12 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       const file = path.join(profile.exts, cc, 'webview', 'index.js'), away = file + '.cce-away';
       let back = true;
       const putBack = () => { if (back) return; back = true; fs.renameSync(away, file); };
+      const moveAway = () => { fs.renameSync(file, away); back = false; };
       const kept = () => call('return typeof globalThis.__cceDroppedKept === "function" ? globalThis.__cceDroppedKept().map((e) => e.sessionId) : null;');
       const unmarked = (l) => String(l || '').replace(TRAILING_MARKS, '');
       const tabOf = async (t) => (await claudeTabs()).find((x) => titled(unmarked(x.label), t.title));
       const sessions = path.join(profile.home, '.claude', 'sessions');
-      /* Conversations Claude Code started since `since` that are none of the step's and have no transcript: empty ones. */
+      /* The empty conversations Claude Code started since `since`: none of the step's, and with no transcript. */
       const empties = (since) => {
         let names = [];
         try { names = fs.readdirSync(sessions).filter((n) => n.endsWith('.json')); } catch (_) { return []; }
@@ -4794,60 +4796,67 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             && !fs.readdirSync(path.join(profile.home, '.claude', 'projects')).some((dir) => fs.existsSync(path.join(profile.home, '.claude', 'projects', dir, d.sessionId + '.jsonl'))))
           .map((d) => d.sessionId);
       };
-      await exec('workbench.action.closeAllEditors');
-      await openNotes();
-      /* The tabs behind the one in front load at the reload too, so that each comes up as what Claude Code makes of it. */
-      await setLoad(true);
-      fs.renameSync(file, away);
-      back = false;
-      let reloadedAt = 0;
-      try {
-        await call('await globalThis.__cceReopenDropped([{ sessionId: arg.id, title: arg.title, fullEditor: true }], 8000); return true;', { id: A.id, title: A.title }, 60000);
-        const resumed = await call('return await globalThis.__cceResume(arg.id, arg.text, 8000);', { id: B.id, text: 'Go on with the comparison.' }, 90000);
-        await openTab(C1.id);
-        await openTab(C2.id);
-        const two = await until(async () => { const c = await claudeTabs(); return c.length === 2 && c.every((x) => unmarked(x.label) === 'Claude Code') && c; }, 30000, 500);
-        const held = await kept();
-        check(Array.isArray(held) && held.includes(A.id) && !(await tabOf(A)),
-          'with no page running, the tab reopened for a dropped conversation is closed again and the conversation kept to reopen', { kept: held, tabs: await claudeTabs() });
-        check(!!resumed && resumed.outcome === 'notReceived' && resumed.opened !== true && /the tab was closed again/.test(resumed.reason || ''),
-          'a supervisor\'s resume whose page does not load closes its tab and reports the message as not sent', resumed);
-        check(!!two, 'the two tabs Claude Code opened itself stay open with its default title', await claudeTabs());
-        /* As w.reload() does, with the script put back once the reload has begun: the window going away builds no page
-           again, and the new one finds the script when it draws its pages. */
-        reloadedAt = Date.now();
+      /* As w.reload() does, with the script put back once the reload has begun: the window going away builds no page
+         again, and the new one finds the script when it draws its pages. Returns when the reload began. */
+      const reloadWithScript = async () => {
+        const at = Date.now();
         await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.reloadWindow"), 200); return true;');
         await sleep(450);
         putBack();
         await sleep(1050);
         await page.waitForSelector('.monaco-workbench', { timeout: 90000 });
-        await w.hostUp(reloadedAt);
+        await w.hostUp(at);
+        await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
+        return at;
+      };
+      await exec('workbench.action.closeAllEditors');
+      await openNotes();
+      /* Background tabs load at a reload too, so each one's page runs. */
+      await setLoad(true);
+      let first = 0;
+      moveAway();
+      try {
+        await call('await globalThis.__cceReopenDropped([{ sessionId: arg.id, title: arg.title, fullEditor: true }], 8000); return true;', { id: A.id, title: A.title }, 60000);
+        const resumed = await call('return await globalThis.__cceResume(arg.id, arg.text, 8000);', { id: B.id, text: 'Go on with the comparison.' }, 90000);
+        const held = await kept();
+        check(Array.isArray(held) && held.includes(A.id) && !(await tabOf(A)),
+          'with no page running, a tab reopened for a dropped conversation is closed, and its conversation is kept for later', { kept: held, tabs: await claudeTabs() });
+        check(!!resumed && resumed.outcome === 'notReceived' && resumed.opened !== true && /the tab was closed again/.test(resumed.reason || '')
+          && !(await claudeTabs()).length, 'a supervisor\'s resume whose page does not load closes its tab and reports the message as not sent', { resumed, tabs: await claudeTabs() });
+        first = await reloadWithScript();
       } finally { putBack(); }
-      await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
       const reopened = await until(() => tabOf(A), 60000, 500);
       const shown = reopened && await conversation(A, 60000);
-      /* The list is written once the page has said it listens, which it says a moment after it draws the conversation. */
+      /* The page says it listens a moment after it draws the conversation; only then is the list written. */
       const left = shown ? await until(async () => { const k = await kept(); return Array.isArray(k) && !k.includes(A.id) && k; }, 15000, 500) || await kept() : await kept();
       check(!!shown && Array.isArray(left) && !left.includes(A.id),
-        'after the reload the kept conversation is reopened in a tab that shows it, and it leaves the list', { tabs: await claudeTabs(), kept: left });
-      check(!(await tabOf(B)), 'the resumed conversation whose tab was closed is not brought back', await claudeTabs());
-      /* Claude Code starts a conversation for each page as it loads. Each of its own two tabs is shown once, so that its
-         page loads whether or not the loader got to it. */
+        'after the reload, the kept conversation reopens in a tab that shows it and is off the list', { tabs: await claudeTabs(), kept: left });
+      check(!(await tabOf(B)), 'the conversation whose resume was given up does not come back after the reload', await claudeTabs());
+      await sleep(5000);
+      const none = empties(first);
+      check(!none.length && !(await claudeTabs()).some((x) => unmarked(x.label) === 'Claude Code'),
+        'no tab comes back as an empty conversation', { empty: none, tabs: await claudeTabs() });
+      await shot('never-ran-after-reload');
+
+      await exec('workbench.action.closeAllEditors');
+      await until(async () => !(await claudeTabs()).length, 15000, 500);
+      await openNotes();
+      let second = 0;
+      moveAway();
+      try {
+        await openTab(C1.id);
+        await openTab(C2.id);
+        await until(async () => (await claudeTabs()).length >= 2, 30000, 500);
+        second = await reloadWithScript();
+      } finally { putBack(); }
+      /* Claude Code starts a conversation for each page as it loads; each tab with its default title is shown once. */
       const plain = page.locator('.tabs-container .tab[aria-label^="Claude Code,"]');
       for (let i = 0, n = await plain.count(); i < n; i++) {
         await plain.nth(i).click().catch(() => {});
-        await until(async () => empties(reloadedAt).length > i, 15000, 500);
+        await until(async () => empties(second).length > i, 15000, 500);
       }
-      const found = await until(async () => { const e = empties(reloadedAt); return e.length >= 2 && e; }, 45000, 1000) || empties(reloadedAt);
-      await sleep(3000);
-      const empty = empties(reloadedAt);
-      const defaults = (await claudeTabs()).filter((x) => unmarked(x.label) === 'Claude Code');
-      check(defaults.length === 2 && empty.length <= 2,
-        'none of the tabs this extension reopened or resumed comes back as an empty conversation: only the two Claude Code opened itself have its default title',
-        { empty, tabs: await claudeTabs() });
-      if (empty.length === 2) check(true, 'the two tabs Claude Code opened itself come back as two empty conversations, so the step sees such conversations');
-      else note(`the two tabs Claude Code opened itself came back as ${empty.length} empty conversation(s), so the step could not show it sees them (${JSON.stringify(found)})`);
-      await shot('never-ran-after-reload');
+      await until(async () => empties(second).length >= 2, 30000, 1000);
+      note(`two tabs Claude Code opened itself, whose page never ran, came back after a reload as ${empties(second).length} empty conversation(s)`);
       await setLoad(undefined);
       await exec('workbench.action.closeAllEditors');
       await until(async () => !(await claudeTabs()).length, 15000, 500);
