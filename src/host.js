@@ -28,7 +28,7 @@ const { applyEdits, shapesOf } = require('./edits');
 const { writeAtomic } = require('./files');
 const { patchTarget } = require('./patch-target');
 
-const VERSION = 22;
+const VERSION = 23;
 const ANY_MARK = '/* CLAUDE-CODE-EXTRAS-HOST v';
 const BACKUP_SUFFIX = '.claude-code-extras-host.bak';
 const TMP_SUFFIX = '.claude-code-extras-host.tmp';
@@ -318,6 +318,20 @@ const EDITS = [
     to: (m, logo, vs, panel) => `${logo}=${vs}.Uri.joinPath(this.extensionUri,"resources","claude-logo.svg");let cceSetup;`
       + `try{cceSetup=globalThis.__cceTabIcon&&globalThis.__cceTabIcon(${panel},"plain",void 0,this.extensionUri.fsPath)}`
       + `catch(cceE){}${panel}.iconPath=cceSetup||{light:${logo},dark:${logo}}`,
+  },
+  /*
+   * A new tab takes its conversation's title from the session list a page last asked for. In a window that draws no
+   * page, as one left in the background, no page has asked, and every tab opened there starts with the default title
+   * "Claude Code". Claude Code records that title as the tab's, and after a reload it finds a page that never ran by
+   * that record's title, which it refuses for the default one: the tab comes back as an empty new conversation. Here
+   * the tab takes the title this extension reads from the conversation's transcript (__cceTitleOf in extension.js)
+   * when Claude Code has none. The tab's page, once it runs, names it as before.
+   */
+  {
+    name: 'a new tab takes its conversation\'s title',
+    re: /let ([\w$]+)=([\w$]+)===void 0\?void 0:(this\.listedSessions\.get\(\2\)\?\.title\?\?this\.sessionStates\.get\(\2\)\?\.info\.title),/g,
+    to: (m, title, id, known) => `let ${title}=${id}===void 0?void 0:(${known})||(()=>{try{let cceT=globalThis.__cceTitleOf;`
+      + `cceT=typeof cceT==="function"?cceT(${id}):void 0;return typeof cceT==="string"&&cceT.trim()?cceT:void 0}catch(cceE){}})(),`,
   },
   /*
    * The marks this extension shows with a title (src/title-marks.js) are never stored. Every rename Claude Code stores

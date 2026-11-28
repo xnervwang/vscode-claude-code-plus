@@ -318,6 +318,15 @@ async function activate(context) {
     handing = !!old && !earlier;
   } catch (_) { /* not there */ }
   if (earlier) { standAside(context, log, earlier); return; }
+  /* The title of a tab Claude Code creates without one of its own (src/host.js). The log line is what tells, after a
+     tab came back empty, whether it was opened with its conversation's title. */
+  globalThis.__cceTitleOf = (sessionId) => {
+    let title = '';
+    try { title = claudeSessionList.titleOf(sessionId); } catch (_) { title = ''; }
+    log.appendLine(`new tab for ${String(sessionId).slice(0, 8)}: ${title ? "its conversation's title" : "no title found, so Claude Code's default"}`);
+    return title;
+  };
+  context.subscriptions.push({ dispose: () => { delete globalThis.__cceTitleOf; } });
   /* The old id's last version writes export.json when it activates, and the editor activates it only after this
      activation has returned, since it depends on this extension. So the start waits for the file, and activation does
      not wait for the start. */
@@ -1902,6 +1911,13 @@ function start(context, log, renamed, handing = false) {
     if (!enabled() || removed() || cfg().get(REOPEN_SETTING, true) === false) return;
     const elsewhere = () => { try { return typeof globalThis.__cceSessionsElsewhere === 'function' ? globalThis.__cceSessionsElsewhere() : []; } catch (_) { return []; } };
     let lost, waiting;
+    /* A kept conversation whose tab came back by itself, as one titled for its conversation does, is off the list:
+       closing that tab later must not have the window reopen it. */
+    try {
+      const here = new Set(shown());
+      const back = droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY)).filter((k) => here.has(k.sessionId)).map((k) => k.sessionId);
+      if (back.length) keepPending({ done: back }).catch(() => {});
+    } catch (_) { /* kept until the window is next in front */ }
     try {
       const record = droppedTabs.withPending(atStart, droppedTabs.pendingOf(context.workspaceState.get(PENDING_KEY)));
       ({ now: lost, later: waiting } = droppedTabs.split({ record, shown: shown(), elsewhere: elsewhere(), labels: claudeLabels(), strip: stripMark }));

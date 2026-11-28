@@ -18,7 +18,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { projectFolders, projectsDir, filedUnder, SESSION } = require('./claude-files');
+const { projectFolders, projectsDir, filedUnder, transcriptOf, SESSION } = require('./claude-files');
 const bgSessions = require('./bgsessions');
 const titleMarks = require('./title-marks');
 const { withoutFrom } = require('./stewards');
@@ -131,6 +131,17 @@ function summarize(file) {
   } finally {
     if (fd !== undefined) try { fs.closeSync(fd); } catch (_) { /* closed */ }
   }
+}
+
+/*
+ * The title the list gives a conversation (row() in create()), read from its transcript, or '' when it has none. It is
+ * asked while Claude Code creates a tab (src/host.js), so it reads the file in one go, at its head and its tail, as
+ * summarize() does.
+ */
+function titleOf(sessionId, transcript = transcriptOf) {
+  const file = SESSION.test(String(sessionId || '')) ? transcript(sessionId) : '';
+  const sum = file ? summarize(file) : null;
+  return sum ? titleMarks.withoutMarks(sum.custom || sum.ai || sum.firstPrompt || '').slice(0, MAX_TITLE) : '';
 }
 
 /* The kind the list gives a session, from the kind Claude Code records for it; null for one the list leaves out. */
@@ -479,4 +490,4 @@ function keepsFor(due, { now = Date.now(), soonMs = 0, kindOf = bgSessions.kindO
 
 const FEATURES = ['sessions', 'sessionImport', 'accountInfo', 'sessionSeen', 'sessionClose', 'sessionsNotice'];
 
-module.exports = { create, summarize, firstPromptOf, kindFor, worktreeOf, projectOf, appendTitle, deleteChecked, keepsFor, FEATURES, PAGE };
+module.exports = { create, summarize, titleOf, firstPromptOf, kindFor, worktreeOf, projectOf, appendTitle, deleteChecked, keepsFor, FEATURES, PAGE };

@@ -225,6 +225,11 @@ const LIST_THREADS = {
     turns: [['Draft the steps to rotate the service token.', 'Five steps; the third waits for the old token to expire.']] },
   neverRanOpenedTwo: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6d5', title: 'List the flaky tests of the last month', days: 0,
     turns: [['List the flaky tests of the last month.', 'Seven tests; four of them wait on a fixed sleep.']] },
+  /* Two titles whose first 24 characters, all a tab shows of a longer title, are the same. */
+  neverRanSameStartOne: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6d6', title: 'Compare the export timings of the night run', days: 0,
+    turns: [['Compare the export timings of the night run.', 'The night run took 41 minutes, 6 more than last week.']] },
+  neverRanSameStartTwo: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6d7', title: 'Compare the export timings of the day run', days: 0,
+    turns: [['Compare the export timings of the day run.', 'The day run took 18 minutes, the same as last week.']] },
   archiveBy: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c8', title: 'Tidy up the old conversations', days: 0,
     turns: [['Keep an eye on the reports work.', 'I will watch it and tell you when it needs you.']] },
   archiveDone: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6c9', title: 'Rotate the staging certificates', days: 2,
@@ -4765,18 +4770,20 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
     });
 
     /*
-     * A Claude Code tab whose page never ran (its window did not draw it) keeps Claude Code's default title and no
-     * conversation in its state. After a restart Claude Code brings such a tab back as an empty new conversation. For a
-     * few seconds after starting, Claude Code also replaces any tab with that title whose page has not appeared, which
-     * can catch a tab opened then. A tab this extension reopened for a dropped conversation, or opened for a supervisor's
-     * resume, is closed again when its page does not load, so after a reload neither comes back empty. Two tabs Claude
-     * Code opened itself go through a second reload, to show what becomes of a tab that is left. The page's script is
-     * moved away so that no page runs, and put back once each reload has begun.
+     * A Claude Code tab whose page never ran (its window did not draw it) has no conversation in its state, and Claude Code
+     * finds its conversation after a reload by the tab's title. It titles a new tab from the session list a page asked
+     * for, so in such a window every tab would have the default title, and come back as an empty new conversation. Every
+     * tab opened for a conversation takes that conversation's title from this extension instead, whoever opens it: this
+     * extension for a dropped conversation, a supervisor's resume, or Claude Code itself. So through a reload each comes
+     * back as its own conversation. Two whose titles start with the same 24 characters show the same text, which Claude
+     * Code cannot tell apart: each comes back as its own conversation or as an empty one, never as the other. The page's
+     * script is moved away so that no page runs, and put back once each reload has begun.
      */
     await step('tabs whose page never ran, through a reload', async () => {
-      const { neverRanReopened: A, neverRanResumed: B, neverRanOpenedOne: C1, neverRanOpenedTwo: C2 } = LIST_THREADS;
-      fakeHome.writeThreads(profile.home, profile.folder, [A, B, C1, C2]);
-      const known = new Set([A, B, C1, C2, ...threads, ...Object.values(LIST_THREADS)].map((t) => t.id));
+      const { neverRanReopened: A, neverRanResumed: B, neverRanOpenedOne: C1, neverRanOpenedTwo: C2,
+        neverRanSameStartOne: D1, neverRanSameStartTwo: D2 } = LIST_THREADS;
+      fakeHome.writeThreads(profile.home, profile.folder, [A, B, C1, C2, D1, D2]);
+      const known = new Set([A, B, C1, C2, D1, D2, ...threads, ...Object.values(LIST_THREADS)].map((t) => t.id));
       const cc = fs.readdirSync(profile.exts).find((n) => n.startsWith('anthropic.claude-code-'));
       const file = path.join(profile.exts, cc, 'webview', 'index.js'), away = file + '.cce-away';
       let back = true;
@@ -4809,6 +4816,40 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
         return at;
       };
+      /* The conversation each Claude Code page's webview state holds. */
+      const bound = () => Promise.all(page.frames().map((f) => f.evaluate(() => {
+        const a = globalThis.acquireVsCodeApi;
+        if (typeof a !== 'function' || !/api = orig\(\)/.test(String(a))) return null;
+        const st = a().getState() || {};
+        return typeof st.sessionID === 'string' ? st.sessionID : '';
+      }).catch(() => null))).then((x) => x.filter((v) => v !== null));
+      /* Shows each Claude Code tab once, so that its page loads. */
+      const showEach = async () => {
+        const labels = (await claudeTabs()).map((x) => x.label);
+        const all = page.locator('.tabs-container .tab');
+        for (let i = 0, n = await all.count(); i < n; i++) {
+          const aria = (await all.nth(i).getAttribute('aria-label').catch(() => '')) || '';
+          if (!labels.some((l) => aria.startsWith(l + ','))) continue;
+          await all.nth(i).click().catch(() => {});
+          await sleep(1500);
+        }
+      };
+      /* Opens `ts` in tabs while no page runs and reloads; returns what the tabs were titled and the time the reload began. */
+      const openThenReload = async (ts) => {
+        await exec('workbench.action.closeAllEditors');
+        await until(async () => !(await claudeTabs()).length, 15000, 500);
+        await openNotes();
+        let at = 0, labels = [];
+        moveAway();
+        try {
+          for (const t of ts) await openTab(t.id);
+          await until(async () => (await claudeTabs()).length >= ts.length, 30000, 500);
+          labels = (await claudeTabs()).map((x) => unmarked(x.label));
+          at = await reloadWithScript();
+        } finally { putBack(); }
+        return { at, labels };
+      };
+
       await exec('workbench.action.closeAllEditors');
       await openNotes();
       /* Background tabs load at a reload too, so each one's page runs. */
@@ -4820,8 +4861,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       moveAway();
       try {
         await call('await globalThis.__cceReopenDropped([{ sessionId: arg.id, title: arg.title, fullEditor: true }], 8000); return true;', { id: A.id, title: A.title }, 60000);
-        /* A page that ran anyway, as from a copy of the script the webview kept, named its tab: nothing here can be tested. */
-        if (await tabOf(A)) {
+        /* A page that ran anyway, as from a copy of the script the webview kept, shows its conversation: nothing here can be
+           tested. */
+        if (stateOf(await pageStates(), A)) {
           note('a page ran with Claude Code\'s script moved away, so no tab whose page never ran could be made here');
           putBack();
           await call('globalThis.__cceReopenOnFocus = undefined; return true;');
@@ -4830,45 +4872,50 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           return;
         }
         const resumed = await call('return await globalThis.__cceResume(arg.id, arg.text, 8000);', { id: B.id, text: 'Go on with the comparison.' }, 90000);
-        const held = await kept();
-        check(Array.isArray(held) && held.includes(A.id) && !(await tabOf(A)),
-          'with no page running, a tab reopened for a dropped conversation is closed, and its conversation is kept for later', { kept: held, tabs: await claudeTabs() });
-        check(!!resumed && resumed.outcome === 'notReceived' && resumed.opened !== true && /the tab was closed again/.test(resumed.reason || '')
-          && !(await claudeTabs()).length, 'a supervisor\'s resume whose page does not load closes its tab and reports the message as not sent', { resumed, tabs: await claudeTabs() });
+        check(!!(await tabOf(A)), 'with no page running, a tab reopened for a dropped conversation takes its conversation\'s title, so it stays open',
+          await claudeTabs());
+        check(!!resumed && resumed.outcome === 'notReceived' && resumed.opened === true && !!(await tabOf(B)),
+          'a supervisor\'s resume whose page does not load reports the message as not sent, and its tab, titled for its conversation, stays',
+          { resumed, tabs: await claudeTabs() });
         first = await reloadWithScript();
       } finally { putBack(); }
-      const reopened = await until(() => tabOf(A), 60000, 500);
-      const shown = reopened && await conversation(A, 60000);
+      await showEach();
+      const shownA = await conversation(A, 60000), shownB = await conversation(B, 60000);
+      check(!!shownA && !!shownB && (await bound()).includes(A.id) && (await bound()).includes(B.id),
+        'after the reload, both tabs come back as their own conversations', { shown: [!!shownA, !!shownB], bound: await bound(), tabs: await claudeTabs() });
       /* The page says it listens a moment after it draws the conversation; only then is the list written. */
-      const left = shown ? await until(async () => { const k = await kept(); return Array.isArray(k) && !k.includes(A.id) && k; }, 15000, 500) || await kept() : await kept();
-      check(!!shown && Array.isArray(left) && !left.includes(A.id),
-        'after the reload, the kept conversation reopens in a tab that shows it and is off the list', { tabs: await claudeTabs(), kept: left });
-      check(!(await tabOf(B)), 'the conversation whose resume was given up does not come back after the reload', await claudeTabs());
+      const left = shownA ? await until(async () => { const k = await kept(); return Array.isArray(k) && !k.includes(A.id) && k; }, 15000, 500) || await kept() : await kept();
+      check(Array.isArray(left) && !left.includes(A.id), 'and the reopened conversation, once its page has run, is off the list kept for later', { kept: left });
       await sleep(5000);
       const none = empties(first);
       check(!none.length && !(await claudeTabs()).some((x) => unmarked(x.label) === 'Claude Code'),
         'no tab comes back as an empty conversation', { empty: none, tabs: await claudeTabs() });
       await shot('never-ran-after-reload');
 
-      await exec('workbench.action.closeAllEditors');
-      await until(async () => !(await claudeTabs()).length, 15000, 500);
-      await openNotes();
-      let second = 0;
-      moveAway();
-      try {
-        await openTab(C1.id);
-        await openTab(C2.id);
-        await until(async () => (await claudeTabs()).length >= 2, 30000, 500);
-        second = await reloadWithScript();
-      } finally { putBack(); }
-      /* Claude Code starts a conversation for each page as it loads; each tab with its default title is shown once. */
-      const plain = page.locator('.tabs-container .tab[aria-label^="Claude Code,"]');
-      for (let i = 0, n = await plain.count(); i < n; i++) {
-        await plain.nth(i).click().catch(() => {});
-        await until(async () => empties(second).length > i, 15000, 500);
-      }
-      await until(async () => empties(second).length >= 2, 30000, 1000);
-      note(`two tabs Claude Code opened itself, whose page never ran, came back after a reload as ${empties(second).length} empty conversation(s)`);
+      const second = await openThenReload([C1, C2]);
+      check([C1, C2].every((t) => second.labels.some((l) => titled(l, t.title))) && !second.labels.includes('Claude Code'),
+        'two tabs Claude Code opens itself while no page runs take their conversations\' titles, not its default one', second.labels);
+      await showEach();
+      const shownC1 = await conversation(C1, 60000), shownC2 = await conversation(C2, 60000);
+      const held = await bound();
+      await sleep(5000);
+      const noneLeft = empties(second.at);
+      check(!!shownC1 && !!shownC2 && held.includes(C1.id) && held.includes(C2.id) && !noneLeft.length,
+        'after a reload, each of them comes back as its own conversation, and no empty conversation is started',
+        { shown: [!!shownC1, !!shownC2], bound: held, empty: noneLeft, tabs: await claudeTabs() });
+      await shot('never-ran-titled-after-reload');
+
+      const third = await openThenReload([D1, D2]);
+      await showEach();
+      await until(async () => (await bound()).filter(Boolean).length + empties(third.at).length >= 2, 60000, 1000);
+      await sleep(3000);
+      const heldD = await bound(), madeD = empties(third.at);
+      const ownOrEmpty = heldD.every((id) => !id || id === D1.id || id === D2.id || madeD.includes(id));
+      const once = [D1.id, D2.id].every((id) => heldD.filter((x) => x === id).length <= 1);
+      check(ownOrEmpty && once,
+        'two tabs whose titles start alike each come back as their own conversation or an empty one, and no conversation is in both',
+        { labels: third.labels, bound: heldD, empty: madeD });
+      note(`two tabs whose titles start with the same 24 characters came back as ${heldD.filter((id) => id === D1.id || id === D2.id).length} of their conversations and ${madeD.length} empty one(s)`);
       await setLoad(undefined);
       await exec('workbench.action.closeAllEditors');
       await until(async () => !(await claudeTabs()).length, 15000, 500);

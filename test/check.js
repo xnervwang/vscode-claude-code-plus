@@ -8375,6 +8375,70 @@ console.log('\nthe margin kept from Claude Code\'s cleanup');
   } else bad('the margin setting is not wired as expected');
 }
 
+console.log('\na new tab in a window that drew no page takes its conversation\'s title');
+{
+  const { applyEdits } = require('../src/edits');
+  const te = host.EDITS.find((e) => e.name === "a new tab takes its conversation's title");
+  const tsrc = 'function f(e){let d=e===void 0?void 0:this.listedSessions.get(e)?.title??this.sessionStates.get(e)?.info.title,c=open(d);return c}';
+  const tr = te ? applyEdits(tsrc, [te]) : { error: 'no such edit' };
+  if (tr.error) bad('the new tab title edit did not apply: ' + tr.error);
+  else {
+    /* What the new tab is titled with, given what Claude Code knows of the conversation and the hook this extension sets. */
+    const titled = (given) => {
+      const { listed = [], states = [], hook } = given, id = 'id' in given ? given.id : 'S1';
+      const env = { out: null, asked: [], open: (t) => t };
+      env.globalThis = env;
+      if (hook !== undefined) env.__cceTitleOf = (x) => { env.asked.push(x); return hook(x); };
+      vm.createContext(env);
+      vm.runInContext(`${tr.out};out=f.call({listedSessions:new Map(${JSON.stringify(listed)}),`
+        + `sessionStates:new Map(${JSON.stringify(states)})},${JSON.stringify(id)})`, env);
+      return { title: env.out, asked: env.asked };
+    };
+    const cases = [
+      ['with no hook and nothing known, no title, as before', {}, undefined, null],
+      ['the hook\'s title when Claude Code knows none', { hook: () => 'Fix the lexer' }, 'Fix the lexer', ['S1']],
+      ['no title when the hook finds none', { hook: () => '' }, undefined, ['S1']],
+      ['no title when the hook gives only spaces', { hook: () => '   ' }, undefined, ['S1']],
+      ['no title when the hook gives something other than text', { hook: () => 42 }, undefined, ['S1']],
+      ['no title when the hook throws, and the tab is still created', { hook: () => { throw new Error('x'); } }, undefined, ['S1']],
+      ['the session list\'s title when there is one, without asking the hook', { listed: [['S1', { title: 'Listed' }]], hook: () => 'Read' }, 'Listed', []],
+      ['the hook\'s title when the session list has an empty one', { listed: [['S1', { title: '' }]], hook: () => 'Read' }, 'Read', ['S1']],
+      ['the running conversation\'s title when the list has none', { states: [['S1', { info: { title: 'Running' } }]], hook: () => 'Read' }, 'Running', []],
+      ['no title and no question for a tab with no conversation yet', { id: undefined, hook: () => 'Read' }, undefined, []],
+    ];
+    for (const [what, given, want, asked] of cases) {
+      const got = titled(given);
+      if (got.title === want && (asked === null || JSON.stringify(got.asked) === JSON.stringify(asked))) ok('a new tab is titled: ' + what);
+      else bad(`a new tab, ${what}: titled ${JSON.stringify(got.title)}, hook asked for ${JSON.stringify(got.asked)}`);
+    }
+  }
+  const csl = require('../src/claude-session-list');
+  const marks = require('../src/title-marks');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cce-titled-'));
+  const S = (n) => `7a7b1000-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`;
+  const T = (m) => new Date(Date.UTC(2026, 10, 27, 23, m)).toISOString();
+  const user = (m, content) => ({ type: 'user', parentUuid: null, timestamp: T(m), cwd: dir, message: { role: 'user', content } });
+  const agent = (m, text) => ({ type: 'assistant', parentUuid: 'p', timestamp: T(m), cwd: dir, message: { role: 'assistant', content: [{ type: 'text', text }] } });
+  const files = {};
+  const put = (id, recs) => { files[id] = path.join(dir, id + '.jsonl'); fs.writeFileSync(files[id], recs.map((r) => JSON.stringify(r) + '\n').join('')); };
+  put(S(1), [user(0, 'Fix the lexer for unicode escapes'), agent(1, 'Looking.'), { type: 'ai-title', aiTitle: 'Unicode escapes in the lexer', sessionId: S(1) },
+    { type: 'custom-title', customTitle: `Lexer escapes ${marks.CROWN}`, sessionId: S(1) }, agent(2, 'Done.')]);
+  put(S(2), [user(0, 'Where is the parser cache?'), agent(1, 'In src/cache.c.'), { type: 'ai-title', aiTitle: 'Parser cache location', sessionId: S(2) }]);
+  put(S(3), [user(0, 'Count the open tickets'), agent(1, 'Twelve.')]);
+  const found = (id) => files[id] || '';
+  const titles = [S(1), S(2), S(3), S(4), 'not-a-session'].map((id) => csl.titleOf(id, found));
+  const wantTitles = ['Lexer escapes', 'Parser cache location', 'Count the open tickets', '', ''];
+  if (JSON.stringify(titles) === JSON.stringify(wantTitles)) {
+    ok('the title read for a new tab is the renamed one without its marks, else the generated one, else the first prompt, and none without a transcript');
+  } else bad(`titles read for new tabs: ${JSON.stringify(titles)}, wanted ${JSON.stringify(wantTitles)}`);
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  const at = ext.indexOf('globalThis.__cceTitleOf = '), start = ext.indexOf('const go = async () => {');
+  if (at > 0 && start > at && /claudeSessionList\.titleOf\(sessionId\)/.test(ext.slice(at, at + 400)) && /delete globalThis\.__cceTitleOf/.test(ext)) {
+    ok('the title hook is set when the extension activates, before anything it starts, and is taken away with it');
+  } else bad('the title hook is not set early in activation, or not taken away');
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 console.log('\na tab the person closes');
 {
   const { applyEdits } = require('../src/edits');
