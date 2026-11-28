@@ -32,6 +32,7 @@ const stewardMarks = require('./src/steward-marks');
 const titleMarks = require('./src/title-marks');
 const envelope = require('./src/envelope');
 const stewards = require('./src/stewards');
+const stewardLeads = require('./src/steward-leads');
 const stewardKeys = require('./src/steward-keys');
 const detachedEnds = require('./src/detachedends');
 const bgEnds = require('./src/bgends');
@@ -260,7 +261,7 @@ function carryOver(context, log) {
 const TOLD_KEY = PREFIX + 'toldEarlierBuild';
 /* How long the first start waits for export.json from the old id's last version. */
 const EXPORT_WAIT_MS = 20000;
-/* How often the supervisors' order and titles are looked at for Agent Plus (stewardsOfKey). */
+/* How often the supervisors' titles and leads are looked at for Agent Plus (stewardsOfKey). */
 const STEWARD_ORDER_MS = 5000;
 function standAside(context, log, version) {
   log.appendLine(`Work Plan for Claude Code ${version} (${carryover.LEGACY_ID}) is still installed and patches Claude Code itself; `
@@ -1306,21 +1307,24 @@ function start(context, log, renamed, handing = false) {
     try { if (typeof globalThis.__cceSendSessionStates === 'function') globalThis.__cceSendSessionStates(); } catch (_) { /* next change */ }
     try { if (typeof globalThis.__cceSessionsChanged === 'function') globalThis.__cceSessionsChanged(); } catch (_) { /* next change */ }
   };
-  /* The supervisors of conversation `key`, as Agent Plus asks for them: ordered by when the user last typed to each, most
-     recent first, which is the order handoffs fall back on (src/relay.js). */
+  /* The supervisors of conversation `key`, as Agent Plus asks for them: its lead first, marked, the observers after it
+     (src/steward-leads.js). */
   const userAtOf = relay.lastUserCache();
   const stewardTitleOf = (id, table) => (table[id] && table[id].title) || steward.titleOf(id);
   const stewardsOfKey = (key) => {
-    const table = stewardTable();
-    return stewards.byUser(stewards.stewardsOf(table, key), (s) => userAtOf(transcriptOf(s))).map((s) => ({ sessionId: s, title: stewardTitleOf(s, table) }));
+    const st = stewards.state(planDir()), table = st.table, lead = stewardLeads.leadOf(table, st.leads, key);
+    return stewards.stewardsOf(table, key).sort((a, b) => (b === lead) - (a === lead))
+      .map((s) => Object.assign({ sessionId: s, title: stewardTitleOf(s, table) }, s === lead ? { lead: true } : {}));
   };
-  /* Their order and titles change without the table changing: a supervisor's newest message from the user, a rename. */
+  /* Their titles change without the table changing, on a rename; the leads are checked here too, as a backstop to the folder watch. */
   let stewardOrder = '';
   const stewardOrderTimer = setInterval(() => {
     try {
       if (!enabled() || removed()) return;
       const table = stewardTable();
-      const now = JSON.stringify(stewards.byUser(Object.keys(table), (s) => userAtOf(transcriptOf(s))).map((s) => [s, stewardTitleOf(s, table)]));
+      const st = stewards.state(planDir());
+      const now = JSON.stringify([Object.keys(table).sort().map((s) => [s, stewardTitleOf(s, table)]),
+        Object.keys(st.leads).sort().map((k) => [k, st.leads[k].lead, st.leads[k].term])]);
       if (now !== stewardOrder) { const first = !stewardOrder; stewardOrder = now; if (!first) claude.stewardsChanged(); }
     } catch (e) { log.appendLine('supervisor order: ' + ((e && e.message) || e)); }
   }, STEWARD_ORDER_MS);

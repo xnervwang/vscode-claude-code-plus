@@ -65,6 +65,13 @@
   /* Why the answer cannot go into the input now, or null. The input's own text comes back with 'draft', so that the
      host can see whether it typed that text itself. */
   var MAX_DRAFT = 8000;
+  /* Text still being composed with an input method is not in the input yet, and typing into the input then would mix
+     the two. */
+  var composing = false;
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('compositionstart', function(){ composing = true; }, true);
+    document.addEventListener('compositionend', function(){ composing = false; }, true);
+  }
   var refusal = function(m){
     if (showsOther(m)) return { reason: 'not-shown' };
     var box = document.querySelector(ANSWER_INPUT);
@@ -72,6 +79,7 @@
     /* Text already in the input would be sent along with the answer. */
     var had = inputText(box);
     if (had) return { reason: 'draft', detail: had.slice(0, MAX_DRAFT) };
+    if (composing) return { reason: 'draft', detail: '' };
     return null;
   };
   var sendAnswer = function(m){

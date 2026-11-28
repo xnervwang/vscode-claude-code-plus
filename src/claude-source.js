@@ -444,8 +444,9 @@ function createClaudeSource(deps) {
     onDidChangePlanNotice: noticeChanged.event,
     onDidChangeStewards: stewardsChanged.event,
 
-    /* Agent Plus asks these so that another agent's conversation is told which supervisors watch it and can hand one of
-       them messages: every supervisor of the conversation, and the first of them. */
+    /* Agent Plus asks these so that another agent's conversation is told which supervisor leads it and hands that one
+       its messages: every supervisor of the conversation, its lead first and marked (`lead: true`, which a core with
+       'stewardLead' keeps), and the lead alone, or null when it has none. */
     stewardsOf(sourceId, sessionId) {
       if (!enabled() || typeof deps.stewardsOf !== 'function') return [];
       let list = [];
@@ -454,13 +455,15 @@ function createClaudeSource(deps) {
       for (const x of Array.isArray(list) ? list : []) {
         const id = x && typeof x.sessionId === 'string' ? x.sessionId.toLowerCase() : '';
         if (!SESSION.test(id) || out.some((o) => o.sessionId === id)) continue;
-        out.push({ sourceId: ID, sessionId: id, title: typeof x.title === 'string' && x.title !== id ? x.title : '' });
+        const e = { sourceId: ID, sessionId: id, title: typeof x.title === 'string' && x.title !== id ? x.title : '' };
+        if (x.lead === true && !out.some((o) => o.lead)) e.lead = true;
+        out.push(e);
       }
-      return out;
+      return out.filter((o) => o.lead).concat(out.filter((o) => !o.lead));
     },
     stewardOf(sourceId, sessionId) {
-      const first = source.stewardsOf(sourceId, sessionId)[0];
-      return first ? { sourceId: ID, sessionId: first.sessionId } : null;
+      const lead = source.stewardsOf(sourceId, sessionId).find((o) => o.lead);
+      return lead ? { sourceId: ID, sessionId: lead.sessionId } : null;
     },
 
     /* The session of the tab's panel; '' for a Claude Code tab with no conversation yet, or whose panel has not been

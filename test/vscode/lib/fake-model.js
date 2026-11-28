@@ -24,13 +24,17 @@
  * only the file the command writes, and the session starts well after that result. ASK_FOR_CHOICE gets an
  * AskUserQuestion call with CHOICE's question and options, so that Claude Code shows a choice box. ASK_TO_PAUSE gets a
  * Bash call of PAUSE_RUN, which Claude Code runs without asking; a message typed while the turn runs is taken into the
- * turn after that call's result.
+ * turn after that call's result. COMMAND_REQUEST(command) gets a Bash call of that command, and the turn that brings its
+ * result back gets "It printed:" and the whole output as its reply.
  *
  * If a turn asks for "a link to conversation <id>" (LINK_ASK), the reply is a supervisor link to that conversation. If it
  * asks to "show me the picture at <path>" (IMAGE_ASK), the reply links that file as an image, and an image at a web
  * address (IMAGE_WEB) after it.
  *
  * hold() keeps the next turns' replies back until release() is called, so a turn can be watched while it runs.
+ *
+ * Each request is kept in `seen`, with `input`, the text of the turn's input after the last reply (the hooks' text
+ * included), so that a step can read what a hook told a conversation.
  */
 const http = require('http');
 
@@ -131,6 +135,10 @@ const NAMED_REPLY = (id, title) => `${title} is the one. In brackets: \u300c${ti
    brackets and new lines included. */
 const ECHO_ASK = /reply with the base64 text ([A-Za-z0-9+/=]+)/i;
 const ECHO_REQUEST = (text) => `Reply with the base64 text ${Buffer.from(String(text), 'utf8').toString('base64')}.`;
+/* A Bash call of a command given word for word, base64 in the message as ECHO_ASK's text is, so that a look step can have
+   a conversation run a script of the plugin itself and show what it printed. */
+const COMMAND_ASK = /run the base64 command ([A-Za-z0-9+/=]+)/i;
+const COMMAND_REQUEST = (command) => `Please run the base64 command ${Buffer.from(String(command), 'utf8').toString('base64')}.`;
 const IMAGE_ASK = /show me the picture at (\S+)/i;
 const IMAGE_ALT = 'a red square';
 const IMAGE_WEB = 'https://example.com/square.png';
@@ -175,6 +183,18 @@ const isHelper = (ask) => { const first = (ask.messages || []).find((m) => m && 
 const linkAsked = (ask) => { const m = LINK_ASK.exec(lastAsk(ask) || ''); return m ? m[1].toLowerCase() : null; };
 const nameAsked = (ask) => { const m = NAME_ASK.exec(typedText(ask)); return m ? NAMED_REPLY(m[1].toLowerCase(), m[2]) : null; };
 const echoAsked = (ask) => { const m = ECHO_ASK.exec(typedText(ask)); return m ? Buffer.from(m[1], 'base64').toString('utf8') : null; };
+const commandAsked = (ask) => { const m = COMMAND_ASK.exec(lastAsk(ask) || ''); return m ? Buffer.from(m[1], 'base64').toString('utf8') : null; };
+/* What a command COMMAND_REQUEST asked for printed, when this request brings its result back, or null. Claude Code shows
+   a long output folded to its first line, so the reply gives the whole of it. */
+const COMMAND_DESCRIPTION = 'Run the command given';
+function commandPrinted(ask) {
+  const msgs = Array.isArray(ask.messages) ? ask.messages : [];
+  const before = msgs.slice(0, -1).filter((m) => m && m.role === 'assistant').pop();
+  const call = before && Array.isArray(before.content) && before.content.find((b) => b && b.type === 'tool_use' && b.input && b.input.description === COMMAND_DESCRIPTION);
+  const r = call && lastParts(ask).find((x) => x && x.type === 'tool_result' && x.tool_use_id === call.id);
+  if (!r) return null;
+  return (typeof r.content === 'string' ? r.content : (r.content || []).map((x) => (x && x.text) || '').join('\n')).trim();
+}
 const imageAsked = (ask) => { const m = IMAGE_ASK.exec(lastAsk(ask) || ''); return m ? m[1] : null; };
 /* Which of the texts the work plan plugin's hooks and this extension add to Claude's context this turn's input carries:
    the messages after the last reply, since Claude Code 2.1.330 sends the hooks' text and its list of skills in a system
@@ -190,6 +210,22 @@ function contextOf(ask) {
   const out = { tools: Array.isArray(ask.tools) ? ask.tools.length : 0 };
   for (const [k, re] of Object.entries(CONTEXT)) out[k] = re.test(input);
   return out;
+}
+/* The text of this turn's input, the messages after the last reply with the hooks' text among them, as plain text;
+   the first MAX_INPUT characters, which hold what a step looks for. */
+const MAX_INPUT = 40000;
+function inputOf(ask) {
+  const msgs = Array.isArray(ask.messages) ? ask.messages : [];
+  let i = msgs.length;
+  while (i > 0 && !(msgs[i - 1] && msgs[i - 1].role === 'assistant')) i--;
+  const parts = [];
+  const walk = (c) => {
+    if (typeof c === 'string') parts.push(c);
+    else if (Array.isArray(c)) c.forEach(walk);
+    else if (c && typeof c === 'object') { if (typeof c.text === 'string') parts.push(c.text); else if (c.content !== undefined) walk(c.content); }
+  };
+  for (const m of msgs.slice(i)) walk(m && m.content);
+  return parts.join('\n').slice(0, MAX_INPUT);
 }
 /* The folder named by the note on images in replies, wherever in the conversation it was added; '' without one. */
 const imagesNote = (ask) => {
@@ -214,14 +250,20 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const detach = asksToDetach(ask), detachShort = asksToDetachShort(ask);
       const worker = asksForWorker(ask), bgSession = asksForBgSession(ask), bgOutput = asksForBgOutput(ask);
       const choice = asksForChoice(ask), pause = asksToPause(ask);
-      const tool = background || backgroundLong || helper || detach || detachShort || worker || bgSession || bgOutput || choice || pause || asksToRun(ask);
+      const command = commandAsked(ask);
+      const tool = !!command || background || backgroundLong || helper || detach || detachShort || worker || bgSession || bgOutput || choice || pause || asksToRun(ask);
       const linked = linkAsked(ask), picture = imageAsked(ask), named = nameAsked(ask) || echoAsked(ask);
+      const printed = commandPrinted(ask);
       const reply = named || (linked ? `It is [${LINK_TEXT}](vscode://xnervwang.claude-code-plus/open?session=${linked}).`
-        : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})` : plain);
-      seen.push({ method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping, choice,
+        : picture ? `Here it is:\n\n![${IMAGE_ALT}](${picture})\n\nAnd the one on the web:\n\n![a web picture](${IMAGE_WEB})`
+          : printed !== null ? `It printed:\n\n${printed}` : plain);
+      const entry = { method: req.method, url: req.url, bytes: body.length, stream: !!ask.stream, model: ask.model || '', tool, helping, choice,
         parts: lastParts(ask).map((p) => (p && p.type) || typeof p), result: resultText(ask), ask: (lastAsk(ask) || '').slice(0, 400),
         typed: typedText(ask).slice(0, 400),
-        picture, imagesNote: imagesNote(ask), context: contextOf(ask) });
+        picture, imagesNote: imagesNote(ask), context: contextOf(ask) };
+      /* Left out of what a failed check prints of the entry, which would otherwise carry every hook's text. */
+      Object.defineProperty(entry, 'input', { value: inputOf(ask), enumerable: false });
+      seen.push(entry);
       if (req.method === 'POST' && /\/v1\/messages\/count_tokens$/.test(url)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ input_tokens: 1200 }));
@@ -235,7 +277,8 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
       const id = `msg_fake_${++n}`, model = ask.model || 'claude-sonnet-5-5';
       /* About a fifth of a 200k window, so the context share a reply shows is a number worth checking. */
       const usage = { input_tokens: 1200, cache_creation_input_tokens: 0, cache_read_input_tokens: 40000, output_tokens: 40 };
-      const input = helper ? { description: 'Look through the notes', prompt: HELPER_TASK, subagent_type: 'general-purpose', run_in_background: true }
+      const input = command ? { command, description: COMMAND_DESCRIPTION }
+        : helper ? { description: 'Look through the notes', prompt: HELPER_TASK, subagent_type: 'general-purpose', run_in_background: true }
         : background ? { command: BG_RUN, description: 'Start the long job', run_in_background: true }
         : backgroundLong ? { command: BG_LONG_RUN, description: 'Start the nightly build', run_in_background: true }
           : detach ? { command: DETACH_RUN, description: 'Start the long job detached' }
@@ -283,7 +326,7 @@ async function start({ reply: plain = 'Done. The retry delay is set in config/sy
     turns: () => seen.filter((s) => s.method === 'POST' && s.stream && /\/v1\/messages(\?|$)/.test(s.url)).length };
 }
 
-module.exports = { start, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_TO_BACKGROUND_LONG, BG_LONG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
+module.exports = { start, COMMAND_REQUEST, ASK_TO_RUN, RUN, ASK_TO_BACKGROUND, BG_RUN, ASK_TO_BACKGROUND_LONG, BG_LONG_RUN, ASK_FOR_HELPER, HELPER_TASK, ASK_TO_DETACH, DETACH_RUN, ASK_TO_DETACH_SHORT,
   DETACH_SHORT_RUN, LINK_TEXT, NAMED_REPLY, ECHO_REQUEST,
   IMAGE_ALT, IMAGE_WEB, ASK_FOR_WORKER, WORKER_RUN, WORKER_NAME, WORKER_SCRIPT, ASK_FOR_BG_SESSION, BG_SESSION_RUN, BG_SESSION_NAME,
   BG_SESSION_SCRIPT, ASK_FOR_BG_OUTPUT, BG_OUTPUT_RUN, ASK_FOR_CHOICE, CHOICE, ASK_TO_PAUSE, PAUSE_RUN };

@@ -1,5 +1,5 @@
 {
-  "core": "83c4c1196af34d171415a6b6eff71b3878e6d33f",
+  "core": "9c4488a44a60559493a00d782a2c411d4f3c1cd7",
   "files": [
     {
       "path": "build/sync-shared.js",
@@ -191,22 +191,27 @@
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward-relay.py",
       "from": "shared/plugin/claude/steward-relay.py",
-      "sha256": "74b2816f3955bb6de6085cd2769df595ace05e014ff8af6429d04a964ffac0ab"
+      "sha256": "f8d76c69d8e607c0d6f1cd27bb907deb01a9023eb80f4b08d8a9d6336402a853"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward.py",
       "from": "shared/plugin/claude/steward.py",
-      "sha256": "795ec40e44d8fc767b8cfa13f1f9d7d8ec05748b468bbc30b347d40e7d0ebca3"
+      "sha256": "b48d971c154e16ba22f69c3e07b90d34ec56163777d8c7f77454d0b0e09ae8dd"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward-peek.py",
       "from": "shared/plugin/claude/steward-peek.py",
-      "sha256": "2e08e6b3662101960515c9d9d3d45533aede2939f7c3502653b449315d0eaf05"
+      "sha256": "c3ada8c0e6fcf9aa452d6d1600ba1715bc997bba1a36ccb9b7be868e801cbdc3"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/steward_table.py",
       "from": "shared/plugin/claude/steward_table.py",
-      "sha256": "389af380a3d57241504031778e3b0a6c5f0458341a16388cb600a499c38fbae3"
+      "sha256": "80db86e01c572102cfaa6577c8e7ed1f3458b15d7666d2c3c2ba87b613cb71b9"
+    },
+    {
+      "path": "claude-plugin/agent-work-plan/hooks/steward-send-guard.py",
+      "from": "shared/plugin/claude/steward-send-guard.py",
+      "sha256": "d1c55bd5c711d3aa6781de35f349b0c7949d22e3ec864147bbdb94de9a74ec97"
     },
     {
       "path": "claude-plugin/agent-work-plan/hooks/proc_alive.py",
@@ -221,7 +226,7 @@
     {
       "path": "claude-plugin/agent-work-plan/skills/supervisor/SKILL.md",
       "from": "shared/plugin/claude/steward-skill.md",
-      "sha256": "67da340c802fdd7102c5c668e2f729604c25bff550f6eb92f278bff8bd63e793"
+      "sha256": "8ce0bf14d3c42817284b878f73025b247bad446c720707b7f50515e35ee9fcc6"
     }
   ]
 }

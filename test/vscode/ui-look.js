@@ -566,6 +566,20 @@ async function stewardPanel(d) {
   return frame;
 }
 const stewardsFile = (d) => path.join(d.profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras', 'stewards.json');
+/* Writes a table, under its lock, in which supervisor `lead` leads conversation `t` and supervisor `observer` observes
+   it, as the panels would have it had `lead` ticked it first. Each is one of the demo's threads. */
+function leadTable(d, lead, observer, t) {
+  const { withLock, writeLocked } = require('../../src/file-lock');
+  const file = stewardsFile(d), now = Date.now();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const entry = (s, at) => ({ manages: [t.id], names: { [t.id]: t.title }, at, title: s.title, since: { [t.id]: at } });
+  withLock(file, () => writeLocked(file, JSON.stringify({ version: 4, stewards: { [lead.id]: entry(lead, now - 1000), [observer.id]: entry(observer, now) },
+    leads: { [t.id]: { lead: lead.id, term: 1, at: now - 1000, why: 'first', was: '' } }, tickets: {}, rev: 1 }, null, 1) + '\n'));
+}
+const leadOfFile = (d, key) => { try { return (JSON.parse(fs.readFileSync(stewardsFile(d), 'utf8')).leads || {})[key] || null; } catch (_) { return null; } };
+/* The command line that runs the supervisor's script with `args`, and `input` in a here-document, as a supervisor writes
+   it in a Bash call. */
+const relayLine = (d, args, input) => `python3 ${RELAY} ${args.join(' ')} ${path.dirname(stewardsFile(d))}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
 async function severalPanel(d) {
   const [t1, t2] = d.threads.slice(1);
   for (const t of [t1, t2]) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
@@ -582,6 +596,35 @@ async function severalPanel(d) {
   }
   d.several = frame;
   return frame;
+}
+/* Brings the conversation the demo conversation and another supervisor both manage to the front, and waits for its
+   panel's line naming its lead. */
+async function ledLine(d, frame) {
+  await d.exec('claude-vscode.editor.open', d.threads[2].id);
+  if (!await d.until(() => frame.evaluate(() => { const p = document.querySelector('.led'); return !!p && /^Led by /.test(p.textContent); }).catch(() => false), 20000, 500)) {
+    throw new Error('the Supervisor panel has no line naming the lead of the conversation in front');
+  }
+  await d.sleep(500);
+}
+/* Clicks "Lead it from here" in the row of the conversation the demo conversation observes, and waits for VS Code's dialog. */
+async function askTakeOver(d, frame) {
+  await d.exec('claude-vscode.editor.open', d.sid);
+  const button = frame.locator(`button[data-take-lead="${d.threads[2].id}"]`).first();
+  if (!await d.until(() => button.isEnabled().catch(() => false), 20000, 500)) throw new Error('the row has no "Lead it from here" button to click');
+  await button.click();
+  if (!await d.until(() => dialog(d), 10000, 300)) throw new Error('no dialog asked before the take-over');
+}
+/* Moves the start of the hand-over under way for `key` back past the ten minutes its lead has, as if they had passed,
+   under the table's lock as a window writes it: the next window that writes the table then makes the change itself. */
+function passHandOver(d, key) {
+  const { withLock, writeLocked } = require('../../src/file-lock');
+  withLock(stewardsFile(d), () => {
+    const t = JSON.parse(fs.readFileSync(stewardsFile(d), 'utf8'));
+    const e = t.leads && t.leads[key];
+    if (!e || !e.pending) return;
+    e.pending.at = Date.now() - 11 * 60000;
+    writeLocked(stewardsFile(d), JSON.stringify(t, null, 1) + '\n');
+  });
 }
 function typed(d, id, text) {
   fs.appendFileSync(transcriptFile(d, id), JSON.stringify({ sessionId: id, cwd: d.profile.folder, isSidechain: false, type: 'user',
@@ -1546,7 +1589,7 @@ const STEPS = [
       const t = d.threads[1];
       await stewardOf(d, [t.id]);
       const said = await relay(d, t.id, ['--handoff'], 'The user asked here for the release notes, which belong in another conversation.');
-      if (!/^Handed off to the supervisor /.test(said)) throw new Error(`the handoff did not reach the supervisor: ${said}`);
+      if (!/^Handed off to your lead supervisor /.test(said)) throw new Error(`the handoff did not reach the lead supervisor: ${said}`);
       if (!await d.until(() => transcriptHas(d, d.sid, `(${t.id}), passed on by Claude Code Plus`), 30000, 1000)) throw new Error('the supervisor did not get the handoff within 30 s');
       await d.sleep(6000);
       await toBottom(d.conv);
@@ -1576,91 +1619,237 @@ const STEPS = [
     },
   },
   /* Several supervisors, with the demo conversation in front: its Supervisor panel greys another supervisor's box, which says
-     why on hover, and the row of a conversation another supervisor also ticked ends in an eye with their number; hovering
-     over the eye lists them. The other supervisor is set by writing the table, as its own panel would. In both themes. */
-  ...['dark', 'light'].flatMap((tone) => [
-    {
-      name: `steward-eye${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The Supervisor panel at the bottom, in a ${tone} theme, for the demo conversation in front. The row of "Why does the nightly export skip `
-        + 'archived rows?" has a greyed box and says "a supervisor" after its title. The row of "Add a dry-run flag to the cleanup script" is ticked, '
-        + 'and at its far right end, after the time, stands a small eye with the number 1 beside it, drawn in a lighter grey than the row\'s text and about '
-        + 'as tall as the text. No row names a supervisor after its title. The "All, including new ones" and "New conversations" switches at the top '
-        + 'right are both unticked and not greyed. The mouse is away; nothing overlaps.',
-      unchanged: tone === 'light' ? null : 'The side bar is as before, and the tab bar has the same tabs; the demo conversation is '
-        + 'in front now, and "Why does the nightly export skip archived rows?", made a supervisor by this step, has a crown after its '
-        + 'title.',
-      act: async (d) => {
-        if (tone === 'light') { await theme(d, 'Default Light Modern'); await d.sleep(2500); }
-        const frame = await severalPanel(d);
-        await rest(d, frame, 'bottom');
-        await d.away();
-        await d.sleep(500);
-        return d.part('workbench.parts.panel');
+     why on hover, and the row of a conversation another supervisor also ticked says whether the demo conversation leads it
+     or observes it and ends in an eye with their number; hovering over the eye lists them, the lead first. The other
+     supervisor is set by writing the table, as its own panel would, and ticked the conversation first, so it leads it: the
+     row's "Lead it from here" asks in a dialog and, agreed, waits for that lead's hand-over. In both themes. */
+  ...['dark', 'light'].flatMap((tone) => {
+    const sfx = tone === 'light' ? '-light' : '';
+    const features = ['steward-several', 'steward-panel', 'steward-lead', ...(tone === 'light' ? ['light-theme'] : [])];
+    const LEADER = 'Why does the nightly export skip archived rows?', LED = 'Add a dry-run flag to the cleanup script';
+    const narrow = { undo: async (d) => { await d.away(); await d.exec('workbench.action.positionPanelBottom').catch(() => {}); await d.sleep(1500); } };
+    const toRight = async (d) => { await d.exec('workbench.action.positionPanelRight'); await d.sleep(2000); };
+    return [
+      {
+        name: `steward-eye${sfx}`, features,
+        expect: `The Supervisor panel at the bottom, in a ${tone} theme, for the demo conversation in front. The header line reads "Managed by", the demo `
+          + 'conversation\'s title with one crown after it, then ": 1, 1 observed". The row of "' + LEADER + '" has a greyed box and says "a supervisor" '
+          + 'after its title. The row of "' + LED + '" is ticked; right after its box, before its dot and title, it reads "Observer" in small, fainter '
+          + 'text; further along, just before the time, it has a small button "Lead it from here"; and at its far right end, after the time, stands a small '
+          + 'eye with the number 1 beside it, drawn in a lighter grey than the row\'s text and about as tall as the text. The button has a thin border '
+          + 'and stays on the row\'s line. In every row the title starts '
+          + 'the same distance after the box. No row names a supervisor after its title. The "All, including new ones" and "New conversations" switches at '
+          + 'the top right are both unticked and not greyed. An envelope before a row\'s time only says its last reply is not read yet. The mouse '
+          + 'is away; nothing overlaps.',
+        unchanged: tone === 'light' ? null : 'The side bar is as before, and the tab bar has the same tabs; the demo conversation is '
+          + 'in front now, and "' + LEADER + '", made a supervisor by this step, has a crown after its title.',
+        act: async (d) => {
+          if (tone === 'light') { await theme(d, 'Default Light Modern'); await d.sleep(2500); }
+          const frame = await severalPanel(d);
+          await rest(d, frame, 'bottom');
+          await d.away();
+          await d.sleep(500);
+          return d.part('workbench.parts.panel');
+        },
       },
-    },
-    {
-      name: `steward-eye-hover${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The mouse rests on the eye at the end of the row of "Add a dry-run flag to the cleanup script", still in the ${tone} theme, and a small `
-        + 'box opens just below it, its right edge under the eye: its first line reads "Also managed by 1 other supervisor", and below it "Why does the '
-        + 'nightly export skip archived rows?" in link colour. The box is readable against its background, wholly inside the panel, and has a thin border.',
-      unchanged: 'The rows of the Supervisor panel are as in the step before.',
-      act: async (d) => {
-        const frame = d.several || await severalPanel(d);
-        const t2 = d.threads[2];
-        await rest(d, frame);
-        await frame.locator(`.eyes[data-eyes="${t2.id}"]`).first().hover();
-        if (!await d.until(() => frame.evaluate((id) => { const p = document.querySelector(`.eyes[data-eyes="${id}"] .pop`); return !!p && p.getBoundingClientRect().width > 0; }, t2.id), 3000, 100)) {
-          throw new Error('the eye\'s list did not open');
-        }
-        await d.sleep(300);
-        return d.part('workbench.parts.panel');
+      {
+        name: `steward-observer-hover${sfx}`, features,
+        expect: `The mouse rests on "Observer" in the row of "${LED}", still in the ${tone} theme, and a small hover label beside it reads `
+          + `'Led by "${LEADER}"; this supervisor only observes it and does not act on it'. The label is readable against its background, has a `
+          + 'thin border, lies wholly inside the panel and does not hide the row\'s title.',
+        unchanged: 'The rows of the Supervisor panel are as in the step before.',
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          await rest(d, frame);
+          await frame.locator(`.row:has(input[data-id="${d.threads[2].id}"]) .role.observer`).first().hover();
+          if (!await d.until(() => frame.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return !!l && l.getBoundingClientRect().width > 0; }), 3000, 100)) {
+            throw new Error('no hover label appeared for "Observer"');
+          }
+          await d.sleep(300);
+          return d.part('workbench.parts.panel');
+        },
       },
-    },
-    {
-      name: `steward-greyed-box${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The mouse rests on the greyed box of "Why does the nightly export skip archived rows?", still in the ${tone} theme: a small hover label `
-        + 'beside it reads "This conversation is a supervisor, and a supervisor is not managed by another". The label is readable against its background '
-        + 'and does not hide the row\'s title; the eye\'s list from the step before is closed.',
-      unchanged: 'The rows of the Supervisor panel are as in the step before.',
-      act: async (d) => {
-        const frame = d.several || await severalPanel(d);
-        const t1 = d.threads[1];
-        await rest(d, frame);
-        await frame.locator(`.box:has(input[data-id="${t1.id}"])`).first().hover();
-        if (!await d.until(() => frame.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return !!l && l.getBoundingClientRect().width > 0; }), 3000, 100)) {
-          throw new Error('no hover label appeared for the greyed box');
-        }
-        await d.sleep(300);
-        return d.part('workbench.parts.panel');
+      {
+        name: `steward-eye-hover${sfx}`, features,
+        expect: `The mouse rests on the eye at the end of the row of "${LED}", still in the ${tone} theme, and a small box opens just below it, its `
+          + 'right edge under the eye: its first line reads "Also managed by 1 other supervisor", and below it "' + LEADER + '" in link colour, '
+          + 'followed on the same line by a short bold "lead". No line reads "also observing", since no other supervisor observes it. The box is '
+          + 'readable against its background, wholly inside the panel, and has a thin border.',
+        unchanged: 'The rows of the Supervisor panel are as in the step before.',
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          const t2 = d.threads[2];
+          await rest(d, frame);
+          await frame.locator(`.eyes[data-eyes="${t2.id}"]`).first().hover();
+          if (!await d.until(() => frame.evaluate((id) => { const p = document.querySelector(`.eyes[data-eyes="${id}"] .pop`); return !!p && p.getBoundingClientRect().width > 0; }, t2.id), 3000, 100)) {
+            throw new Error('the eye\'s list did not open');
+          }
+          await d.sleep(300);
+          return d.part('workbench.parts.panel');
+        },
       },
-    },
-    {
-      name: `steward-eye-narrow${tone === 'light' ? '-light' : ''}`, features: ['steward-several', 'steward-panel', ...(tone === 'light' ? ['light-theme'] : [])],
-      expect: `The panel area moved to the right side of the window, in the ${tone} theme, so the Supervisor panel is narrow. The rows' titles are cut `
-        + 'short with an ellipsis where they do not fit, and the eye with its 1 still stands whole at the right end of the row of "Add a dry-run flag '
-        + 'to the cleanup script". Nothing wraps onto a second line or overlaps.',
-      unchanged: null,
-      act: async (d) => {
-        const frame = d.several || await severalPanel(d);
-        await d.exec('workbench.action.positionPanelRight');
-        await d.sleep(2000);
-        await rest(d, frame);
-        await d.away();
-        await d.sleep(500);
-        return d.part('workbench.parts.panel');
+      {
+        name: `steward-greyed-box${sfx}`, features,
+        expect: `The mouse rests on the greyed box of "${LEADER}", still in the ${tone} theme: a small hover label `
+          + 'beside it reads "This conversation is a supervisor, and a supervisor is not managed by another". The label is readable against its background '
+          + 'and does not hide the row\'s title; the eye\'s list from the step before is closed.',
+        unchanged: 'The rows of the Supervisor panel are as in the step before.',
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          const t1 = d.threads[1];
+          await rest(d, frame);
+          await frame.locator(`.box:has(input[data-id="${t1.id}"])`).first().hover();
+          if (!await d.until(() => frame.evaluate(() => { const l = document.querySelector('[data-steward-why]'); return !!l && l.getBoundingClientRect().width > 0; }), 3000, 100)) {
+            throw new Error('no hover label appeared for the greyed box');
+          }
+          await d.sleep(300);
+          return d.part('workbench.parts.panel');
+        },
       },
-      undo: async (d) => {
-        await d.away();
-        await d.exec('workbench.action.positionPanelBottom').catch(() => {});
-        if (tone === 'light') { await theme(d, 'Default Dark Modern'); await d.sleep(2000); }
-        try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ }
-        for (const t of d.threads.slice(1)) await closeTab(d, t);
-        await d.exec('workbench.action.closePanel').catch(() => {});
-        d.several = null;
-        await d.sleep(800);
+      {
+        name: `steward-led-line${sfx}`, features,
+        expect: `The conversation "${LED}" is in front now, still in the ${tone} theme, and the Supervisor panel at the bottom is about it. Its first `
+          + `line, above the header, reads "Led by ${LEADER}; observed by" followed by the demo conversation's title, both titles in link colour. The `
+          + `header below it reads "Managed by ${LED}: 0" with no crown. No row reads "Lead" or "Observer", and no row has a "Lead it from here" `
+          + 'button. Nothing overlaps.',
+        unchanged: 'The rows of the other conversations are the same as in the step before, less this one\'s and with the demo conversation\'s added.',
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          await ledLine(d, frame);
+          await rest(d, frame, 'bottom');
+          await d.away();
+          return d.part('workbench.parts.panel');
+        },
+        undo: async (d) => { await d.exec('claude-vscode.editor.open', d.sid); await d.sleep(1500); },
       },
-    },
-  ]),
+      Object.assign({
+        name: `steward-eye-narrow${sfx}`, features: [...features, 'narrow-panel'],
+        expect: `The panel area moved to the right side of the window, in the ${tone} theme, so the Supervisor panel is narrow. The row of "${LED}" `
+          + 'takes two lines: on the first its box, "Observer" whole, and its title, wrapped where it does not fit and not cut; on the second, under '
+          + '"Observer", a bordered "Lead it from here" button with its text on one line, and at the right end the time and the eye with its 1, both '
+          + 'whole. A title that does not fit wraps onto further lines of its own row; the panel has no horizontal scroll bar, and nothing overlaps.',
+        unchanged: null,
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          await toRight(d);
+          await rest(d, frame);
+          await d.away();
+          await d.sleep(500);
+          return d.part('workbench.parts.panel');
+        },
+      }, narrow),
+      Object.assign({
+        name: `steward-eye-hover-narrow${sfx}`, features: [...features, 'narrow-panel'],
+        expect: `The Supervisor panel is narrow at the right side of the window, in the ${tone} theme, and the mouse rests on the eye at the end of the `
+          + `row of "${LED}": the box it opens reads "Also managed by 1 other supervisor", then "${LEADER}" in link colour with a short bold "lead". `
+          + 'The whole box lies inside the panel: no part of it is cut off at the panel\'s left edge, and its text is readable.',
+        unchanged: null,
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          await toRight(d);
+          const t2 = d.threads[2];
+          await rest(d, frame);
+          await frame.locator(`.eyes[data-eyes="${t2.id}"]`).first().hover();
+          if (!await d.until(() => frame.evaluate((id) => { const p = document.querySelector(`.eyes[data-eyes="${id}"] .pop`); return !!p && p.getBoundingClientRect().width > 0; }, t2.id), 3000, 100)) {
+            throw new Error('the eye\'s list did not open');
+          }
+          await d.sleep(300);
+          return d.part('workbench.parts.panel');
+        },
+      }, narrow),
+      Object.assign({
+        name: `steward-led-line-narrow${sfx}`, features: [...features, 'narrow-panel'],
+        expect: `The conversation "${LED}" is in front, in the ${tone} theme, and its Supervisor panel is narrow at the right side of the window. The line `
+          + `"Led by ${LEADER}; observed by" and the demo conversation's title wraps onto as many lines as it needs, every word readable, and the header `
+          + '"Managed by ..." starts below it without overlapping it.',
+        unchanged: null,
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          await toRight(d);
+          await ledLine(d, frame);
+          await rest(d, frame, 'bottom');
+          await d.away();
+          return d.part('workbench.parts.panel');
+        },
+      }, { undo: async (d) => { await narrow.undo(d); await d.exec('claude-vscode.editor.open', d.sid); await d.sleep(1500); } }),
+      {
+        name: `steward-take-over-ask${sfx}`, features,
+        expect: `After a click on "Lead it from here" in the row of "${LED}", in the ${tone} theme, VS Code asks in a dialog in the middle of the `
+          + `window: 'Have "<the demo conversation's title>" lead "${LED}"? It is led by "${LEADER}" now; that one becomes an observer.', `
+          + 'with a "Take over" button and a Cancel button. The dialog is readable and wholly inside the window.',
+        unchanged: 'Behind the dialog, the window is as before.',
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          await askTakeOver(d, frame);
+          await d.sleep(500);
+          return d.body();
+        },
+        undo: (d) => answerDialog(d, 'Cancel'),
+      },
+      {
+        name: `steward-take-over-pending${sfx}`, features,
+        expect: `"Take over" was chosen in that dialog, in the ${tone} theme. The dialog is gone. The row of "${LED}" in the Supervisor panel still `
+          + `reads "Observer", and its "Lead it from here" button is greyed, since "${LEADER}" hands the conversation over first. At the bottom right, `
+          + `one notification from Claude Code Plus, expanded so that all of it shows, reads after a time in brackets: '"${LEADER}" hands "${LED}" `
+          + 'over first; the lead changes once its note is sent, or in 10 minutes.\' It does not hide that row\'s button.',
+        unchanged: 'The rows of the Supervisor panel are as in the step before the dialog, but for that button.',
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          await d.exec('notifications.clearAll');
+          await askTakeOver(d, frame);
+          await answerDialog(d, 'Take over');
+          if (!await d.until(() => frame.evaluate((id) => { const b = document.querySelector(`button[data-take-lead="${id}"]`); return !!b && b.disabled; }, d.threads[2].id), 15000, 300)) {
+            throw new Error('the row\'s button did not turn grey after "Take over"');
+          }
+          await rest(d, frame, 'bottom');
+          await d.away();
+          await d.sleep(1500);
+          /* VS Code shows a long notification on one line until it is expanded. */
+          await d.exec('notifications.focusFirstToast').catch(() => {});
+          await d.exec('notification.expand').catch(() => {});
+          await d.sleep(500);
+          return d.body();
+        },
+        undo: async (d) => { await d.exec('notifications.clearAll'); await d.sleep(500); },
+      },
+      {
+        name: `steward-take-over-done${sfx}`, features,
+        expect: `In the ${tone} theme, the ten minutes "${LEADER}" had to hand "${LED}" over are made to pass without its note, so the demo `
+          + `conversation leads it now: in the Supervisor panel the row of "${LED}" reads "Lead" right after its box, in bolder text than "Observer" `
+          + 'was, and has no "Lead it from here" button. Its eye still shows 1. The header line ends in ": 1", with no "observed" after it. The row '
+          + `of "${LEADER}" may have an envelope before its time: it was told it no longer leads, and its reply is not read yet.`,
+        unchanged: 'The other rows of the Supervisor panel are as in the step before.',
+        act: async (d) => {
+          const frame = d.several || await severalPanel(d);
+          const t2 = d.threads[2];
+          if (!await frame.evaluate((id) => { const b = document.querySelector(`button[data-take-lead="${id}"]`); return !!b && b.disabled; }, t2.id)) {
+            await askTakeOver(d, frame);
+            await answerDialog(d, 'Take over');
+          }
+          const leads = () => frame.evaluate((id) => { const r = document.querySelector(`.row:has(input[data-id="${id}"]) .role`); return !!r && r.classList.contains('lead') && !document.querySelector(`button[data-take-lead="${id}"]`); }, t2.id);
+          for (let i = 0; i < 3 && !await leads(); i++) {
+            passHandOver(d, t2.id);
+            await d.until(leads, 15000, 500);
+          }
+          if (!await leads()) throw new Error('the demo conversation did not become the lead once the hand-over\'s time had passed');
+          await rest(d, frame, 'bottom');
+          await d.away();
+          await d.sleep(500);
+          return d.part('workbench.parts.panel');
+        },
+        undo: async (d) => {
+          await d.away();
+          await d.exec('notifications.clearAll').catch(() => {});
+          if (tone === 'light') { await theme(d, 'Default Dark Modern'); await d.sleep(2000); }
+          try { fs.unlinkSync(stewardsFile(d)); } catch (_) { /* gone */ }
+          for (const t of d.threads.slice(1)) await closeTab(d, t);
+          await d.exec('workbench.action.closePanel').catch(() => {});
+          d.several = null;
+          await d.sleep(800);
+        },
+      },
+    ];
+  }),
   {
     name: 'steward-new-switch', features: ['steward-new-switch', 'steward-panel'],
     expect: 'The Supervisor panel for the demo conversation. "New conversations" at the top right, beside "All, including new ones", is ticked; '
@@ -1738,29 +1927,97 @@ const STEPS = [
       await d.sleep(1500);
     },
   },
+  /* Two supervisors of "Add a dry-run flag to the cleanup script": "Find where the retry delay for the inventory sync is
+     set" leads it and "Why does the nightly export skip archived rows?" observes it. The observer runs the supervisor's
+     script itself, as a Bash call the fake model brings and Claude Code asks to run, and the fake model's reply gives
+     what the script printed: its message to the led conversation refused, with the lead named; then the take-over
+     question; then, after the user's yes, the answer that the lead is asked to hand the conversation over. The last step
+     has the lead send its hand-over note. */
   {
-    name: 'steward-recent-held', features: ['steward-recent-send'],
-    expect: 'The conversation "Add a dry-run flag to the cleanup script" is in front. Two supervisors manage it, and the second one\'s message was held '
-      + 'back once, as the first had just sent one, then sent with --anyway. The last message from you in it starts with the line "Sent by the '
-      + 'supervisor" followed by the demo conversation\'s title in quotes and its session id in parentheses, then "for the user:", and on the next line '
-      + 'reads "Turn the dry-run flag on by default.". The message before it, from the other supervisor, starts with that supervisor\'s line the same way.',
+    name: 'steward-observer-refused', features: ['steward-observer-refused'],
+    expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. It is one of the two supervisors of "Add a dry-run flag '
+      + 'to the cleanup script", which "Find where the retry delay for the inventory sync is set" leads. Its last message from you asks the fake model '
+      + 'to run a command given in base64 (how this run has a conversation run the supervisor\'s script); then comes a Bash call of '
+      + 'steward-relay.py that sends the led conversation "Turn the dry-run flag on by default.", and a reply that starts "It printed:" and gives the '
+      + 'script\'s answer in full, after the line Exit code 1: Not sent: "Add a dry-run flag to the cleanup script" is led by "Find where the retry delay for the inventory sync '
+      + 'is set" (and its session id); you observe it. To act on it, run steward-relay.py --take-lead with the led conversation\'s session id and '
+      + '--ask, and ask the user.',
     unchanged: null,
     act: async (d) => {
-      const [t1, t2] = d.threads.slice(1);
-      for (const t of [t1, t2]) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
-      fs.mkdirSync(path.dirname(stewardsFile(d)), { recursive: true });
-      fs.writeFileSync(stewardsFile(d), JSON.stringify({ version: 3, stewards: {
-        [t1.id]: { manages: [t2.id], names: {}, at: Date.now() - 1000, title: t1.title }, [d.sid]: { manages: [t2.id], names: {}, at: Date.now() } } }, null, 1) + '\n');
+      const [t0, t1, t2] = d.threads;
+      for (const t of [t0, t1, t2]) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
+      leadTable(d, t0, t1, t2);
       await d.sleep(6000);
-      const one = await relay(d, t1.id, [t2.id], 'Keep the dry-run flag off by default.');
-      if (!/^Sent: /.test(one)) throw new Error(`the first supervisor could not send: ${one}`);
-      const words = 'Turn the dry-run flag on by default.';
-      const held = await relay(d, d.sid, [t2.id], words);
-      if (!/^Not sent: another supervisor/.test(held)) throw new Error(`the second message was not held back: ${held}`);
-      const sent = await relay(d, d.sid, ['--anyway', t2.id], words);
-      if (!/^Sent: /.test(sent)) throw new Error(`--anyway did not send it: ${sent}`);
+      const frame = await thread(d, t1);
+      await runAsked(d, frame, fakeModel.COMMAND_REQUEST(relayLine(d, [t2.id], 'Turn the dry-run flag on by default.')), 'steward-relay.py');
+      if (!await d.until(() => lastReplyHas(frame, 'you observe it.'), 20000, 500)) throw new Error('the script\'s refusal is not in the reply');
+      await toBottom(frame);
+      await d.away();
+      return d.editor();
+    },
+  },
+  {
+    name: 'steward-take-lead-asked', features: ['steward-take-lead'],
+    expect: 'The conversation "Why does the nightly export skip archived rows?" is still in front. Its last turn ran steward-relay.py --take-lead with '
+      + '--ask, again from a message that gives the command in base64, and the reply that starts "It printed:" says to ask the user exactly this, '
+      + 'word for word, and end the turn, then gives the question: Should I ("Why does the nightly export skip archived rows?") take over "Add a '
+      + 'dry-run flag to the cleanup script"? It is led by "Find where the retry delay for the inventory sync is set" now. If you agree, "Find where '
+      + 'the retry delay for the inventory sync is set" becomes an observer and I go on with what you asked. After the question it says that only a '
+      + 'clear yes in your next message counts.',
+    unchanged: null,
+    act: async (d) => {
+      const [, t1, t2] = d.threads;
+      const frame = await thread(d, t1);
+      await runAsked(d, frame, fakeModel.COMMAND_REQUEST(relayLine(d, ['--take-lead', t2.id, '--ask'])), 'steward-relay.py');
+      if (!await d.until(() => lastReplyHas(frame, 'take over'), 20000, 500)) throw new Error('the take-over question is not in the reply');
+      await toBottom(frame);
+      await d.away();
+      return d.editor();
+    },
+  },
+  {
+    name: 'steward-take-lead', features: ['steward-take-lead'],
+    expect: 'The conversation "Why does the nightly export skip archived rows?" is still in front. Its last message from you starts "Yes, take it '
+      + 'over." and gives the next command in base64; the Bash call after it ran steward-relay.py --take-lead without --ask, and the reply that '
+      + 'starts "It printed:" reads: Agreed: "Find where the retry delay for the inventory sync is set" (and its session id) is asked to hand "Add a '
+      + 'dry-run flag to the cleanup script" over to you, and leads it until then, at most 10 minutes. A notice tells you when you lead it; send it '
+      + 'nothing before that.',
+    unchanged: null,
+    act: async (d) => {
+      const [, t1, t2] = d.threads;
+      const frame = await thread(d, t1);
+      await runAsked(d, frame, `Yes, take it over. ${fakeModel.COMMAND_REQUEST(relayLine(d, ['--take-lead', t2.id]))}`, 'steward-relay.py');
+      if (!await d.until(() => lastReplyHas(frame, 'is asked to hand'), 20000, 500)) {
+        throw new Error(`the take-over was not agreed: ${JSON.stringify(leadOfFile(d, t2.id))}`);
+      }
+      await toBottom(frame);
+      await d.away();
+      return d.editor();
+    },
+  },
+  {
+    name: 'steward-take-lead-handed', features: ['steward-take-lead'],
+    expect: '"Add a dry-run flag to the cleanup script" is in front. Its last message from you is the hand-over note its lead until now sent it: the '
+      + 'first line reads Sent by the supervisor "Find where the retry delay for the inventory sync is set" (and its session id) for the user:; the '
+      + 'second reads From your lead supervisor "Find where the retry delay for the inventory sync is set": from now on your lead supervisor is "Why '
+      + 'does the nightly export skip archived rows?".; the third is the note itself, "I asked it to keep the dry-run flag off by default; the other '
+      + 'supervisor takes over from here.". The message is unfolded, with a Show less button at its bottom right, and the fake model\'s reply follows.',
+    unchanged: null,
+    act: async (d) => {
+      const [t0, t1, t2] = d.threads;
+      const note = 'I asked it to keep the dry-run flag off by default; the other supervisor takes over from here.';
+      const said = await relay(d, t0.id, ['--hand-over', t2.id], note);
+      if (!/^Handed over: /.test(said)) throw new Error(`the lead did not hand the conversation over: ${said}`);
+      const e = leadOfFile(d, t2.id);
+      if (!e || e.lead !== t1.id) throw new Error(`the conversation's lead did not change: ${JSON.stringify(e)}`);
       const frame = await thread(d, t2);
       await d.until(() => lastReplyHas(frame, PLAIN), 20000, 500);
+      /* Claude Code shows a long message of yours folded to its first lines, with a Show more button while the pointer
+         is over it. */
+      const mine = frame.locator('[class*="userMessage_"]').last();
+      await mine.hover({ timeout: 5000 }).catch(() => {});
+      await frame.locator('button', { hasText: /^\s*Show more\s*$/ }).last().click({ timeout: 5000 }).catch(() => {});
+      await d.sleep(800);
       await toBottom(frame);
       await d.away();
       return d.editor();

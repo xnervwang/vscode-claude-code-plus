@@ -10,6 +10,11 @@
  * are what that conversation manages (src/stewards.js). A conversation open in no window is not listed, since a
  * supervisor has no way to reach it; ticked ones among them are counted, with a button to untick them.
  *
+ * Of the supervisors that manage a conversation one leads it, and only the lead acts on it; the others observe it
+ * (src/steward-leads.js). Each row the supervisor in front manages says which it is, a row it observes has a button
+ * that makes it the lead once the user confirms, and with a managed conversation in front a line names its lead and its
+ * observers.
+ *
  * The Claude Code candidates are the conversations `claude agents --json` reports, less `claude --bg` sessions and
  * `claude -p` workers, which belong to the conversation that started them; and the stopped conversations whose plans
  * still have open rows, as Agent Plus's Conversations view shows them. The other agents' come from Agent Plus
@@ -23,6 +28,7 @@
 const fs = require('fs');
 const path = require('path');
 const stewards = require('./stewards');
+const leadsMod = require('./steward-leads');
 const relay = require('./relay');
 const watch = require('./steward-watch');
 const duplicates = require('./duplicates');
@@ -175,6 +181,20 @@ const EYE = '<svg viewBox="0 0 16 16" width="1.1em" height="1.1em" aria-hidden="
   + 'stroke-width="1.3" d="M1.5 8C3.2 5 5.4 3.5 8 3.5S12.8 5 14.5 8C12.8 11 10.6 12.5 8 12.5S3.2 11 1.5 8Z"/>'
   + '<circle cx="8" cy="8" r="2.2" fill="currentColor"/></svg>';
 const eyesText = (n) => `Also managed by ${n} other supervisor${n === 1 ? '' : 's'}`;
+/* A conversation's title in quotes, or its id when there is none. */
+const quoted = (name, id) => (name && name !== id ? `"${name}"` : id);
+/* The hover label of a row's "Lead" or "Observer" and of its "Lead it from here" button. */
+const LEAD_WHY = 'This supervisor leads it: only the lead acts on a conversation, and the other supervisors that manage it observe it';
+function observerWhy(c) {
+  const lead = c.lead ? quoted(c.leadName, c.lead) : '';
+  if (c.pending && c.pending.mine) return `Being handed over to this supervisor; it leads it once ${lead || 'the lead'} has sent its hand-over note`;
+  if (c.pending) return `Led by ${lead}, which is handing it over to ${quoted(c.pending.name, c.pending.to)}; this supervisor only observes it`;
+  return lead ? `Led by ${lead}; this supervisor only observes it and does not act on it` : 'No supervisor leads it now; this supervisor only observes it';
+}
+function takeWhy(c) {
+  if (c.pending) return c.pending.mine ? observerWhy(c) : `It is being handed over to ${quoted(c.pending.name, c.pending.to)}`;
+  return c.lead ? `Makes this supervisor its lead once you confirm; ${quoted(c.leadName, c.lead)} then observes it` : 'Makes this supervisor its lead once you confirm';
+}
 
 function ago(ms, now) {
   if (!ms) return '';
@@ -272,6 +292,7 @@ function body(model) {
     <li class="row ${c.managed ? 'managed' : ''}">
       ${c.why ? `<span class="box" data-why="${esc(c.why)}">` : ''}<input type="checkbox" data-id="${esc(c.sessionId)}" ${c.managed ? 'checked' : ''} ${model.every || c.lock ? 'disabled' : ''}
         ${c.why ? `aria-label="${esc(c.why)}"` : 'title="Managed by this conversation"'}>${c.why ? '</span>' : ''}
+      ${model.roles ? role(c) : ''}
       <span class="dot ${esc(c.dot || '')}" ${c.dot ? `title="${esc(DOT_TEXT[c.dot] || c.dot)}"` : ''}></span>
       <a href="#" class="name" data-open="${esc(c.sessionId)}" title="${esc(c.cwd)}">${esc(titleMarks.withMarks(c.title, { steward: !!c.steward }))}</a>
       ${c.by ? `<span class="by" data-why="${esc(c.why)}">${esc(c.by)}</span>` : ''}
@@ -280,10 +301,24 @@ function body(model) {
       ${duplicates.oldOne(c.processes) ? `<button class="stop-old" data-stop-old="${esc(c.sessionId)}" title="${esc(stopText(duplicates.oldOne(c.processes)))}">Stop the old process</button>` : ''}` : ''}
       ${c.managed ? `<span class="doing">${esc(c.doing.join(' · ') || (c.running ? STATE_TEXT[c.state] : 'stopped'))}</span>
       ${c.questions ? `<span class="questions">${c.questions} question${c.questions === 1 ? '' : 's'} for you</span>` : ''}
+      ${c.role === 'observer' ? take(c) : ''}
       <span class="when">${esc(ago(c.lastActiveAt, now))}</span>` : `<span class="when">${esc(ago(c.lastActiveAt, now))}</span>`}
-      ${c.eyes && c.eyes.length ? `<span class="eyes" tabindex="0" data-eyes="${esc(c.sessionId)}" aria-label="${esc(eyesText(c.eyes.length) + ': ' + c.eyes.map((e) => e.name).join(', '))}">${EYE}<span class="n">${c.eyes.length}</span>
-        <span class="pop"><span class="pophead">${esc(eyesText(c.eyes.length))}</span>${c.eyes.map((e) => `<a href="#" data-open="${esc(e.id)}">${esc(e.name)}</a>`).join('')}</span></span>` : ''}
+      ${c.eyes && c.eyes.length ? `<span class="eyes" tabindex="0" data-eyes="${esc(c.sessionId)}" aria-label="${esc(eyesText(c.eyes.length) + ': ' + c.eyes.map((e) => e.name + (e.lead ? ' (lead)' : '')).join(', '))}">${EYE}<span class="n">${c.eyes.length}</span>
+        <span class="pop"><span class="pophead">${esc(eyesText(c.eyes.length))}</span>${eyeList(c.eyes)}</span></span>` : ''}
     </li>`;
+  /* "Lead" or "Observer" for a row the supervisor in front manages, and an empty cell of the same width for the others,
+     so that the titles stay in one column. */
+  const role = (c) => (c.role ? `<span class="role ${c.role}" data-why="${esc(c.role === 'lead' ? LEAD_WHY : observerWhy(c))}">${c.role === 'lead' ? 'Lead' : 'Observer'}</span>`
+    : '<span class="role"></span>');
+  /* A disabled button gets no pointer events, so the label is on a wrapper. */
+  const take = (c) => `<span class="take" data-why="${esc(takeWhy(c))}"><button data-take-lead="${esc(c.sessionId)}" ${c.pending ? 'disabled' : ''}>Lead it from here</button></span>`;
+  /* The eye's list: the lead first, marked as such, then the ones that observe. */
+  const eyeList = (eyes) => {
+    const link = (e) => `<a href="#" data-open="${esc(e.id)}">${esc(e.name)}</a>`;
+    const lead = eyes.find((e) => e.lead), rest = eyes.filter((e) => !e.lead);
+    return (lead ? `<span class="poplead">${link(lead)}<span class="tag">lead</span></span>` : '')
+      + (rest.length ? `<span class="popsub">also observing</span>${rest.map(link).join('')}` : '');
+  };
   const group = (g) => {
     const on = g.rows.filter((c) => c.managed).length, free = g.rows.filter((c) => !c.lock).length;
     return `
@@ -307,10 +342,15 @@ function body(model) {
       ? `<p class="empty">${name} is an ${esc(model.other.agent)} conversation, which cannot be a supervisor. To have it managed, bring a Claude Code conversation to the front and tick it there.</p>`
       : `<p class="empty">${name} is a ${esc(model.other.agent)} conversation, which can neither be a supervisor nor be managed.</p>`;
   }
+  /* For a managed conversation in front: who leads it and who observes it. */
+  const named = (e) => `<a href="#" data-open="${esc(e.id)}">${esc(e.name)}</a>`;
+  const led = model.ledBy ? `<p class="led">${model.ledBy.lead ? `Led by ${named(model.ledBy.lead)}` : 'No supervisor leads it now'}${
+    model.ledBy.observers.length ? `; observed by ${model.ledBy.observers.map(named).join(', ')}` : ''}</p>` : '';
   return !model.front
     ? '<p class="empty">Open a Claude Code conversation. The conversations ticked here are the ones it manages.</p>'
-    : `<div class="head"><span class="who"><span>Managed by </span><b><span class="t">${esc(titleMarks.withoutMarks(model.front.title))}</span>${
-        model.managed || model.every || model.later ? `<span class="crown"> ${titleMarks.CROWN}</span>` : ''}</b><span>: ${model.managed}</span></span>
+    : `${led}<div class="head"><span class="who"><span>Managed by </span><b><span class="t">${esc(titleMarks.withoutMarks(model.front.title))}</span>${
+        model.managed || model.every || model.later ? `<span class="crown"> ${titleMarks.CROWN}</span>` : ''}</b><span>: ${model.managed}${
+        model.observed ? `, ${model.observed} observed` : ''}</span></span>
          <label class="every" title="Ticks every conversation listed and every one opened later. Supervisors are never ticked.">
            <input type="checkbox" data-every="1" ${model.every ? 'checked' : ''}> All, including new ones</label>
          <label class="every" title="Ticks every conversation that starts from now on, except supervisors. Conversations open now keep their ticks.">
@@ -327,7 +367,7 @@ function shell(list, nonce) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 <style nonce="${nonce}">
-  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); padding: 4px 8px; }
+  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); padding: 4px 8px; container-type: inline-size; }
   .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 6px; }
   /* One line however narrow the panel: the supervisor's title gives way, its crown and the count stay. */
   .who { display: flex; align-items: baseline; flex: 1 1 14em; min-width: 0; white-space: nowrap; opacity: 0.85; }
@@ -344,11 +384,23 @@ function shell(list, nonce) {
   .every:has(input:disabled) { opacity: 0.6; }
   input:disabled { pointer-events: none; }
   .box { display: inline-flex; }
+  /* As wide as "Observer", so that the titles after it line up. */
+  .role { flex: 0 0 4.6em; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .role.lead { font-weight: 600; }
+  .role.observer { opacity: 0.75; }
+  .take { flex: 0 0 auto; display: inline-flex; }
+  /* Bordered, as it stands among a row's texts rather than with the panel's other buttons. */
+  .take button { padding: 0 6px; border: 1px solid color-mix(in srgb, var(--vscode-foreground) 30%, transparent); }
+  .take button:disabled { pointer-events: none; }
+  .led { margin: 0 0 6px; opacity: 0.85; overflow-wrap: anywhere; }
+  .led a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+  .eyes .pop .tag { margin-left: 6px; font-size: 0.85em; font-weight: 600; }
+  .eyes .pop .popsub { margin-top: 4px; opacity: 0.75; font-size: 0.85em; }
   .by { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.8; }
   /* As faint as the time beside it (.when) in every theme; the list it opens keeps its own colours. */
   .eyes { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; color: color-mix(in srgb, var(--vscode-foreground) 60%, transparent); cursor: default; }
   .eyes .pop { display: none; position: absolute; right: 0; top: 100%; z-index: 10; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 4px;
-    white-space: nowrap; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
+    width: max-content; max-width: calc(100cqw - 16px); white-space: normal; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, #252526));
     border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, #454545)); color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground, #ccc)); }
   .eyes:hover .pop, .eyes:focus-within .pop { display: flex; }
   .eyes .pop a { color: var(--vscode-textLink-foreground); text-decoration: none; }
@@ -372,6 +424,16 @@ function shell(list, nonce) {
   .ghead { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-weight: 600; }
   .ghead .count { opacity: 0.6; font-weight: normal; }
   .group ul { padding-left: 18px; }
+  /* In a narrow panel the button would push the row's time and eye out of sight. The three go on a second line, the
+     button under the row's role, and the title has the first line to itself but for what it is doing. */
+  @container (max-width: 420px) {
+    .row:has(.take) { flex-wrap: wrap; row-gap: 2px; }
+    .row:has(.take)::before { content: ''; order: 1; flex-basis: 100%; height: 0; }
+    .row:has(.take) .name { flex: 4 1 0; }
+    .row:has(.take) .doing { flex: 1 1 0; }
+    .row:has(.take) .take { order: 2; margin-left: calc(13px + 6px); }
+    .row:has(.take) .when, .row:has(.take) .eyes { order: 3; }
+  }
 </style></head><body><div id="root">${list}</div>
 <script nonce="${nonce}">${KIT}</script>
 <script nonce="${nonce}">
@@ -418,6 +480,7 @@ function shell(list, nonce) {
     else if (t.matches('input[type=checkbox]')) vscode.postMessage({ type: 'toggle', id: t.dataset.id, on: t.checked });
     else if (t.dataset && t.dataset.open) { e.preventDefault(); vscode.postMessage({ type: 'open', id: t.dataset.open }); }
     else if (t.dataset.stopOld) vscode.postMessage({ type: 'stop-old', id: t.dataset.stopOld });
+    else if (t.dataset.takeLead) vscode.postMessage({ type: 'take-lead', id: t.dataset.takeLead });
     else if (t.dataset.act) vscode.postMessage({ type: t.dataset.act });
   });
 </script></body></html>`;
@@ -490,7 +553,7 @@ function create(vscode, deps) {
      work plan view has moved to that conversation, and a tick here would still change the last Claude Code one's list. */
   const frontNow = () => (deps.otherFront() ? '' : deps.activeChat());
   const model = (all, front, other = null) => {
-    const table = stewards.read(deps.dir);
+    const st = leadsNow(), table = st.table;
     const mine = new Set(front && table[front] ? table[front].manages : []);
     const every = !!(front && table[front] && table[front].all);
     const wins = windows();
@@ -498,7 +561,7 @@ function create(vscode, deps) {
     const steward = (id) => { const t = table[id] || table[String(id).toLowerCase()]; return !!(t && (t.all || (t.manages || []).length)); };
     const rows = [...all.values()].filter((c) => c.sessionId !== front && (open(c.sessionId) || hostWindow(c, wins)))
       .map((c) => Object.assign({ managed: mine.has(c.sessionId), steward: steward(c.sessionId) }, c, lockOf(table, c.sessionId),
-        { eyes: stewards.stewardsOf(table, c.sessionId).filter((s) => s !== front).map((s) => ({ id: s, name: nameOf(s, all) })) }));
+        leadOfRow(st, front, c.sessionId, all)));
     rows.sort((a, b) => (b.managed - a.managed) || (b.lastActiveAt - a.lastActiveAt));
     const groups = grouped(rows, wins, front);
     const hidden = [...mine].filter((id) => !open(id) && !rows.some((c) => c.sessionId === id));
@@ -507,8 +570,34 @@ function create(vscode, deps) {
     const title = self ? self.title : front ? titleMarks.withoutMarks(conversations.claudeTitle({ sessionId: front, name: '', cwd: '' },
       deps.titles({ sessionId: front }), () => deps.readPlan(front))) : '';
     const later = !!(front && table[front] && table[front].newSince);
+    const of = front && !table[front] ? stewards.stewardsOf(table, front) : [], lead = of.length ? leadsMod.leadOf(table, st.leads, front) : '';
+    const ledBy = of.length ? { lead: lead ? { id: lead, name: nameOf(lead, all) } : null,
+      observers: of.filter((s) => s !== lead).map((s) => ({ id: s, name: nameOf(s, all) })) } : null;
     return { front: front ? { id: front, title } : null, other, rows, groups, managed: mine.size, hidden: hidden.length, hiddenIds: hidden,
+      observed: [...mine].filter((id) => leadsMod.roleOf(table, st.leads, front, id) === 'observer').length, roles: mine.size > 0, ledBy,
       every, later, envelope: envelope.envelope(vscode), stale: !!front && deps.replaced() && !writes() };
+  };
+  /*
+   * The table and its leads. A managed conversation with no lead entry yet, as in a table from before leads that no
+   * window has written back, gets the one a window that writes the table would give it, as src/relay.js reads it.
+   */
+  const leadsNow = () => {
+    const st = stewards.state(deps.dir), leads = Object.assign({}, st.leads);
+    if (leadsMod.managedKeys(st.table).some((k) => !leads[k])) {
+      const next = leadsMod.plan(st.table, st.leads).next;
+      for (const k of Object.keys(next)) if (!leads[k]) leads[k] = next[k];
+    }
+    return { table: st.table, leads };
+  };
+  /* A row's lead and the role of the supervisor in front, for the panel: { role, lead, leadName, pending, eyes }, `eyes`
+     being the other supervisors that manage it, its lead first. */
+  const leadOfRow = (st, front, id, all) => {
+    const lead = leadsMod.leadOf(st.table, st.leads, id), e = st.leads[id];
+    const role = front && st.table[front] ? leadsMod.roleOf(st.table, st.leads, front, id) : '';
+    const pending = lead && e && e.pending ? { to: e.pending.to, name: nameOf(e.pending.to, all), mine: e.pending.to === front } : null;
+    const eyes = stewards.stewardsOf(st.table, id).filter((s) => s !== front).sort((a, b) => (b === lead) - (a === lead))
+      .map((s) => ({ id: s, name: nameOf(s, all), lead: s === lead }));
+    return { role, lead, leadName: lead ? nameOf(lead, all) : '', pending, eyes };
   };
   /* The title the panel uses when its text names a conversation. */
   const nameOf = (id, all = last) => (all.get(id) && all.get(id).title)
@@ -640,9 +729,11 @@ function create(vscode, deps) {
    * Notices for the supervisors whose panel this window shows. A notice starts a turn in an idle supervisor, so it is sent
    * only if a conversation began waiting for the user, has more questions for the user than at the last pass, ended a
    * turn that this supervisor's message started or while the supervisor's plan names it, or has background work that ended
-   * without finishing. A wait or a new question wakes only one of the conversation's supervisors: of those some window
-   * shows, the one the user typed to most recently (ownerOf). The record of which supervisor was given each one
-   * (src/steward-watch.js given) keeps the others from putting it to the user again. A supervisor gets at most one notice
+   * without finishing. Waits, questions, ended work and duplicate processes go to the conversation's lead alone
+   * (src/steward-leads.js), and only the lead is given its questions; an observer hears of a conversation only when its
+   * own plan names it, without the questions. A lead no window shows hears nothing until it is back or another
+   * supervisor leads the conversation, which is then told where it stands. The record of which supervisor was given each
+   * question (src/steward-watch.js given) keeps it from being put to the user twice. A supervisor gets at most one notice
    * per NOTICE_GAP_MS; conversations often stop within a minute of each other. What a supervisor has been told is read
    * from its file once and written back as it changes.
    */
@@ -683,18 +774,12 @@ function create(vscode, deps) {
     return told.get(steward);
   };
   const notify = async (now = Date.now()) => {
-    const table = stewards.read(deps.dir);
+    const st = stewards.state(deps.dir), table = st.table;
     const after = settled(now);
-    let records = null, shownSomewhere = null;
+    let records = null;
     const live = () => records || (records = deps.records());
-    const owners = new Map(), starters = new Map();
-    const ownerOf = (id) => {
-      if (owners.has(id)) return owners.get(id);
-      if (!shownSomewhere) shownSomewhere = new Set(windows().flatMap((w) => w.sessions || []));
-      const o = stewards.byUser(stewards.stewardsOf(table, id).filter((s) => shownSomewhere.has(s)), (s) => userAt(deps.transcriptOf(s)))[0] || '';
-      owners.set(id, o);
-      return o;
-    };
+    const starters = new Map();
+    const ownerOf = (id) => leadsMod.leadOf(table, st.leads, id);
     const starterOf = (id) => {
       if (!starters.has(id)) starters.set(id, keys.isOther(id) ? otherStarter(id) : relay.turnStarter(deps.transcriptOf(id)));
       return starters.get(id);
@@ -710,7 +795,7 @@ function create(vscode, deps) {
       if (now - (workAt.get(steward) || 0) >= WORK_CHECK_MS) {
         workAt.set(steward, now);
         const t = toldOf(steward), running = {};
-        for (const id of manages.filter(keys.isClaude)) {
+        for (const id of manages.filter((x) => keys.isClaude(x) && ownerOf(x) === steward)) {
           const cur = watch.runningWork(id, live(), deps.dir), was = t.running[id] || {};
           for (const key of Object.keys(was)) {
             if (cur.includes(key)) continue;
@@ -727,7 +812,7 @@ function create(vscode, deps) {
         t.running = running;
         // Conversations run by several processes, reported once per set of pids, and old processes stopped since.
         const groups = (deps.duplicates && deps.duplicates()) || new Map(), twice = {};
-        for (const id of manages.filter(keys.isClaude)) {
+        for (const id of manages.filter((x) => keys.isClaude(x) && ownerOf(x) === steward)) {
           const g = groups.get(id);
           if (!g) continue;
           twice[id] = g.map((p) => p.pid).join(' ');
@@ -735,7 +820,7 @@ function create(vscode, deps) {
         }
         t.twice = twice;
         for (const e of duplicates.stopped(deps.dir, t.stoppedAt, now)) {
-          if (manages.includes(e.session)) list.push({ id: e.session, what: 'stopped', stop: e });
+          if (manages.includes(e.session) && ownerOf(e.session) === steward) list.push({ id: e.session, what: 'stopped', stop: e });
           t.stoppedAt = Math.max(t.stoppedAt, e.at);
         }
         watch.save(deps.dir, steward, t);
@@ -751,12 +836,13 @@ function create(vscode, deps) {
       const rec = live().find((r) => r && r.sessionId === steward && typeof r.messagingSocketPath === 'string');
       const t = toldOf(steward), names = Object.assign({}, table[steward].names), details = {}, asks = {};
       const given = watch.loadGiven(deps.dir), giving = [];
-      // Another supervisor of the conversation that was given it, or ''.
-      const holder = (id, k) => { const g = given[id] && given[id][k]; return g && g.steward !== steward && stewards.manages(table, g.steward, id) ? g.steward : ''; };
+      // The lead the question was given to, when that is another supervisor (a lead before this one gave it on).
+      const holder = (id, k) => { const g = given[id] && given[id][k]; return g && g.steward !== steward && ownerOf(id) === g.steward ? g.steward : ''; };
       for (const c of list) {
         const now = last.get(c.id);
         if (!now || details[c.id]) continue;
         names[c.id] = now.title;
+        if (ownerOf(c.id) !== steward) { details[c.id] = { state: NOTICE_STATE[now.state] || now.state, doing: now.doing, asks: [], waitingOn: '', held: [] }; continue; }
         // Skip the questions this supervisor was given or told of before, and those given to another supervisor.
         const before = t.asked[c.id] || [], qs = now.asks || [], rows = now.askRows || [], mine = [], held = [];
         asks[c.id] = qs.slice();
@@ -934,6 +1020,77 @@ function create(vscode, deps) {
      The folder is watched, and each pass also looks, in case the watch missed one or the folder did not exist yet when
      the watch was set. */
   let relayWatch = null, relaying = false;
+  /*
+   * Who is alive, for the table's leads (stewards.setLiveness): a supervisor some live window shows. One that none has
+   * shown for DEAD_AFTER_MS, as this window has seen it, is gone; a window that starts counts from its start.
+   */
+  const missingSince = new Map();
+  const leadsSince = Date.now();
+  /* CLAUDE_CODE_PLUS_LEAD_DEAD_MS shortens it for the window tests, which cannot wait ten minutes. */
+  const DEAD_AFTER_MS = Number(process.env.CLAUDE_CODE_PLUS_LEAD_DEAD_MS) > 0 ? Number(process.env.CLAUDE_CODE_PLUS_LEAD_DEAD_MS) : 10 * 60 * 1000;
+  const shownNow = () => new Set(windows().flatMap((w) => w.sessions || []));
+  const aliveNow = (id) => deps.shownHere(id) || shownNow().has(id);
+  const goneNow = (id) => {
+    if (aliveNow(id)) { missingSince.delete(id); return false; }
+    if (!missingSince.has(id)) missingSince.set(id, Date.now());
+    return Date.now() - Math.max(missingSince.get(id), leadsSince) >= DEAD_AFTER_MS ? 'dead' : false;
+  };
+  stewards.setLiveness({ alive: aliveNow, gone: goneNow });
+  /* Posts `text` to supervisor `id`'s inbox, as a notice; false when it has none this window can reach. */
+  const postNotice = async (id, text) => {
+    const rec = (deps.records() || []).find((r) => r && r.sessionId === id && typeof r.messagingSocketPath === 'string');
+    return rec ? deps.post(rec.messagingSocketPath, `${stewards.NOTICE_HEAD}, not a message from the user. ${text}`) : false;
+  };
+  const leadWords = { first: 'it was ticked for you first', opened: 'you opened it', new: 'a switch of yours added it first',
+    migrated: 'you managed it first', takeover: 'the user agreed', panel: 'the user chose you in the Supervisor panel',
+    dead: 'its lead was gone for 10 minutes', dropped: 'its lead stopped managing it', archived: 'its lead was archived' };
+  /* The notices of a change of lead this window made (stewards.onLeadChange). */
+  const leadChanged = (changes) => {
+    for (const c of changes) {
+      /* A first lead is the user's tick or the supervisor's own opening, and the roster says so; an upgrade tells nobody. */
+      if (['first', 'opened', 'new', 'migrated'].includes(c.why) && !c.from) continue;
+      const name = nameOf(c.key) ? `"${nameOf(c.key)}"` : c.key;
+      if (c.to) {
+        const e = stewards.state(deps.dir).leads[c.key] || {};
+        const was = c.from ? (nameOf(c.from) ? `"${nameOf(c.from)}"` : c.from) : '';
+        const now = last.get(c.key);
+        const where = now ? ` It is ${NOTICE_STATE[now.state] || now.state} now${(now.asks || []).length ? '; questions for the user: ' + now.asks.join(' | ') : ''}.` : '';
+        const intro = e.intro ? ` Send it a first message: ${was ? `${was} ${relay.introWhy(e.intro).replace(' you ', ' it ').replace(/ you$/, ' it')}` : 'it had no lead'}, and Claude Code Plus starts your message with a line saying so.` : '';
+        postNotice(c.to, `You lead ${name} (${c.key}) now: ${leadWords[c.why] || c.why}.${where}${intro} Go on with what the user asked.`)
+          .catch(() => {});
+      }
+      if (c.from && c.from !== c.to && aliveNow(c.from) && leadsMod.candidates(stewards.read(deps.dir), c.key).includes(c.from)) {
+        const by = c.to ? (nameOf(c.to) ? `"${nameOf(c.to)}"` : c.to) : 'no supervisor';
+        postNotice(c.from, `You no longer lead ${name} (${c.key}); ${by} does. You observe it now and do not act on it.`).catch(() => {});
+      }
+    }
+  };
+  const leadHook = stewards.onLeadChange((changes) => { if (writes()) leadChanged(changes); });
+  /*
+   * "Lead it from here" on a row that supervisor `sup` observes. Once the user confirms in a modal dialog, `sup` becomes
+   * its lead (stewards.takeLead). A lead that is alive hands the conversation over first, and is told to send its note
+   * as after a take-over the user agreed to in a supervisor conversation (src/relay.js); stewards.js makes the change
+   * when the note is in, or after HAND_OVER_MS. Returns takeLead's answer, or null when nothing was asked or the user
+   * did not confirm.
+   */
+  const TAKE_OVER = 'Take over';
+  const takeOver = async (sup, key) => {
+    const st = leadsNow();
+    if (leadsMod.roleOf(st.table, st.leads, sup, key) !== 'observer') { render(true); return null; }
+    const lead = leadsMod.leadOf(st.table, st.leads, key), q = (id) => quoted(nameOf(id), id);
+    const text = `Have ${q(sup)} lead ${q(key)}? ` + (lead ? `It is led by ${q(lead)} now; that one becomes an observer.` : 'No supervisor leads it now.');
+    if (await noticeTime.warning(vscode, text, { modal: true }, TAKE_OVER) !== TAKE_OVER) return null;
+    const r = stewards.takeLead(deps.dir, key, sup, { by: 'panel' });
+    if (r.outcome === 'pending' && r.lead) {
+      const sent = await postNotice(r.lead, relay.handOverAsked(key, q(key), q(sup))).catch(() => false);
+      deps.log(`supervisor panel: ${key} is handed over from ${r.lead} to ${sup}; ${sent ? 'told' : 'could not tell'} ${r.lead}`);
+      noticeTime.info(vscode, `${q(r.lead)} hands ${q(key)} over first; the lead changes once its note is sent, `
+        + `or in ${Math.round(stewards.HAND_OVER_MS / 60000)} minutes.`);
+    } else if (r.outcome === 'refused') noticeTime.info(vscode, `${q(sup)} was not made the lead of ${q(key)}: ${r.reason}.`);
+    deps.changed();
+    render(true);
+    return r;
+  };
   const takeRelays = async () => {
     if (relaying || !deps.canShare()) return;
     relaying = true;
@@ -945,6 +1102,9 @@ function create(vscode, deps) {
         return t && t !== id ? t : '';
       };
       for (const r of await relay.take(deps.dir, { shownHere: deps.shownHere, stewards: () => stewards.read(deps.dir),
+        leadState: () => stewards.state(deps.dir), update: (fn, o) => (writes() ? stewards.update(deps.dir, fn, o) : null),
+        alive: aliveNow, gone: goneNow, postNotice: (id, text) => postNotice(id, text),
+        shownAnywhere: (id) => shownNow().has(id),
         transcriptOf: deps.transcriptOf, deliver: deps.deliver, rename: deps.rename, close: deps.close, open: deps.open,
         resume: deps.resume, folders: deps.windowFolders, windows: () => windows(), agents: deps.agentsFresh || deps.freshAgents,
         records: deps.records, post: deps.post, titleOf, deliverOther: (key, text) => stewardCore.deliverTo(core(), key, text),
@@ -955,7 +1115,7 @@ function create(vscode, deps) {
           if (!t) return false;
           const after = t.manages.includes(id) ? stewards.read(deps.dir)
             : stewards.setManaged(steward, t.manages.concat(id), Object.assign(titlesOf(t.manages), { [id]: titleOf(id) }),
-              { dir: deps.dir, ticked: t.ticked.concat(id), title: nameOf(steward) });
+              { dir: deps.dir, ticked: t.ticked.concat(id), title: nameOf(steward), opened: id });
           deps.changed();
           return !!(after[steward] && after[steward].manages.includes(id));
         },
@@ -1049,6 +1209,7 @@ function create(vscode, deps) {
       if (deps.replaced()) { tellStale(); render(true); }
       return;
     }
+    if (m.type === 'take-lead' && typeof m.id === 'string') { await takeOver(front, m.id); return; }
     const table = stewards.read(deps.dir);
     const mine = new Set(table[front] ? table[front].manages : []);
     if (m.type === 'every' || m.type === 'later') {
@@ -1095,6 +1256,8 @@ function create(vscode, deps) {
   }, REFRESH_MS);
   return {
     dispose() {
+      leadHook.dispose();
+      try { relay.release(deps.dir, process.pid); } catch (_) { /* another window's sweep answers what this one held */ }
       clearInterval(timer);
       link.dispose();
       reg.dispose();
@@ -1113,6 +1276,7 @@ function create(vscode, deps) {
     titleOf: (id) => nameOf(id),
     _gather: gather, _model: model, _notify: notify, _pass: pass, _onMessage: onMessage, _takeRequest: takeRequest, _syncEvery: syncEvery,
     _takeRelays: takeRelays, _archive: archiveFor, _writes: writes, _last: () => last, _listening: () => link.listening(), _listChange: listChange,
+    _takeOver: takeOver,
   };
 }
 

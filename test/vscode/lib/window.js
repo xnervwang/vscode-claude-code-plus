@@ -16,6 +16,10 @@ const { spawn } = require('child_process');
 
 const HELPER = path.join(__dirname, '..', 'helper');
 const SECRETS = ['--use-inmemory-secretstorage', ...(process.platform === 'linux' ? ['--password-store=basic'] : [])];
+/* How long a lead supervisor no window shows keeps its conversations before another supervisor leads them, in place
+   of ten minutes (CLAUDE_CODE_PLUS_LEAD_DEAD_MS, src/steward-view.js). Longer than a reload, so that a window that
+   reloads keeps its leads. */
+const LEAD_DEAD_MS = 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* The flags @vscode/test-electron's runTests passes, for the same reasons, and secrets kept in memory, since HOME is a
@@ -47,7 +51,8 @@ async function open({ exe, profile, env, playwright, log }) {
   if (/^\d+(\.\d+)?$/.test(process.env.CLAUDE_CODE_PLUS_UI_SCALE || '')) args.push(`--force-device-scale-factor=${process.env.CLAUDE_CODE_PLUS_UI_SCALE}`);
   /* AGENT_PLUS_TEST_FOCUS lets a step say through the test helper whether a window has the focus (Agent Plus's
      src/views.js): under xvfb-run every window VS Code has once focused says it is focused for good. */
-  const proc = spawn(exe, args, { env: { ...env, CLAUDE_CODE_PLUS_UI_CONTROL: profile.control, AGENT_PLUS_TEST_FOCUS: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn(exe, args, { env: { ...env, CLAUDE_CODE_PLUS_UI_CONTROL: profile.control, AGENT_PLUS_TEST_FOCUS: '1',
+    CLAUDE_CODE_PLUS_LEAD_DEAD_MS: String(LEAD_DEAD_MS) }, stdio: ['ignore', 'pipe', 'pipe'] });
   const out = fs.createWriteStream(log);
   proc.stdout.pipe(out);
   proc.stderr.pipe(out);
@@ -163,4 +168,4 @@ function frontWindow(exe, user, folder, env) {
     { env, encoding: 'utf8', shell: process.platform === 'win32', timeout: 30000 });
 }
 
-module.exports = { open, until, sleep, sideTo, sideWidth, frontWindow, SECRETS };
+module.exports = { open, until, sleep, sideTo, sideWidth, frontWindow, SECRETS, LEAD_DEAD_MS };

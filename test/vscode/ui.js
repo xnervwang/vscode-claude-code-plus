@@ -93,9 +93,13 @@
  *                  window, linked and clicked, does the same; and what each window knows of it once that window has
  *                  reloaded with the conversation's tab restored behind another and not loaded
  *   several supervisors
- *                  two supervisors in two windows ticking one conversation: its box stays free in the other's panel, a
- *                  supervisor's own box is still greyed, the eye at the end of its row names the other supervisor, and a
- *                  click on that name brings that supervisor up in its window
+ *                  two supervisors in two windows ticking one conversation: the first leads it and the other observes
+ *                  it, each panel says which on its row, the eye names the lead first, and a click on a name brings that
+ *                  supervisor up in its window; the observer's messages are refused with the lead named, a hand-off goes
+ *                  to the lead, and the panel's button to lead it from there asks first and has the lead hand it over
+ *   leads          a take-over only on the user's own yes after the question the window words, the old lead's hand-over
+ *                  note and the new lead's first message, a lead whose window has been gone for the dead time replaced
+ *                  by the observer, and requests for one conversation carried out in their order, also across a reload
  *   closed, sidebar, archived
  *                  in Agent Plus's session list, Recently closed once the tab is closed; Open in Sidebar, New in sidebar
  *                  and New in tab; an archived conversation: no Delete... while it is open in a tab, then its
@@ -236,6 +240,40 @@ const LIST_THREADS = {
     turns: [['Rotate the staging certificates.', 'Rotated both; they expire next November.']] },
   archiveKept: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6ca', title: 'Count the slow queries of last week', days: 2,
     turns: [['Count the slow queries of last week.', 'There were 212, most of them on the orders table.']] },
+  archiveSeen: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6e0', title: 'Watch the reports work as well', days: 0,
+    turns: [['Watch the reports work as well.', 'I will watch it too.']] },
+};
+/* The supervisors and the conversations of the steps about lead supervisors, one set per step, so that no other step
+   finds one of them managed or led: three supervisors and the conversation they manage for the take-over; a lead in a
+   second window, an observer and their conversation for the lead whose window goes away; and a lead, an observer and
+   a conversation that starts closed for the requests carried out in order. */
+const LEAD_THREADS = {
+  take: {
+    lead: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e710', title: 'Look after the billing work', days: 0,
+      turns: [['Look after the billing work.', 'I will watch it and tell you when it needs you.']] },
+    one: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e711', title: 'Keep track of the invoice exports', days: 0,
+      turns: [['Keep track of the invoice exports.', 'I will keep track of them.']] },
+    two: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e712', title: 'Follow the payment retries', days: 0,
+      turns: [['Follow the payment retries.', 'I will follow them.']] },
+    led: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e713', title: 'Fix the rounding of invoice totals', days: 0,
+      turns: [['Fix the rounding of invoice totals.', 'Each line is rounded on its own; the total should be rounded once, at the end.']] },
+  },
+  gone: {
+    lead: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e720', title: 'Look after the search work', days: 0,
+      turns: [['Look after the search work.', 'I will watch it for you.']] },
+    other: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e721', title: 'Keep an eye on the search index', days: 0,
+      turns: [['Keep an eye on the search index.', 'I will.']] },
+    led: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e722', title: 'Speed up the search suggestions', days: 0,
+      turns: [['Speed up the search suggestions.', 'Most of the time goes into a query per keystroke; a cache of the last prefixes would help.']] },
+  },
+  order: {
+    lead: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e730', title: 'Look after the cache work', days: 0,
+      turns: [['Look after the cache work.', 'I will watch it for you.']] },
+    other: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e731', title: 'Watch the cache settings', days: 0,
+      turns: [['Watch the cache settings.', 'I will.']] },
+    led: { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e732', title: 'Tune the cache of the product pages', days: 0,
+      turns: [['Tune the cache of the product pages.', 'The hit rate is 61%; the entries expire after a minute, which is too soon.']] },
+  },
 };
 const WRAPPER_THREAD = { id: '7d1f3c2a-4b5e-4f60-8a71-92b3c4d5e6d1', title: 'Size the importer cache for the nightly load', days: 0,
   turns: [['Size the importer cache for the nightly load.', 'Set `cacheSizeMb` in config/importer.yml to 512; the nightly load peaks at 430 MB.']] };
@@ -288,6 +326,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
   };
   const notes = path.join(profile.folder, 'notes.txt');
   const transcriptOf = (t) => path.join(profile.home, '.claude', 'projects', folderName(profile.folder), `${t.id}.jsonl`);
+  /* Supervisors' tool calls and the user's messages around them (lib/supervisors.js). */
+  const sv = require('./lib/supervisors').create({ home: profile.home });
 
   /* ── what the window and the extension host say ── */
   const patchState = () => call(`
@@ -1332,7 +1372,49 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!kept && await inputOf(conv) === '', 'and the user\'s next keys still go to the panel they were typing in, not to the one the message went to',
           { here: await inputOf(conv), beside: await inputOf(side) });
         await shot('typed-for-someone-else');
+
+        /* The user's own draft in the conversation's input, and then a word still being composed with an input method
+           in an empty input: the message is refused in both, said so to the one sending it, and the input is left as it
+           was. Once the composing ends, the same message goes. */
+        const deliver = (t) => call(`return await vscode.extensions.getExtension('xnervwang.agent-plus').exports.agentPlus.deliver({ sourceId: 'claude-code', sessionId: arg.id, text: arg.text });`,
+          { id: tab0.id, text: t }, 60000);
+        const count = (t) => { try { return fs.readFileSync(transcriptOf(tab0), 'utf8').split(JSON.stringify(t).slice(1, -1)).length - 1; } catch (_) { return 0; } };
+        const REFUSED = /^the message input already had text in it/;
+        await conv.locator(SEL).first().click();
+        await page.keyboard.type('half a sentence');
+        const intoDraft = 'Check the cache size as well.';
+        const draftGot = await deliver(intoDraft);
+        check(!!draftGot && draftGot.outcome === 'notReceived' && REFUSED.test(draftGot.reason || '') && await inputOf(conv) === 'half a sentence' && count(intoDraft) === 0,
+          'a message for a conversation whose input holds the user\'s draft is not sent, the one sending it is told why, and the draft is left as it was',
+          { got: draftGot, input: await inputOf(conv), arrived: count(intoDraft) });
+        await page.keyboard.press('Control+a');
+        await page.keyboard.press('Delete');
+        const composing = (name) => conv.evaluate(([sel, type]) => {
+          const b = document.querySelector(sel);
+          if (!b) return false;
+          b.focus();
+          b.dispatchEvent(new CompositionEvent(type, { bubbles: true, cancelable: true, data: '' }));
+          return true;
+        }, [SEL, name]);
+        if (!await composing('compositionstart')) throw new Error('the conversation\'s input was not found');
+        const whileComposing = 'Then look at the eviction count.';
+        let composeGot = null;
+        try {
+          composeGot = await deliver(whileComposing);
+        } finally {
+          await composing('compositionend').catch(() => {});
+        }
+        check(!!composeGot && composeGot.outcome === 'notReceived' && REFUSED.test(composeGot.reason || '') && await inputOf(conv) === '' && count(whileComposing) === 0,
+          'and one that comes while the user is composing a word with an input method is not typed into the input either',
+          { got: composeGot, input: await inputOf(conv), arrived: count(whileComposing) });
+        const afterGot = await deliver(whileComposing);
+        const afterArrived = await until(() => count(whileComposing), 30000, 500);
+        check(!!afterGot && afterGot.outcome === 'submitted' && afterArrived >= 1 && await inputOf(conv) === '',
+          'once the composing ends, the same message is sent', { got: afterGot, arrived: afterArrived, input: await inputOf(conv) });
       } finally {
+        await conv.locator(SEL).first().click().catch(() => {});
+        await page.keyboard.press('Control+a').catch(() => {});
+        await page.keyboard.press('Delete').catch(() => {});
         await side.locator(SEL).first().click().catch(() => {});
         await page.keyboard.press('Control+a').catch(() => {});
         await page.keyboard.press('Delete').catch(() => {});
@@ -3209,13 +3291,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
 
     /* A supervisor archiving conversations it manages (steward-relay.py --archive): carried out after the user asked for
        it in the supervisor conversation, so the row moves to Archived in Agent Plus's session list, and refused after a
-       notice, so the other row stays where it is. */
+       notice, so the other row stays where it is. A second supervisor of that other conversation only observes it, and
+       its --archive is refused with the lead named. */
     await step('a supervisor archiving conversations', async () => {
-      const { archiveBy: sup, archiveDone: done, archiveKept: kept } = LIST_THREADS;
-      fakeHome.writeThreads(profile.home, profile.folder, [sup, done, kept]);
+      const { archiveBy: sup, archiveDone: done, archiveKept: kept, archiveSeen: seen } = LIST_THREADS;
+      fakeHome.writeThreads(profile.home, profile.folder, [sup, done, kept, seen]);
       const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
       const st = require('../../src/stewards');
       st.setManaged(sup.id, [done.id, kept.id], { [done.id]: done.title, [kept.id]: kept.title }, { dir: dataDir, title: sup.title });
+      st.setManaged(seen.id, [kept.id], { [kept.id]: kept.title }, { dir: dataDir, title: seen.title });
       const script = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
       let n = 0;
       const lastUuid = (t) => {
@@ -3262,9 +3346,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const refused = await archiveAs([kept.id]);
         check(/^Not done: conversations are archived only when the user asks for it/.test(refused) && !await archivedRow(kept),
           'after a notice, with no request from the user, the supervisor\'s --archive is refused and the conversation stays where it is', { refused, rows: await slRowsOf(kept.id) });
+        const seenT = Object.assign({ folder: profile.folder }, seen);
+        sv.says(seenT, `Please archive ${kept.title}.`);
+        const observed = await sv.run(seenT, ['--archive', kept.id]);
+        check(observed.startsWith(`Not archived: "${kept.title}" (${kept.id}): `) && observed.includes(`is led by "${sup.title}" (${sup.id}); you observe it.`) && !await archivedRow(kept),
+          'the --archive of a supervisor that only observes the conversation is refused, with its lead named, though the user asked for it', { observed, rows: await slRowsOf(kept.id) });
         await shot('supervisor-archived');
       } finally {
         st.setManaged(sup.id, [], {}, { dir: dataDir });
+        st.setManaged(seen.id, [], {}, { dir: dataDir });
         /* The steps after this one count the tabs open here. */
         if (await supTab()) {
           const closed = await closeTabTitled(sup.title);
@@ -3607,6 +3697,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           try { const t = JSON.parse(fs.readFileSync(file, 'utf8')); return t.stewards && t.stewards[front.id] ? t : null; } catch (_) { return null; }
         }, 10000, 300);
         check(!!table && table.stewards[front.id].manages.includes(chosen), 'ticking one makes the conversation in front its supervisor', table);
+        const ledChosen = sv.leadOf(chosen);
+        check(!!table && table.version === 4 && !!ledChosen && ledChosen.lead === front.id && ledChosen.why === 'first',
+          'and, as its only supervisor, its lead, in a version 4 table', { version: table && table.version, lead: ledChosen });
         const narrow = await until(() => frame.evaluate((id) => {
           const li = [...document.querySelectorAll('li.row.managed')].find((r) => r.querySelector(`input[data-id="${id}"]`));
           const name = li && li.querySelector('.name'), doing = li && li.querySelector('.doing');
@@ -3903,8 +3996,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           if (process.platform === 'win32') {
             check(/^Not done: /.test(handoff) && /inbox/.test(handoff), 'on native Windows a handoff says the supervisor\'s inbox could not be reached', { handoff });
           } else {
-            check(handoff.startsWith('Handed off to the supervisor ') && handoff.includes(`(${front.id})`) && !!await until(arrivedHand, 30000, 1000),
-              'a managed conversation hands something off: the answer names the supervisor, which gets it as a notice from Claude Code Plus', { handoff, seen: model.seen.slice(handed).map((x) => (x.ask || '').slice(0, 160)) });
+            check(handoff.startsWith('Handed off to your lead supervisor ') && handoff.includes(`(${front.id})`) && !!await until(arrivedHand, 30000, 1000),
+              'a managed conversation hands something off: the answer names its lead supervisor, which gets it as a notice from Claude Code Plus', { handoff, seen: model.seen.slice(handed).map((x) => (x.ask || '').slice(0, 160)) });
             /* Claude Code draws no row for what arrives through the inbox, so the turn that the handoff starts has no
                message on the page to begin at; its reply's duration still runs from the handoff, not from the last
                message typed. */
@@ -3959,6 +4052,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
             const managed = await until(() => {
               try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards[front.id].manages.includes(newId); } catch (_) { return false; }
             }, 10000, 300);
+            const ledNew = sv.leadOf(newId);
+            check(/ You are its lead supervisor\.$/m.test(opened) && !!ledNew && ledNew.lead === front.id && ledNew.why === 'opened',
+              'the supervisor that opened the new conversation leads it, and the script says so', { opened, lead: ledNew });
             /* The new conversation gets a title of its own, because Claude Code counts a closed tab it remembers as
                shown while another tab has its label, and a new conversation's tab is labelled Claude Code, as is the
                empty one an earlier step leaves. */
@@ -4022,8 +4118,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
                 try { return fs.readFileSync(transcriptOf({ id: newId }), 'utf8').includes(JSON.stringify(later).slice(1, -1)); } catch (_) { return false; }
               }, 30000, 500) : false;
               const tab = await until(async () => (await claudeTabs()).find((x) => x.active), 10000, 300);
-              check(/^Opened: /.test(resumed) && /It is now ticked for you in the Supervisor panel\./.test(resumed) && !!arrived2,
-                'the supervisor opens a conversation no window shows in an editor tab of this window, passes it a message of two lines, which arrives with its line break, and has it ticked',
+              check(/^Opened: /.test(resumed) && /It is now ticked for you in the Supervisor panel\. You are its lead supervisor\./.test(resumed) && !!arrived2
+                && (sv.leadOf(newId) || {}).lead === front.id,
+                'the supervisor opens a conversation no window shows in an editor tab of this window, passes it a message of two lines, which arrives with its line break, and has it ticked, as its lead',
                 { resumed, arrived: !!arrived2, tab });
               /* The panel is about the conversation in front, which is the resumed one now; the supervisor is brought back.
                  Running conversations reach the panel from `claude agents --json`, asked at most every 30 s. */
@@ -4082,6 +4179,7 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           }, 10000, 300);
           check(frontGreyed && !!isSteward2, 'in the managed conversation\'s panel the supervisor\'s box is greyed; ticking another makes it a supervisor, which takes it off the first supervisor\'s list',
             { ticked2: !!ticked2, frontGreyed, table: (() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')).stewards; } catch (_) { return null; } })() });
+          check(!!isSteward2 && !((sv.table() || {}).leads || {})[target.id], 'and, managed by nobody now, it has no lead', (sv.table() || {}).leads);
           await exec('claude-vscode.editor.open', front.id);
           const names = () => frame.evaluate(() => Object.fromEntries([...document.querySelectorAll('li.row a.name[data-open]')].map((a) => [a.dataset.open, a.textContent])));
           const shown2 = await until(async () => {
@@ -5265,10 +5363,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       async function shotB() { await pageB.screenshot({ path: path.join(shotsDir, `${String(++shotNo).padStart(2, '0')}-steward-reopen-in-window-b.png`) }).catch(() => {}); }
     });
 
-    /* Two supervisors in two windows, one supervisor for each conversation at most: a supervisor cannot be ticked by another
-       (1), a conversation that becomes a supervisor leaves the other supervisor's list (2), a conversation one supervisor ticked
-       is greyed in the other's panel (3), and All is on for one supervisor only, which takes only what the other has not
-       ticked (4). Each greyed control says why in a hover label. */
+    /* Two supervisors in two windows that both tick one conversation, X: the first to tick it leads it and the second
+       observes it. Each panel says which it is on X's row, the eye names the lead first, and with X in front the panel
+       names its lead and its observer. The observer's message to X is refused by the script and, written as an older
+       script writes it, by the window, each naming the lead; a hand-off from X goes to the lead, and the flags that
+       picked another supervisor are gone. A lead that unticks X leaves it to the observer. On the row of a conversation
+       it observes, a supervisor has a button to lead it from there, which asks first and has the lead hand it over. A
+       supervisor's own box is greyed in the other's panel, with its reason in a hover label. */
     await step('several stewards for one conversation', async () => {
       const SA = threads[0], X = threads[1];
       const dataDir = path.join(profile.home, '.claude', 'plugins', 'data', 'agent-work-plan-claude-code-extras');
@@ -5295,6 +5396,33 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           names: [...pop.querySelectorAll('a[data-open]')].map((x) => ({ name: x.textContent, to: x.dataset.open })), by: !!li.querySelector('.by') };
       }, id).catch(() => null);
       const eyeOf = (id) => `li.row:has(a.name[data-open="${id}"]) .eyes`;
+      /* What a row says of the supervisor in front: Lead or Observer, the hover label of that word, and whether the row
+         has the button to lead it from here, and whether that button can be pressed. */
+      const roleIn = (f, id) => f.evaluate((id) => {
+        const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row');
+        if (!li) return null;
+        const r = li.querySelector('.role'), b = li.querySelector('button[data-take-lead]');
+        return { role: r ? r.textContent.trim() : null, why: r ? r.dataset.why || '' : '', take: !!b, takeOn: !!b && !b.disabled };
+      }, id).catch(() => null);
+      /* The eye's list on a row: the lead it names first and marks, the first name in it, and the others after "also
+         observing". */
+      const popIn = (f, id) => f.evaluate((id) => {
+        const a = document.querySelector(`li.row a.name[data-open="${id}"]`), li = a && a.closest('li.row'), pop = li && li.querySelector('.eyes .pop');
+        if (!pop) return null;
+        const lead = pop.querySelector('.poplead a[data-open]'), first = pop.querySelector('a[data-open]');
+        return { lead: lead ? lead.dataset.open : '', tag: ((pop.querySelector('.poplead .tag') || {}).textContent || '').trim(), first: first ? first.dataset.open : '',
+          also: ((pop.querySelector('.popsub') || {}).textContent || '').trim(),
+          others: [...pop.querySelectorAll('a[data-open]')].filter((x) => !x.closest('.poplead')).map((x) => x.dataset.open) };
+      }, id).catch(() => null);
+      /* VS Code's modal dialog in `p`, drawn in the page (window.dialogStyle "custom"), and an answer to it. */
+      const dialogIn = (p) => p.evaluate(() => {
+        const d = [...document.querySelectorAll('.monaco-dialog-box')].find((e) => e.offsetParent);
+        return d ? { text: d.innerText.replace(/\s+/g, ' ').trim(), buttons: [...d.querySelectorAll('.monaco-button')].map((b) => b.innerText.trim()).filter(Boolean) } : null;
+      }).catch(() => null);
+      const answerIn = async (p, label) => {
+        await p.locator('.monaco-dialog-box .monaco-button').filter({ hasText: label }).first().click();
+        return until(async () => !(await dialogIn(p)), 5000, 200);
+      };
 
       /* Window B on a folder of its own: Q1 will be the second supervisor, Q2 a conversation of B's. */
       const folderT = fs.realpathSync.native((() => { const d = path.join(path.dirname(profile.folder), 'ws-t'); fs.mkdirSync(d, { recursive: true }); return d; })());
@@ -5345,6 +5473,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const sa = await until(async () => { const b = await boxIn(panelB, SA.id); return b && b.disabled && b; }, 10000, 300) || await boxIn(panelB, SA.id);
         check(!!both && !!sa && sa.disabled && sa.why === 'This conversation is a supervisor, and a supervisor is not managed by another',
           'the second supervisor ticks it as well, so both lists have it; a supervisor\'s own box is still greyed in the other\'s panel', { table: table(), sa });
+        const led = sv.leadOf(X.id);
+        check(!!led && led.lead === SA.id && led.why === 'first' && !led.pending && led.term >= 1,
+          'the supervisor that ticked it first leads it, and the second only observes it', { leads: (sv.table() || {}).leads });
+        const term1 = led ? led.term : 0;
 
         /* In each panel, X's row ends with an eye and the count 1, for the other supervisor. */
         const eyeA = await until(async () => { const e = await eyesIn(panelA, X.id); return e && e.n === '1' && e; }, 30000, 500);
@@ -5368,9 +5500,33 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!namedA && namedA.names.length === 1 && namedA.names[0].to === Q1.id,
           'and in A\'s panel it names the supervisor in B', namedA || await eyesIn(panelA, X.id));
 
+        /* Each panel says on X's row whether the supervisor in front leads X or observes it: SA's says Lead, Q1's says
+           Observer with SA named in its hover label and offers to lead it from there. The eye's list puts the lead first,
+           marked as the lead, and the others under "also observing". */
+        const marksA = await until(async () => { const r = await roleIn(panelA, X.id); return r && r.role === 'Lead' && r; }, 20000, 500) || await roleIn(panelA, X.id);
+        const marksB = await until(async () => { const r = await roleIn(panelB, X.id); return r && r.role === 'Observer' && r; }, 20000, 500) || await roleIn(panelB, X.id);
+        check(!!marksA && marksA.role === 'Lead' && !marksA.take && !!marksB && marksB.role === 'Observer' && marksB.why.includes(SA.title.slice(0, 20))
+          && marksB.take && marksB.takeOn,
+          'X\'s row says Lead in the panel of the supervisor that leads it, and Observer, with the lead named in its hover label and a button to lead it from there, in the panel of the one that observes it',
+          { a: marksA, b: marksB });
+        const popB = await popIn(panelB, X.id), popA = await popIn(panelA, X.id);
+        check(!!popB && popB.lead === SA.id && popB.first === SA.id && popB.tag === 'lead' && !popB.others.length
+          && !!popA && !popA.lead && popA.also === 'also observing' && popA.others.length === 1 && popA.others[0] === Q1.id,
+          'the eye\'s list names the lead first and marks it so, and lists the others under "also observing"', { a: popA, b: popB });
+        await shotB('stewards-observer-in-b');
+
         /* Clicking a name brings that supervisor's conversation to the front in its window. */
         await exec('claude-vscode.editor.open', X.id);
         await until(async () => (await claudeTabs()).find((t) => t.active && titled(t.label, X.title)), 10000, 300);
+        /* With X in front, which no supervisor is, A's panel names X's lead and the supervisor that observes it. */
+        const ledLine = await until(() => panelA.evaluate(() => {
+          const p = document.querySelector('p.led');
+          return p ? { text: p.innerText.replace(/\s+/g, ' ').trim(), ids: [...p.querySelectorAll('a[data-open]')].map((a) => a.dataset.open) } : null;
+        }).catch(() => null), 20000, 500);
+        check(!!ledLine && ledLine.text.startsWith(`Led by ${SA.title.slice(0, 20)}`) && /; observed by /.test(ledLine.text) && ledLine.text.includes(Q1.title.slice(0, 20))
+          && ledLine.ids[0] === SA.id && ledLine.ids.length === 2 && ledLine.ids[1] === Q1.id,
+          'with the managed conversation in front, the panel says which supervisor leads it and which observes it', ledLine);
+        await shot('stewards-led-by');
         /* The click goes to the link itself: in a window behind another, moving the mouse onto it can lose the hover that
            shows the list, and that the list comes up is checked above. */
         await panelB.locator(eyeOf(X.id)).first().hover({ force: true });
@@ -5383,85 +5539,118 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           { tabsA: await claudeTabs(), copyInB });
 
         /* What each supervisor runs, with its tool call in its own transcript first, and a message the user typed there. */
-        const hooks = path.join(__dirname, '..', '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
-        const fileOf = (t) => path.join(profile.home, '.claude', 'projects', fakeHome.folderName(t === Q1 || t === Q2 ? folderT : profile.folder), `${t.id}.jsonl`);
-        let calls = 0;
-        const actAs = (t, args, input) => {
-          const line = `python3 ${hooks} ${args.join(' ')}` + (input ? ` <<'EOF'\n${input}\nEOF` : '');
-          const answered = fakeHome.appendToolCall(fileOf(t), { sessionId: t.id, cwd: t === Q1 ? folderT : profile.folder,
-            uuid: `${t.id.slice(0, 24)}${String(860000 + calls++).padStart(12, '0')}`, toolId: `toolu_many_${calls}`, command: line, description: 'Act for the user' });
-          return new Promise((resolve) => {
-            const kid = require('child_process').spawn(process.platform === 'win32' ? 'python' : 'python3', [hooks, ...args, dataDir],
-              { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: t.id }) });
-            let out = '';
-            kid.stdout.on('data', (d) => { out += d; });
-            kid.stderr.on('data', (d) => { out += d; });
-            kid.on('error', (e) => resolve('could not run the script: ' + e.message));
-            kid.on('exit', () => resolve(out.trim()));
-            kid.stdin.end(input || '');
-          }).then((said) => { answered(said); return said; });
-        };
-        /* A message in the transcript, after its last entry: Claude Code opens a conversation along that chain, so one
-           with no parent would hide the turns before it the next time the conversation opens. */
-        const lastUuid = (t) => {
-          for (const l of fs.readFileSync(fileOf(t), 'utf8').split('\n').reverse()) {
-            try { const r = JSON.parse(l); if ((r.type === 'user' || r.type === 'assistant') && r.uuid) return r.uuid; } catch (_) { /* not an entry */ }
-          }
-          return null;
-        };
-        const userSays = (t, text, from) => fs.appendFileSync(fileOf(t), JSON.stringify({ parentUuid: lastUuid(t), sessionId: t.id, cwd: profile.folder, isSidechain: false, type: 'user',
-          uuid: `${t.id.slice(0, 24)}${String(870000 + calls++).padStart(12, '0')}`, timestamp: new Date().toISOString(), permissionMode: 'default',
-          promptSource: from ? 'system' : 'user', origin: { kind: from || 'human' }, message: { role: 'user', content: text } }) + '\n');
-        const inX = (text) => { try { return fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(text).slice(1, -1)); } catch (_) { return false; } };
+        const on = (t, folder) => Object.assign({ folder }, t);
+        const SAt = on(SA, profile.folder), Xt = on(X, profile.folder), Q1t = on(Q1, folderT);
+        const inbox = (t, text) => sv.holds(t, text);
 
-        /* Two supervisors' messages to one conversation: the second is held back while the first is recent, and sent with --anyway. */
-        const first2 = 'Please keep the totals query as it is.', second2 = 'Please rewrite the totals query.';
-        const sentA = await actAs(SA, [X.id], first2);
-        const arrivedA = /^Sent: /.test(sentA) && await until(() => inX(first2), 30000, 500);
-        const held = await actAs(Q1, [X.id], second2);
-        const forced = /^Not sent: another supervisor sent this conversation a message in the last 30 minutes/.test(held) ? await actAs(Q1, ['--anyway', X.id], second2) : '';
-        const arrivedB = /^Sent: /.test(forced) && await until(() => inX(second2), 30000, 500);
-        const signed = arrivedB && fs.readFileSync(fileOf(X), 'utf8').includes(JSON.stringify(`Sent by the supervisor "${Q1.title}" (${Q1.id}) for the user:\n${second2}`).slice(1, -1));
-        check(!!arrivedA && held.includes(`"${SA.title}" (${SA.id})`) && held.includes(first2) && /--anyway/.test(held) && !!arrivedB && !!signed,
-          'a supervisor\'s message to a conversation that another supervisor messaged a moment ago is held back, showing the earlier message and who sent it; '
-          + '--anyway sends it, after the line that names its sender', { sentA, held, forced });
+        /* The observer's message to X: the script refuses it before it writes a request, naming X's lead and saying how to
+           ask the user to take X over. */
+        const observed = 'Please rewrite the totals query.';
+        const refusedQ1 = await sv.run(Q1t, [X.id], observed);
+        check(refusedQ1.startsWith('Not sent: ') && refusedQ1.includes(' is led by ') && refusedQ1.includes(`(${SA.id}); you observe it. To act on it, run steward-relay.py --take-lead ${X.id} --ask and ask the user.`)
+          && !inbox(Xt, observed),
+          'the supervisor that observes the conversation is refused when it sends it a message, with the lead named and the take-over question to ask first, and nothing reaches the conversation', { refusedQ1 });
+        /* The same message written as an older script writes it, as <id>.json with no lead term: the window that shows X
+           refuses it, as it would any request from a supervisor that does not lead X. */
+        const older = 'Please drop the totals row.';
+        const olderSaid = await sv.request(Q1t, { action: 'send', to: X.id, text: older }, { args: [X.id], input: older, old: true });
+        check(!!olderSaid && olderSaid.outcome === 'refused' && / is led by ".*"; you observe it\. To act on it, run steward-relay\.py --take-lead \S+ --ask and ask the user\.$/.test(olderSaid.reason)
+          && olderSaid.reason.includes(SA.title.slice(0, 20)) && !inbox(Xt, older),
+          'a request from the observer in the older script\'s format, which carries no lead term, is refused by the window that shows the conversation, which names its lead', olderSaid);
 
-        /* A handoff with --to goes to the supervisor it names, not to the one whose message started the turn. */
+        /* The lead's message goes through, after the line that names its sender. */
+        const first2 = 'Please keep the totals query as it is.';
+        const sentA = await sv.run(SAt, [X.id], first2);
+        const arrivedA = /^Sent: /.test(sentA) && await until(() => inbox(Xt, `Sent by the supervisor "${SA.title}" (${SA.id}) for the user:\n${first2}`), 30000, 500);
+        check(!!arrivedA, 'the lead\'s message reaches the conversation, after the line that names the lead', { sentA });
+        const anyway = await sv.run(Q1t, ['--anyway', X.id], observed);
+        check(/^usage error: --anyway is gone: /.test(anyway) && !inbox(Xt, observed), '--anyway is gone, and the script says so', { anyway });
+
+        /* A hand-off from X goes to its lead, though the user typed to the observer last; --to, which named a supervisor,
+           is gone. */
+        sv.says(Q1t, 'Keep an eye on the totals work, please.');
         const moved = 'The user asked here for the release notes, which belong in another conversation.';
-        const handed = await actAs(X, ['--handoff', '--to', SA.id], moved);
-        /* On native Windows no handoff reaches a supervisor's inbox: the answer names the supervisor --to gave as
-           unreachable, and no other supervisor is tried. */
+        const handed = await sv.run(Xt, ['--handoff'], moved);
+        const handLine = `(${X.id}), passed on by Claude Code Plus`;
+        /* On native Windows no hand-off reaches a supervisor's inbox. */
         const gotA = process.platform === 'win32'
-          ? /^Not done: no supervisor of this conversation could be reached/.test(handed) && handed.includes(SA.id) && !handed.includes(Q1.id)
-          : handed.startsWith('Handed off to the supervisor ') && handed.includes(`(${SA.id})`)
-            && await until(() => { try { return fs.readFileSync(fileOf(SA), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`); } catch (_) { return false; } }, 30000, 1000);
-        const notQ1 = !fs.readFileSync(fileOf(Q1), 'utf8').includes(`(${X.id}), passed on by Claude Code Plus`);
-        const stranger = await actAs(X, ['--handoff', '--to', Q2.id], moved);
-        check(!!gotA && notQ1 && /^Not done: .* does not manage this conversation\. Its supervisors are /.test(stranger),
-          'a managed conversation\'s handoff with --to goes to the supervisor it names, though another supervisor\'s message started its turn, and a --to that names none of its supervisors is refused',
-          { handed, stranger });
+          ? /^Not done: /.test(handed) && handed.includes('inbox')
+          : handed.startsWith('Handed off to your lead supervisor ') && handed.includes(`(${SA.id})`) && await until(() => sv.holds(SAt, handLine), 30000, 1000);
+        await sleep(3000);
+        const notQ1 = !sv.holds(Q1t, handLine);
+        const toWhom = await sv.run(Xt, ['--handoff', '--to', Q1.id], moved);
+        check(!!gotA && notQ1 && /^usage error: --to is gone: a hand-off always goes to the conversation's lead supervisor\./.test(toWhom) && !sv.holds(Q1t, handLine),
+          'a managed conversation\'s hand-off goes to its lead and not to the supervisor that observes it, though the user typed to that one last; --to is gone, and the script says so',
+          { handed, toWhom });
 
         /* A supervisor changes its own list when the user asks for it in the supervisor conversation, and refuses when a
            notice asks. New conversations goes on first, so that unticking the supervisor's only conversation leaves it a
-           supervisor that can still change its list. */
-        userSays(SA, 'Turn on New conversations.');
-        const newOn = await actAs(SA, ['--new', 'on']);
+           supervisor that can still change its list. The lead that unticks X leaves it to the observer, which is alive. */
+        sv.says(SAt, 'Turn on New conversations.');
+        const newOn = await sv.run(SAt, ['--new', 'on']);
         const laterBox = /^Done: /.test(newOn) && !!table()[SA.id].newSince
           && await until(() => panelA.evaluate(() => { const b = document.querySelector('input[data-later]'); return !!b && b.checked; }).catch(() => false), 20000, 500);
-        userSays(SA, `Stop managing ${X.title}.`);
-        const dropped = await actAs(SA, ['--drop', X.id]);
+        sv.says(SAt, `Stop managing ${X.title}.`);
+        const dropped = await sv.run(SAt, ['--drop', X.id]);
         const offBox = /^Done: /.test(dropped) && !has(SA.id, X.id) && await until(async () => { const b = await boxIn(panelA, X.id); return b && !b.checked && b; }, 20000, 500);
-        userSays(SA, `Take ${X.title} back.`);
-        const taken = await actAs(SA, ['--take'], X.title);
+        const left = sv.leadOf(X.id);
+        check(!!left && left.lead === Q1.id && left.why === 'dropped' && left.was === SA.id && left.term === term1 + 1,
+          'the lead that stops managing the conversation leaves it to the supervisor that observed it, in a new lead term', left);
+        sv.says(SAt, `Take ${X.title} back.`);
+        const taken = await sv.run(SAt, ['--take'], X.title);
         const onBox = /^Done: /.test(taken) && has(SA.id, X.id) && await until(async () => { const b = await boxIn(panelA, X.id); return b && b.checked && b; }, 20000, 500);
-        userSays(SA, 'Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:', 'cross-session');
-        const refused = await actAs(SA, ['--new', 'off']);
-        check(!!offBox && !!onBox && !!laterBox && /^Not done: only the user, typing in this supervisor conversation, can change its list/.test(refused) && !!table()[SA.id].newSince,
+        sv.says(SAt, 'Steward notice from Claude Code Plus, not a message from the user. Conversations you manage changed:', 'cross-session');
+        const refused = await sv.run(SAt, ['--new', 'off']);
+        check(!!offBox && !!onBox && !!laterBox && /^Not done: only the user, typing in this supervisor conversation, can change its list/.test(refused) && !!table()[SA.id].newSince
+          && (sv.leadOf(X.id) || {}).lead === Q1.id,
           'asked by the user in the supervisor conversation, the supervisor turns New conversations on, unticks a conversation and ticks it again by its title, and its panel shows each change; '
-          + 'a call made after a notice changes nothing and says why', { dropped, taken, newOn, refused });
-        userSays(SA, 'Turn New conversations off.');
-        await actAs(SA, ['--new', 'off']);
+          + 'ticked again, it observes the conversation, which the other supervisor leads now; a call made after a notice changes nothing and says why', { dropped, taken, newOn, refused, lead: sv.leadOf(X.id) });
+        sv.says(SAt, 'Turn New conversations off.');
+        await sv.run(SAt, ['--new', 'off']);
         await shot('stewards-list-changed');
+
+        /* SA observes X now. "Lead it from here" on X's row in SA's panel asks first, in a modal dialog that names both
+           supervisors, and nothing changes when it is cancelled. Confirmed, Q1 still leads X until it sends its hand-over
+           note, which it is told to send; once it has, both panels show the roles the other way round. */
+        await exec('claude-vscode.editor.open', SA.id);
+        await until(async () => (await header(panelA)).includes(SA.title.slice(0, 20)), 20000, 500);
+        const offer = await until(async () => { const r = await roleIn(panelA, X.id); return r && r.role === 'Observer' && r.take && r; }, 20000, 500) || await roleIn(panelA, X.id);
+        const noOffer = await until(async () => { const r = await roleIn(panelB, X.id); return r && r.role === 'Lead' && r; }, 20000, 500) || await roleIn(panelB, X.id);
+        check(!!offer && offer.role === 'Observer' && offer.take && offer.takeOn && !!noOffer && noOffer.role === 'Lead' && !noOffer.take,
+          'the button to lead the conversation from here is on its row in the panel of the supervisor that observes it, and not in the panel of the one that leads it', { a: offer, b: noOffer });
+        const before = JSON.stringify(sv.leadOf(X.id));
+        let asked = null;
+        if (offer && offer.take) {
+          await panelA.locator(`button[data-take-lead="${X.id}"]`).first().click();
+          asked = await until(() => dialogIn(page), 10000, 300);
+        }
+        check(!!asked && asked.text.includes(`Have "${SA.title}" lead "${X.title}"?`) && asked.text.includes(`It is led by "${Q1.title}" now; that one becomes an observer.`)
+          && asked.buttons.includes('Take over'),
+          'pressed, it asks in a modal dialog whether this supervisor should lead the conversation, naming both supervisors', asked);
+        await shot('stewards-take-over-asked');
+        if (asked) await answerIn(page, 'Cancel');
+        await sleep(2000);
+        check(JSON.stringify(sv.leadOf(X.id)) === before, 'cancelled, nothing changes', { before: JSON.parse(before), now: sv.leadOf(X.id) });
+        let agreed = null;
+        if (offer && offer.take) {
+          await panelA.locator(`button[data-take-lead="${X.id}"]`).first().click();
+          if (await until(() => dialogIn(page), 10000, 300)) await answerIn(page, 'Take over');
+          agreed = await until(() => { const e = sv.leadOf(X.id); return e && e.lead === Q1.id && e.pending && e.pending.to === SA.id && e.pending.by === 'panel' && e; }, 10000, 300);
+        }
+        const toldQ1 = !!agreed && (process.platform === 'win32' || !!await until(() => sv.messages(Q1t, 'The user agreed to hand ').some((x) => x.includes(`--hand-over ${X.id}`) && x.includes(SA.title.slice(0, 20))), 30000, 1000));
+        check(!!agreed && toldQ1, 'confirmed, the supervisor that leads the conversation keeps it until it hands it over, and is told to send its hand-over note', { lead: sv.leadOf(X.id), toldQ1 });
+        const note = `I asked it to keep the totals query as it is; "${SA.title}" takes over from here.`;
+        const over = agreed ? await sv.run(Q1t, ['--hand-over', X.id], note) : '';
+        const flipped = /^Handed over: /.test(over) && await until(async () => {
+          const a = await roleIn(panelA, X.id), b = await roleIn(panelB, X.id);
+          return a && b && a.role === 'Lead' && !a.take && b.role === 'Observer' && b.take && { a, b };
+        }, 30000, 500);
+        const after = sv.leadOf(X.id);
+        check(!!flipped && !!after && after.lead === SA.id && after.why === 'panel' && after.was === Q1.id && !after.pending
+          && sv.holds(Xt, `From your lead supervisor "${Q1.title}": from now on your lead supervisor is "${SA.title}".\n${note}`),
+          'once the old lead has sent its note, which reaches the conversation, the supervisor chosen in the panel leads it, and both windows\' panels show the new roles',
+          { over, lead: after, flipped });
+        await shot('stewards-taken-over');
       } finally {
         if (panelA) {
           if (await panelA.locator('input[data-every]').isChecked().catch(() => false)) await panelA.locator('input[data-every]').click().catch(() => {});
@@ -5474,6 +5663,521 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await until(async () => !(await w.pageOf(path.basename(folderT), 1000)), 20000, 500);
         w.pin(undefined);
         await exec('workbench.action.closePanel').catch(() => {});
+      }
+    });
+
+    /*
+     * One conversation, M, and three supervisors of it in this window: L ticked it first and leads it, O1 and O2 observe
+     * it. M is told of its lead and of no observer. When M waits for the user with a question in its plan, only L hears
+     * of it, though the user typed to O1 last. An observer that wants to act on M asks the user first (--take-lead
+     * --ask, which records a ticket), and its --take-lead counts only after the user's own answer in that supervisor
+     * conversation, typed after the question and within 30 minutes, with M's lead term unchanged since. Of two observers
+     * that both get a yes, one gets the hand-over. The old lead keeps acting until it hands M over with a note, which M
+     * reads first, and M's next turn says its lead changed, once. A lead that sends no note in ten minutes loses M
+     * anyway, and the new lead's first message says so. A note for a conversation no window shows is kept for its next
+     * turn and shown once.
+     */
+    await step('taking over a conversation from its lead with the user\'s yes', async () => {
+      const at = (t) => Object.assign({ folder: profile.folder }, t);
+      const { lead: L0, one: O10, two: O20, led: M0 } = LEAD_THREADS.take;
+      const L = at(L0), O1 = at(O10), O2 = at(O20), M = at(M0), sups = [L, O1, O2];
+      fakeHome.writeThreads(profile.home, profile.folder, [L0, O10, O20, M0]);
+      const st = require('../../src/stewards');
+      const planM = path.join(sv.dataDir, `${M.id}.json`);
+      const tabOf = async (t) => (await claudeTabs()).find((x) => titled(String(x.label || '').replace(TRAILING_MARKS, '').replace(ENVELOPE, ''), t.title));
+      const running = (t) => liveRecords().some((r) => r.sessionId === t.id && typeof r.messagingSocketPath === 'string');
+      /* Every window's entry, as the windows write them (src/window-entries.js). */
+      const windowEntries = () => {
+        const dir = path.join(sv.dataDir, 'windows');
+        let names = [];
+        try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+        return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } }).filter(Boolean);
+      };
+      const idle = (t) => until(() => sessionStatus(t.id) === 'idle', 60000, 500);
+      /* The request of this turn's model call, the one that offers tools, whose input holds `text`. */
+      const turnWith = (text) => model.seen.filter((x) => x.context && x.context.tools > 0 && String(x.input || '').includes(text)).pop() || null;
+      /* The part of a turn's input from what steward.py said, for a check's details. */
+      const told = (x) => { const s = String((x && x.input) || ''), i = s.indexOf('Your lead supervisor'); return i < 0 ? s.slice(0, 300) : s.slice(Math.max(0, i - 200), i + 700); };
+      const notices = (t, text) => sv.messages(t, text);
+      const win32 = process.platform === 'win32';
+      const quoted = (t) => `"${t.title}" (${t.id})`;
+      const key = (s) => `${s.id} ${M.id}`;
+      const ticketOf = (s) => ((sv.table() || {}).tickets || {})[key(s)] || null;
+      /* Sends `text` to M as `s` once M is idle; resolves to what the script said. */
+      const sendAs = async (s, text) => { await idle(M); return sv.run(s, [M.id], text); };
+      try {
+        for (const t of [M, ...sups]) {
+          await openTab(t.id);
+          if (!await until(() => tabOf(t), 30000, 500)) throw new Error(`"${t.title}" did not open in a tab`);
+        }
+        const up = await until(() => [M, ...sups].every(running), 90000, 1000);
+        check(!!up, 'the conversation and its three supervisors each run in a tab of this window', { running: [M, ...sups].map((t) => [t.title, running(t)]) });
+        for (const s of sups) { st.setManaged(s.id, [M.id], { [M.id]: M.title }, { dir: sv.dataDir, title: s.title }); await sleep(50); }
+        const e0 = sv.leadOf(M.id);
+        check(!!e0 && e0.lead === L.id && e0.why === 'first', 'of three supervisors that tick the conversation one after another, the first leads it', e0);
+        const term0 = e0 ? e0.term : 0;
+
+        /* M's first turn: the whole note about its lead, and no word of an observer. */
+        const first = 'Please start with the rounding of the invoice totals.';
+        const sent1 = await sendAs(L, first);
+        const turn1 = /^Sent: /.test(sent1) ? await until(() => turnWith(first), 30000, 500) : null;
+        const in1 = turn1 ? turn1.input : '';
+        check(!!turn1 && in1.includes(`Your lead supervisor is ${quoted(L)}.`) && [O1, O2].every((o) => !in1.includes(o.id) && !in1.includes(o.title)),
+          'the managed conversation\'s first turn names its lead supervisor, and neither observer, by title or session id', { sent1, told: told(turn1) });
+
+        /* A question in M's plan, then a wait for the user: only the lead is told, with the question, though the user
+           typed to an observer last. */
+        const question = 'Round each line, or only the total?';
+        const asked = new Date().toISOString();
+        fs.writeFileSync(planM, JSON.stringify({ nodes: [{ title: 'Pick where to round', state: 'waiting', waitingOn: 'user', question, asked, opened: asked, since: asked }] }, null, 2));
+        sv.says(O1, 'Keep an eye on the invoice exports for me.');
+        const waitSent = await sendAs(L, `Please ${ASK_TO_RUN}.`);
+        const waiting = `(${M.id}) is waiting for the user`;
+        const gap = require('../../src/steward-view').NOTICE_GAP_MS;
+        if (win32) note('on native Windows no supervisor is sent a notice, so who hears of the wait is not looked at');
+        else {
+          const toldL = await until(() => notices(L, waiting)[0], gap + 40000, 1000);
+          await sleep(5000);
+          const toldO = [O1, O2].filter((o) => notices(o, `(${M.id})`).length);
+          check(/^Sent: /.test(waitSent) && !!toldL && !toldO.length,
+            'when the managed conversation begins to wait for the user, only its lead is sent a notice; neither observer is, though the user typed to one of them last',
+            { waitSent, toldL: !!toldL, observersTold: toldO.map((o) => o.title) });
+          const askedL = notices(L, `Question for the user: ${question}`);
+          check(askedL.some((x) => x.includes(waiting)) && [O1, O2].every((o) => !notices(o, question).length),
+            'the question the managed conversation put in its plan is given to its lead alone, in that notice', { askedL: askedL.length });
+        }
+        await exec('claude-vscode.editor.open', M.id);
+        const mPage = await conversation(M, 30000);
+        if (mPage) await mPage.locator('button, [role="button"]').filter({ hasText: /^\s*3\s*No\s*$/ }).first().click({ timeout: 5000 }).catch(() => {});
+        fs.writeFileSync(planM, JSON.stringify({ nodes: [{ title: 'Pick where to round', state: 'done', waitingOn: 'user', question, asked, opened: asked, since: asked }] }, null, 2));
+        await idle(M);
+
+        /* An observer is refused, and asks the user: the window gives the words, with M's, L's and its own title, and
+           records a ticket at M's lead term. */
+        const stop = 'Please stop after the unit tests.';
+        const refusedO1 = await sendAs(O1, stop);
+        check(refusedO1.startsWith('Not sent: ') && refusedO1.includes(`is led by ${quoted(L)}; you observe it. To act on it, run steward-relay.py --take-lead ${M.id} --ask and ask the user.`)
+          && !sv.holds(M, stop), 'an observer\'s message is refused, with the lead named and the take-over question to ask first', { refusedO1 });
+        const ask1 = await sv.run(O1, ['--take-lead', M.id, '--ask']);
+        const ticket1 = ticketOf(O1);
+        check(ask1.startsWith('Ask the user exactly this, word for word, and end your turn without acting on the conversation:')
+          && ask1.includes(`Should I ("${O1.title}") take over "${M.title}"? It is led by "${L.title}" now. If you agree, "${L.title}" becomes an observer and I go on with what you asked.`)
+          && !!ticket1 && ticket1.term === term0,
+          '--take-lead --ask gives the question to put to the user, word for word, naming the observer, the conversation and its lead, and records a ticket at the conversation\'s lead term', { ask1, ticket1 });
+
+        /* Not yet the user's answer: nothing typed since the question, then a message from another session, then text
+           Claude Code Plus typed into the supervisor conversation. Each is refused, and M keeps its lead. */
+        const noAnswer = await sv.run(O1, ['--take-lead', M.id]);
+        check(/^Not done: the user has not answered since you asked\. Ask the user again with steward-relay\.py --take-lead \S+ --ask\.$/.test(noAnswer),
+          'without a message from the user since the question, --take-lead is refused', { noAnswer });
+        sv.says(O1, 'Yes, take it over.', 'peer');
+        const fromPeer = await sv.run(O1, ['--take-lead', M.id]);
+        const typedYes = 'Yes, you can take it over now.';
+        require('../../src/relay').noteTyped(sv.dataDir, typedYes);
+        sv.says(O1, typedYes);
+        const byPlus = await sv.run(O1, ['--take-lead', M.id]);
+        check(/^Not done: only the user's own answer, typed in this supervisor conversation, counts: it is a message from another session\. Ask the user again/.test(fromPeer)
+          && /^Not done: only the user's own answer, typed in this supervisor conversation, counts: Claude Code Plus typed it into this conversation/.test(byPlus)
+          && (sv.leadOf(M.id) || {}).lead === L.id && !(sv.leadOf(M.id) || {}).pending,
+          'a yes that came from another session, or that Claude Code Plus typed into the supervisor conversation, is not the user\'s answer, and the lead stays', { fromPeer, byPlus });
+
+        /* No question asked: refused by the script, and by the window for a request written without asking it. */
+        const noTicket = await sv.run(O2, ['--take-lead', M.id]);
+        sv.says(O2, 'Take it over.');
+        const direct = await sv.request(O2, { action: 'take-lead', to: M.id, ask: false, term: term0 }, { args: ['--take-lead', M.id] });
+        check(/^Not done: you have not asked the user whether to take over "[^"]*"\. Ask the user again with --take-lead \S+ --ask\.$/.test(noTicket)
+          && !!direct && direct.outcome === 'refused' && /^there is no take-over question of yours for ".*" in the last 30 minutes\. Ask the user again with steward-relay\.py --take-lead \S+ --ask\.$/.test(direct.reason),
+          '--take-lead without asking the user first is refused by the script, and a request for it written all the same is refused by the window', { noTicket, direct });
+
+        /* The question asked more than 30 minutes ago: refused, and the ticket is dropped. */
+        sv.edit((d) => { if (d.tickets && d.tickets[key(O1)]) d.tickets[key(O1)].at -= 31 * 60000; });
+        sv.says(O1, 'Yes, go ahead and take it over.');
+        const late = await sv.run(O1, ['--take-lead', M.id]);
+        const dropped = await until(() => !ticketOf(O1), 20000, 500);
+        check(/^Not done: (you asked the user about taking over "[^"]*" more than 30 minutes ago|you have not asked the user whether to take over "[^"]*")\. Ask the user again with --take-lead /.test(late)
+          && !!dropped && (sv.leadOf(M.id) || {}).lead === L.id,
+          'a yes to a question asked more than 30 minutes ago does not count, and a window drops that ticket', { late, ticket: ticketOf(O1) });
+
+        /* Asked again, and M's lead term moves on before the yes, as when another supervisor took M and gave it back:
+           refused by the script, and by the window for a request written all the same. */
+        await sv.run(O1, ['--take-lead', M.id, '--ask']);
+        const ticket2 = ticketOf(O1);
+        sv.edit((d) => { const e = d.leads[M.id]; d.leads[M.id] = { lead: L.id, term: e.term + 2, at: Date.now(), why: 'takeover', was: O2.id }; });
+        sv.says(O1, 'Yes, take it over.');
+        const moved1 = await sv.run(O1, ['--take-lead', M.id]);
+        sv.says(O1, 'Yes, take it over.');
+        const moved2 = await sv.request(O1, { action: 'take-lead', to: M.id, ask: false, term: ticket2 ? ticket2.term : term0 }, { args: ['--take-lead', M.id] });
+        check(!!ticket2 && /^Not done: the lead of "[^"]*" changed after you asked the user\. Ask the user again with --take-lead /.test(moved1)
+          && !!moved2 && moved2.outcome === 'refused' && /changed hands after you asked; it is led by ".*" now\. Ask the user again with steward-relay\.py --take-lead /.test(moved2.reason),
+          'a yes given after the conversation\'s lead term moved on since the question is refused by the script and by the window, which say to ask again', { moved1, moved2 });
+
+        /* Both observers ask and both get a yes at once: one of them gets the hand-over, the other is told who did. */
+        const termNow = (sv.leadOf(M.id) || {}).term;
+        await sv.run(O1, ['--take-lead', M.id, '--ask']);
+        await sv.run(O2, ['--take-lead', M.id, '--ask']);
+        sv.says(O1, 'Yes, take it over.');
+        sv.says(O2, 'Yes, you take it over.');
+        const [r1, r2] = await Promise.all([sv.run(O1, ['--take-lead', M.id]), sv.run(O2, ['--take-lead', M.id])]);
+        const winners = [[O1, r1], [O2, r2]].filter(([, r]) => /^Agreed: /.test(r));
+        const W = winners.length === 1 ? winners[0][0] : O1, Z = W === O1 ? O2 : O1, zSaid = W === O1 ? r2 : r1;
+        const pend = sv.leadOf(M.id) || {};
+        check(winners.length === 1 && /^Not done: "[^"]*" is being handed over from .* to .*\.$/.test(zSaid) && zSaid.includes(W.title) && pend.lead === L.id
+          && pend.pending && pend.pending.to === W.id && pend.term === termNow,
+          'of two observers that both get the user\'s yes at once, one gets the hand-over and the other is refused, told to whom it is being handed', { r1, r2, lead: pend });
+
+        /* Agreed, with L alive: L still leads M and is told to hand it over; L's message goes through; the one it is
+           handed to is told to wait. */
+        const toldHand = win32 || !!await until(() => notices(L, 'The user agreed to hand ').some((x) => x.includes(`--hand-over ${M.id}`) && x.includes(W.title)), 30000, 1000);
+        const still = 'Please run only the unit tests for now.';
+        const stillSent = await sendAs(L, still);
+        const early = 'Please also run the integration tests.';
+        const waitW = await sendAs(W, early);
+        check(toldHand && /^Sent: /.test(stillSent) && /^Not sent: "[^"]*" is being handed over from .* to you; wait for .*'s hand-over\.$/.test(waitW) && !sv.holds(M, early),
+          'until the old lead hands it over, it still leads the conversation and its messages go through, it is told to hand it over, and the new one\'s messages are refused with "wait for the hand-over"',
+          { toldHand, stillSent, waitW });
+
+        /* L's hand-over note reaches M first, with a line the window writes naming both; then W leads M, in the next lead
+           term, and each of the two is told. */
+        const fromAt = model.seen.length;
+        const handNote = `I asked it to fix the rounding and run the unit tests; "${W.title}" takes over from here.`;
+        await idle(M);
+        const over = await sv.run(L, ['--hand-over', M.id], handNote);
+        const handLine = `From your lead supervisor "${L.title}": from now on your lead supervisor is "${W.title}".\n${handNote}`;
+        const noted = await until(() => sv.userRows(M, handLine) === 1, 30000, 500);
+        const e8 = sv.leadOf(M.id) || {};
+        const toldW = win32 || !!await until(() => notices(W, `You lead "${M.title}" (${M.id}) now`).length, 30000, 1000);
+        const toldL = win32 || !!await until(() => notices(L, `You no longer lead "${M.title}" (${M.id})`).length, 30000, 1000);
+        check(/^Handed over: the note was sent to "[^"]*", and .* leads it now; you observe it\.$/.test(over) && !!noted && e8.lead === W.id && e8.term === termNow + 1
+          && e8.why === 'takeover' && e8.was === L.id && !e8.pending && toldW && toldL,
+          'the old lead\'s hand-over note reaches the conversation, after a line naming the old and the new lead; then the new one leads it, in the next lead term, and both are told',
+          { over, lead: e8, noted: !!noted, toldW, toldL });
+
+        /* What M reads of the change: the first turn that names W as its lead says it changed from L; the turn after
+           that does not say so again. The observer that lost never appears in what M reads. */
+        const go1 = 'Please carry on with the rounding fix.', go2 = 'Then run the unit tests once more.';
+        const s1 = await sendAs(W, go1);
+        const t1 = /^Sent: /.test(s1) ? await until(() => turnWith(go1), 30000, 500) : null;
+        const s2 = await sendAs(W, go2);
+        const t2 = /^Sent: /.test(s2) ? await until(() => turnWith(go2), 30000, 500) : null;
+        const tNote = model.seen.slice(fromAt).filter((x) => x.context && x.context.tools > 0 && String(x.input || '').includes(handNote)).pop() || null;
+        const namesW = (x) => !!x && new RegExp(`Your lead supervisor is (now |still )?"${W.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`).test(x.input || '');
+        const firstW = [tNote, t1].find(namesW) || null;
+        const changed = `Your lead supervisor is now "${W.title}" (was "${L.title}").`;
+        const after = firstW === tNote ? t1 : t2;
+        check(!!firstW && firstW.input.includes(changed) && !!after && !String(after.input || '').includes('Your lead supervisor is now')
+          && [tNote, t1, t2, turn1].filter(Boolean).every((x) => !String(x.input || '').includes(Z.id) && !String(x.input || '').includes(Z.title)),
+          'the managed conversation\'s first turn that names its new lead says the lead changed from the old one, the turn after it does not say so again, and it never reads of the observer that was not chosen',
+          { noteTurn: told(tNote), next: told(t1), last: told(t2) });
+        note(`the turn of the hand-over note itself ${namesW(tNote) ? 'named the new lead' : 'still named the old lead, since the window changes the lead once the note is in'}`);
+
+        /* L takes M back with the user's yes, and W sends no note in ten minutes: M goes to L all the same, which is
+           told to say so first, and its first message to M starts with a line the window writes. */
+        await sv.run(L, ['--take-lead', M.id, '--ask']);
+        sv.says(L, 'Yes, take it back.');
+        const back = await sv.run(L, ['--take-lead', M.id]);
+        const pend9 = sv.leadOf(M.id) || {};
+        const toldW9 = win32 || !!await until(() => notices(W, 'The user agreed to hand ').some((x) => x.includes(L.title)), 30000, 1000);
+        sv.edit((d) => { if (d.leads[M.id] && d.leads[M.id].pending) d.leads[M.id].pending.at -= 11 * 60000; });
+        const e9 = await until(() => { const e = sv.leadOf(M.id); return e && e.lead === L.id && e; }, 30000, 500) || sv.leadOf(M.id) || {};
+        const intro = win32 || !!await until(() => notices(L, `You lead "${M.title}" (${M.id}) now`).some((x) => x.includes(`Send it a first message: "${W.title}" did not hand it over`)), 30000, 1000);
+        check(/^Agreed: /.test(back) && pend9.pending && pend9.pending.to === L.id && toldW9 && e9.lead === L.id && e9.term === termNow + 2 && e9.why === 'takeover'
+          && e9.was === W.id && e9.intro === 'unhanded' && intro,
+          'a lead that sends no hand-over note in ten minutes loses the conversation all the same, and the new lead is told to say so in its first message', { back, lead: e9, intro });
+        const hello = 'Please go on with the rounding fix.';
+        const helloSent = await sendAs(L, hello);
+        const introLine = `From your new lead supervisor "${L.title}": "${W.title}" did not hand you over.`;
+        const greeted = await until(() => sv.userRows(M, `${introLine}\n${hello}`) === 1, 30000, 500);
+        const then = 'Then stop for now.';
+        const thenSent = await sendAs(L, then);
+        const plain = await until(() => sv.holds(M, `(${L.id}) for the user:\n${then}`), 30000, 500);
+        check(/^Sent: /.test(helloSent) && !!greeted && /^Sent: /.test(thenSent) && !!plain && sv.userRows(M, introLine) === 1 && !(sv.leadOf(M.id) || {}).intro,
+          'its first message starts with the line saying that the old lead did not hand it over, and its next one does not', { helloSent, thenSent });
+
+        /* W takes M over again with the user's yes, and L hands it over while no window shows M: the hand-over is made,
+           and the note is kept. M, opened again, reads it at its next turn, and not at the turn after. */
+        await sv.run(W, ['--take-lead', M.id, '--ask']);
+        sv.says(W, 'Yes, take it over again.');
+        const again = await sv.run(W, ['--take-lead', M.id]);
+        await idle(M);
+        await closeTabTitled(M.title);
+        const away = await until(async () => !(await tabOf(M)) && !windowEntries().some((x) => Array.isArray(x.sessions) && x.sessions.includes(M.id)), 30000, 500);
+        const keptNote = 'I asked it to finish the rounding fix; only the docs are left.';
+        const kept = /^Agreed: /.test(again) && away ? await sv.run(L, ['--hand-over', M.id], keptNote) : '';
+        const e15 = sv.leadOf(M.id) || {};
+        check(/^Handed over: "[^"]*" is not open in a VS Code window, so it is shown the note at its next turn; .* leads it now and you observe it\.$/.test(kept)
+          && e15.lead === W.id && !!e15.tell && e15.tell.kind === 'handover' && String(e15.tell.text || '').includes(keptNote) && !sv.holds(M, keptNote),
+          'a hand-over while no window shows the conversation is made all the same, and its note is kept for the conversation\'s next turn', { again, kept, lead: e15 });
+        await openTab(M.id);
+        await until(() => tabOf(M), 30000, 500);
+        await until(() => running(M), 60000, 1000);
+        const ask16 = 'Please write the docs for the rounding change.', ask17 = 'Then stop for today.';
+        const s16 = await sendAs(W, ask16);
+        const t16 = /^Sent: /.test(s16) ? await until(() => turnWith(ask16), 30000, 500) : null;
+        const s17 = await sendAs(W, ask17);
+        const t17 = /^Sent: /.test(s17) ? await until(() => turnWith(ask17), 30000, 500) : null;
+        const leftNote = 'This note was left for you while no window had this conversation open:';
+        check(!!t16 && t16.input.includes(leftNote) && t16.input.includes(keptNote) && !!t17 && !t17.input.includes(leftNote) && !t17.input.includes(keptNote),
+          'opened again, the conversation reads the kept note at its next turn, and not at the turn after', { s16, s17, next: told(t16), after: told(t17) });
+        await shot('lead-take-over');
+      } finally {
+        for (const s of sups) { try { st.setManaged(s.id, [], {}, { dir: sv.dataDir }); } catch (_) { /* the steps after this one say what is left */ } }
+        try { fs.rmSync(planM, { force: true }); } catch (_) { /* none */ }
+        for (const t of [M, ...sups]) { if (await tabOf(t)) await closeTabTitled(t.title).catch(() => false); }
+        await until(async () => !(await Promise.all([M, ...sups].map(tabOf))).some(Boolean), 15000, 500);
+      }
+    });
+
+    /*
+     * A lead in a second window, B, and an observer and their conversation here. B reloads and is back within seconds:
+     * the lead keeps the conversation. B closes, and once no window has shown the lead for the dead time (shortened for
+     * this run, lib/window.js LEAD_DEAD_MS) the observer leads it, in the next lead term, is told so, and its first
+     * message starts with a line saying the old lead is no longer open. B opens again with the old lead: its next turn
+     * says it no longer leads the conversation, and its messages are refused, also one written under its old lead term.
+     */
+    await step('a lead supervisor whose window goes away', async () => {
+      const deadMs = win.LEAD_DEAD_MS;
+      const folderU = fs.realpathSync.native((() => { const d = path.join(path.dirname(profile.folder), 'ws-u'); fs.mkdirSync(d, { recursive: true }); return d; })());
+      const { lead: LB0, other: OA0, led: N0 } = LEAD_THREADS.gone;
+      const LB = Object.assign({ folder: folderU }, LB0), OA = Object.assign({ folder: profile.folder }, OA0), N = Object.assign({ folder: profile.folder }, N0);
+      fakeHome.writeThreads(profile.home, folderU, [LB0]);
+      fakeHome.writeThreads(profile.home, profile.folder, [OA0, N0]);
+      const st = require('../../src/stewards');
+      const win32 = process.platform === 'win32';
+      const tabOf = async (t) => (await claudeTabs()).find((x) => titled(String(x.label || '').replace(TRAILING_MARKS, '').replace(ENVELOPE, ''), t.title));
+      const running = (t) => liveRecords().some((r) => r.sessionId === t.id && typeof r.messagingSocketPath === 'string');
+      const windowEntries = () => {
+        const dir = path.join(sv.dataDir, 'windows');
+        let names = [];
+        try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+        return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } }).filter(Boolean);
+      };
+      const listedBy = (t) => windowEntries().some((e) => Array.isArray(e.sessions) && e.sessions.includes(t.id));
+      const turnWith = (text) => model.seen.filter((x) => x.context && x.context.tools > 0 && String(x.input || '').includes(text)).pop() || null;
+      const told = (x) => { const s = String((x && x.input) || ''), i = s.indexOf('You are the supervisor'); return i < 0 ? s.slice(0, 300) : s.slice(i, i + 900); };
+      let pageB = null;
+      /* Window B on folder U with LB's tab in front, its process running. */
+      const openB = async () => {
+        const at = Date.now();
+        await call('await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(arg), { forceNewWindow: true }); return true;', folderU);
+        pageB = await w.pageOf(path.basename(folderU), 90000);
+        if (!pageB || !await w.hostUp(at, folderU).catch(() => null)) return false;
+        await until(() => call(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`, undefined, 60000, folderU), 60000, 1000);
+        await call('await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar"); await vscode.commands.executeCommand("claude-vscode.editor.open", arg); return true;', LB.id, 60000, folderU);
+        return !!await until(() => running(LB) && listedBy(LB), 90000, 1000);
+      };
+      const closeB = async () => {
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.closeWindow"), 200); return true;', undefined, 60000, folderU).catch(() => {});
+        await until(async () => !(await w.pageOf(path.basename(folderU), 1000)), 30000, 500);
+        pageB = null;
+      };
+      /* Types `text` into LB's page in window B and sends it, as the user would there; resolves to the model call of
+         that turn. */
+      const typeToLB = async (text) => {
+        const f = await until(async () => {
+          for (const x of pageB.frames()) {
+            try { if (await x.evaluate((t) => !!document.querySelector('[contenteditable][role="textbox"]') && document.body.innerText.includes(t), LB.turns[0][0])) return x; } catch (_) { /* gone */ }
+          }
+          return null;
+        }, 60000, 1000);
+        if (!f) return null;
+        await until(() => sessionStatus(LB.id) === 'idle', 30000, 500);
+        await f.locator('[contenteditable][role="textbox"]').first().click();
+        await pageB.keyboard.type(text);
+        await pageB.keyboard.press('Enter');
+        return until(() => turnWith(text), 30000, 500);
+      };
+      w.pin(profile.folder);
+      try {
+        for (const t of [N, OA]) {
+          await openTab(t.id);
+          if (!await until(() => tabOf(t), 30000, 500)) throw new Error(`"${t.title}" did not open in a tab`);
+        }
+        const upB = await openB();
+        const up = upB && await until(() => running(N) && running(OA), 60000, 1000);
+        check(!!up, 'a supervisor runs in a second window, B, and another supervisor and the conversation they manage run here', { upB, running: [N, OA, LB].map((t) => [t.title, running(t)]) });
+        if (!up) return;
+        st.setManaged(LB.id, [N.id], { [N.id]: N.title }, { dir: sv.dataDir, title: LB.title });
+        await sleep(50);
+        st.setManaged(OA.id, [N.id], { [N.id]: N.title }, { dir: sv.dataDir, title: OA.title });
+        const e0 = sv.leadOf(N.id) || {};
+        check(e0.lead === LB.id, 'the supervisor in window B ticked the conversation first and leads it', e0);
+        /* LB's own turn, so that what it is told records that it leads the conversation. */
+        const asked = await typeToLB('How is the search work going?');
+        check(!!asked && asked.input.includes(`(${N.id}): lead;`), 'the lead\'s list says it leads the conversation', told(asked));
+
+        /* B reloads and is back within seconds: no change of lead. */
+        const term0 = e0.term;
+        const at = Date.now();
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.reloadWindow"), 200); return true;', undefined, 60000, folderU);
+        await sleep(1500);
+        await w.hostUp(at, folderU);
+        await until(() => call(`const mine = vscode.extensions.getExtension('xnervwang.claude-code-plus'); return !!(mine && mine.isActive);`, undefined, 60000, folderU), 60000, 1000);
+        const backIn = await until(() => listedBy(LB), 60000, 1000);
+        const tookMs = Date.now() - at;
+        await sleep(10000);
+        const e1 = sv.leadOf(N.id) || {};
+        check(!!backIn && tookMs < deadMs && e1.lead === LB.id && e1.term === term0,
+          `window B reloads and shows the lead again ${Math.round(tookMs / 1000)} s later: the lead keeps the conversation, in the same lead term`, { lead: e1, tookMs });
+
+        /* B closes: once the dead time has passed, the observer here leads the conversation. */
+        await closeB();
+        const closedAt = Date.now();
+        const e2 = await until(() => { const e = sv.leadOf(N.id); return e && e.lead === OA.id && e; }, deadMs + 60000, 1000) || sv.leadOf(N.id) || {};
+        const after = Date.now() - closedAt;
+        const toldOA = win32 || !!await until(() => sv.messages(OA, `You lead "${N.title}" (${N.id}) now`).some((x) => x.includes(`Send it a first message: "${LB.title}" is no longer open`)), 30000, 1000);
+        check(e2.lead === OA.id && e2.term === term0 + 1 && e2.why === 'dead' && e2.was === LB.id && after >= deadMs - 5000 && toldOA,
+          `with window B closed, after ${Math.round(after / 1000)} s (the dead time is ${deadMs / 1000} s) the supervisor that observed the conversation leads it, in the next lead term, and is told to say so in its first message`,
+          { lead: e2, after, toldOA });
+        const hello = 'Please pick the search work up again.';
+        await until(() => sessionStatus(N.id) === 'idle', 30000, 500);
+        const helloSent = await sv.run(OA, [N.id], hello);
+        const introLine = `From your new lead supervisor "${OA.title}": "${LB.title}" is no longer open.`;
+        const greeted = /^Sent: /.test(helloSent) && await until(() => sv.userRows(N, `${introLine}\n${hello}`) === 1, 30000, 500);
+        check(!!greeted && !(sv.leadOf(N.id) || {}).intro, 'its first message starts with a line saying the old lead is no longer open', { helloSent });
+
+        /* B opens again with LB: its next turn says it no longer leads the conversation, and its messages are refused. */
+        const upAgain = await openB();
+        const back = upAgain ? await typeToLB('Anything new on the search work?') : null;
+        const lost = `you no longer lead "${N.title}" ("${OA.title}" (${OA.id}) does) and observe it now`;
+        check(!!back && back.input.includes(lost) && back.input.includes(`(${N.id}): observer (lead: "${OA.title}")`),
+          'the old lead, back in a window, is told at its next turn that it no longer leads the conversation and observes it now', told(back));
+        const stopText = 'Please stop the search work.';
+        const refused = await sv.run(LB, [N.id], stopText);
+        const oldTerm = await sv.request(LB, { action: 'send', to: N.id, text: stopText, term: term0, seq: 1 }, { args: [N.id], input: stopText });
+        check(refused.startsWith('Not sent: ') && refused.includes(`is led by "${OA.title}" (${OA.id}); you observe it.`) && !!oldTerm && oldTerm.outcome === 'refused'
+          && / is led by ".*"; you observe it\./.test(oldTerm.reason) && !sv.holds(N, stopText),
+          'its messages to the conversation are refused, by the script and, for one written under its old lead term, by the window', { refused, oldTerm });
+        await shot('lead-window-gone');
+      } finally {
+        if (pageB) await closeB();
+        w.pin(undefined);
+        for (const s of [LB, OA]) { try { st.setManaged(s.id, [], {}, { dir: sv.dataDir }); } catch (_) { /* the steps after this one say what is left */ } }
+        for (const t of [N, OA]) { if (await tabOf(t)) await closeTabTitled(t.title).catch(() => false); }
+      }
+    });
+
+    /*
+     * A lead and an observer of a conversation, R, that no window shows. The observer's --resume is refused. The lead
+     * resumes R with a message and sends it a second one right after: the second waits for the first, and R gets them
+     * in that order. A resume that has begun when the lead changes is carried out to its end; the old lead's next
+     * message is refused, and once it leads again a request it wrote under its earlier lead term still is. A window
+     * that took a request reloads before carrying it out: the request is handed back, carried out once after the
+     * reload, and the script gets its answer.
+     */
+    await step('requests for one conversation in their order across a reload', async () => {
+      const { lead: L0, other: O0, led: R0 } = LEAD_THREADS.order;
+      const at = (t) => Object.assign({ folder: profile.folder }, t);
+      const L = at(L0), O = at(O0), R = at(R0);
+      fakeHome.writeThreads(profile.home, profile.folder, [L0, O0, R0]);
+      const st = require('../../src/stewards');
+      const tabOf = async (t) => (await claudeTabs()).find((x) => titled(String(x.label || '').replace(TRAILING_MARKS, '').replace(ENVELOPE, ''), t.title));
+      const running = (t) => liveRecords().some((r) => r.sessionId === t.id && typeof r.messagingSocketPath === 'string');
+      const windowEntries = () => {
+        const dir = path.join(sv.dataDir, 'windows');
+        let names = [];
+        try { names = fs.readdirSync(dir).filter((n) => /^\d+\.json$/.test(n)); } catch (_) { return []; }
+        return names.map((n) => { try { return JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); } catch (_) { return null; } }).filter(Boolean);
+      };
+      const shownAnywhere = (t) => windowEntries().some((e) => Array.isArray(e.sessions) && e.sessions.includes(t.id));
+      /* The requests for R in the relay folder, by the state each is in: written, taken by a window, being carried out. */
+      const requestsFor = (state) => {
+        let names = [];
+        try { names = fs.readdirSync(sv.relayDir); } catch (_) { return []; }
+        const re = state === 'taken' ? /^[0-9a-f-]{36}\.taken-\d+$/ : state === 'doing' ? /^[0-9a-f-]{36}\.doing-\d+$/ : /^[0-9a-f-]{36}(\.v4)?\.json$/;
+        return names.filter((n) => re.test(n)).map((n) => { try { return Object.assign({ name: n }, JSON.parse(fs.readFileSync(path.join(sv.relayDir, n), 'utf8'))); } catch (_) { return null; } })
+          .filter((r) => r && r.to === R.id);
+      };
+      /* Where `text` first is in R's transcript, or -1. */
+      const placeOf = (text) => { try { return fs.readFileSync(sv.transcript(R), 'utf8').indexOf(JSON.stringify(text).slice(1, -1)); } catch (_) { return -1; } };
+      const closeR = async () => {
+        if (await tabOf(R)) await closeTabTitled(R.title);
+        return until(async () => !(await tabOf(R)) && !shownAnywhere(R), 30000, 500);
+      };
+      const setLead = (lead, was) => sv.edit((d) => { const e = d.leads[R.id]; d.leads[R.id] = { lead: lead.id, term: e.term + 1, at: Date.now(), why: 'takeover', was: was.id }; });
+      try {
+        for (const t of [L, O]) {
+          await openTab(t.id);
+          if (!await until(() => tabOf(t), 30000, 500)) throw new Error(`"${t.title}" did not open in a tab`);
+        }
+        check(!!await until(() => running(L) && running(O), 60000, 1000) && !shownAnywhere(R), 'two supervisors run in tabs here, and the conversation they manage is open in no window',
+          { running: [L, O].map((t) => [t.title, running(t)]), shown: shownAnywhere(R) });
+        st.setManaged(L.id, [R.id], { [R.id]: R.title }, { dir: sv.dataDir, title: L.title });
+        await sleep(50);
+        st.setManaged(O.id, [R.id], { [R.id]: R.title }, { dir: sv.dataDir, title: O.title });
+        const e0 = sv.leadOf(R.id) || {};
+        check(e0.lead === L.id, 'the supervisor that ticked it first leads it', e0);
+
+        /* The observer cannot open it; the lead opens it with one message and sends a second right after. */
+        const theirs = await sv.run(O, ['--resume', R.id], 'Pick the cache work up again, please.');
+        check(/^Not done: ".*" is led by .*; you observe it\. To act on it, run steward-relay\.py --take-lead /.test(theirs) && !(await tabOf(R)),
+          'the observer\'s --resume is refused, with the lead named, and no tab opens', { theirs });
+        const one = 'Pick the cache work up again, please.', two = 'Then raise the expiry of the entries to ten minutes.';
+        const resumed = sv.run(L, ['--resume', R.id], one);
+        await until(() => requestsFor('written').length + requestsFor('taken').length + requestsFor('doing').length > 0, 10000, 100);
+        const seqs = [];
+        const watchSeq = setInterval(() => { for (const r of [...requestsFor('written'), ...requestsFor('taken'), ...requestsFor('doing')]) if (!seqs.some((x) => x.id === r.id)) seqs.push({ id: r.id, action: r.action, seq: r.seq }); }, 100);
+        let second = '';
+        try { second = await sv.run(L, [R.id], two); } finally { clearInterval(watchSeq); }
+        const first = await resumed;
+        /* The second can reach the conversation while the first's turn still runs, and Claude Code then records it once
+           that turn ends. */
+        await until(() => placeOf(two) >= 0, 30000, 500);
+        const p1 = placeOf(one), p2 = placeOf(two);
+        const seqOf = (a) => (seqs.find((x) => x.action === a) || {}).seq;
+        check(/^Opened: /.test(first) && /^Sent: /.test(second) && p1 >= 0 && p2 > p1 && seqOf('send') > seqOf('resume'),
+          'the lead\'s resume and the message it sends right after are carried out in the order it wrote them, the second numbered after the first: the conversation opens with the first message and then gets the second',
+          { first, second, seqs, places: [p1, p2] });
+
+        /* A resume that has begun when the lead changes goes on to its end; what the old lead asks after that is refused,
+           and so, once it leads again, is a request it wrote under its earlier lead term. */
+        await until(() => sessionStatus(R.id) === 'idle', 30000, 500);
+        await closeR();
+        const three = 'Carry on with the cache work, please.';
+        const resumed2 = sv.run(L, ['--resume', R.id], three);
+        const begun = await until(() => requestsFor('doing').some((r) => r.action === 'resume'), 30000, 100);
+        const termL = (sv.leadOf(R.id) || {}).term;
+        if (begun) setLead(O, L);
+        const second2 = await resumed2;
+        const got3 = await until(() => placeOf(three) >= 0, 30000, 500);
+        check(!!begun && /^Opened: /.test(second2) && !!got3 && (sv.leadOf(R.id) || {}).lead === O.id,
+          'a resume that had begun when the lead changed is carried out to its end, its message included', { begun: !!begun, second2, got3: !!got3, lead: sv.leadOf(R.id) });
+        await until(() => sessionStatus(R.id) === 'idle', 30000, 500);
+        const four = 'Also clear the old cache files.';
+        const refused = await sv.run(L, [R.id], four);
+        setLead(L, O);
+        const five = 'Then report the hit rate.';
+        const old = await sv.request(L, { action: 'send', to: R.id, text: five, term: termL, seq: 1 }, { args: [R.id], input: five });
+        check(refused.startsWith('Not sent: ') && refused.includes(`is led by "${O.title}" (${O.id})`) && placeOf(four) < 0
+          && !!old && old.outcome === 'refused' && /^The lead of ".*" changed after you wrote this request; it is ".*" now\.$/.test(old.reason) && placeOf(five) < 0,
+          'after that the old lead\'s message is refused, and once it leads again, a request it wrote under its earlier lead term is still refused', { refused, old });
+
+        /* A window that has taken a request reloads before it carries it out, while it waits for the call in the
+           lead's transcript: the request is handed back and carried out once, after the reload, and the script gets
+           the answer. */
+        await exec('claude-vscode.editor.open', R.id);
+        await conversation(R, 30000);
+        await until(() => sessionStatus(R.id) === 'idle', 30000, 500);
+        const six = 'Measure the hit rate once more.';
+        let tookIt = null;
+        const sixth = await sv.run(L, [R.id], six, { before: async () => {
+          tookIt = await until(() => requestsFor('taken')[0] || null, 15000, 50);
+          if (!tookIt) return;
+          await w.reload();
+          await until(async () => { const s = await patchState(); return s && s.active; }, 60000, 1000);
+        } });
+        const left = () => { try { return fs.readdirSync(sv.relayDir).filter((n) => tookIt && n.startsWith(tookIt.id)); } catch (_) { return []; } };
+        const once = await until(() => sv.userRows(R, six) === 1, 30000, 500);
+        await sleep(3000);
+        check(!!tookIt && /^Sent: /.test(sixth) && !!once && sv.userRows(R, six) === 1 && !left().length,
+          'a request taken by a window that then reloads is handed back and carried out once after the reload, and the script gets its answer',
+          { taken: tookIt && tookIt.name, sixth, rows: sv.userRows(R, six), left: left() });
+        await shot('lead-requests-in-order');
+      } finally {
+        for (const s of [L, O]) { try { st.setManaged(s.id, [], {}, { dir: sv.dataDir }); } catch (_) { /* the steps after this one say what is left */ } }
+        for (const t of [R, L, O]) { if (await tabOf(t).catch(() => null)) await closeTabTitled(t.title).catch(() => false); }
+        /* The window may have reloaded: the steps after this one use the first conversation's page. */
+        await exec('claude-vscode.editor.open', tab0.id).catch(() => {});
+        conv = await conversation(tab0, 30000) || conv;
       }
     });
 
@@ -6561,6 +7265,9 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(/^Opened: /.test(opened) && /It is now ticked for you in the Supervisor panel\./.test(opened) && !!gained && !!rowOn && !quietA,
           'with every window still on the replaced build, the supervisor of all gains the conversation it opened at once: the script reports the tick, stewards.json lists the conversation, and the panel shows it ticked without asking for a reload',
           { opened, gained: !!gained, row: rowOn || (newId && await boxOf(panel, newId)), line: quietA, manages: (table()[front.id] || {}).manages });
+        const ledNew = newId ? sv.leadOf(newId) : null;
+        check(!!ledNew && ledNew.lead === front.id, 'and leads it', ledNew);
+        if (ledNew && ledNew.why !== 'opened') note(`the conversation a supervisor of all opened was given to it as its lead with why "${ledNew.why}", not "opened"`);
         check(!!eA && eA.installed === false && !!eB && eB.installed === false && typeof eA.build === 'string' && eA.build.length > 0 && eA.build === eB.build,
           'both windows\' entries say they run the same build, and not the installed one', { a: eA && [eA.build, eA.installed], b: eB && [eB.build, eB.installed] });
         await shot('steward-replaced-gains');
@@ -6840,8 +7547,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
           const t = await until(() => {
             try { const x = JSON.parse(fs.readFileSync(file, 'utf8')), e = x.stewards && x.stewards[front.id]; return e && e.manages.includes(KEY) ? x : null; } catch (_) { return null; }
           }, 10000, 300);
-          check(!!t && t.version === 3 && t.stewards[front.id].paths && t.stewards[front.id].paths[KEY] === planFile,
-            'ticking it makes the conversation in front its supervisor, and the version 3 table records the plan path Agent Plus gives', t);
+          check(!!t && t.version === 4 && t.stewards[front.id].paths && t.stewards[front.id].paths[KEY] === planFile && !!t.leads && !!t.leads[KEY] && t.leads[KEY].lead === front.id,
+            'ticking it makes the conversation in front its supervisor and its lead, and the version 4 table records the plan path Agent Plus gives', t);
           await frame.locator(`input[data-id="${KEY}"]`).first().click();
         } else note('the conversation in front has All on, so the OpenCode Agent Plus conversation was not ticked by hand');
       } finally {

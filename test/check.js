@@ -8439,6 +8439,103 @@ console.log('\na new tab in a window that drew no page takes its conversation\'s
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+console.log('\nlead supervisors: who leads each managed conversation');
+{
+  const sl = require('../src/steward-leads');
+  const id = (n) => `1ead0000-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`;
+  const [A, B, C] = [id(1), id(2), id(3)];
+  const [X, Y, Z] = [id(11), id(12), id(13)];
+  const sup = (manages, extra = {}) => Object.assign({ manages, ticked: manages, names: {}, paths: {}, at: 1000, all: false, title: '',
+    newSince: 0, newSkip: [], newBefore: [] }, extra);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const leadsOfPlan = (p) => Object.fromEntries(Object.entries(p.next).map(([k, v]) => [k, v.lead]));
+  const cases = [];
+  const expect = (what, got, want) => cases.push([what, got, want]);
+
+  {
+    const t = { [A]: sup([X], { since: { [X]: 10 } }) };
+    const p = sl.plan(t, {}, { now: 50 });
+    expect('the first supervisor to manage a conversation leads it, with term 1', [p.next[X].lead, p.next[X].term, p.next[X].why], [A, 1, 'first']);
+    const t2 = { [A]: t[A], [B]: sup([X], { since: { [X]: 20 }, at: 2000 }) };
+    const p2 = sl.plan(t2, p.next, { now: 60 });
+    expect('a second supervisor that ticks it observes, and the lead stays', [p2.next[X].lead, p2.changes.length, sl.roleOf(t2, p2.next, B, X)], [A, 0, 'observer']);
+  }
+  {
+    const t = {
+      [A]: sup([X], { all: true, ticked: [], allSince: 300 }),
+      [B]: sup([X], { all: true, ticked: [], allSince: 100 }),
+      [C]: sup([X], { newSince: 100, ticked: [] }),
+    };
+    const runs = [1, 2, 3].map(() => leadsOfPlan(sl.plan(t, {}, { now: 9 })));
+    expect('three supervisors of all conversations get a new one: the one whose switch went on first leads it, ties by session id, every time',
+      runs.map((r) => r[X]), [B, B, B]);
+    expect('and its reason says a switch added it', sl.plan(t, {}).next[X].why, 'new');
+  }
+  {
+    const t = { [A]: sup([X], { all: true, ticked: [], allSince: 1 }), [B]: sup([X], { since: { [X]: 999 } }) };
+    expect('the supervisor that opened a conversation leads it, whoever else has it on a list',
+      sl.plan(t, {}, { opened: { [X]: B } }).next[X], { lead: B, term: 1, at: sl.plan(t, {}, { opened: { [X]: B } }).next[X].at, why: 'opened', was: '' });
+  }
+  {
+    const t = { [A]: sup([X, Y], { since: { [X]: 5, [Y]: 5 } }), [B]: sup([X, Y], { since: { [X]: 1, [Y]: 9 } }) };
+    const p = sl.plan(t, {}, { migrated: true });
+    expect('a table without leads gets one per conversation, by who managed it first, marked migrated', [p.next[X].lead, p.next[Y].lead, p.next[X].why], [B, A, 'migrated']);
+  }
+  {
+    const t = { [A]: sup([X], { since: { [X]: 1 } }), [B]: sup([X], { since: { [X]: 2 } }), [C]: sup([X], { since: { [X]: 3 } }) };
+    const start = sl.plan(t, {}).next;
+    const dead = sl.plan(t, start, { gone: (s) => (s === A ? 'dead' : false) });
+    expect('a lead that is gone gives way to the next one that started managing the conversation, term up by one',
+      [dead.next[X].lead, dead.next[X].term, dead.next[X].why, dead.next[X].was], [B, 2, 'dead', A]);
+    const arch = sl.plan(t, start, { gone: (s) => (s === A ? 'archived' : false) });
+    expect('an archived lead gives way the same way, marked archived', [arch.next[X].lead, arch.next[X].why], [B, 'archived']);
+    const preferAlive = sl.plan(t, start, { gone: (s) => (s === A ? 'dead' : false), alive: (s) => s === C });
+    expect('a new lead is taken from the supervisors alive now when there are any', preferAlive.next[X].lead, C);
+    const none = sl.plan(t, start, { gone: () => 'dead' });
+    expect('with every supervisor gone the lead is empty, and comes back when one is alive again',
+      [none.next[X].lead, none.next[X].why, sl.plan(t, none.next, { gone: (s) => (s === A ? 'dead' : false) }).next[X].lead], ['', 'none', B]);
+    const pend = Object.assign({}, start, { [X]: Object.assign({}, start[X], { pending: { to: C, at: 5, by: 'consent' } }) });
+    expect('a lead found gone during a hand-over gives way to the one the hand-over names',
+      sl.plan(t, pend, { gone: (s) => (s === A ? 'dead' : false) }).next[X].lead, C);
+    const t2 = { [B]: t[B], [C]: t[C], [A]: sup([Y]) };
+    const dropped = sl.plan(t2, start);
+    expect('a lead that no longer manages the conversation gives way, marked dropped', [dropped.next[X].lead, dropped.next[X].why], [B, 'dropped']);
+    expect('a conversation nobody manages loses its entry', Z in sl.plan({ [A]: sup([X]) }, { [Z]: { lead: A, term: 3 } }).next, false);
+  }
+  {
+    const t = { [A]: sup([X]), [B]: sup([X]) };
+    const L = { [X]: { lead: A, term: 2, at: 1, why: 'first', was: '' } };
+    expect('the lead read is the one named, while it manages the conversation', sl.leadOf(t, L, X), A);
+    expect('no lead when the one named does not manage it', sl.leadOf({ [B]: t[B], [A]: sup([Y]) }, L, X), '');
+    expect('no lead when the conversation is a supervisor itself', sl.leadOf(Object.assign({ [X]: sup([Z]) }, t), L, X), '');
+    expect('roles: lead, observer, and nothing for one that does not manage it', [sl.roleOf(t, L, A, X), sl.roleOf(t, L, B, X), sl.roleOf(t, L, C, X)], ['lead', 'observer', '']);
+  }
+  {
+    const raw = { leads: { [X]: { lead: A.toUpperCase(), term: 3, at: 5, why: 'takeover', was: B, pending: { to: C, at: 6, by: 'panel' },
+      tell: { kind: 'intro', from: C, text: 'hi', at: 7 } }, nope: { lead: A }, [Y]: { lead: 'x', term: -2, why: 'weird' } },
+      tickets: { [`${B} ${X}`]: { at: 4, term: 3 }, bad: {} } };
+    const L = sl.leadsOf(raw), T = sl.ticketsOf(raw);
+    expect('leads are read with their fields checked, and malformed ones left out or emptied',
+      [L[X].lead, L[X].pending.by, L[X].tell.kind, 'nope' in L, L[Y].lead, L[Y].term, L[Y].why, Object.keys(T)], [A, 'panel', 'intro', false, '', 0, 'first', [`${B} ${X}`]]);
+  }
+  for (const [what, got, want] of cases) {
+    if (same(got, want)) ok(what);
+    else bad(`${what}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+  }
+}
+
+console.log('\nlead supervisors: only the lead acts, and a take-over needs the user');
+{
+  const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'lead-relay-check.js')], { encoding: 'utf8', timeout: 120000 });
+  let cases = null;
+  try { cases = JSON.parse(r.stdout); } catch (_) { cases = null; }
+  if (!Array.isArray(cases)) bad(`the lead checks gave no result: ${String(r.stdout || '').slice(0, 300)} ${String(r.stderr || '').slice(0, 600)}`);
+  else for (const [what, pass, detail] of cases) {
+    if (pass) ok(what);
+    else bad(`${what}: ${JSON.stringify(detail).slice(0, 600)}`);
+  }
+}
+
 console.log('\na tab the person closes');
 {
   const { applyEdits } = require('../src/edits');
@@ -9867,8 +9964,9 @@ console.log('\nthe Supervisor panel');
       fs.writeFileSync(path.join(dm, st.FILE), JSON.stringify(fixtures.stewardListed));
       const wrote = has && st.migrate(dm), again = has && st.migrate(dm);
       const after = JSON.parse(fs.readFileSync(path.join(dm, st.FILE), 'utf8'));
-      if (keptAsIs === false && wrote === true && again === false && after.version === 3 && same(after.stewards[C(1)].manages, [C(4)]) && same(after.stewards[C(2)].manages, [C(3)])) {
-        ok('the window that may write the table leaves an older table that breaks no rule as it is; one with a supervisor on a list it writes back once, as version 3');
+      if (keptAsIs === true && wrote === true && again === false && after.version === 4 && same(after.stewards[C(1)].manages, [C(4)]) && same(after.stewards[C(2)].manages, [C(3)])
+          && after.leads[C(4)].lead === C(1) && after.leads[C(3)].lead === C(2) && after.leads[C(4)].why === 'migrated') {
+        ok('the window that may write the table writes an older one back once as version 4, with a lead for each managed conversation marked as migrated and a supervisor off every list');
       } else bad(`migrating older tables gave ${JSON.stringify({ keptAsIs, wrote, again, after })}`);
       /* The hooks read the same. */
       const hooksDir = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks');
@@ -9932,6 +10030,7 @@ console.log('\nthe Supervisor panel');
         const e = /<span class="eyes"[^>]*data-eyes="([^"]*)"[^>]*>([\s\S]*)$/.exec(row);
         if (!e) return { n: 0, by: /<span class="by"/.test(row) ? (/<span class="by"[^>]*>([\s\S]*?)<\/span>/.exec(row) || [])[1] : '' };
         return { n: Number((/<span class="n">(\d+)<\/span>/.exec(e[2]) || [])[1]), svg: /<svg /.test(e[2]),
+          lead: (/<span class="poplead"><a href="#" data-open="([^"]+)">[^<]*<\/a><span class="tag">lead<\/span><\/span>/.exec(e[2]) || [])[1] || '',
           names: [...e[2].matchAll(/<a href="#" data-open="([^"]+)">([^<]*)<\/a>/g)].map((m) => [m[1], m[2]]), head: (/<span class="pophead">([^<]*)</.exec(e[2]) || [])[1],
           last: /<\/span><\/span>\s*$/.test(row), by: /<span class="by"/.test(row) };
       };
@@ -9948,8 +10047,8 @@ console.log('\nthe Supervisor panel');
         const e3 = eyeOf(p, C(3)), e5 = eyeOf(p, C(5)), e2 = eyeOf(p, C(2)), r3 = eyeOf(panel.renamed, C(3));
         if (e3.n === 2 && e3.svg && e3.last && !e3.by && same(e3.names, [[C(2), 'Docs supervisor'], [C(4), 'Night supervisor']]) && e3.head === 'Also managed by 2 other supervisors'
             && e5.n === 1 && same(e5.names, [[C(4), 'Night supervisor']]) && e5.head === 'Also managed by 1 other supervisor' && e2.n === 0 && e2.by === 'a supervisor'
-            && same(r3.names, [[C(2), 'Docs and site supervisor'], [C(4), 'Night supervisor']])) {
-          ok('a row other supervisors manage ends in an eye with their number, its list names each with a link to its conversation and says how many, '
+            && e3.lead === C(2) && e5.lead === C(4) && same(r3.names, [[C(2), 'Docs and site supervisor'], [C(4), 'Night supervisor']])) {
+          ok('a row other supervisors manage ends in an eye with their number, its list names each with a link to its conversation, the lead first and marked, and says how many, '
             + 'the row itself names no supervisor, and a supervisor\'s own row says "a supervisor"; a renamed supervisor\'s new name shows at the next pass');
         } else bad(`the eyes read ${JSON.stringify({ three: e3, five: e5, two: e2, renamed: r3 })}`);
         const t = panel.ticked, ev = panel.every, lt = panel.later, off = panel.off;
@@ -9961,6 +10060,151 @@ console.log('\nthe Supervisor panel');
             + 'and New conversations turns on and off by itself, with its box ticked while it is on');
         } else bad(`clicking in the panel beside other supervisors gave ${JSON.stringify({ ticked: t, every: ev, later: lt, off })}`);
       }
+
+      /* Leads in the panel (src/steward-leads.js): beside the tick of each row the supervisor in front manages, "Lead" or
+         "Observer", an observer's hover naming the lead; the eye's list with the lead first; with a managed conversation in
+         front, a line naming its lead and its observers. The window here does not write the table, so the leads stay as
+         written: C(7)'s lead is gone, and C(4) is handing C(9) over to C(1). */
+      const ldir = fresh('leads');
+      const leadTable = { version: 4, stewards: {
+        [C(1)]: { manages: [C(3), C(5), C(7), C(9)], names: {}, at: 5 }, [C(2)]: { manages: [C(3)], names: {}, at: 1 },
+        [C(4)]: { manages: [C(5), C(3), C(9)], names: {}, at: 2 }, [C(6)]: { manages: [C(7)], names: {}, at: 3 } },
+      leads: { [C(3)]: { lead: C(2), term: 1, at: 1, why: 'first', was: '' }, [C(5)]: { lead: C(1), term: 2, at: 4, why: 'panel', was: C(4) },
+        [C(7)]: { lead: '', term: 3, at: 6, why: 'none', was: C(6) }, [C(9)]: { lead: C(4), term: 1, at: 2, why: 'first', was: '', pending: { to: C(1), at: 7, by: 'panel' } } } };
+      fs.writeFileSync(path.join(ldir, st.FILE), JSON.stringify(leadTable));
+      const LEAD_PANEL = (front) => `
+        const sv = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'steward-view.js'))});
+        const C = (n) => '5e5e5e5e-0000-4000-8000-0000000001' + String(n).padStart(2, '0'), dir = ${JSON.stringify(ldir)};
+        const names = { 1: 'Front', 2: 'Docs supervisor', 3: 'Docs work', 4: 'Night supervisor', 5: 'Release notes', 6: 'Third supervisor', 7: 'Orphan work', 8: 'Loose work', 9: 'Handed work' };
+        const records = Object.keys(names).map((n) => ({ sessionId: C(n), kind: 'interactive', cwd: '/w/' + n, name: names[n], status: 'idle' }));
+        const v = sv.create({ window: { registerWebviewViewProvider: () => ({ dispose() {} }), showInformationMessage() {} } }, {
+          activeChat: () => C(${front}), freshAgents: async () => ({ records }), readPlan: () => null, titles: () => ({ custom: '', ai: '' }),
+          since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true, shownHere: (id) => id === C(1),
+          canWrite: () => false, canShare: () => true, enabled: () => true, log: () => {}, home: '/', dir, records: () => [],
+          post: async () => true, windowName: () => 'here', windowFolders: () => [], shownList: () => records.map((r) => r.sessionId), alive: () => false });
+        (async () => {
+          await v._pass();
+          const m = v._model(v._last(), C(${front}));
+          process.stdout.write(JSON.stringify({ html: sv.body(m), ledBy: m.ledBy,
+            rows: m.rows.map((r) => [r.sessionId, r.role, r.lead, r.pending ? r.pending.to : '', r.eyes.map((e) => [e.id, e.lead])]) }));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`;
+      const leadPanel = (front) => JSON.parse(cp.execFileSync(process.execPath, ['-e', LEAD_PANEL(front)], { encoding: 'utf8', timeout: 30000 }));
+      const atFront = leadPanel(1), atLed = leadPanel(3), atOrphan = leadPanel(7), atLoose = leadPanel(8);
+      /* The markup of a row, from its box to the end of its line. */
+      const rowOf = (h, id) => (new RegExp(`<li class="row[^"]*">((?:(?!</li>)[\\s\\S])*data-id="${id}"[\\s\\S]*?)</li>`).exec(h || '') || [])[1] || '';
+      const roleOf = (h, id) => { const m = /<span class="role( [a-z]+)?"( data-why="([^"]*)")?>([^<]*)<\/span>/.exec(rowOf(h, id)); return m ? [m[4], (m[3] || '').replace(/&quot;/g, '"')] : null; };
+      const takeOf = (h, id) => { const m = /<span class="take" data-why="([^"]*)"><button data-take-lead="([^"]+)" ([a-z]*)>([^<]*)<\/button><\/span>/.exec(rowOf(h, id)); return m ? [m[4], m[2], m[3], m[1].replace(/&quot;/g, '"')] : null; };
+      const popOf = (h, id) => {
+        const p = (/<span class="pop">([\s\S]*?)<\/span><\/span>\s*$/.exec(rowOf(h, id)) || [])[1] || '';
+        return { lead: (/<span class="poplead"><a href="#" data-open="([^"]+)">[^<]*<\/a><span class="tag">lead<\/span><\/span>/.exec(p) || [])[1] || '',
+          order: [...p.matchAll(/<span class="(poplead|popsub)">|data-open="([^"]+)"/g)].map((m) => m[2] || m[1]) };
+      };
+      if (atFront.error || atLed.error || atOrphan.error || atLoose.error) bad('the panel with leads threw: ' + (atFront.error || atLed.error || atOrphan.error || atLoose.error));
+      else {
+        const h = atFront.html;
+        const wants = [
+          [roleOf(h, C(3)), ['Observer', 'Led by "Docs supervisor"; this supervisor only observes it and does not act on it']],
+          [roleOf(h, C(5)), ['Lead', 'This supervisor leads it: only the lead acts on a conversation, and the other supervisors that manage it observe it']],
+          [roleOf(h, C(7)), ['Observer', 'No supervisor leads it now; this supervisor only observes it']],
+          [roleOf(h, C(9)), ['Observer', 'Being handed over to this supervisor; it leads it once "Night supervisor" has sent its hand-over note']],
+          [roleOf(h, C(8)), ['', '']], [roleOf(h, C(2)), ['', '']]];
+        if (wants.every(([got, want]) => same(got, want)) && /<span>: 4, 3 observed<\/span>/.test(h) && !/class="led"/.test(h)) {
+          ok('beside the tick of each row the supervisor in front manages the panel says Lead or Observer, an observer\'s hover names its lead, says that none leads it '
+            + 'or that it is being handed over to this supervisor, the other rows keep an empty cell of the same width, and the header counts the ones observed');
+        } else bad(`the rows' roles read ${JSON.stringify({ roles: wants.map((w) => w[0]), rows: atFront.rows })}`);
+        const takes = [C(3), C(5), C(7), C(8), C(9), C(2)].map((id) => takeOf(h, id));
+        if (same(takes[0], ['Lead it from here', C(3), '', 'Makes this supervisor its lead once you confirm; "Docs supervisor" then observes it'])
+            && same(takes[2], ['Lead it from here', C(7), '', 'Makes this supervisor its lead once you confirm'])
+            && same(takes[4] && takes[4].slice(0, 3), ['Lead it from here', C(9), 'disabled']) && takes[1] === null && takes[3] === null && takes[5] === null) {
+          ok('a row the supervisor in front observes has a "Lead it from here" button, greyed with a hover saying why while it is being handed over; '
+            + 'a row it leads and a row it does not manage have none');
+        } else bad(`the take-over buttons read ${JSON.stringify(takes)}`);
+        const p3 = popOf(h, C(3)), p5 = popOf(h, C(5)), p9 = popOf(h, C(9));
+        if (p3.lead === C(2) && same(p3.order, ['poplead', C(2), 'popsub', C(4)]) && p5.lead === '' && same(p5.order, ['popsub', C(4)])
+            && p9.lead === C(4) && same(p9.order, ['poplead', C(4)]) && /aria-label="Also managed by 2 other supervisors: Docs supervisor \(lead\), Night supervisor"/.test(h)) {
+          ok('the eye\'s list puts the lead first, marked "lead", and the other supervisors under "also observing"; with the supervisor in front the lead, all are under "also observing"');
+        } else bad(`the eyes' lists read ${JSON.stringify({ p3, p5, p9 })}`);
+        /* The observers in a sorted order, as the table's order decides theirs. */
+        const ledLine = (x) => {
+          const t = ((/<p class="led">([\s\S]*?)<\/p>/.exec(x.html) || [])[1] || '').replace(/<a href="#" data-open="([^"]+)">([^<]*)<\/a>/g, '[$2 $1]');
+          const m = /^(.*; observed by )(.*)$/.exec(t);
+          return m ? m[1] + m[2].split(', ').sort().join(', ') : t;
+        };
+        if (ledLine(atLed) === `Led by [Docs supervisor ${C(2)}]; observed by [Front ${C(1)}], [Night supervisor ${C(4)}]`
+            && ledLine(atOrphan) === `No supervisor leads it now; observed by [Front ${C(1)}], [Third supervisor ${C(6)}]`
+            && ledLine(atLoose) === '' && atLoose.ledBy === null && !/class="role|data-take-lead/.test(atLed.html)) {
+          ok('with a managed conversation in front a line at the top names its lead and its observers, each a link to that supervisor, or says that no supervisor leads it now; '
+            + 'a conversation nobody manages has no such line');
+        } else bad(`the line above the list read ${JSON.stringify({ led: ledLine(atLed), orphan: ledLine(atOrphan), loose: ledLine(atLoose) })}`);
+      }
+
+      /* The take-over button: a modal dialog asks first, and only "Take over" calls stewards.takeLead (stubbed here). A lead
+         that is alive is then told to hand the conversation over, as after a take-over agreed in a supervisor conversation. */
+      const tdir = fresh('take-over');
+      fs.writeFileSync(path.join(tdir, st.FILE), JSON.stringify({ version: 4, stewards: {
+        [C(1)]: { manages: [C(3), C(5)], names: {}, at: 5 }, [C(2)]: { manages: [C(3)], names: {}, at: 1 } },
+      leads: { [C(3)]: { lead: C(2), term: 1, at: 1, why: 'first', was: '' }, [C(5)]: { lead: C(1), term: 1, at: 5, why: 'first', was: '' } } }));
+      const TAKE_SCRIPT = (real, shown) => `
+        const sv = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'steward-view.js'))});
+        const st = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'stewards.js'))});
+        const C = (n) => '5e5e5e5e-0000-4000-8000-0000000001' + String(n).padStart(2, '0'), dir = ${JSON.stringify(tdir)};
+        const names = { 1: 'Front', 2: 'Docs supervisor', 3: 'Docs work', 5: 'Release notes' };
+        const records = Object.keys(names).map((n) => ({ sessionId: C(n), kind: 'interactive', cwd: '/w/' + n, name: names[n], status: 'idle' }));
+        const split = ${SPLIT_NOTICE};
+        const rec = { asked: [], said: [], stamps: [], unstamped: [], calls: [], posts: [] };
+        let answer;
+        const vscode = { window: { registerWebviewViewProvider: () => ({ dispose() {} }),
+          showWarningMessage: async (text, ...rest) => { rec.asked.push([text].concat(rest)); return answer; },
+          showInformationMessage: async (raw, ...rest) => { const n = split(raw, rest); rec.said.push(n.text); rec.stamps.push(n.stamp); if (n.bare) rec.unstamped.push(raw); } } };
+        if (!${real}) st.takeLead = (...a) => { rec.calls.push(a); return { outcome: 'pending', reason: '', lead: C(2) }; };
+        const v = sv.create(vscode, {
+          activeChat: () => C(1), freshAgents: async () => ({ records }), readPlan: () => null, titles: () => ({ custom: '', ai: '' }),
+          since: () => 0, live: () => new Map(), unread: () => new Set(), reveal: async () => true, shownHere: (id) => id === C(1),
+          canWrite: () => true, canShare: () => true, enabled: () => true, log: () => {}, home: '/', dir,
+          records: () => [{ sessionId: C(1), messagingSocketPath: 'uds:/one' }, { sessionId: C(2), messagingSocketPath: 'uds:/two' }],
+          post: async (a, t) => { rec.posts.push([a, t]); return true; }, windowName: () => 'here', windowFolders: () => [],
+          shownList: () => ${JSON.stringify(shown)}.map(C), alive: () => false });
+        (async () => {
+          await v._pass();
+          await v._onMessage({ type: 'take-lead', id: C(3) });
+          const unanswered = { asked: rec.asked.length, calls: rec.calls.length, posts: rec.posts.length, lead: st.state(dir).leads[C(3)].lead };
+          await v._onMessage({ type: 'take-lead', id: C(5) });
+          const leading = rec.asked.length;
+          answer = 'Take over';
+          await v._onMessage({ type: 'take-lead', id: C(3) });
+          await new Promise((r) => setTimeout(r, 50));
+          const after = st.state(dir).leads[C(3)];
+          const html = sv.body(v._model(v._last(), C(1)));
+          process.stdout.write(JSON.stringify(Object.assign(rec, { unanswered, leading, after, html })));
+        })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`;
+      const stubbed = JSON.parse(cp.execFileSync(process.execPath, ['-e', TAKE_SCRIPT(false, [1, 2, 3, 5])], { encoding: 'utf8', timeout: 30000 }));
+      noteNotices(stubbed.stamps, stubbed.unstamped);
+      const ask = `Have "Front" lead "Docs work"? It is led by "Docs supervisor" now; that one becomes an observer.`;
+      if (stubbed.error) bad('the take-over button threw: ' + stubbed.error);
+      else if (same(stubbed.unanswered, { asked: 1, calls: 0, posts: 0, lead: C(2) }) && stubbed.leading === 1
+          && same(stubbed.asked, [[ask, { modal: true }, 'Take over'], [ask, { modal: true }, 'Take over']])
+          && same(stubbed.calls, [[tdir, C(3), C(1), { by: 'panel' }]]) && stubbed.posts.length === 1 && stubbed.posts[0][0] === 'uds:/two'
+          && stubbed.posts[0][1] === `${st.NOTICE_HEAD}, not a message from the user. The user agreed to hand "Docs work" over to "Front". Run steward-relay.py `
+            + `--hand-over ${C(3)} with a short note for it in a here-document: what you had asked it to do, and that "Front" takes over.`
+          && same(stubbed.said, ['"Docs supervisor" hands "Docs work" over first; the lead changes once its note is sent, or in 10 minutes.'])) {
+        ok('"Lead it from here" asks in a modal dialog naming the supervisor, the conversation and its lead; dismissed, nothing changes; on "Take over" it calls '
+          + 'stewards.takeLead for the panel, tells the lead to hand the conversation over and says so; a row the supervisor leads asks nothing');
+      } else bad(`the take-over button gave ${JSON.stringify(stubbed)}`);
+      /* With the real stewards.takeLead: a lead no window shows gives the conversation at once, one shown hands it over. */
+      const realGone = JSON.parse(cp.execFileSync(process.execPath, ['-e', TAKE_SCRIPT(true, [1, 3, 5])], { encoding: 'utf8', timeout: 30000 }));
+      noteNotices(realGone.stamps, realGone.unstamped);
+      fs.writeFileSync(path.join(tdir, st.FILE), JSON.stringify({ version: 4, stewards: {
+        [C(1)]: { manages: [C(3), C(5)], names: {}, at: 5 }, [C(2)]: { manages: [C(3)], names: {}, at: 1 } },
+      leads: { [C(3)]: { lead: C(2), term: 1, at: 1, why: 'first', was: '' }, [C(5)]: { lead: C(1), term: 1, at: 5, why: 'first', was: '' } } }));
+      const realLive = JSON.parse(cp.execFileSync(process.execPath, ['-e', TAKE_SCRIPT(true, [1, 2, 3, 5])], { encoding: 'utf8', timeout: 30000 }));
+      noteNotices(realLive.stamps, realLive.unstamped);
+      if (realGone.error || realLive.error) bad('the take-over button with the table\'s own takeLead threw: ' + (realGone.error || realLive.error));
+      else if (realGone.after.lead === C(1) && realGone.after.why === 'panel' && realGone.after.term === 2 && (roleOf(realGone.html, C(3)) || [])[0] === 'Lead'
+          && !realGone.posts.some((p) => /--hand-over/.test(p[1])) && realLive.after.lead === C(2) && same(realLive.after.pending && [realLive.after.pending.to, realLive.after.pending.by], [C(1), 'panel'])
+          && realLive.posts.filter((p) => p[0] === 'uds:/two' && /--hand-over/.test(p[1])).length === 1 && (takeOf(realLive.html, C(3)) || [])[2] === 'disabled') {
+        ok('with the table\'s own takeLead, a lead no window shows gives the conversation to the supervisor at once and the row says Lead; '
+          + 'a lead a window shows is asked to hand it over, and meanwhile the row\'s button is greyed');
+      } else bad(`the take-over with the real takeLead gave ${JSON.stringify({ gone: [realGone.after, realGone.posts, roleOf(realGone.html, C(3))], live: [realLive.after, realLive.posts, takeOf(realLive.html, C(3))] })}`);
     }
 
     /* Which managed conversations a supervisor's plan is waiting on: named in an open row, by title or by id. */
@@ -10087,6 +10331,12 @@ console.log('\nthe Supervisor panel');
       const script = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
       const sdata = path.join(root, 'archive-script');
       fs.mkdirSync(path.join(sdata, 'relay'), { recursive: true });
+      /* S(1) leads S(2) to S(4) at lead terms of their own, and observes S(5), which S(9) leads. */
+      const led = (lead, term) => ({ lead, term, at: 1, why: 'first', was: '' });
+      fs.writeFileSync(path.join(sdata, 'stewards.json'), JSON.stringify({ version: 4, rev: 1,
+        stewards: { [S(1)]: { manages: [S(2), S(3), S(4), S(5)], names: { [S(5)]: 'Shared one' }, at: 1, title: 'Docs supervisor' },
+          [S(9)]: { manages: [S(5)], names: {}, at: 2, title: 'Night supervisor' } },
+        leads: { [S(2)]: led(S(1), 3), [S(3)]: led(S(1), 1), [S(4)]: led(S(1), 2), [S(5)]: led(S(9), 1) } }));
       const run = (args, input) => {
         const r = cp.spawnSync(process.execPath, ['-e', `
           const fs = require('fs'), path = require('path'), cp = require('child_process');
@@ -10098,7 +10348,7 @@ console.log('\nthe Supervisor panel');
           kid.stdin.end(${JSON.stringify(input || '')});
           const t = setInterval(() => {
             for (const n of fs.readdirSync(dir)) {
-              const m = /^([0-9a-f-]{36})\\.json$/.exec(n);
+              const m = /^([0-9a-f-]{36})\\.v4\\.json$/.exec(n);
               if (!m) continue;
               const req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
               fs.unlinkSync(path.join(dir, n));
@@ -10118,18 +10368,29 @@ console.log('\nthe Supervisor panel');
       const many = run(['--archive', ...Array.from({ length: 51 }, (_, i) => '5e5e5e5e-0000-4000-8000-0000000007' + String(i).padStart(2, '0'))], '');
       const odd = run(['--archive', '--confirmed', S(2)], '');
       const none = run(['--archive'], '');
+      const shared = run(['--archive', S(5), S(2)], '');
+      const observed = run(['--archive', S(5)], '');
       const lines = (r) => (r.out || '').trim().split(/\r?\n/);
-      const asked = (r) => (r.asked && r.asked[0] ? [r.asked[0].action, r.asked[0].to, r.asked[0].ids, r.asked[0].steward] : null);
-      if (two.code === 1 && JSON.stringify(asked(two)) === JSON.stringify(['archive', S(2), [S(2), S(3)], S(1)])
+      const asked = (r) => (r.asked && r.asked[0]
+        ? [r.asked[0].action, r.asked[0].to, r.asked[0].ids, r.asked[0].steward, r.asked[0].term, r.asked[0].terms, r.asked[0].seq] : null);
+      const refusal = `Not archived: "Shared one" (${S(5)}): "Shared one" is led by "Night supervisor" (${S(9)}); you observe it. `
+        + `To act on it, run steward-relay.py --take-lead ${S(5)} --ask and ask the user.`;
+      if (two.code === 1 && JSON.stringify(asked(two)) === JSON.stringify(['archive', S(2), [S(2), S(3)], S(1), 3, { [S(2)]: 3, [S(3)]: 1 }, 1])
           && JSON.stringify(lines(two)) === JSON.stringify([`Archived: "Idle one" (${S(2)}).`, `Not archived: ${S(3)}: it is working; archive it once it has stopped.`])
-          && heredoc.code === 0 && JSON.stringify(asked(heredoc)) === JSON.stringify(['archive', S(4), [S(4)], S(1)])
+          && heredoc.code === 0 && JSON.stringify(asked(heredoc)) === JSON.stringify(['archive', S(4), [S(4)], S(1), 2, { [S(4)]: 2 }, 1])
           && other.code === 1 && !other.asked.length && /^Not done: opencode-plus:ses_1 is not a Claude Code session id/.test(other.out)
           && many.code === 1 && !many.asked.length && /^Not done: 51 conversations were named; give at most 50 at a time\./.test(many.out)
           && odd.code === 2 && /^usage: /.test(odd.out) && none.code === 1 && /^Not done: no conversation was named\./.test(none.out)) {
-        ok('steward-relay.py --archive asks the window to archive the Claude Code conversations named on the command line or in a here-document, once each, and prints a '
-          + 'line for each: archived, or not archived with the reason; it refuses another agent\'s key, more than 50 conversations, an option that belongs to another '
-          + 'action, and a command that names none');
+        ok('steward-relay.py --archive asks the window to archive the Claude Code conversations named on the command line or in a here-document, once each, with the lead '
+          + 'term of each as the table gives it and a sequence number, and prints a line for each: archived, or not archived with the reason; it refuses another agent\'s key, '
+          + 'more than 50 conversations, an option that belongs to another action, and a command that names none');
       } else bad(`--archive from the script gave ${JSON.stringify({ two, heredoc, other, many: many.out, odd: odd.out, none: none.out })}`);
+      if (shared.code === 1 && JSON.stringify(asked(shared)) === JSON.stringify(['archive', S(2), [S(2)], S(1), 3, { [S(2)]: 3 }, 1])
+          && JSON.stringify(lines(shared)) === JSON.stringify([refusal, `Archived: "Idle one" (${S(2)}).`])
+          && observed.code === 1 && !observed.asked.length && observed.out.trim() === refusal) {
+        ok('steward-relay.py --archive leaves out a conversation the supervisor only observes, saying which supervisor leads it and how to ask for it, '
+          + 'and asks the window for the rest; with nothing left it writes no request');
+      } else bad(`--archive of an observed conversation gave ${JSON.stringify({ shared, observed })}`);
     }
 
     /* A supervisor changing its own list (src/relay.js typedBefore, src/steward-view.js listChange): only after a message the
@@ -10306,8 +10567,8 @@ console.log('\nthe Supervisor panel');
     }
 
     /* Notices with several supervisors (src/steward-view.js notify): a wait, with the question in the plan, wakes the
-       supervisor the user typed to last; a turn's end goes to the supervisor whose message started it and to one whose plan
-       names the conversation, not to the others. */
+       conversation's lead alone (the three ticked it at the same time, so the lowest session id leads it); a turn's end
+       reaches an observer whose plan names the conversation, without the question, and nobody else. */
     {
       const qdir = path.join(root, 'many-notices'), qtdir = path.join(root, 'many-notices-transcripts');
       fs.mkdirSync(qdir, { recursive: true });
@@ -10354,15 +10615,13 @@ console.log('\nthe Supervisor panel');
           process.stdout.write(JSON.stringify({ asked, done, given }));
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack }))).finally(() => v.dispose());`], { encoding: 'utf8', timeout: 30000 }));
       const to = (list, k) => (list || []).filter(([a]) => a === 'uds:/s' + k).map(([, t]) => t);
-      const a2 = to(told.asked, '02'), d1 = to(told.done, '01'), d2 = to(told.done, '02'), d3 = to(told.done, '03');
-      const heldLine = `Already given to the supervisor "Release supervisor" (${Q('02')}), which asks the user: Which links?`;
-      if ((told.asked || []).length === 1 && a2.length === 1 && a2[0].includes(`"Fix the links" (${Q('05')}) is waiting for the user.`) && a2[0].includes('Question for the user: Which links?')
-          && d1.length === 1 && d1[0].includes(`"Fix the links" (${Q('05')}) finished its turn.`) && d1[0].includes(heldLine) && !d1[0].includes('Question for the user:')
-          && d3.length === 1 && d3[0].includes('finished its turn.') && d3[0].includes(heldLine) && d2.length === 0
-          && told.given && told.given[Q('05')] && told.given[Q('05')]['1\nWhich links?'] && told.given[Q('05')]['1\nWhich links?'].steward === Q('02')) {
-        ok('a conversation three supervisors manage that starts waiting with a question wakes only the supervisor the user typed to last, and the record beside the table gives the question to that supervisor; '
-          + 'the end of a turn that another supervisor\'s message started reaches that supervisor and the one whose plan waits on the conversation, each told which supervisor '
-          + 'has the question, and does not reach the supervisor that has it');
+      const a1 = to(told.asked, '01'), d2 = to(told.done, '02'), d3 = to(told.done, '03');
+      if ((told.asked || []).length === 1 && a1.length === 1 && a1[0].includes(`"Fix the links" (${Q('05')}) is waiting for the user.`) && a1[0].includes('Question for the user: Which links?')
+          && d3.length === 1 && d3[0].includes(`"Fix the links" (${Q('05')}) finished its turn.`) && !d3[0].includes('Question for the user:') && !d3[0].includes('Already given')
+          && d2.length === 0
+          && told.given && told.given[Q('05')] && told.given[Q('05')]['1\nWhich links?'] && told.given[Q('05')]['1\nWhich links?'].steward === Q('01')) {
+        ok('a conversation three supervisors manage that starts waiting with a question wakes only its lead, and the record beside the table gives the question to the lead; '
+          + 'the end of its turn reaches an observer whose plan waits on the conversation, without the question, and not the observer that does not');
       } else bad(`notices with several supervisors gave ${JSON.stringify(told).slice(0, 2500)}`);
     }
 
@@ -10559,8 +10818,10 @@ console.log('\nthe Supervisor panel');
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
       const { typed, results, again, left } = relayed;
       const signed = (s, t) => require('../src/stewards').withFrom(s, '', t);
-      if (typed && JSON.stringify(typed) === JSON.stringify([[S(2), signed(S(1), restarted)], [S(3), signed(S(1), lines2)], [S(3), signed(S(1), 'late call')],
-        [S(8), signed(S(6), restarted)], [S(2), signed(S(6), restarted)]])
+      /* Requests for one conversation in order; for different ones side by side. */
+      const typedTo = (id) => JSON.stringify((typed || []).filter((t) => t[0] === id));
+      if (typed && typed.length === 4 && typedTo(S(2)) === JSON.stringify([[S(2), signed(S(1), restarted)]])
+        && typedTo(S(3)) === JSON.stringify([[S(3), signed(S(1), lines2)], [S(3), signed(S(1), 'late call')]]) && typedTo(S(8)) === JSON.stringify([[S(8), signed(S(6), restarted)]])
           && results[R(1)] === 'submitted' && results[R(7)] === 'submitted' && results[R(2)] === 'refused' && results[R(3)] === 'refused'
           && again.length === 1 && again[0].outcome === 'refused' && /already/.test(again[0].reason)
           && left.includes(R(5) + '.json') && !left.includes(R(4) + '.json') && !left.some((n) => n.includes('.taken-'))) {
@@ -10570,53 +10831,61 @@ console.log('\nthe Supervisor panel');
       if (results && results[R(8)] === 'submitted' && relayed.waits > 0 && relayed.waits <= relay.RAN_WAITS_MS.length * 2) {
         ok('a supervisor\'s call that reaches its transcript a moment after the request is found by reading the transcript again, not refused');
       } else bad(`a call written late: ${JSON.stringify(relayed)}`);
-      if (results && results[R('a')] === 'submitted' && results[R('b')] === 'refused' && results[R('c')] === 'submitted') {
-        ok('a supervisor of all conversations reaches one that no list holds at the moment and one another supervisor has, but not a supervisor');
+      if (results && results[R('a')] === 'submitted' && results[R('b')] === 'refused' && results[R('c')] === 'refused') {
+        ok('a supervisor of all conversations reaches one that no list holds at the moment, but not one another supervisor leads, nor a supervisor');
       } else bad(`a supervisor of all: ${JSON.stringify(results)}`);
       /* The script the supervisor runs: it leaves the request and prints the answer a window writes back. */
       const script = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
       const sdir = path.join(root, 'relay-script');
       fs.mkdirSync(path.join(sdir, relay.RELAY_DIR), { recursive: true });
+      fs.writeFileSync(path.join(sdir, 'stewards.json'), JSON.stringify({ version: 4, rev: 1, stewards: { [S(1)]: { manages: [S(2)], names: {}, at: 1 } },
+        leads: { [S(2)]: { lead: S(1), term: 3, at: 1, why: 'first', was: '' } } }));
+      /* Requests already in the folder: one for S(2) a window took, one for another conversation, and a result. Only the
+         first counts for the sequence number. */
+      const planted = { 'cccccccc-0000-4000-8000-000000000001.v4.json.taken-4242': { to: S(2), seq: 4 },
+        'cccccccc-0000-4000-8000-000000000002.v4.json.taken-4242': { to: S(3), seq: 9 }, 'cccccccc-0000-4000-8000-000000000003.result.json': { to: S(2), seq: 99 } };
+      for (const [n, r] of Object.entries(planted)) fs.writeFileSync(path.join(sdir, relay.RELAY_DIR, n), JSON.stringify(Object.assign({ id: n.slice(0, 36) }, r)));
       const both = cp.spawnSync(process.execPath, ['-e', `
         const fs = require('fs'), path = require('path'), cp = require('child_process');
         const dir = path.join(${JSON.stringify(sdir)}, 'relay');
         const kid = cp.spawn('python3', [${JSON.stringify(script)}, ${JSON.stringify(S(2))}, ${JSON.stringify(sdir)}],
           { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: ${JSON.stringify(S(1))} }) });
-        let out = '';
+        let out = '', req = null;
         kid.stdout.on('data', (d) => { out += d; });
         kid.stdin.end('请先别推，等测试结果出来。' + String.fromCharCode(10));
         const t = setInterval(() => {
           for (const n of fs.readdirSync(dir)) {
-            const m = /^([0-9a-f-]{36})\.json$/.exec(n);
+            const m = /^([0-9a-f-]{36})\.v4\.json$/.exec(n);
             if (!m) continue;
-            const req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
+            req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
             fs.unlinkSync(path.join(dir, n));
             fs.writeFileSync(path.join(dir, m[1] + '.result.json'), JSON.stringify({ outcome: req.text === '请先别推，等测试结果出来。' && req.steward === ${JSON.stringify(S(1))} && req.to === ${JSON.stringify(S(2))} ? 'submitted' : 'refused', reason: 'x' }));
           }
         }, 100);
-        kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out })); });`], { encoding: 'utf8', timeout: 60000 });
+        kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, req })); });`], { encoding: 'utf8', timeout: 60000 });
       let ran = {};
       try { ran = JSON.parse(both.stdout); } catch (_) { ran = { error: both.stdout + both.stderr }; }
-      if (ran.code === 0 && /^Sent: /.test(ran.out) && fs.readdirSync(path.join(sdir, relay.RELAY_DIR)).length === 0) {
-        ok('steward-relay.py leaves the message as a request from this supervisor and prints the answer a window writes back');
+      if (ran.code === 0 && /^Sent: /.test(ran.out) && ran.req && ran.req.action === 'send' && ran.req.term === 3 && ran.req.seq === 5
+          && JSON.stringify(fs.readdirSync(path.join(sdir, relay.RELAY_DIR)).sort()) === JSON.stringify(Object.keys(planted).sort())) {
+        ok('steward-relay.py leaves the message as a request from this supervisor, named <id>.v4.json, with the conversation\'s lead term as the table gives it and '
+          + 'a sequence number one above the highest of the requests for that conversation already in the folder, and prints the answer a window writes back');
       } else bad(`steward-relay.py: ${JSON.stringify(ran)}`);
     }
 
-    /* The script's own checks with several supervisors (hooks/steward-relay.py): a message held back while another
-       supervisor's is recent, --anyway, and --handoff --to naming a supervisor the conversation does not have. */
+    /* The script's own checks with several supervisors (hooks/steward-relay.py): of two supervisors of one conversation
+       only the lead sends it messages, whatever the other one sent it lately, and --anyway and --handoff --to are gone. */
     {
       const script = path.join(__dirname, '..', 'claude-plugin', 'agent-work-plan', 'hooks', 'steward-relay.py');
       const pdata = path.join(root, 'many-script');
       fs.mkdirSync(path.join(pdata, 'relay'), { recursive: true });
       fs.mkdirSync(path.join(pdata, 'windows'), { recursive: true });
       const now = Date.now();
-      st.setManaged(S(1), [S(2)], {}, { dir: pdata, now: 1, title: 'Docs supervisor' });
+      // S(1) ticks S(2) first and leads it; S(7) observes it.
+      st.setManaged(S(1), [S(2)], { [S(2)]: 'Totals report' }, { dir: pdata, now: 1, title: 'Docs supervisor' });
       st.setManaged(S(7), [S(2)], {}, { dir: pdata, now: 2, title: 'Night supervisor' });
-      const longText = 'Rewrite the totals query. ' + 'x'.repeat(400);
+      // The record of recent messages that windows of older builds keep; it holds no message back.
       fs.writeFileSync(path.join(pdata, 'relay', 'sends.json'), JSON.stringify({
-        [S(2)]: [{ steward: S(7), title: 'Night supervisor', at: now - 5 * 60000, text: longText }, { steward: S(8), title: 'Old supervisor', at: now - 40 * 60000, text: 'old' },
-          { steward: S(1), title: 'Docs supervisor', at: now - 60000, text: 'mine' }],
-        [S(3)]: [{ steward: S(1), title: 'Docs supervisor', at: now - 60000, text: 'mine' }] }));
+        [S(2)]: [{ steward: S(7), title: 'Night supervisor', at: now - 5 * 60000, text: 'Rewrite the totals query.' }] }));
       /* Runs the script as `as` and answers its request like a window, recording what it asked for. */
       const run = (as, args, input) => {
         const r = cp.spawnSync(process.execPath, ['-e', `
@@ -10629,7 +10898,7 @@ console.log('\nthe Supervisor panel');
           kid.stdin.end(${JSON.stringify(input || '')});
           const t = setInterval(() => {
             for (const n of fs.readdirSync(dir)) {
-              const m = /^([0-9a-f-]{36})\\.json$/.exec(n);
+              const m = /^([0-9a-f-]{36})\\.v4\\.json$/.exec(n);
               if (!m) continue;
               const req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
               fs.unlinkSync(path.join(dir, n));
@@ -10640,33 +10909,35 @@ console.log('\nthe Supervisor panel');
           kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, asked })); });`], { encoding: 'utf8', timeout: 60000 });
         try { return JSON.parse(r.stdout); } catch (_) { return { error: r.stdout + r.stderr }; }
       };
-      const held = run(S(1), [S(2)], 'Keep the totals query.');
-      const forced = run(S(1), ['--anyway', S(2)], 'Keep the totals query.');
-      const mine = run(S(1), [S(3)], 'Carry on.');
+      const lead = run(S(1), [S(2)], 'Keep the totals query.');
+      const watcher = run(S(7), [S(2)], 'Rewrite the totals query.');
+      const forced = run(S(7), ['--anyway', S(2)], 'Rewrite the totals query.');
       const stranger = run(S(2), ['--handoff', '--to', S(9)], 'This belongs to the docs work.');
       const named = run(S(2), ['--handoff', '--to', S(7).toUpperCase()], 'This belongs to the docs work.');
       const noValue = run(S(1), ['--all'], '');
       const titled = run(S(1), ['--take'], 'Docs   work\n');
       const byId = run(S(1), ['--drop', S(2)], '');
       const switched = run(S(1), ['--all', 'on'], '');
-      const req = (r) => (r.asked && r.asked[0] ? [r.asked[0].action, r.asked[0].to, r.asked[0].text, r.asked[0].steward] : null);
-      if (JSON.stringify([req(titled), req(byId), req(switched)]) === JSON.stringify([['take', 'Docs work', '', S(1)], ['drop', S(2), '', S(1)], ['all', 'on', '', S(1)]])
+      const req = (r) => (r.asked && r.asked[0] ? [r.asked[0].action, r.asked[0].to, r.asked[0].text, r.asked[0].steward, r.asked[0].seq] : null);
+      if (JSON.stringify([req(titled), req(byId), req(switched)]) === JSON.stringify([['take', 'Docs work', '', S(1), 1], ['drop', S(2), '', S(1), 1], ['all', 'on', '', S(1), 1]])
           && [titled, byId, switched].every((r) => r.code === 0 && r.out.trim() === 'Done: it was done.')) {
         ok('steward-relay.py asks for a list change with the conversation named on the command line or in a here-document before the data directory, and for a switch with its value, '
           + 'and prints what the window did');
       } else bad(`list changes from the script gave ${JSON.stringify({ titled, byId, switched })}`);
-      const lines = (held.out || '').trim().split(/\r?\n/);
-      if (held.code === 1 && !held.asked.length && lines[0] === 'Not sent: another supervisor sent this conversation a message in the last 30 minutes:'
-          && lines[1].startsWith(`  - "Night supervisor" (${S(7)}), 5 minutes ago: Rewrite the totals query. x`) && lines[1].endsWith('...') && lines[1].length < 420
-          && lines.length === 3 && /run the same command again with --anyway\.$/.test(lines[2]) && !held.out.includes('Old supervisor') && !held.out.includes('mine')
-          && forced.code === 0 && forced.asked.length === 1 && forced.asked[0].to === S(2) && forced.asked[0].text === 'Keep the totals query.'
-          && mine.code === 0 && mine.asked.length === 1) {
-        ok('steward-relay.py holds a message back while another supervisor sent the conversation one in the last 30 minutes, printing who, when and the start of it, '
-          + 'and how to send anyway; --anyway sends it, and neither an older message nor the supervisor\'s own holds one back');
-      } else bad(`the recent-message check gave ${JSON.stringify({ held, forced, mine })}`);
-      if (stranger.code === 1 && !stranger.asked.length && stranger.out.startsWith(`Not done: ${S(9)} does not manage this conversation. Its supervisors are "Docs supervisor" (${S(1)}), "Night supervisor" (${S(7)}).`)
-          && noValue.code === 2 && /^usage: /.test(noValue.out) && named.asked.length === 0 && /not open in a VS Code window/.test(named.out)) {
-        ok('--handoff --to is refused for a session id that is not one of the conversation\'s supervisors, naming those it has, and for one no window shows; a switch without on or off gets the usage');
+      const gone = (flag, why) => `usage error: --${flag} is gone: ${why}.`;
+      if (lead.code === 0 && /^Sent: /.test(lead.out) && lead.asked.length === 1 && lead.asked[0].to === S(2) && lead.asked[0].text === 'Keep the totals query.'
+          && lead.asked[0].steward === S(1) && lead.asked[0].term === 1
+          && watcher.code === 1 && !watcher.asked.length && watcher.out.trim() === `Not sent: "Totals report" is led by "Docs supervisor" (${S(1)}); you observe it. `
+            + `To act on it, run steward-relay.py --take-lead ${S(2)} --ask and ask the user.`
+          && forced.code === 2 && !forced.asked.length
+          && forced.out.startsWith(gone('anyway', 'only a conversation\'s lead sends it messages, so no other supervisor\'s message holds yours back') + '\nusage: ')) {
+        ok('of two supervisors of one conversation, steward-relay.py sends the lead\'s message whatever the other one sent it lately, and refuses the other one\'s, '
+          + 'writing no request, with the lead\'s title and session id and the command that asks the user to take it over; --anyway is a usage error that says it is gone');
+      } else bad(`the lead and the observer from the script gave ${JSON.stringify({ lead, watcher, forced })}`);
+      const noTo = gone('to', 'a hand-off always goes to the conversation\'s lead supervisor') + '\nusage: ';
+      if ([stranger, named].every((r) => r.code === 2 && !r.asked.length && r.out.startsWith(noTo))
+          && noValue.code === 2 && /^usage: /.test(noValue.out) && !noValue.asked.length) {
+        ok('--handoff --to is a usage error that says a hand-off always goes to the conversation\'s lead, whichever supervisor it names; a switch without on or off gets the usage');
       } else bad(`--handoff --to and the switches gave ${JSON.stringify({ stranger, named, noValue })}`);
     }
 
@@ -10764,7 +11035,7 @@ console.log('\nthe Supervisor panel');
         kid.stdin.end(${JSON.stringify(input)});
         const t = setInterval(() => {
           for (const n of fs.readdirSync(dir)) {
-            const m = /^([0-9a-f-]{36})\\.json$/.exec(n);
+            const m = /^([0-9a-f-]{36})\\.v4\\.json$/.exec(n);
             if (!m) continue;
             req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
             fs.unlinkSync(path.join(dir, n));
@@ -10779,11 +11050,14 @@ console.log('\nthe Supervisor panel');
       const opened = parse(answer(['--open', '/w/proj'], 'Start on the parser\n'));
       if (listed.status === 0 && listed.stdout.trim() === 'proj-a: /w/proj, /w/lib' && relative.status === 2
           && busy.code === 1 && /busy: it is working/.test(busy.out) && busy.req && busy.req.action === 'close' && busy.req.text === '' && !busy.req.confirmed
+          && busy.req.term === 0 && busy.req.seq === 1
           && sure.code === 0 && /^Closed: /.test(sure.out) && sure.req && sure.req.confirmed === true
-          && opened.code === 0 && opened.out.replace(/\r\n/g, '\n').startsWith('Opened: a new conversation was started and its first message sent. It is now ticked for you in the Supervisor panel.\n')
+          && opened.code === 0 && opened.out.replace(/\r\n/g, '\n').startsWith('Opened: a new conversation was started and its first message sent. It is now ticked for you in the Supervisor panel. '
+            + 'You are its lead supervisor.\n')
           && opened.out.includes('Session id: ' + S(7)) && opened.req && opened.req.action === 'open' && opened.req.to === '/w/proj'
           && opened.req.text === 'Start on the parser') {
-        ok('steward-relay.py lists the open windows and their folders, asks for a close, confirmed or not, and an open of a folder given in full, and prints the new conversation\'s id');
+        ok('steward-relay.py lists the open windows and their folders, asks for a close, confirmed or not, and an open of a folder given in full, and prints the new conversation\'s id '
+          + 'and that this supervisor leads it');
       } else bad(`steward-relay.py options: ${JSON.stringify({ listed: [listed.status, listed.stdout], relative: relative.status, busy, sure, opened })}`);
 
       /* The new tab's side (src/page/91-answer.js): only a panel with no conversation yet whose input holds exactly the
@@ -10996,8 +11270,10 @@ console.log('\nthe Supervisor panel');
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
       const f = took.first || {}, g = took.again || {}, why = (r) => (r ? r.outcome + ': ' + (r.reason || '') : 'not taken');
       const signed = (s, t) => require('../src/stewards').withFrom(s, '', t);
-      if (took.did && JSON.stringify(took.did) === JSON.stringify([['resume', S(4), signed(S('c'), words)], ['manage', S('c'), S(4)], ['resume', S(4), signed(S(1), words)], ['manage', S(1), S(4)],
-        ['resume', S(6), ''], ['manage', S(1), S(6)], ['resume', S(0), '']])
+      /* Requests for one conversation are carried out in order; those for different ones side by side. */
+      const of = (id) => (took.did || []).filter((d) => (d[0] === 'resume' ? d[1] : d[2]) === id);
+      if (took.did && took.did.length === 7 && JSON.stringify(of(S(4))) === JSON.stringify([['resume', S(4), signed(S('c'), words)], ['manage', S('c'), S(4)], ['resume', S(4), signed(S(1), words)], ['manage', S(1), S(4)]])
+          && JSON.stringify(of(S(6))) === JSON.stringify([['resume', S(6), ''], ['manage', S(1), S(6)]]) && JSON.stringify(of(S(0))) === JSON.stringify([['resume', S(0), '']])
           && f[R(1)] && f[R(1)].outcome === 'submitted' && f[R(1)].opened === true && f[R(1)].ticked === true && f[R(1)].window === 79
           && f[R(0)] && f[R(0)].outcome === 'submitted' && f[R(0)].ticked === true && f[R(8)] && !f[R(8)].ticked
           && f[R('f')] && f[R('f')].outcome === 'uncertain' && !f[R('f')].opened && !f[R('f')].ticked
@@ -11054,7 +11330,8 @@ console.log('\nthe Supervisor panel');
         } else bad(`late resume notices: ${JSON.stringify({ lateRun, scriptWaits })}`);
       }
 
-      /* Handoffs: to one supervisor of the conversation, the one the user typed to last, or the next that can be reached. */
+      /* Handoffs: to the conversation's lead alone (on a table with no leads written, the one that started managing it first,
+         and between equal times the lower session id). */
       const hdir = path.join(root, 'relay-handoff'), htdir = path.join(root, 'relay-handoff-transcripts');
       for (const d of [path.join(hdir, relay.RELAY_DIR), htdir]) fs.mkdirSync(d, { recursive: true });
       const H = (n) => `abababab-0000-4000-8000-00000000000${n}`;
@@ -11101,20 +11378,20 @@ console.log('\nthe Supervisor panel');
       const tried = (gave.posted || []).map(([a]) => a);
       const first = gave.posted && gave.posted[0] ? gave.posted[0][1] : '';
       if (JSON.stringify(lastAt) === JSON.stringify([now - 60000, now - 500, 0, 0])
-          && to(1) === `submitted ${S(1)}` && hr[D(1)].stewardTitle === 'Supervisor one' && to(2) === `submitted ${H('d')}` && to(3) === `submitted ${S(1)}`
-          && JSON.stringify(tried) === JSON.stringify(['/run/s1.sock', '/run/d.sock', '/run/f.sock', '/run/s1.sock'])
+          && to(1) === `submitted ${S(1)}` && hr[D(1)].stewardTitle === 'Supervisor one' && to(2) === `submitted ${S(1)}` && to(3) === `submitted ${S(1)}`
+          && JSON.stringify(tried) === JSON.stringify(['/run/s1.sock', '/run/s1.sock', '/run/s1.sock'])
           && /^notReceived/.test(to(4)) && /^no supervisor of this conversation could be reached \(abababab-0000-4000-8000-00000000000e: /.test(hr[D(4)].reason)
           && first.startsWith(`Handoff from "Parser work" (${S(2)}), passed on by Claude Code Plus. It is not a message from the user`)
           && first.endsWith('What it wrote:\n' + moved)
           && !hr[D(5)] && gave.left.includes(D(5) + '.json')
           && /^refused: the conversation asking has not run steward-relay\.py --handoff with this text/.test(hr[D(6)] ? hr[D(6)].outcome + ': ' + hr[D(6)].reason : '')) {
-        ok('a handoff goes to one supervisor only: the only supervisor when there is one; on an unsettled table with two, the one the user typed to last, '
-          + 'or the next when that one\'s inbox refuses; nowhere when none can be reached, and the answer says so; one from a conversation no supervisor '
-          + 'manages is left, and one without its call is refused');
+        ok('a handoff goes to the conversation\'s lead only, whoever else manages it; nowhere when the lead cannot be reached, and the answer says so; '
+          + 'one from a conversation no supervisor manages is left, and one without its call is refused');
       } else bad(`handoffs gave ${JSON.stringify({ lastAt, results: Object.fromEntries(Object.entries(hr).map(([k, v]) => [k, `${v.outcome} ${v.steward || ''} ${v.reason || ''}`])), tried, left: gave.left, error: gave.error })}`);
-      /* A supervisor of all is added, and the user typed to it last. A handoff goes to it whichever list has the
-         conversation, to the supervisor whose message started the conversation's turn when there is one, and to the
-         supervisor --to names if that is one of the conversation's supervisors. */
+      /* A supervisor of all is added, and the user typed to it last; it has nothing on its list yet. A handoff still goes
+         to the lead of the conversation, whoever the user typed to last, whoever started the turn and whatever --to an older
+         script named or the request's "to" says, since a handoff's command names no conversation; one from a conversation
+         that only the empty list of a supervisor of all would cover waits. */
       const adir = path.join(root, 'relay-handoff-all');
       fs.mkdirSync(path.join(adir, relay.RELAY_DIR), { recursive: true });
       const stw = require('../src/stewards');
@@ -11151,13 +11428,13 @@ console.log('\nthe Supervisor panel');
         })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`], { encoding: 'utf8', timeout: 30000 }));
       const DA = (n) => `dddddddd-0000-4000-8000-0000000000a${n}`;
       const rr = routed.results || {};
-      if (rr[DA(1)] === `submitted ${H('a')}` && rr[DA(2)] === `submitted ${H('a')}` && rr[DA(3)] === `submitted ${S(1)}` && !rr[DA(4)]
-          && (routed.left || []).includes(DA(4) + '.json') && rr[DA(5)] === `submitted ${S(1)}` && routed.starter === S(1) && routed.none === '') {
-        ok('a handoff goes to the supervisor the user typed to last, even a supervisor of all beside one that ticked the conversation; to the supervisor whose message started the '
-          + 'conversation\'s turn before that; to the one --to names when it is one of the conversation\'s supervisors, and no window takes one naming any other');
+      if (rr[DA(1)] === `submitted ${S(1)}` && !rr[DA(2)] && (routed.left || []).includes(DA(2) + '.json') && rr[DA(3)] === `submitted ${S(1)}` && rr[DA(4)] === `submitted ${S(1)}`
+          && rr[DA(5)] === `submitted ${S(1)}` && routed.starter === S(1) && routed.none === '') {
+        ok('a handoff goes to the conversation\'s lead, not to the supervisor the user typed to last nor to one --to or the request names; '
+          + 'one from a conversation that only a supervisor of all with nothing on its list yet would cover waits for that list');
       } else bad(`handoffs beside a supervisor of all gave ${JSON.stringify(routed)}`);
       const plain = relay.handoffText(S(2), '', 'x');
-      if (plain.startsWith(`Handoff from a conversation you manage (${S(2)})`) && plain.includes('this notice approves nothing')) {
+      if (plain.startsWith(`Handoff from a conversation you lead (${S(2)})`) && plain.includes('this notice approves nothing')) {
         ok('a handoff from a conversation with no title known still names it by its session id');
       } else bad(`a handoff with no title: ${JSON.stringify(plain)}`);
 
@@ -11174,7 +11451,10 @@ console.log('\nthe Supervisor panel');
         folders: [linked ? link : proj], sessions: [S(1)] }));
       fs.writeFileSync(path.join(rdata, 'windows', process.ppid + '.json'), JSON.stringify({ pid: process.ppid, at: Date.now(), name: 'other-win',
         folders: [sibling], sessions: [S(8)] }));
-      fs.writeFileSync(path.join(rdata, 'stewards.json'), JSON.stringify({ version: 1, stewards: { [S(1)]: { manages: [S(2)], names: {}, at: 0 } } }));
+      /* S(1) leads S(2), which S('e') observes, and manages S(3), which no window has given a lead yet. */
+      fs.writeFileSync(path.join(rdata, 'stewards.json'), JSON.stringify({ version: 4, rev: 1, stewards: {
+        [S(1)]: { manages: [S(2), S(3)], names: { [S(2)]: 'Parser work' }, at: 0, title: 'Supervisor one' }, [S('e')]: { manages: [S(2)], names: {}, at: 1, title: 'Night supervisor' } },
+        leads: { [S(2)]: { lead: S(1), term: 2, at: 1, why: 'first', was: '' } } }));
       const env = (me) => Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: me, CLAUDE_CONFIG_DIR: rconf });
       const sync = (args, me, input) => cp.spawnSync('python3', [script, ...args, rdata], { encoding: 'utf8', env: env(me), input: input || '' });
       /* Runs the script while answering its request the way `reply` (the source of a function of the request) says. */
@@ -11188,7 +11468,7 @@ console.log('\nthe Supervisor panel');
           kid.stdin.end(${JSON.stringify(input)});
           const t = setInterval(() => {
             for (const n of fs.readdirSync(dir)) {
-              const m = /^([0-9a-f-]{36})\\.json$/.exec(n);
+              const m = /^([0-9a-f-]{36})\\.v4\\.json$/.exec(n);
               if (!m) continue;
               req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
               fs.unlinkSync(path.join(dir, n));
@@ -11201,6 +11481,7 @@ console.log('\nthe Supervisor panel');
       const usage = [sync(['--resume', 'not-an-id'], S(1)).status, sync(['--resume', '--handoff', S(4)], S(1)).status,
         sync(['--handoff', rdata, 'extra'], S(2), moved).status];
       const missing = sync(['--resume', S(9)], S(1)), shown = sync(['--resume', S(8)], S(1)), away = sync(['--resume', S(5)], S(1));
+      const observed = sync(['--resume', S(2)], S('e'));
       const pids = `${process.pid}`;
       const good = talk(['--resume', S(4)], S(1), words + '\n', `(q) => ({ outcome: 'submitted', reason: '', opened: true, ticked: true, window: ${pids} })`);
       const bare = talk(['--resume', S(4)], S(1), '', `(q) => ({ outcome: 'submitted', reason: '', opened: true, window: ${pids} })`);
@@ -11209,42 +11490,47 @@ console.log('\nthe Supervisor panel');
       const busy = talk(['--resume', S(4)], S(1), '', `(q) => ({ outcome: 'refused', reason: 'process 4242 runs it', window: ${pids} })`);
       const resumedHere = talk(['--resume', S('d')], S(1), '', `(q) => ({ outcome: 'submitted', reason: '', opened: true, window: ${pids} })`);
       const out = (r) => String((r && (r.out !== undefined ? r.out : r.stdout)) || '').trim();
-      const TICKED = ' It is now ticked for you in the Supervisor panel.';
+      const TICKED = ' It is now ticked for you in the Supervisor panel.', LEADS = ' You are its lead supervisor.';
       if (JSON.stringify(usage) === '[2,2,2]' && missing.status === 1 && /^Not done: no conversation with that session id was found under /.test(out(missing))
           && shown.status === 1 && out(shown) === 'Not done: it is already open in the VS Code window "other-win"; a plain send reaches it there once the user ticks it for this supervisor in the Supervisor panel.'
           && away.status === 1 && out(away).startsWith(`Not done: no open VS Code window has its folder, ${elsewhere}, as its first folder, and Claude Code opens a stored conversation only in such a window; in any other it would start a new, empty one. Ask the user to open that folder in a window (as its first folder). The open windows:`)
           && out(away).includes(`  proj-a: ${linked ? link : proj}`) && out(away).includes(`  other-win: ${sibling}`)
+          && observed.status === 1 && out(observed) === `Not done: "Parser work" is led by "Supervisor one" (${S(1)}); you observe it. To act on it, run steward-relay.py --take-lead ${S(2)} --ask and ask the user.`
           && fs.readdirSync(path.join(rdata, relay.RELAY_DIR)).length === 0) {
         ok('steward-relay.py --resume says at once, writing no request, when the conversation has no transcript, a window already shows it, '
-          + 'or no window has its folder as its first folder, and then names the folder and lists the open windows');
-      } else bad(`steward-relay.py --resume checks: ${JSON.stringify({ usage, missing: out(missing), shown: out(shown), away: out(away) })}`);
-      if (good.code === 0 && out(good) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a", and the message was typed into its input and sent as the user\'s message.' + TICKED
-          && good.req && good.req.action === 'resume' && good.req.to === S(4) && good.req.text === words && good.req.steward === S(1)
-          && bare.code === 0 && out(bare) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a".' && bare.req && bare.req.text === ''
-          && half.code === 1 && out(half) === 'Opened in an editor tab in the VS Code window "proj-a", but the message was not sent: the panel has no message input.' + TICKED
+          + 'or no window has its folder as its first folder, and then names the folder and lists the open windows; and when another supervisor leads it, naming that one');
+      } else bad(`steward-relay.py --resume checks: ${JSON.stringify({ usage, missing: out(missing), shown: out(shown), away: out(away), observed: out(observed) })}`);
+      if (good.code === 0 && out(good) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a", and the message was typed into its input and sent as the user\'s message.' + TICKED + LEADS
+          && good.req && good.req.action === 'resume' && good.req.to === S(4) && good.req.text === words && good.req.steward === S(1) && good.req.term === 0 && good.req.seq === 1
+          && bare.code === 0 && out(bare) === 'Opened: the conversation was opened in an editor tab in the VS Code window "proj-a".' + LEADS && bare.req && bare.req.text === ''
+          && half.code === 1 && out(half) === 'Opened in an editor tab in the VS Code window "proj-a", but the message was not sent: the panel has no message input.' + TICKED + LEADS
           && vague.code === 1 && out(vague) === 'Unclear whether it was opened: no panel here showed it'
           && busy.code === 1 && out(busy) === 'Not done: process 4242 runs it'
           && resumedHere.code === 0 && resumedHere.req && resumedHere.req.to === S('d')) {
         ok('steward-relay.py --resume asks a window with the folder to open it, with the message or without, and says whether it opened, '
-          + 'whether the message was sent, and whether it is now ticked');
+          + 'whether the message was sent, whether it is now ticked, and that this supervisor leads it once it is open');
       } else bad(`steward-relay.py --resume answers: ${JSON.stringify({ good, bare, half: out(half), vague: out(vague), busy: out(busy), resumedHere })}`);
       const NOT_HANDED = ' Say in your reply where it seems to belong, so the user decides.';
-      const stranger = sync(['--handoff'], S(9), moved);
-      fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a', folders: [proj], sessions: [] }));
+      const stranger = sync(['--handoff'], S(9), moved), leaderless = sync(['--handoff'], S(3), moved);
+      // A window shows the supervisor that observes S(2), not the one that leads it.
+      fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a', folders: [proj], sessions: [S('e')] }));
       const unseen = sync(['--handoff'], S(2), moved);
       fs.writeFileSync(path.join(rdata, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'proj-a', folders: [proj], sessions: [S(1)] }));
       const handed = talk(['--handoff'], S(2), moved + '\n', `(q) => ({ outcome: 'submitted', reason: '', steward: ${JSON.stringify(S(1))}, stewardTitle: 'Supervisor one' })`);
       const nobody = talk(['--handoff'], S(2), moved, `(q) => ({ outcome: 'notReceived', reason: 'no supervisor of this conversation could be reached (x)' })`);
       const empty = sync(['--handoff'], S(2), '');
       if (stranger.status === 1 && out(stranger) === 'Not done: no supervisor manages this conversation, so it cannot be handed off.' + NOT_HANDED
-          && unseen.status === 1 && out(unseen) === 'Not done: no supervisor of this conversation is open in a VS Code window, so none can be told.' + NOT_HANDED
-          && handed.code === 0 && out(handed).startsWith(`Handed off to the supervisor "Supervisor one" (${S(1)}): it was told, in a notice that is not the user's message.`)
-          && handed.req && handed.req.action === 'handoff' && handed.req.from === S(2) && handed.req.to === '' && handed.req.text === moved
+          && leaderless.status === 1 && out(leaderless) === 'Not done: no supervisor leads this conversation now, so it cannot be handed off.' + NOT_HANDED
+          && unseen.status === 1 && out(unseen) === 'Not done: its lead supervisor is not open in a VS Code window, so it cannot be told.' + NOT_HANDED
+          && handed.code === 0 && out(handed).startsWith(`Handed off to your lead supervisor "Supervisor one" (${S(1)}): it was told, in a notice that is not the user's message.`)
+          && handed.req && handed.req.action === 'handoff' && handed.req.from === S(2) && handed.req.to === S(1) && handed.req.text === moved
+          && handed.req.term === 2 && handed.req.seq === 1
           && !('steward' in handed.req) && nobody.code === 1 && out(nobody) === 'Not done: no supervisor of this conversation could be reached (x).' + NOT_HANDED
-          && empty.status === 1 && out(empty) === 'Not done: nothing on standard input.') {
-        ok('steward-relay.py --handoff names no supervisor: it asks only when a supervisor manages this conversation and one is open in a window, '
-          + 'sends the text as from this conversation, names the supervisor it reached, says to tell the user when none was, and needs text');
-      } else bad(`steward-relay.py --handoff: ${JSON.stringify({ stranger: out(stranger), unseen: out(unseen), handed, nobody: out(nobody), empty: out(empty) })}`);
+          && empty.status === 1 && out(empty) === 'Not done: nothing on standard input.'
+          && fs.readdirSync(path.join(rdata, relay.RELAY_DIR)).length === 0) {
+        ok('steward-relay.py --handoff asks only when a supervisor leads this conversation and a window shows that lead, never another supervisor of it that one shows; '
+          + 'it sends the text as from this conversation to its lead with the lead term, names the lead it reached, says to tell the user when none was, and needs text');
+      } else bad(`steward-relay.py --handoff: ${JSON.stringify({ stranger: out(stranger), leaderless: out(leaderless), unseen: out(unseen), handed, nobody: out(nobody), empty: out(empty) })}`);
 
       /* The extension opens the conversation with Claude Code's own command, without moving the preferred location, and
          hands the text over only once the new tab's page listens for that conversation. */
@@ -11588,29 +11874,38 @@ console.log('\nthe Supervisor panel');
     const h1 = hook(S(1));
     rec('idle');
     const h2 = hook(S(1));
-    const managed = hook(S(3)), other = hook(S(4));
+    // A window shows the lead, S(1), for the managed conversation's first turn only.
+    fs.mkdirSync(path.join(data, 'windows'), { recursive: true });
+    fs.writeFileSync(path.join(data, 'windows', process.pid + '.json'), JSON.stringify({ pid: process.pid, at: Date.now(), name: 'w', folders: [], sessions: [S(1)] }));
+    const managed = hook(S(3));
+    fs.rmSync(path.join(data, 'windows'), { recursive: true, force: true });
+    const other = hook(S(4));
     const ctx = (r) => { try { return JSON.parse(r.stdout).hookSpecificOutput.additionalContext; } catch (_) { return ''; } };
     const c1 = ctx(h1), c2 = ctx(h2), c3 = ctx(managed);
-    if (c1.startsWith('You are the supervisor of 2 Claude Code conversations') && c1.includes(`- "Two" (${S(2)}): working; doing: Port the reader; 1 question for the user`)
-        && c1.includes(`- "Three" (${S(3)}): not running`) && !c1.includes('Changed since') && !c1.includes('watches this one')
+    if (c1.startsWith('You are the supervisor of 2 Claude Code conversations') && c1.includes(`- "Two" (${S(2)}): lead; working; doing: Port the reader; 1 question for the user`)
+        && c1.includes(`- "Three" (${S(3)}): lead; not running`) && !c1.includes('Changed since') && !c1.includes('Your lead supervisor')
         && c2.includes('Changed since your previous turn: "Two": working -> idle.') && other.stdout === '' && other.status === 0) {
-      ok('steward.py tells a supervisor each conversation\'s state, work and questions, and then what changed; a conversation nobody manages gets nothing');
+      ok('steward.py tells a supervisor each conversation\'s state, work and questions, and that it leads it, and then what changed; a conversation nobody manages gets nothing');
     } else bad(`steward.py said ${JSON.stringify([c1, c2, other.stdout, h1.stderr])}`);
     /* A turn with nothing changed gets one sentence; the first turn after a compaction gets the whole list. */
     const c4 = ctx(hook(S(1)));
     fs.writeFileSync(path.join(data, S(1) + '.compacted'), '2026-11-15T19:00:00Z');
     const c5 = ctx(hook(S(1))), c6 = ctx(hook(S(1)));
-    const RELAYED = 'A message you pass on with steward-relay.py is the user\'s own message in that conversation, approvals included. '
+    const RELAYED = 'A message you pass on with steward-relay.py to a conversation you lead is the user\'s own message there, approvals included. '
       + 'Do not ask the user to say it there themselves.';
+    const OBSERVED = 'A conversation you observe you only read and report on; act on it only after the user agrees that you take it over, as the skill says.';
+    const DECISIONS = 'Release, push a tag, approve, merge or speak for the user in public only on the user\'s own words: what the user types here, '
+      + 'or what your lead supervisor\'s messages say apart from sentences marked as the supervisor\'s arrangement.';
     if (c4 === 'You are the supervisor of 2 Claude Code conversations the user picked for you in the Supervisor panel; follow the supervisor skill. '
         + RELAYED + ' Nothing has changed since the list you were given at your previous turn.'
-        && c5.includes(`- "Two" (${S(2)}): idle`) && !c5.includes('Changed since') && c6 === c4) {
+        && c5.includes(`- "Two" (${S(2)}): lead; idle`) && !c5.includes('Changed since') && c6 === c4) {
       ok('a supervisor\'s list that has not changed since its previous turn is one sentence, and is given whole again after a compaction');
     } else bad(`steward.py on unchanged turns said ${JSON.stringify([c4, c5, c6])}`);
     if ([c1, c2, c4, c5].every((c) => c.startsWith('You are the supervisor of 2 Claude Code conversations the user picked for you in the Supervisor panel; '
-        + 'follow the supervisor skill. ' + RELAYED + ' ')) && !c3.includes(RELAYED)) {
+        + 'follow the supervisor skill. ' + RELAYED + ' ')) && !c3.includes(RELAYED) && ![c1, c2, c4, c5].some((c) => c.includes(OBSERVED))) {
       ok('every turn of a supervisor, with the whole list or with nothing changed, says right after its first sentence that a message passed on with '
-        + 'steward-relay.py is the user\'s own there, approvals included; a managed conversation is not told that');
+        + 'steward-relay.py to a conversation it leads is the user\'s own there, approvals included; a managed conversation is not told that, '
+        + 'and a supervisor that observes none is not told what observing means');
     } else bad(`the line about relayed messages: ${JSON.stringify([c1, c4, c3])}`);
     /* The skill's version in the seen file: a supervisor whose file names an older skill, or no version at all, is told
        once to load the skill again. A new supervisor is not told on its first turn. */
@@ -11633,26 +11928,67 @@ console.log('\nthe Supervisor panel');
           + 'a new supervisor and an unchanged skill add nothing');
       } else bad(`the skill version lines: ${JSON.stringify([saved.skill, version, v1, v2, v3, v4])}`);
     }
-    if (c3.startsWith(`A supervisor, ${S(1)}, watches this one`) && c3.includes('Do not send it status messages')
-        && c3.includes('starts with the line `Sent by the supervisor "<title>" (<session id>) for the user:`. Do not send it status messages') && managed.status === 0) {
-      ok('a managed conversation is told the session id of the supervisor that watches it and how that supervisor\'s messages start, and is asked to leave questions in its plan instead of messaging the supervisor');
+    if (c3.startsWith(`Your lead supervisor is ${S(1)}. It watches this conversation for the user through Claude Code Plus: it reads your work plan and latest reply, `
+          + 'and speaks for the user by typing messages here, which come as the user\'s own.')
+        && c3.includes('starts with the line `Sent by the supervisor "<title>" (<session id>) for the user:`. ' + DECISIONS
+          + ' Do not send it status messages; put questions for the user in your plan as rows waiting on the user, where it sees them.')
+        && !c3.includes('not open in a VS Code window') && managed.status === 0) {
+      ok('a managed conversation is told the session id of its lead supervisor, how that supervisor\'s messages start and that only the user\'s own words release, approve or merge, '
+        + 'and, while a window shows the lead, is asked to leave questions in its plan instead of messaging it');
     } else bad(`a managed conversation was told ${JSON.stringify(c3)}`);
     const relayScript = path.join(hooks, 'steward-relay.py');
     // The script's path is quoted for the shell where it needs it, as on Windows.
-    if (/steward-relay\.py'? --handoff with a here-document holding the user's words, where it should go/.test(c3)
-        && c3.includes('do not start background work for it here') && c3.includes('say in one sentence what it answered') && !c3.includes('--to')
-        && c3.length < 1100 + relayScript.length && !c1.includes('--handoff') && other.stdout === '') {
-      ok('a managed conversation is told to hand a message that belongs elsewhere to its supervisor with --handoff, in one short line; '
+    if (/steward-relay\.py'? --handoff with a here-document holding the user's words, where it should go \(a session id, or a folder for a new conversation\) and why; it goes to your lead supervisor\. Say in one sentence what it answered\.$/.test(c3)
+        && c3.includes('do not start background work for it here') && !c3.includes('--to')
+        && c3.length < 1200 + relayScript.length && !c1.includes('--handoff') && other.stdout === '') {
+      ok('a managed conversation is told to hand a message that belongs elsewhere to its lead supervisor with --handoff, in one short line that names no --to; '
         + 'a supervisor\'s own list and a conversation nobody manages get no such line');
     } else bad(`the handoff line: ${JSON.stringify(c3)}`);
-    /* With two supervisors, each is named with its title, and --to picks one of them. */
+    /* With two supervisors, the conversation is told about its lead alone, the one that ticked it first, and once about a change
+       of lead; the other supervisor's list says it observes the conversation, and the lead that lost it is told once. */
     st.setManaged(S(1), [S(2), S(3)], {}, { dir: data, title: 'Docs supervisor' });
     st.setManaged(S(5), [S(3)], {}, { dir: data, title: 'Night supervisor' });
-    const c3b = ctx(hook(S(3)));
-    if (c3b.startsWith(`Supervisors "Docs supervisor" (${S(1)}) and "Night supervisor" (${S(5)}) watch this one for the user`) && c3b.includes('Do not send them status messages')
-        && c3b.includes('It goes to the supervisor whose message started this turn, or else to the one the user last typed to; to hand it to another of them, add --to and that supervisor\'s session id.')) {
-      ok('a conversation two supervisors manage is told the title and session id of both, and that a handoff goes to the one whose message started the turn unless --to names another');
-    } else bad(`a conversation with two supervisors was told ${JSON.stringify(c3b)}`);
+    const c3b = ctx(hook(S(3))), r5 = ctx(hook(S(5)));
+    const notOpen = (who) => `Your lead supervisor is still ${who}; it is not open in a VS Code window now, so put questions for the user in your plan. ` + DECISIONS;
+    if (c3b === notOpen(`"Docs supervisor" (${S(1)})`) && !c3b.includes(S(5)) && !c3b.includes('Night supervisor')
+        && r5 === 'You are the supervisor of 1 Claude Code conversation the user picked for you in the Supervisor panel; follow the supervisor skill. You observe it. '
+          + RELAYED + ' ' + OBSERVED + ` Where they stand now:\n- "${S(3)}" (${S(3)}): observer (lead: "Docs supervisor"); not running`) {
+      ok('a conversation two supervisors manage is told only about its lead, by title and session id, in one line once it was told the whole note, saying the lead is not '
+        + 'open now; the other supervisor is never named there, and its own list says it observes the conversation, which one leads it, and that it acts only once the user agrees');
+    } else bad(`a conversation with two supervisors was told ${JSON.stringify([c3b, r5])}`);
+    /* The user has the other supervisor lead it while no window shows the conversation, so the old lead's hand-over note
+       waits under "tell" (a window writes all of that under the table's lock; here the file is written directly). */
+    const tableFile = path.join(data, st.FILE);
+    const setLead = (key, change) => {
+      const t = JSON.parse(fs.readFileSync(tableFile, 'utf8'));
+      t.leads[key] = Object.assign({}, t.leads[key], change(t.leads[key]));
+      t.rev += 1;
+      fs.writeFileSync(tableFile, JSON.stringify(t));
+    };
+    const was3 = JSON.parse(fs.readFileSync(tableFile, 'utf8')).leads[S(3)];
+    const handNote = 'From your lead supervisor "Docs supervisor": from now on your lead supervisor is "Night supervisor".\nThe parser rewrite is yours to finish.';
+    setLead(S(3), (e) => ({ lead: S(5), term: e.term + 1, at: Date.now(), why: 'panel', was: e.lead,
+      tell: { kind: 'handover', from: e.lead, text: handNote, at: Date.now() } }));
+    const c3c = ctx(hook(S(3))), c3d = ctx(hook(S(3))), r1 = ctx(hook(S(1))), r1b = ctx(hook(S(1)));
+    const split = 'You are the supervisor of 2 Claude Code conversations the user picked for you in the Supervisor panel; follow the supervisor skill. '
+      + 'You lead 1 of them and observe 1. ' + RELAYED + ' ' + OBSERVED;
+    if (was3.lead === S(1) && c3c.startsWith('Your lead supervisor is now "Night supervisor" (was "Docs supervisor").\n'
+          + 'This note was left for you while no window had this conversation open:\n' + handNote + '\n'
+          + `Your lead supervisor is "Night supervisor" (${S(5)}). It watches this conversation for the user`)
+        && c3c.includes('It is not open in a VS Code window now, so put questions for the user in your plan as rows waiting on the user for now.')
+        && !c3c.includes(S(1)) && c3d === notOpen(`"Night supervisor" (${S(5)})`)
+        && r1.startsWith(split + ' Where they stand now:\n') && r1.includes(`- "Three" (${S(3)}): observer (lead: "Night supervisor"); not running`)
+        && r1.endsWith(`\nLead changes since your previous turn: you no longer lead "Three" ("Night supervisor" (${S(5)}) does) and observe it now.`)
+        && r1b === split + ' Nothing has changed since the list you were given at your previous turn.') {
+      ok('after a change of lead the conversation is told once who leads it now and who did before, with the hand-over note left for it and the whole note about the new lead, '
+        + 'and then the one line; the lead that lost it gets its whole list again with the conversation as observed and one line saying so, and then the one sentence');
+    } else bad(`a change of lead gave ${JSON.stringify([c3c, c3d, r1, r1b])}`);
+    /* No lead: no supervisor is alive to take it. */
+    setLead(S(3), (e) => ({ lead: '', term: e.term + 1, at: Date.now(), why: 'none', was: e.lead, tell: undefined }));
+    const c3e = ctx(hook(S(3)));
+    if (c3e === 'No supervisor watches this conversation now; put questions for the user in your plan.') {
+      ok('a managed conversation with no lead is told that no supervisor watches it now and to put its questions in its plan, and no supervisor is named');
+    } else bad(`a conversation with no lead was told ${JSON.stringify(c3e)}`);
     st.setManaged(S(5), [], {}, { dir: data });
     /* Background work comes from the set the windows share, while the window that wrote it runs. */
     const working = (pid) => fs.writeFileSync(path.join(data, 'working.json'), JSON.stringify({ at: Date.now(), pid, sessions: [S(2)] }));
@@ -11662,8 +11998,8 @@ console.log('\nthe Supervisor panel');
     working(Number(gone));
     const c8 = ctx(hook(S(1)));
     fs.rmSync(path.join(data, 'working.json'), { force: true });
-    if (c7.includes(`- "Two" (${S(2)}): idle; background work running; doing: Port the reader`)
-        && c8.includes(`- "Two" (${S(2)}): idle; doing: Port the reader`) && !c8.includes('background work')) {
+    if (c7.includes(`- "Two" (${S(2)}): lead; idle; background work running; doing: Port the reader`)
+        && c8.includes(`- "Two" (${S(2)}): lead; idle; doing: Port the reader`) && !c8.includes('background work')) {
       ok('a conversation with background work running says so in the list, and not once the window that wrote the set is gone');
     } else bad(`with background work the list said ${JSON.stringify([c7, c8])}`);
     const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
@@ -11748,11 +12084,12 @@ console.log('\nthe Supervisor panel');
       st.setManaged(S(1), [S(2).toUpperCase(), O(1), 'opencode-plus:', 'Open:x', 'a b:c', O(1), 'codex-plus:abc', 'claude-code:' + S(3)],
         { [O(1)]: 'Port the parser' }, { dir: d1, now: 7, paths: { [O(1)]: planOf(O(1)), 'codex-plus:abc': path.join(ocDir, 'abc.json'), [S(2)]: planOf(O(1)) } });
       const f1 = tableFile(d1), e1 = f1.stewards[S(1)] || {};
-      if (f1.version === 3 && same(e1.manages, [S(2), O(1), 'codex-plus:abc', S(3)]) && e1.names[O(1)] === 'Port the parser'
+      if (f1.version === 4 && same(e1.manages, [S(2), O(1), 'codex-plus:abc', S(3)]) && e1.names[O(1)] === 'Port the parser'
+          && same(Object.keys(f1.leads).sort(), [S(2), O(1), 'codex-plus:abc', S(3)].sort()) && f1.leads[O(1)].lead === S(1)
           && same(e1.paths, { [O(1)]: planOf(O(1)), 'codex-plus:abc': path.join(ocDir, 'abc.json') })
           && e1.manages.filter((m) => !m.includes(':')).every((m) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(m))) {
-        ok('stewards.json version 3 keeps a Claude Code conversation as its session id in lower case, as an older build reads it, and another agent\'s as source:session in its own '
-          + 'case, also of a source this build does not list; a malformed key is dropped, and a plan path is kept only for another agent\'s conversation');
+        ok('stewards.json version 4 keeps a Claude Code conversation as its session id in lower case, as an older build reads it, and another agent\'s as source:session in its own '
+          + 'case, also of a source this build does not list, each with its lead; a malformed key is dropped, and a plan path is kept only for another agent\'s conversation');
       } else bad(`the table's keys: ${JSON.stringify(f1)}`);
       fs.writeFileSync(path.join(d1, st.FILE), JSON.stringify({ version: 2, stewards: { [S(1)]: { manages: [O(1), O(2), O(3)], names: {}, at: 1,
         paths: { [O(1)]: planOf(O(1)), [O(2)]: 'plans/' + sid(O(2)) + '.json', [O(3)]: path.join(ocDir, 'other.json'), [O(4)]: planOf(O(4)) } } } }));
@@ -11778,9 +12115,9 @@ console.log('\nthe Supervisor panel');
       const read1 = st.read(d3), mig1 = st.migrate(d3), ver1 = tableFile(d3).version;
       const ren1 = st.rename({ [S(3)]: 'Three' }, { dir: d3 });
       const w1 = tableFile(d3);
-      if (same(read1[S(1)].manages, [S(2), S(3)]) && read1[S(1)].names[S(2)] === 'Two' && same(read1[S(1)].paths, {}) && mig1 === false && ver1 === 1
-          && ren1 === true && w1.version === 3 && w1.stewards[S(1)].names[S(3)] === 'Three' && !('paths' in w1.stewards[S(1)])) {
-        ok('a version 1 table reads as it is, is not rewritten for its version alone, and is written as version 3 at its next change');
+      if (same(read1[S(1)].manages, [S(2), S(3)]) && read1[S(1)].names[S(2)] === 'Two' && same(read1[S(1)].paths, {}) && mig1 === true && ver1 === 4
+          && ren1 === true && w1.version === 4 && w1.stewards[S(1)].names[S(3)] === 'Three' && !('paths' in w1.stewards[S(1)]) && w1.leads[S(2)].lead === S(1)) {
+        ok('a version 1 table reads as it is and is written once as version 4, with a lead for each of its conversations, by the window that may write it');
       } else bad(`a version 1 table: ${JSON.stringify([read1, mig1, ver1, ren1, w1])}`);
       const d2b = vd('v2');
       const v2 = { version: 2, stewards: { [S(1)]: { manages: [S(2), O(1)], names: { [S(2)]: 'Two' }, at: 3, paths: { [O(1)]: planOf(O(1)) } },
@@ -11789,20 +12126,20 @@ console.log('\nthe Supervisor panel');
       const read2 = st.read(d2b), mig2 = st.migrate(d2b), ver2 = tableFile(d2b).version;
       const ren2 = st.rename({ [S(2)]: 'Two again' }, { dir: d2b });
       const w2 = tableFile(d2b);
-      if (same(read2[S(1)].manages, [S(2), O(1)]) && same(read2[S(4)].manages, [S(2)]) && read2[S(4)].all === true && mig2 === false && ver2 === 2
-          && ren2 === true && w2.version === 3 && w2.stewards[S(1)].names[S(2)] === 'Two again' && same(w2.stewards[S(4)].manages, [S(2)])
-          && same(w2.stewards[S(1)].paths, { [O(1)]: planOf(O(1)) })) {
-        ok('a version 2 table reads as it is and is not rewritten just for its version; its next change writes it as version 3 with every entry kept');
+      if (same(read2[S(1)].manages, [S(2), O(1)]) && same(read2[S(4)].manages, [S(2)]) && read2[S(4)].all === true && mig2 === true && ver2 === 4
+          && ren2 === true && w2.version === 4 && w2.stewards[S(1)].names[S(2)] === 'Two again' && same(w2.stewards[S(4)].manages, [S(2)])
+          && same(w2.stewards[S(1)].paths, { [O(1)]: planOf(O(1)) }) && w2.leads[S(2)].lead === S(1) && w2.leads[S(2)].why === 'migrated') {
+        ok('a version 2 table reads as it is and is written once as version 4 with every entry kept and a lead for each conversation, the one that managed it first');
       } else bad(`a version 2 table: ${JSON.stringify([read2, mig2, ver2, ren2, w2])}`);
       const d4 = vd('v4');
-      const v3 = JSON.stringify({ version: 4, more: true, stewards: { [S(1)]: { manages: [S(2), O(1)], names: {}, at: 1, paths: { [O(1)]: planOf(O(1)) }, kinds: { x: 1 } },
+      const v3 = JSON.stringify({ version: 5, more: true, stewards: { [S(1)]: { manages: [S(2), O(1)], names: {}, at: 1, paths: { [O(1)]: planOf(O(1)) }, kinds: { x: 1 } },
         [S(3)]: { manages: [S(2)], names: {}, at: 2 } } });
       fs.writeFileSync(path.join(d4, st.FILE), v3);
       const read3 = st.read(d4), mig3 = st.migrate(d4), set3 = st.setManaged(S(5), [S(6)], {}, { dir: d4 }), ren3 = st.rename({ [O(1)]: 'Port' }, { dir: d4 });
       if (same(read3[S(1)].manages, [S(2), O(1)]) && same(read3[S(1)].paths, { [O(1)]: planOf(O(1)) }) && same(read3[S(3)].manages, [S(2)])
-          && mig3 === false && !set3[S(5)] && ren3 === false && fs.readFileSync(path.join(d4, st.FILE), 'utf8') === v3 && st.newer(d4) === 4) {
+          && mig3 === false && !set3[S(5)] && ren3 === false && fs.readFileSync(path.join(d4, st.FILE), 'utf8') === v3 && st.newer(d4) === 5) {
         ok('a table of a later version is read for what this build understands and never written: not settled, not ticked, not renamed');
-      } else bad(`a version 4 table: ${JSON.stringify([read3, mig3, set3, ren3, st.newer(d4)])}`);
+      } else bad(`a version 5 table: ${JSON.stringify([read3, mig3, set3, ren3, st.newer(d4)])}`);
       const fixtures = {
         keys: { version: 2, stewards: { [S(1)]: { manages: [S(2).toUpperCase(), O(1), 'opencode-plus:', 'Open:x', 'a b:c', 'codex-plus:abc', 'claude-code:' + S(4)],
           names: { [O(1)]: 'Port' }, at: 1, paths: { [O(1)]: planOf(O(1)), 'codex-plus:abc': 'rel/abc.json', [S(2)]: planOf(O(1)) } } } },
@@ -11924,9 +12261,9 @@ console.log('\nthe Supervisor panel');
         await pass();
         out.idle = [v._listening(), subs.size];
         visible = true; here = true;
-        fs.writeFileSync(path.join(A.pdir, st.FILE), JSON.stringify({ version: 4, stewards: { [A.S1]: { manages: [A.S2], names: {}, at: 1 } } }));
+        fs.writeFileSync(path.join(A.pdir, st.FILE), JSON.stringify({ version: 5, stewards: { [A.S1]: { manages: [A.S2], names: {}, at: 1 } } }));
         await pass(); await pass();
-        out.newer = logs.filter((m) => /stewards\\.json is version 4/.test(m)).length;
+        out.newer = logs.filter((m) => /stewards\\.json is version 5/.test(m)).length;
         v.dispose();`, Object.assign({}, process.env, { AGENT_WORK_PLAN_HOME: ocShared }));
       const pf = panel.first || {};
       const htmlAt = (s) => (pf.html || '').indexOf(s);
@@ -12017,7 +12354,7 @@ console.log('\nthe Supervisor panel');
         put(8, { to: B.O2, text: B.texts.hang });
         await relay.take(B.rdir, deps([B.S1]));
         await new Promise((r) => setTimeout(r, 50));
-        out.beforeHang = [result(8), fs.readdirSync(dir).some((n) => n.startsWith(B.R[8] + '.taken-'))];
+        out.beforeHang = [result(8), fs.readdirSync(dir).some((n) => n.startsWith(B.R[8] + '.taken-') || n.startsWith(B.R[8] + '.doing-'))];
         fs.writeFileSync(path.join(dir, 'cccccccc-0000-4000-8000-000000000001.json'), JSON.stringify({ id: 'c1', steward: B.S1, at: B.now, to: B.S2, text: B.texts.claude }));
         const second = await Promise.race([relay.take(B.rdir, deps([B.S1, B.S2])), new Promise((r) => setTimeout(() => r('blocked'), 5000))]);
         out.claudeWhileHeld = second === 'blocked' ? 'blocked' : second.map((r) => [r.to, r.outcome]);
@@ -12060,47 +12397,57 @@ console.log('\nthe Supervisor panel');
       const sdir = path.join(root, 'oc-relay-script');
       fs.mkdirSync(path.join(sdir, 'relay'), { recursive: true });
       const relayScript = path.join(hooks, 'steward-relay.py');
-      const answering = (outcome) => cp.spawnSync(process.execPath, ['-e', `
+      const answering = (outcome, args = [O(1)], extra = {}) => cp.spawnSync(process.execPath, ['-e', `
         const fs = require('fs'), path = require('path'), cp = require('child_process');
         const dir = path.join(${JSON.stringify(sdir)}, 'relay');
-        const kid = cp.spawn('python3', [${JSON.stringify(relayScript)}, ${JSON.stringify(O(1))}, ${JSON.stringify(sdir)}],
+        const kid = cp.spawn('python3', [${JSON.stringify(relayScript)}, ...${JSON.stringify(args)}, ${JSON.stringify(sdir)}],
           { env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: ${JSON.stringify(S(1))} }) });
-        let out = '', to = '';
+        let out = '', to = '', req = null;
         kid.stdout.on('data', (d) => { out += d; });
         kid.stdin.end('Use the new grammar.' + String.fromCharCode(10));
         const t = setInterval(() => {
           for (const n of fs.readdirSync(dir)) {
-            const m = /^([0-9a-f-]{36})\\.json$/.exec(n);
+            const m = /^([0-9a-f-]{36})\\.v4\\.json$/.exec(n);
             if (!m) continue;
-            to = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')).to;
+            req = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'));
+            to = req.to;
             fs.unlinkSync(path.join(dir, n));
-            fs.writeFileSync(path.join(dir, m[1] + '.result.json'), JSON.stringify({ outcome: ${JSON.stringify(outcome)}, reason: '' }));
+            fs.writeFileSync(path.join(dir, m[1] + '.result.json'), JSON.stringify(Object.assign({ outcome: ${JSON.stringify(outcome)}, reason: '' }, ${JSON.stringify(extra)})));
           }
         }, 100);
-        kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, to })); });`], { encoding: 'utf8', timeout: 60000 });
+        kid.on('exit', (code) => { clearInterval(t); process.stdout.write(JSON.stringify({ code, out, to, req })); });`], { encoding: 'utf8', timeout: 60000 });
       const parsed = (r) => { try { return JSON.parse(r.stdout); } catch (_) { return { error: r.stdout + r.stderr }; } };
       const sub = parsed(answering('submitted')), dra = parsed(answering('drafted'));
+      const question = 'Should I (Docs) take over "Port the parser"? It is led by Night now. If you agree, Night becomes an observer and I go on with what you asked.';
+      const asking = parsed(answering('ask', ['--take-lead', O(1), '--ask'], { question }));
       const flagged = ['--rename', '--close', '--resume'].map((f) => cp.spawnSync('python3', [relayScript, f, O(1), sdir],
         { input: 'x\n', encoding: 'utf8', env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: S(1) }) }));
       const noTaker = cp.spawnSync('python3', ['-c', 'import importlib.util, sys; sys.path.insert(0, sys.argv[1]); '
         + 's = importlib.util.spec_from_file_location("relay_script", sys.argv[2]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); '
         + 'm.OTHER_WAIT_SECONDS = 1; sys.exit(m.main(["steward-relay.py", sys.argv[3], sys.argv[4]]))', hooks, relayScript, O(1), sdir],
       { input: 'Anyone?\n', encoding: 'utf8', timeout: 20000, env: Object.assign({}, process.env, { CLAUDE_CODE_SESSION_ID: S(1) }) });
-      if (sub.code === 0 && sub.to === O(1) && sub.out.trim() === 'Sent: it reached the conversation as the user\'s message.'
+      if (sub.code === 0 && sub.to === O(1) && sub.out.trim() === 'Sent: it reached the conversation as the user\'s message.' && sub.req && sub.req.term === 0 && sub.req.seq === 1
+          && asking.code === 0 && asking.req && asking.req.action === 'take-lead' && asking.req.ask === true && asking.req.to === O(1)
+          && asking.out.startsWith(`Ask the user exactly this, word for word, and end your turn without acting on the conversation:\n\n${question}\n\n`)
+          && asking.out.includes(`Then run steward-relay.py --take-lead ${O(1)}, without --ask.`)
           && dra.code === 1 && dra.out.trim() === 'Not sent: the text was left in the conversation\'s message input as a draft.'
           && flagged.every((r) => r.status === 1 && r.stdout.includes('Not done: a supervisor can only send plain messages to OpenCode Agent Plus conversations'))
           && noTaker.status === 1 && noTaker.stdout.trim() === 'Not done: no VS Code window that shows this supervisor conversation took the request.'
           && fs.readdirSync(path.join(sdir, 'relay')).length === 0 && /^OTHER_WAIT_SECONDS = 55$/m.test(fs.readFileSync(relayScript, 'utf8'))) {
         ok('steward-relay.py keeps an OpenCode key\'s case, says a message reached the conversation or was only drafted, refuses --rename, --close and --resume '
-          + 'for such a key without leaving a request, waits 55 seconds for an answer, and says no window showing the supervisor took a request that no window took');
-      } else bad(`steward-relay.py with an OpenCode key: ${JSON.stringify([sub, dra, flagged.map((r) => [r.status, r.stdout]), [noTaker.status, noTaker.stdout, noTaker.stderr]])}`);
+          + 'for such a key without leaving a request but asks for --take-lead --ask, waits 55 seconds for an answer, and says no window showing the supervisor took a request that no window took');
+      } else bad(`steward-relay.py with an OpenCode key: ${JSON.stringify([sub, dra, asking, flagged.map((r) => [r.status, r.stdout]), [noTaker.status, noTaker.stdout, noTaker.stderr]])}`);
 
       /* steward.py and steward-peek.py. */
       const odata = path.join(root, 'oc-data');
       fs.mkdirSync(odata, { recursive: true });
-      fs.writeFileSync(path.join(odata, st.FILE), JSON.stringify({ version: 2, stewards: { [S(1)]: { manages: [S(2), O(1), O(2), O(5), O(6)],
+      /* S(1) leads three of its five; S(9) leads "Six", and "Five" has no lead yet. */
+      const ledBy = (lead) => ({ lead, term: 1, at: 1, why: 'first', was: '' });
+      fs.writeFileSync(path.join(odata, st.FILE), JSON.stringify({ version: 4, rev: 1, stewards: { [S(1)]: { manages: [S(2), O(1), O(2), O(5), O(6)],
         names: { [S(2)]: 'Two', [O(1)]: 'Port the parser', [O(2)]: 'Tidy the tests', [O(5)]: 'Five', [O(6)]: 'Six' }, at: 1,
-        paths: { [O(1)]: planOf(O(1)), [O(2)]: planOf(O(2)), [O(6)]: path.join(ocDir, 'other.json') } } } }));
+        paths: { [O(1)]: planOf(O(1)), [O(2)]: planOf(O(2)), [O(6)]: path.join(ocDir, 'other.json') } },
+        [S(9)]: { manages: [O(6)], names: {}, at: 2, title: 'Night supervisor' } },
+        leads: { [S(2)]: ledBy(S(1)), [O(1)]: ledBy(S(1)), [O(2)]: ledBy(S(1)), [O(6)]: ledBy(S(9)) } }));
       fs.writeFileSync(planOf(O(2)), JSON.stringify({ nodes: [] }));
       const said = [{ text: 'Use the new grammar.', at: now - 120000 }, { text: 'And keep\nthe old tests.', at: now - 60000 }];
       fs.writeFileSync(path.join(ocDir, sid(O(1)) + '.reply.json'), JSON.stringify({ format: 1, at: now, lastUserAt: now - 60000, said, reply: 'Ported the reader.\n\nThe tests pass.' }));
@@ -12116,19 +12463,20 @@ console.log('\nthe Supervisor panel');
       attendNow(Date.now() - 70000);
       const o2 = ohook();
       if (o1.startsWith('You are the supervisor of 5 conversations the user picked for you in the Supervisor panel (1 Claude Code, 4 OpenCode Agent Plus); follow the supervisor skill.')
-          && o1.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): waiting for the user to approve bash in its window; doing: Port the reader; 1 question for the user`)
-          && o1.includes(`- "Tidy the tests" (${O(2)}, OpenCode Agent Plus): idle, reply not read by the user`)
-          && o1.includes(`- "Five" (${O(5)}, OpenCode Agent Plus): idle, or not open in any window; where its plan is was not recorded`)
-          && o1.includes(`- "Six" (${O(6)}, OpenCode Agent Plus): idle, or not open in any window; where its plan is was not recorded`)
-          && o1.includes(`- "Two" (${S(2)}): `)
+          && o1.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): lead; waiting for the user to approve bash in its window; doing: Port the reader; 1 question for the user`)
+          && o1.includes(`- "Tidy the tests" (${O(2)}, OpenCode Agent Plus): lead; idle, reply not read by the user`)
+          && o1.includes(`- "Five" (${O(5)}, OpenCode Agent Plus): observer (no lead now); idle, or not open in any window; where its plan is was not recorded`)
+          && o1.includes(`- "Six" (${O(6)}, OpenCode Agent Plus): observer (lead: "Night supervisor"); idle, or not open in any window; where its plan is was not recorded`)
+          && o1.includes(`- "Two" (${S(2)}): lead; `)
           && o1.includes('The conversations of other agents above take only plain messages: no `--rename`, `--close` or `--resume`. While one waits at a prompt '
             + 'for tool approval or an answer to a question, no message reaches it. Ask the user to answer that prompt in that window; nobody else can.')
           && o1.startsWith('You are the supervisor of 5 conversations the user picked for you in the Supervisor panel (1 Claude Code, 4 OpenCode Agent Plus); '
-            + 'follow the supervisor skill. ' + RELAYED + ' Where they stand now:')
-          && o2.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): idle, or not open in any window; doing: Port the reader; 1 question for the user`)
+            + 'follow the supervisor skill. You lead 3 of them and observe 2. ' + RELAYED + ' ' + OBSERVED + ' Where they stand now:')
+          && o2.includes(`- "Port the parser" (${O(1)}, OpenCode Agent Plus): lead; idle, or not open in any window; doing: Port the reader; 1 question for the user`)
           && o2.includes('"Port the parser": waiting for the user to approve bash in its window -> idle, or not open in any window')) {
-        ok('steward.py gives each OpenCode conversation its state from Agent Plus\'s attention files (with the tool a wait is for), its plan from the recorded path, and its agent\'s name; '
-          + 'it says when no plan path is recorded and ends the list with what such conversations take; a stale attention file reads as idle or not open');
+        ok('steward.py gives each OpenCode conversation its state from Agent Plus\'s attention files (with the tool a wait is for), its plan from the recorded path, its agent\'s name, '
+          + 'and whether the supervisor leads it, observes it as another supervisor leads it, or observes it with no lead yet; it says when no plan path is recorded and ends the list '
+          + 'with what such conversations take; a stale attention file reads as idle or not open');
       } else bad(`steward.py with OpenCode conversations: ${JSON.stringify([o1, o2])}`);
       const opeek = (...a) => { const r = cp.spawnSync('python3', [path.join(hooks, 'steward-peek.py'), ...a], { encoding: 'utf8', env: oenv }); return [r.status, (r.stdout || '').replace(/\r\n/g, '\n') + r.stderr]; };
       attendNow(Date.now());
@@ -13553,7 +13901,7 @@ console.log('\nClaude Code\'s own source');
         activeChat: () => '', logo: () => null, canDeliver: () => false, hand: () => false, reveal: async () => false,
         stewardsOf: (src, sid) => {
           if (sid === 'boom') throw new Error('x');
-          if (src === 'opencode-plus' && sid === 'ses_A1') return [{ sessionId: STEW.toUpperCase(), title: 'Docs supervisor' }, { sessionId: STEW2, title: STEW2 }, { sessionId: 'not-a-uuid' }, { sessionId: STEW }];
+          if (src === 'opencode-plus' && sid === 'ses_A1') return [{ sessionId: STEW.toUpperCase(), title: 'Docs supervisor' }, { sessionId: STEW2, title: STEW2, lead: true }, { sessionId: 'not-a-uuid' }, { sessionId: STEW, lead: true }];
           return sid === 'bad' ? 'not a list' : [];
         } });
       const STEW2 = 'cdcdcdcd-1111-4222-8333-444444444445';
@@ -13726,10 +14074,10 @@ console.log('\nClaude Code\'s own source');
     }
     {
       const A = { sourceId: 'claude-code', sessionId: 'cdcdcdcd-1111-4222-8333-444444444444' }, B = { sourceId: 'claude-code', sessionId: 'cdcdcdcd-1111-4222-8333-444444444445' };
-      if (JSON.stringify(o.stewards) === JSON.stringify(['["shows","stewards","stewardList"]', [Object.assign({}, A, { title: 'Docs supervisor' }), Object.assign({}, B, { title: '' })], A,
+      if (JSON.stringify(o.stewards) === JSON.stringify(['["shows","stewards","stewardList"]', [Object.assign({}, B, { title: '', lead: true }), Object.assign({}, A, { title: 'Docs supervisor' })], B,
         [], null, [], null, [], null, '["shows"]', [], null, 2])) {
-        ok('with a table to read, the source offers supervisors and stewardList: stewardsOf gives every supervisor in its order with its title and the session id in lower case, '
-          + 'leaving out a malformed or repeated one; it gives none when there is no supervisor, when the answer is not a list and when asking fails; stewardOf gives the first of them or null. '
+        ok('with a table to read, the source offers supervisors and stewardList: stewardsOf gives every supervisor with its title and the session id in lower case, its lead first and marked, '
+          + 'leaving out a malformed or repeated one; it gives none when there is no supervisor, when the answer is not a list and when asking fails; stewardOf gives the lead or null. '
           + 'With the work plan off the source offers neither, and onDidChangeStewards fires on each change');
       } else bad(`stewardsOf on the source: ${JSON.stringify(o.stewards)}`);
     }
@@ -15337,6 +15685,308 @@ const repo = path.join(__dirname, '..');
   await require('./shared-copies.js')(t, repo);
   console.log('\nthe package');
   await require('./pack-check.js')(t, repo);
+
+  console.log('\nthe lock around a file every window writes (src/file-lock.js, src/proc-start.js)');
+  {
+    const lk = require('../src/file-lock');
+    const ps = require('../src/proc-start');
+    const win = process.platform === 'win32';
+    const LOCK_SRC = path.join(repo, 'src', 'file-lock.js');
+    const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+    const until = async (cond, ms) => {
+      for (const end = Date.now() + ms; !cond();) { if (Date.now() > end) return false; await pause(5); }
+      return true;
+    };
+    const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (_) { return null; } };
+    const ownerOf = (f) => readJson(path.join(f + '.lock', 'owner.json'));
+    const tookOver = (r) => (r.logs || []).filter((l) => /^took over /.test(l));
+    /* A process that takes the lock of c.file c.times times, and each time adds one to the count in it, or writes c.text,
+       or a JSON of about c.big bytes. c.ready is made before it starts and c.go waited for; inside the lock it writes
+       c.inside (the time and owner.json), waits for c.hold, writes the file, writes c.wrote and waits for c.after. It
+       prints what it did: the count it wrote, the lock's log lines, and the name of the error it ended with. */
+    const WORKER = `
+      const L = require(${JSON.stringify(LOCK_SRC)}), fs = require('fs');
+      const c = JSON.parse(process.argv[1]);
+      const nap = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+      const waitFor = (f) => { while (!fs.existsSync(f)) nap(1); };
+      const out = { logs: [], n: null };
+      const opts = { log: (l) => out.logs.push(l) };
+      if (c.waitMs) opts.waitMs = c.waitMs;
+      if (c.ready) fs.writeFileSync(c.ready, '');
+      if (c.go) waitFor(c.go);
+      try {
+        for (let i = 0; i < (c.times || 1); i++) {
+          L.withLock(c.file, () => {
+            if (c.inside) fs.writeFileSync(c.inside, JSON.stringify({ at: Date.now(), owner: JSON.parse(fs.readFileSync(c.file + '.lock/owner.json', 'utf8')) }));
+            if (c.hold) waitFor(c.hold);
+            if (c.text !== undefined) L.writeLocked(c.file, c.text);
+            else if (c.big) L.writeLocked(c.file, JSON.stringify({ i, pad: 'x'.repeat(c.big) }));
+            else { out.n = JSON.parse(fs.readFileSync(c.file, 'utf8')).n + 1; L.writeLocked(c.file, JSON.stringify({ n: out.n }) + '\\n'); }
+            if (c.wrote) fs.writeFileSync(c.wrote, '');
+            if (c.after) waitFor(c.after);
+          }, opts);
+        }
+      } catch (e) { out.error = e.name; out.message = e.message; }
+      out.at = Date.now();
+      process.stdout.write(JSON.stringify(out));`;
+    const start = (script, c) => {
+      const child = cp.spawn(process.execPath, ['-e', script, JSON.stringify(c)], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '', err = '';
+      child.stdout.on('data', (d) => { out += d; });
+      child.stderr.on('data', (d) => { err += d; });
+      const done = new Promise((res) => child.on('close', (code, signal) => {
+        try { res(JSON.parse(out)); } catch (_) { res({ error: 'no result', message: (err || out).slice(0, 400), code, signal, logs: [] }); }
+      }));
+      return { child, done };
+    };
+    const worker = (c) => start(WORKER, c);
+    const counter = (name, n) => { const d = tmp(name), f = path.join(d, 'count.json'); fs.writeFileSync(f, JSON.stringify({ n }) + '\n'); return { d, f, at: (x) => path.join(d, x) }; };
+    const fakeLock = (f, owner) => {
+      fs.mkdirSync(f + '.lock');
+      fs.writeFileSync(path.join(f + '.lock', 'owner.json'), JSON.stringify(owner) + '\n');
+    };
+    const endedPid = async () => {
+      const p = cp.spawn(process.execPath, ['-e', '']);
+      await new Promise((r) => p.on('close', r));
+      return p.pid;
+    };
+    const dead = await endedPid();
+
+    /* The start time, the form Claude Code's procStart has. */
+    const mine = ps.startOf(process.pid);
+    if (process.platform === 'linux') {
+      const st = fs.readFileSync('/proc/self/stat', 'latin1');
+      eq(mine, st.slice(st.lastIndexOf(')') + 2).split(' ')[19], 'on Linux a process\'s start is field 22 of /proc/<pid>/stat, the form of Claude Code\'s procStart');
+    } else if (win) eq(mine, null, 'on Windows no process start is read');
+    else ((typeof mine === 'string' && mine.length > 0) ? ok : bad)(`this process's start is read: ${JSON.stringify(mine)}`);
+    eq([ps.alive(process.pid), ps.alive(process.pid, mine), ps.alive(process.pid, mine === null ? 'another' : mine + '0'),
+      ps.alive(dead), ps.alive(dead, mine), ps.startOf(dead), [0, -1, 1.5, NaN, String(process.pid)].map((p) => ps.alive(p))],
+    [true, true, win, false, false, null, [false, false, false, false, false]],
+    'alive() is true for a running pid, also with its own start, false with another start where starts can be read, and false for an ended pid or one that is not a pid');
+    if (process.platform === 'linux') {
+      /* `sleep` never collects the child the shell started before becoming it, so that child stays a zombie. */
+      const sh = cp.spawn('/bin/sh', ['-c', 'sleep 0.3 & echo $!; exec sleep 5'], { stdio: ['ignore', 'pipe', 'ignore'] });
+      let said = '';
+      sh.stdout.on('data', (d) => { said += d; });
+      await until(() => /\d+\n/.test(said), 5000);
+      const z = Number(said.trim());
+      const zombie = () => { try { const s = fs.readFileSync(`/proc/${z}/stat`, 'latin1'); return s.slice(s.lastIndexOf(')') + 2)[0] === 'Z'; } catch (_) { return false; } };
+      if (!(await until(zombie, 4000))) note('no zombie could be made here to check alive() on');
+      else {
+        let reached = false;
+        try { process.kill(z, 0); reached = true; } catch (_) { /* reported below */ }
+        eq([reached, ps.alive(z), ps.alive(z, ps.startOf(z))], [true, false, false], 'a zombie, ended but not collected by its parent yet, counts as gone though a signal still reaches its pid');
+      }
+      sh.kill('SIGKILL');
+    }
+    if (!win && fs.existsSync('/bin/ps')) {
+      const r = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        Object.defineProperty(process, 'platform', { value: 'darwin' });
+        const cp = require('child_process'), real = cp.execFileSync;
+        let calls = 0;
+        cp.execFileSync = (...a) => { calls++; return real(...a); };
+        const ps = require(${JSON.stringify(path.join(repo, 'src', 'proc-start.js'))});
+        const n = [];
+        const s1 = ps.startOf(process.pid), s2 = ps.startOf(process.pid); n.push(calls);
+        const same = ps.alive(process.pid, s1); n.push(calls);
+        const other = ps.alive(${process.pid}, 'Thu Jan  1 00:00:00 1970'); n.push(calls);
+        const right = ps.startOf(${process.pid}); n.push(calls);
+        const gone = ps.alive(${dead}, right); n.push(calls);
+        process.stdout.write(JSON.stringify({ same1: s1 === s2, same, other, right, gone, calls: n }));`], { encoding: 'utf8' }));
+      const lstart = cp.execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(process.pid)],
+        { encoding: 'utf8', env: Object.assign({}, process.env, { LC_ALL: 'C', TZ: 'UTC' }) }).trim();
+      eq([r.same1, r.same, r.other, r.right, r.gone, r.calls], [true, true, false, lstart, false, [1, 1, 3, 3, 3]],
+        'on macOS a start is what ps -o lstart= prints in the C locale and UTC, read once per pid: this process\'s own is kept, a start that does not match is read again before it counts, and an ended pid costs no ps');
+    } else note('no /bin/ps here to check how a start is read on macOS');
+    {
+      const r = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        Object.defineProperty(process, 'platform', { value: 'win32' });
+        const ps = require(${JSON.stringify(path.join(repo, 'src', 'proc-start.js'))});
+        process.stdout.write(JSON.stringify([ps.startOf(process.pid), ps.alive(process.pid, 'anything'), ps.alive(${dead}, 'anything')]));`], { encoding: 'utf8' }));
+      eq(r, [null, true, false], 'on Windows no start is read, so a running pid counts as alive whatever start it was recorded with');
+    }
+
+    /* In this process: what a holder does. */
+    {
+      const { d, f } = counter('lock-unit', 0);
+      let seen = null;
+      const got = lk.withLock(f, () => { seen = ownerOf(f); lk.writeLocked(f, '{"x":1}\n'); return 'value'; });
+      eq([got, Object.keys(seen || {}).sort(), seen && seen.pid, seen && seen.start, /^[0-9a-f]{16}$/.test(seen && seen.token),
+        !!seen && Math.abs(Date.now() - seen.at) < 5000, readJson(f), fs.readdirSync(d)],
+      ['value', ['at', 'pid', 'start', 'token'], process.pid, mine, true, true, { x: 1 }, ['count.json']],
+      'withLock returns what fn returns; meanwhile <file>.lock/owner.json names this process, its start, a token of 16 hex digits and the time; after it no lock or temporary file is left');
+      let thrown = null;
+      try { lk.withLock(f, () => { throw new Error('from fn'); }); } catch (e) { thrown = e.message; }
+      eq([thrown, fs.existsSync(f + '.lock')], ['from fn', false], 'an error thrown in fn comes out of withLock, and the lock is released');
+      eq(lk.withLock(f, () => lk.withLock(f, () => { lk.writeLocked(f, '{"x":2}\n'); return 'inner'; }), { waitMs: 200 }), 'inner',
+        'withLock on a file whose lock this process holds already runs fn under that lock rather than waiting for itself');
+      let outside = '';
+      try { lk.writeLocked(f, '{"x":9}\n'); } catch (e) { outside = e instanceof lk.LockLost ? 'LockLost' : e.message; }
+      eq([/outside withLock/.test(outside), readJson(f), fs.readdirSync(d)], [true, { x: 2 }, ['count.json']], 'writeLocked outside withLock on that file throws and writes nothing');
+      let lost = null;
+      try {
+        lk.withLock(f, () => {
+          const of = path.join(f + '.lock', 'owner.json'), o = readJson(of);
+          fs.unlinkSync(of);
+          fs.writeFileSync(of, JSON.stringify(Object.assign({}, o, { token: 'cd'.repeat(8) })));
+          lk.writeLocked(f, '{"x":3}\n');
+        });
+      } catch (e) { lost = e; }
+      eq([lost instanceof lk.LockLost, lost && lost.name, readJson(f), (ownerOf(f) || {}).token, fs.readdirSync(d).filter((n) => n.endsWith('.tmp'))],
+        [true, 'LockLost', { x: 2 }, 'cd'.repeat(8), []],
+        'once owner.json holds another token, writeLocked throws LockLost without renaming, and the release at the end leaves the other token\'s lock where it is');
+      let waited = null, ran = false;
+      const t0 = Date.now();
+      try { lk.withLock(f, () => { ran = true; }, { waitMs: 150 }); } catch (e) { waited = e; }
+      eq([waited instanceof lk.LockTimeout, ran, Date.now() - t0 >= 150, (ownerOf(f) || {}).token], [true, false, true, 'cd'.repeat(8)],
+        'a lock whose holder runs with the start it recorded is waited for: after waitMs, LockTimeout, with fn not run and the lock left');
+      fs.rmSync(f + '.lock', { recursive: true, force: true });
+      fs.mkdirSync(f + '.lock');
+      let young = null;
+      try { lk.withLock(f, () => {}, { waitMs: 150 }); } catch (e) { young = e.name; }
+      const old = Date.now() / 1000 - 2;
+      fs.utimesSync(f + '.lock', old, old);
+      const logs = [];
+      const took = lk.withLock(f, () => 'in', { waitMs: 150, log: (l) => logs.push(l) });
+      eq([young, took, logs.filter((l) => /^took over .*: it names no holder/.test(l)).length, fs.readdirSync(d)], ['LockTimeout', 'in', 1, ['count.json']],
+        'a lock directory with no owner.json is waited for while it is under a second old, as its holder is writing it, and taken over once older');
+      eq(lk.STALE_MS, 30000, 'a lock is taken over from a running holder after 30 s');
+    }
+
+    /* Two processes, 1000 additions each. */
+    {
+      const c = counter('lock-count', 0);
+      const ws = ['a', 'b'].map((x) => worker({ file: c.f, times: 1000, ready: c.at(x), go: c.at('go') }));
+      await until(() => fs.existsSync(c.at('a')) && fs.existsSync(c.at('b')), 10000);
+      fs.writeFileSync(c.at('go'), '');
+      const rs = await Promise.all(ws.map((w) => w.done));
+      eq([readJson(c.f), rs.map((r) => r.error || ''), rs.map((r) => tookOver(r).length), fs.readdirSync(c.d).sort()],
+        [{ n: 2000 }, ['', ''], [0, 0], ['a', 'b', 'count.json', 'go']],
+        'two processes each adding one to a count under the lock 1000 times end with 2000, nothing taken over and no lock or temporary file left');
+    }
+
+    /* A reader that takes no lock, as the hooks read stewards.json, all through 10000 writes under it. It runs beside the
+       stopped holder below, which spends 5 s waiting. */
+    const r9 = (() => {
+      const d = tmp('lock-readers'), f = path.join(d, 'table.json');
+      fs.writeFileSync(f, JSON.stringify({ i: -1 }));
+      const reader = start(`
+        const fs = require('fs'), c = JSON.parse(process.argv[1]);
+        let reads = 0, partial = 0, sample = '';
+        const errors = {};
+        fs.writeFileSync(c.ready, '');
+        while (!fs.existsSync(c.stop)) {
+          let s;
+          try { s = fs.readFileSync(c.file, 'utf8'); } catch (e) { errors[e.code] = (errors[e.code] || 0) + 1; continue; }
+          reads++;
+          try { JSON.parse(s); } catch (_) { partial++; sample = s.slice(0, 60); }
+        }
+        process.stdout.write(JSON.stringify({ reads, partial, sample, errors }));`, { file: f, ready: path.join(d, 'ready'), stop: path.join(d, 'stop') });
+      return (async () => {
+        await until(() => fs.existsSync(path.join(d, 'ready')), 10000);
+        const w = await worker({ file: f, times: 10000, big: 500 }).done;
+        fs.writeFileSync(path.join(d, 'stop'), '');
+        const r = await reader.done;
+        return { w, r, last: readJson(f), left: fs.readdirSync(d).sort() };
+      })();
+    })();
+
+    /* A holder stopped for 5 s. */
+    if (win) note('no SIGSTOP on Windows, so a holder stopped inside the lock is not tried');
+    else {
+      const c = counter('lock-stopped', 10);
+      const a = worker({ file: c.f, inside: c.at('in-a'), hold: c.at('hold-a') });
+      await until(() => fs.existsSync(c.at('in-a')), 10000);
+      a.child.kill('SIGSTOP');
+      const b = worker({ file: c.f, inside: c.at('in-b'), ready: c.at('ready-b') });
+      await until(() => fs.existsSync(c.at('ready-b')), 10000);
+      await pause(5000);
+      fs.writeFileSync(c.at('hold-a'), '');
+      const goneOn = Date.now();
+      a.child.kill('SIGCONT');
+      const [ra, rb] = await Promise.all([a.done, b.done]);
+      const inB = readJson(c.at('in-b'));
+      eq([ra.n, rb.n, rb.logs, !!inB && inB.at >= goneOn, readJson(c.f)], [11, 12, [], true, { n: 12 }],
+        'a holder stopped for 5 s inside the lock keeps it: the waiter takes nothing over and goes in only after the holder goes on, and both additions count');
+    }
+
+    {
+      const { w, r, last, left } = await r9;
+      const errors = Object.keys(r.errors || {}).filter((code) => !(win && ['EPERM', 'EACCES', 'EBUSY'].includes(code)));
+      eq([w.error || '', r.partial, r.sample, errors, r.reads > 100, last && last.i, left], ['', 0, '', [], true, 9999, ['ready', 'stop', 'table.json']],
+        `a reader reading the file without the lock all through 10000 writes under it reads whole JSON every time (${r.reads} reads)`);
+    }
+
+    /* A holder killed inside the lock. */
+    if (win) note('a holder killed inside the lock is not tried on Windows, with the stopped one');
+    else {
+      const c = counter('lock-killed', 10);
+      const a = worker({ file: c.f, inside: c.at('in-a'), hold: c.at('never') });
+      await until(() => fs.existsSync(c.at('in-a')), 10000);
+      const b = worker({ file: c.f, inside: c.at('in-b'), ready: c.at('ready-b') });
+      await until(() => fs.existsSync(c.at('ready-b')), 10000);
+      const killedAt = Date.now();
+      a.child.kill('SIGKILL');
+      const [, rb] = await Promise.all([a.done, b.done]);
+      const inB = readJson(c.at('in-b')) || { at: 0 };
+      eq([rb.n, rb.error || '', tookOver(rb).length, /is no longer running/.test(tookOver(rb).join(' ')), inB.at >= killedAt, inB.at - killedAt < 1000, readJson(c.f)],
+        [11, '', 1, true, true, true, { n: 11 }],
+        `a holder killed inside the lock is found gone and taken over from within a second (${inB.at - killedAt} ms), and the count it never changed is kept`);
+    }
+
+    /* The holder's pid runs, but with another start. */
+    if (mine === null) note('no process start times here, so a pid given to a later process cannot be told from its first one');
+    else {
+      const c = counter('lock-reused', 10);
+      fakeLock(c.f, { pid: process.pid, start: mine + '0', token: 'ef'.repeat(8), at: Date.now() });
+      const r = await worker({ file: c.f }).done;
+      eq([r.n, tookOver(r).length, /is no longer running/.test(tookOver(r).join(' ')), fs.existsSync(c.f + '.lock')], [11, 1, true, false],
+        'a lock whose pid runs now with another start, given to a later process, is taken over as from a holder that ended');
+    }
+
+    /* Two waiters go for one dead lock at once. */
+    if (ps.alive(dead)) note(`process ${dead} ran again before the race for a dead lock could use its pid`);
+    else {
+      const c = counter('lock-race', 0);
+      const ROUNDS = 5;
+      let single = 0;
+      const left = [];
+      for (let k = 0; k < ROUNDS; k++) {
+        fakeLock(c.f, { pid: dead, start: '1', token: require('crypto').randomBytes(8).toString('hex'), at: Date.now() });
+        const ws = [0, 1].map((i) => worker({ file: c.f, ready: c.at(`ready-${k}-${i}`), go: c.at(`go-${k}`) }));
+        await until(() => [0, 1].every((i) => fs.existsSync(c.at(`ready-${k}-${i}`))), 10000);
+        fs.writeFileSync(c.at(`go-${k}`), '');
+        const rs = await Promise.all(ws.map((w) => w.done));
+        if (rs.every((r) => !r.error) && rs.reduce((s, r) => s + tookOver(r).length, 0) === 1) single++;
+        left.push(...fs.readdirSync(c.d).filter((n) => n.includes('.lock')));
+      }
+      eq([single, readJson(c.f), left], [ROUNDS, { n: 2 * ROUNDS }, []],
+        `two waiters let go at once at a dead lock: in each of ${ROUNDS} rounds exactly one takes it over and the other waits for it, both additions count, and nothing moved aside is left`);
+    }
+
+    /* A holder taken over for its age wakes up, tries to write, and releases. */
+    {
+      const c = counter('lock-aged', 10);
+      const a = worker({ file: c.f, inside: c.at('in-a'), hold: c.at('hold-a'), text: '{"by":"a"}\n' });
+      await until(() => fs.existsSync(c.at('in-a')), 10000);
+      const of = path.join(c.f + '.lock', 'owner.json');
+      const o = readJson(of);
+      /* As a waiter sees it, the holder has had the lock for longer than STALE_MS. */
+      fs.writeFileSync(of, JSON.stringify(Object.assign({}, o, { at: Date.now() - lk.STALE_MS - 2000 })));
+      const b = worker({ file: c.f, inside: c.at('in-b'), wrote: c.at('wrote-b'), after: c.at('after-b'), text: '{"by":"b"}\n' });
+      await until(() => fs.existsSync(c.at('wrote-b')), 10000);
+      fs.writeFileSync(c.at('hold-a'), '');
+      const ra = await a.done;
+      const inB = readJson(c.at('in-b')) || {};
+      eq([ra.error, readJson(c.f)], ['LockLost', { by: 'b' }],
+        'a holder that held the lock past STALE_MS and was taken over finds out when it writes: LockLost, and the file keeps what the new holder wrote');
+      eq((ownerOf(c.f) || {}).token, (inB.owner || {}).token, 'and its release, with a token no longer the one in owner.json, leaves the new holder\'s lock in place');
+      fs.writeFileSync(c.at('after-b'), '');
+      const rb = await b.done;
+      eq([rb.error || '', tookOver(rb).length, /has held it for 3\d s/.test(tookOver(rb).join(' ')), readJson(c.f), fs.existsSync(c.f + '.lock')],
+        ['', 1, true, { by: 'b' }, false], 'the new holder took it over for its age, and its own release removes the lock');
+    }
+  }
 
   console.log('\nthe host, for a session list row of a conversation another window shows');
   {

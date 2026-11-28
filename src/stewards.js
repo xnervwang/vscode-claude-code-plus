@@ -12,8 +12,9 @@
  * src/relay.js writes it too, in the window that shows a supervisor: when that supervisor asks to change its own list, and
  * when it ticks a conversation the supervisor has just opened.
  *
- * A conversation can have several supervisors, and each one ticks it on its own. A supervisor has none: a conversation that
- * becomes a supervisor leaves every list it was on.
+ * A conversation can have several supervisors, and each one ticks it on its own, but only one of them leads it: the one
+ * that may act on it (src/steward-leads.js). The others observe it. A supervisor has none: a conversation that becomes a
+ * supervisor leaves every list it was on.
  *
  *   { "version": 3, "stewards": { "<supervisor session id>": { "manages": ["<key>", ...],
  *                                                          "ticked": ["<key>", ...],
@@ -21,15 +22,24 @@
  *                                                          "paths": { "<key>": "<plan file>" }, "at": <ms>,
  *                                                          "all": true, "title": "<the supervisor's own title>",
  *                                                          "newSince": <ms>, "newSkip": ["<key>", ...],
- *                                                          "newBefore": ["<key>", ...] } } }
+ *                                                          "newBefore": ["<key>", ...], "allSince": <ms>,
+                                                          "since": { "<key>": <ms> } } },
+ *     "leads": { "<key>": <its lead, src/steward-leads.js> }, "tickets": { "<supervisor> <key>": { at, term } }, "rev": <n> }
  *
  * A key is a Claude Code session id, or `<source id>:<session id>` for another agent's conversation
  * (src/steward-keys.js); a supervisor is always a Claude Code conversation. "paths" gives the plan file of each such
  * conversation, as its source gave it when the conversation was ticked: the plugin's hooks cannot ask Agent Plus, and
- * the file's name is the source's own. Version 1 had only session ids and no "paths", and version 2 allowed one supervisor
- * per conversation; such a table is read unchanged and is written as version 3 at its next change. This build reads
- * what it understands of a table of a later version and never writes one, so that it does not drop what the later
- * build added.
+ * the file's name is the source's own. Version 1 had only session ids and no "paths", version 2 allowed one supervisor
+ * per conversation, and version 3 had no leads; such a table is read unchanged and is written as version 4 at its next
+ * change, with a lead for each managed conversation. This build reads what it understands of a table of a later
+ * version and never writes one, so that it does not drop what the later build added.
+ *
+ * "since" records when the supervisor started managing each conversation, and "allSince" when it turned "All, including
+ * new ones" on: the first of the supervisors of a conversation to manage it is the one that leads it when nobody does.
+ * "tickets" are the take-over questions a supervisor asked the user (src/relay.js), and "rev" counts the writes.
+ *
+ * Every write happens under the file's lock (src/file-lock.js) and reads the file again inside it, so two windows that
+ * change the table at the same moment both keep their change, and a lead is changed once.
  *
  * "all" is there only when the user ticked "All, including new ones": the panel in the supervisor's window then keeps
  * "manages" equal to every conversation open in a VS Code window that is no supervisor (src/steward-view.js). "ticked" is
@@ -55,14 +65,20 @@ const path = require('path');
 const { planDir, SESSION, writeAtomic } = require('./claude-files');
 const duplicates = require('./duplicates');
 const keys = require('./steward-keys');
+const leadsOf = require('./steward-leads');
 const titleMarks = require('./title-marks');
+const { withLock, writeLocked, LockLost } = require('./file-lock');
 
 const FILE = 'stewards.json';
-const VERSION = 3;
+const VERSION = 4;
 const MAX_MANAGED = 100;
 const MAX_NAME = 200;
 /* How long to wait for a supervisor's inbox to accept a notice. */
 const POST_TIMEOUT_MS = 3000;
+/* A hand-over the old lead has not finished in this time is made without its note. */
+const HAND_OVER_MS = 10 * 60 * 1000;
+/* A take-over question is answered within this time, or asked again. */
+const TICKET_MS = 30 * 60 * 1000;
 
 const ids = (list, not) => [...new Set((Array.isArray(list) ? list : [])
   .map(keys.managedId).filter((x) => x && x !== not))].slice(0, MAX_MANAGED);
@@ -87,9 +103,12 @@ function entriesOf(d) {
     const names = {};
     for (const m of manages) if (v.names && typeof v.names[m] === 'string') names[m] = v.names[m].slice(0, MAX_NAME);
     const since = when(v.newSince) > 0 ? v.newSince : 0;
+    const began = {};
+    for (const m of manages) if (v.since && when(v.since[m]) > 0) began[m] = v.since[m];
     out[id] = { manages, ticked: Array.isArray(v.ticked) ? ids(v.ticked, id) : null, names, paths: pathsOf(v.paths, manages),
       at: when(v.at), all: v.all === true, title: typeof v.title === 'string' ? v.title.slice(0, MAX_NAME) : '',
-      newSince: since, newSkip: since ? ids(v.newSkip, id) : [], newBefore: since ? ids(v.newBefore, id) : [] };
+      newSince: since, newSkip: since ? ids(v.newSkip, id) : [], newBefore: since ? ids(v.newBefore, id) : [],
+      allSince: v.all === true ? when(v.allSince) : 0, since: began };
   }
   return out;
 }
@@ -113,6 +132,7 @@ function settle(entries) {
     t.ticked = t.ticked.filter((x) => x !== c);
     delete t.names[c];
     delete t.paths[c];
+    delete t.since[c];
     if (!isSteward(t)) delete out[h];
   };
   for (const id of order) {
@@ -121,11 +141,12 @@ function settle(entries) {
     const list = e.manages.filter((c) => c !== id && !out[c]);
     const t = { manages: list, ticked: list.filter((c) => mine.has(c)), names: {}, paths: {}, at: e.at, all: e.all,
       title: e.title || '', newSince: e.newSince || 0, newSkip: e.newSince ? (e.newSkip || []).slice() : [],
-      newBefore: e.newSince ? (e.newBefore || []).slice() : [] };
+      newBefore: e.newSince ? (e.newBefore || []).slice() : [], allSince: e.all ? e.allSince || 0 : 0, since: {} };
     if (!isSteward(t)) continue;
     for (const h of Object.keys(out)) if (out[h].manages.includes(id)) drop(h, id);
     for (const c of list) if (e.names[c]) t.names[c] = e.names[c];
     for (const c of list) if (e.paths && e.paths[c]) t.paths[c] = e.paths[c];
+    for (const c of list) if (e.since && e.since[c]) t.since[c] = e.since[c];
     out[id] = t;
   }
   return out;
@@ -146,42 +167,144 @@ function newer(dir = planDir()) {
   return d && typeof d.version === 'number' && d.version > VERSION ? d.version : 0;
 }
 
-function write(table, dir) {
-  if (newer(dir)) return false;
+/* The file's shape of `table`. */
+function stewardsOut(table) {
   const out = {};
   for (const [id, v] of Object.entries(table)) {
     out[id] = { manages: v.manages, names: v.names, at: v.at };
     if (v.paths && Object.keys(v.paths).length) out[id].paths = v.paths;
-    if (v.all) { out[id].all = true; out[id].ticked = v.ticked; }
+    if (v.all) { out[id].all = true; out[id].ticked = v.ticked; if (v.allSince) out[id].allSince = v.allSince; }
     if (v.title) out[id].title = v.title;
     if (v.newSince) {
       out[id].newSince = v.newSince;
       if (v.newSkip && v.newSkip.length) out[id].newSkip = v.newSkip;
       if (v.newBefore && v.newBefore.length) out[id].newBefore = v.newBefore;
     }
+    if (v.since && Object.keys(v.since).length) out[id].since = v.since;
   }
-  fs.mkdirSync(dir, { recursive: true });
-  writeAtomic(path.join(dir, FILE), JSON.stringify({ version: VERSION, stewards: out }, null, 1) + '\n');
-  return true;
+  return out;
 }
 
 /* A table's content as one string. Two tables that differ only in key order, in the fields they leave out or in their
    version give the same string. */
 const meaning = (t) => JSON.stringify(Object.keys(t).sort().map((id) => {
-  const v = t[id], paths = v.paths || {}, since = v.newSince || 0;
+  const v = t[id], paths = v.paths || {}, since = v.newSince || 0, began = v.since || {};
   return [id, v.manages, v.all ? (v.ticked || []).filter((c) => v.manages.includes(c)) : null,
     Object.keys(v.names).sort().map((c) => [c, v.names[c]]), Object.keys(paths).sort().map((c) => [c, paths[c]]), v.at, !!v.all,
-    v.title || '', since, since ? v.newSkip || [] : [], since ? v.newBefore || [] : []];
+    v.title || '', since, since ? v.newSkip || [] : [], since ? v.newBefore || [] : [], v.all ? v.allSince || 0 : 0,
+    Object.keys(began).sort().map((c) => [c, began[c]])];
 }));
+const sorted = (o) => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));
 
-/** Writes the settled table back when it differs from what the file holds, as a file an older build wrote can. Returns
-    true when it wrote the file. Only a window allowed to save the table calls it. */
-function migrate(dir = planDir()) {
+/*
+ * How the windows learn who is alive (src/steward-view.js sets it): alive(id) whether a live window shows supervisor
+ * `id` now, gone(id) "dead" once it has not been for DEAD_AFTER_MS, "archived" once it is archived, else false. Until a
+ * window sets it, every supervisor counts as alive, so nothing is reassigned on a guess.
+ */
+let liveness = { alive: () => true, gone: () => false };
+function setLiveness(l) { liveness = Object.assign({ alive: () => true, gone: () => false }, l || {}); }
+let leadListeners = [];
+/* fn(changes, state) after a write that changed any lead: { key, from, to, why, term, handed } each. */
+function onLeadChange(fn) { leadListeners.push(fn); return { dispose: () => { leadListeners = leadListeners.filter((f) => f !== fn); } }; }
+
+/*
+ * Reads the table, applies `change` to it and writes it back, all under the file's lock. `change(state)` gets
+ * { table, leads, tickets } (the table settled, the leads as read) and may change any of them in place or return a new
+ * table. The leads are then worked out again (steward-leads.js plan) with `opened` (key -> supervisor) for a
+ * conversation a supervisor has just opened, and hand-overs past HAND_OVER_MS are made. The file is written only when
+ * something changed. Returns { table, leads, tickets, changes, wrote }, or the state as read when the file is of a
+ * later version, which this build never writes.
+ */
+function update(dir = planDir(), change = () => {}, opts = {}) {
+  for (let tries = 0; ; tries++) {
+    try { return updateOnce(dir, change, opts); } catch (e) {
+      /* Another window took the lock over from this one, which was too slow; its change was not written, so it is made again. */
+      if (!(e instanceof LockLost) || tries >= 2) throw e;
+    }
+  }
+}
+function updateOnce(dir, change, { now = Date.now(), opened = {} } = {}) {
+  const file = path.join(dir, FILE);
+  fs.mkdirSync(dir, { recursive: true });
+  const out = withLock(file, () => {
+    const d = parse(dir);
+    const later = d && typeof d.version === 'number' && d.version > VERSION;
+    const entries = entriesOf(d);
+    const before = { table: meaning(entries), leads: sorted(leadsOf.leadsOf(d)), tickets: sorted(leadsOf.ticketsOf(d)) };
+    const state = { table: settle(entries), leads: leadsOf.leadsOf(d), tickets: leadsOf.ticketsOf(d) };
+    if (later) return Object.assign(state, { changes: [], wrote: false });
+    const was = {};
+    for (const [k, v] of Object.entries(state.leads)) was[k] = v.lead;
+    const given = change(state);
+    if (given && typeof given === 'object' && !Array.isArray(given) && given !== state) state.table = given;
+    state.table = settle(state.table);
+    for (const [k, e] of Object.entries(state.leads)) {
+      if (!e.pending || now - e.pending.at < HAND_OVER_MS) continue;
+      const to = e.pending.to;
+      state.leads[k] = { lead: to, term: e.term + 1, at: now, why: e.pending.by === 'panel' ? 'panel' : 'takeover', was: e.lead };
+      /* A note that was on its way may have arrived; the new lead's first message then says nothing of how it came. */
+      if (!e.pending.sending) state.leads[k].intro = 'unhanded';
+      else state.leads[k].handed = true;
+      if (e.tell) state.leads[k].tell = e.tell;
+    }
+    for (const [t, v] of Object.entries(state.tickets)) if (!(now - v.at < TICKET_MS)) delete state.tickets[t];
+    const p = leadsOf.plan(state.table, state.leads, { now, gone: liveness.gone, alive: liveness.alive, opened,
+      migrated: !!d && typeof d.version === 'number' && d.version < 4 });
+    for (const c of p.changes) if (c.why === 'dead' || c.why === 'archived' || c.why === 'dropped') p.next[c.key].intro = c.why;
+    state.leads = p.next;
+    const changes = [];
+    for (const [k, v] of Object.entries(state.leads)) {
+      if ((was[k] || '') !== v.lead) changes.push({ key: k, from: was[k] || '', to: v.lead, why: v.why, term: v.term, handed: !!v.handed });
+    }
+    for (const k of Object.keys(was)) if (!state.leads[k] && was[k]) changes.push({ key: k, from: was[k], to: '', why: 'none', term: 0, handed: false });
+    const after = { table: meaning(state.table), leads: sorted(state.leads), tickets: sorted(state.tickets) };
+    const wrote = !d || d.version !== VERSION || after.table !== before.table || after.leads !== before.leads || after.tickets !== before.tickets;
+    if (wrote) {
+      const rev = (d && typeof d.rev === 'number' ? d.rev : 0) + 1;
+      writeLocked(file, JSON.stringify({ version: VERSION, stewards: stewardsOut(state.table), leads: state.leads, tickets: state.tickets, rev }, null, 1) + '\n');
+    }
+    return Object.assign(state, { changes, wrote });
+  });
+  if (out.changes.length) for (const fn of leadListeners.slice()) { try { fn(out.changes, out); } catch (_) { /* the listener's own */ } }
+  return out;
+}
+
+/*
+ * The user's choice in the Supervisor panel that `sup` lead `key`. As with a take-over the user agreed to in a
+ * supervisor conversation (src/relay.js takeLead), a lead that is alive hands the conversation over first (the caller
+ * tells it to); one that is gone, or none, gives it at once. Returns { outcome: 'lead' | 'pending' | 'refused', reason,
+ * lead }, where `lead` is the lead before.
+ */
+function takeLead(dir, key, sup, { by = 'panel', now = Date.now() } = {}) {
+  let out = { outcome: 'refused', reason: 'that supervisor does not manage the conversation', lead: '' };
+  update(dir, ({ table, leads: L }) => {
+    if (!leadsOf.candidates(table, key).includes(sup)) return;
+    const e = L[key], lead = leadsOf.leadOf(table, L, key);
+    if (lead === sup) { out = { outcome: 'lead', reason: '', lead }; return; }
+    if (e && e.pending && e.pending.to !== sup) { out = { outcome: 'refused', reason: 'it is being handed over to another supervisor', lead }; return; }
+    if (lead && liveness.alive(lead) && !liveness.gone(lead)) {
+      L[key] = Object.assign({}, e, { pending: { to: sup, at: now, by } });
+      out = { outcome: 'pending', reason: '', lead };
+      return;
+    }
+    L[key] = { lead: sup, term: (e ? e.term : 0) + 1, at: now, why: by === 'panel' ? 'panel' : 'takeover', was: lead || (e ? e.lead : ''), intro: lead ? 'unhanded' : 'none' };
+    if (e && e.tell) L[key].tell = e.tell;
+    out = { outcome: 'lead', reason: '', lead };
+  }, { now });
+  return out;
+}
+
+/** The table, its leads and tickets as read, without writing. */
+function state(dir = planDir()) {
   const d = parse(dir);
-  if (!d) return false;
-  const entries = entriesOf(d), settled = settle(entries);
-  if (meaning(entries) === meaning(settled)) return false;
-  return write(settled, dir);
+  return { table: settle(entriesOf(d)), leads: leadsOf.leadsOf(d), tickets: leadsOf.ticketsOf(d), version: d && d.version };
+}
+
+/** Writes the settled table back when it differs from what the file holds, and gives each managed conversation that
+    has none a lead. Returns true when it wrote the file. Only a window allowed to save the table calls it. */
+function migrate(dir = planDir()) {
+  if (!parse(dir)) return false;
+  return update(dir).wrote;
 }
 
 function manages(table, steward, id) {
@@ -213,10 +336,16 @@ const byUser = (list, userAt) => list.map((s) => ({ s, at: Number(userAt(s)) || 
  * by hand (by default, those ticked before); with it off, the whole list counts as ticked. `title` is the supervisor's own
  * title. Supervisors are left out of the list. An empty list removes the supervisor from the table unless a switch is on.
  */
-function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked, paths = {}, title, later, before } = {}) {
-  const all = read(dir);
-  if (typeof steward !== 'string' || !SESSION.test(steward)) return all;
+function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now(), every, ticked, paths = {}, title, later, before, opened = '' } = {}) {
+  if (typeof steward !== 'string' || !SESSION.test(steward)) return read(dir);
   const id = steward.toLowerCase();
+  const key = keys.managedId(opened);
+  return update(dir, ({ table }) => setIn(table, id, list, names, { now, every, ticked, paths, title, later, before }),
+    { now, opened: key ? { [key]: id } : {} }).table;
+}
+
+/* setManaged's change to `all`, the settled table, which it returns. */
+function setIn(all, id, list, names, { now, every, ticked, paths, title, later, before }) {
   const was = all[id];
   const keepAll = typeof every === 'boolean' ? every : !!(was && was.all);
   const since = later === true ? (was && was.newSince) || now : later === false ? 0 : (was ? was.newSince : 0);
@@ -239,26 +368,29 @@ function setManaged(steward, list, names = {}, { dir = planDir(), now = Date.now
       if (f) files[m] = f;
     }
     const own_ = typeof title === 'string' && title ? title.slice(0, MAX_NAME) : (was && was.title) || '';
+    const began = {};
+    for (const m of manages) began[m] = (was && was.since && was.since[m]) || now;
+    const allSince = keepAll ? (was && was.all && was.allSince) || now : 0;
     all[id] = { manages, ticked: own ? manages.filter((m) => own.has(m)) : manages, names: kept, paths: files, at: now, all: keepAll,
-      title: own_, newSince: since, newSkip: skip, newBefore: seen };
+      title: own_, newSince: since, newSkip: skip, newBefore: seen, allSince, since: began };
   } else delete all[id];
-  const settled = settle(all);
-  return write(settled, dir) ? settled : read(dir);
+  return all;
 }
 
 /** Refreshes the saved titles, the supervisors' own among them. */
 function rename(names, { dir = planDir() } = {}) {
-  const all = read(dir);
   let changed = false;
-  for (const [id, v] of Object.entries(all)) {
-    for (const m of v.manages) {
-      const t = typeof names[m] === 'string' ? names[m].slice(0, MAX_NAME) : '';
-      if (t && v.names[m] !== t) { v.names[m] = t; changed = true; }
+  update(dir, ({ table: all }) => {
+    for (const [id, v] of Object.entries(all)) {
+      for (const m of v.manages) {
+        const t = typeof names[m] === 'string' ? names[m].slice(0, MAX_NAME) : '';
+        if (t && v.names[m] !== t) { v.names[m] = t; changed = true; }
+      }
+      const own = typeof names[id] === 'string' ? names[id].slice(0, MAX_NAME) : '';
+      if (own && own !== id && v.title !== own) { v.title = own; changed = true; }
     }
-    const own = typeof names[id] === 'string' ? names[id].slice(0, MAX_NAME) : '';
-    if (own && own !== id && v.title !== own) { v.title = own; changed = true; }
-  }
-  return changed && write(all, dir);
+  });
+  return changed;
 }
 
 /*
@@ -396,5 +528,6 @@ function post(address, text, { from = 'claude-code-plus', timeoutMs = POST_TIMEO
   });
 }
 
-module.exports = { read, setManaged, rename, migrate, newer, settle, entriesOf, isSteward, manages, stewardsOf, byUser, changes, noticeText, post,
-  NOTICE_HEAD, isNotice, fromLine, senderOf, withFrom, withoutFrom, titleOfWords, textHash, FILE, VERSION, MAX_MANAGED };
+module.exports = { read, state, update, takeLead, setManaged, rename, migrate, newer, settle, entriesOf, isSteward, manages, stewardsOf, byUser, changes,
+  noticeText, post, setLiveness, onLeadChange, NOTICE_HEAD, isNotice, fromLine, senderOf, withFrom, withoutFrom, titleOfWords, textHash, FILE,
+  VERSION, MAX_MANAGED, HAND_OVER_MS, TICKET_MS };

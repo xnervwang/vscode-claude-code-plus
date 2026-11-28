@@ -69,6 +69,7 @@ const { readBounded } = require('./bounded');
  *
  * The row command also moves rows closed for a day to closed/<session id>.json (CLOSED_DIR), deleted with the rest.
  */
+const TOLD_DIR = 'stewards-told';
 const SIDE_SUFFIXES = ['.json', '.offered', '.nudged', '.settled', require('./background').SUFFIX,
   require('./background').TASKS_SUFFIX, '.turn', '.watermark', '.tz', '.compacted', '.briefed', '.injected',
   require('./efforts').SUFFIX, '.steward-seen', '.images-told'];
@@ -227,6 +228,8 @@ function sweepOrphans(opts = {}) {
   let deleted = 0, kept = 0;
   let closed = [];
   try { closed = fs.readdirSync(path.join(dir, CLOSED_DIR)).filter((n) => PLAN_FILE.test(n)).map((n) => path.join(CLOSED_DIR, n)); } catch (_) { /* none */ }
+  /* What a managed conversation was last told of its lead supervisor (hooks/steward.py), one file per conversation. */
+  try { closed = closed.concat(fs.readdirSync(path.join(dir, TOLD_DIR)).filter((n) => PLAN_FILE.test(n)).map((n) => path.join(TOLD_DIR, n))); } catch (_) { /* none */ }
   for (const name of names.concat(closed)) {
     if (!SIDE_FILE.test(path.basename(name))) continue;
     // The session id is the name without its last extension, whichever of the side files it is.
