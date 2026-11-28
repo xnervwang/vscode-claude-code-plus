@@ -773,8 +773,11 @@ async function endSideChat(d, frame, ended, left) {
   }
 }
 
-/* Transcripts of a `claude --bg`, a `claude -p` and a daemon session, written with the demo's home (lib/fake-home.js). */
-const [BACKGROUND_TITLE, PRINT_TITLE, DAEMON_TITLE] = require('./lib/fake-home').BACKGROUND.map((b) => b.title);
+/* Transcripts of a `claude --bg`, a `claude -p`, a `claude -p` that a conversation ran from Bash and a daemon session,
+   written with the demo's home (lib/fake-home.js). */
+const BACKGROUND_SESSIONS = require('./lib/fake-home').BACKGROUND;
+const [BACKGROUND_TITLE, PRINT_TITLE, PROBE_TITLE] = BACKGROUND_SESSIONS.map((b) => b.title);
+const DAEMON_TITLE = BACKGROUND_SESSIONS.find((b) => !b.listedWhenShown).title;
 
 /* The steps. */
 
@@ -1257,7 +1260,7 @@ const STEPS = [
       + 'Code logo and ending with how long ago it was last active: the demo conversation that is in the editor, '
       + '"Find where the retry delay for the inventory sync is set", "Why does the nightly export skip archived '
       + 'rows?" and "Add a dry-run flag to the cleanup script". The demo conversation comes first and has a pin. '
-      + 'A solid light stripe at the start of its row marks it as open in this window. "Why does the nightly '
+      + 'A solid blue stripe at the start of its row marks it as open in this window. "Why does the nightly '
       + 'export skip archived rows?" is written in blue: the pins and title colours Claude Code Plus kept, which '
       + 'the list took over. '
       + (LINUX ? 'A small, hollow green ring appears at the top right of the demo conversation\'s logo. No turn '
@@ -1265,9 +1268,9 @@ const STEPS = [
         : 'The demo conversation\'s logo has no dot: nothing runs. ')
       + 'No other logo has a dot, and no row has an envelope or a crown: Agent Plus counts a reply from before it began its record '
       + 'of this folder as read, and none has come since. None of "' + BACKGROUND_TITLE + '", "' + PRINT_TITLE
-      + '" or "' + DAEMON_TITLE + '", sessions run in the background, is listed. A RECENTLY CLOSED band, folded or open, holds "Add '
-      + 'a dry-run flag to the cleanup script", whose tab an earlier step closed, and that conversation\'s own row has a light blue '
-      + 'stripe at its start. An ACCOUNT & USAGE band may sit at the top; a later step looks at it.',
+      + '", "' + PROBE_TITLE + '" or "' + DAEMON_TITLE + '", sessions run in the background, is listed. A RECENTLY CLOSED band, folded or open, holds "Add '
+      + 'a dry-run flag to the cleanup script", whose tab an earlier step closed, and that conversation\'s own row has a solid grey '
+      + 'stripe at its start, the stripe of a conversation recently closed in this window. An ACCOUNT & USAGE band may sit at the top; a later step looks at it.',
     unchanged: 'The rows are those of the picture before, moved up where the note was.',
     act: async (d) => {
       const list = await agentList(d);
@@ -1284,7 +1287,7 @@ const STEPS = [
   {
     name: 'agent-plus-row-click', features: ['agent-plus-session-list'],
     expect: 'After a click on the "Why does the nightly export skip archived rows?" row in Agent Plus\'s session '
-      + 'list, the conversation has its own active editor tab. Its row now starts with the same solid light '
+      + 'list, the conversation has its own active editor tab. Its row now starts with the same solid blue '
       + 'stripe as the demo conversation\'s row.',
     unchanged: 'The other rows of the list are as before.',
     act: async (d) => {
@@ -1309,8 +1312,8 @@ const STEPS = [
       + 'its row has a greyed logo, title and time. Only the outline of the stripe shows at the start of the row. '
       + 'The other rows are not greyed. The mouse rests on that row, and a hover box under it names Claude Code '
       + 'and the row\'s section, gives the session id and when it started and was last active, then '
-      + (WINDOWS ? '"Open in a terminal"' : '"Open in screen session "mywork" in" and a folder')
-      + ', and under that "Process" with a number and "running for 2m". The box is readable and wholly inside the '
+      + (WINDOWS ? '"Open in a terminal"' : '"Open in screen session "mywork""')
+      + ', under that "Process" with a number and "running for 2m", and last "Folder:" and a folder. The box is readable and wholly inside the '
       + 'side bar.',
     unchanged: 'The tab of "Why does the nightly export skip archived rows?" is closed again, and the demo conversation is in front.',
     act: async (d) => {
@@ -1356,7 +1359,8 @@ const STEPS = [
     name: 'background-hidden', features: ['hide-background-sessions'],
     expect: 'Claude Code\'s own session list in the side bar, its icon back in the Activity Bar. The list omits the '
       + 'session titled "' + BACKGROUND_TITLE + '" started with claude --bg, the session titled "' + PRINT_TITLE
-      + '" started with claude -p, and the Claude Code daemon session titled "' + DAEMON_TITLE + '". Their '
+      + '" started with claude -p, the session titled "' + PROBE_TITLE + '" that a conversation started with claude -p from Bash, '
+      + 'and the Claude Code daemon session titled "' + DAEMON_TITLE + '". Their '
       + 'transcripts are in the same folder as the transcripts of the conversations the list shows.',
     unchanged: 'The editor shows the same conversation as before.',
     act: async (d) => { await sessionList(d); await d.away(); return d.sidebar(); },
@@ -1364,7 +1368,7 @@ const STEPS = [
   {
     name: 'background-shown', features: ['hide-background-sessions'], ...off('claudeCodePlus.hideBackgroundSessions'),
     expect: 'With the setting that hides background sessions turned off, Claude Code\'s own list now also shows "' + BACKGROUND_TITLE
-      + '" and "' + PRINT_TITLE + '" without a reload, and still not "' + DAEMON_TITLE + '"; the other rows are unchanged.',
+      + '", "' + PRINT_TITLE + '" and "' + PROBE_TITLE + '" without a reload, and still not "' + DAEMON_TITLE + '"; the other rows are unchanged.',
     unchanged: 'Every row of the previous picture is still there.',
     area: async (d) => { await sessionList(d); await d.sleep(3000); await d.away(); return d.sidebar(); },
   },
@@ -1900,8 +1904,8 @@ const STEPS = [
   },
   {
     name: 'steward-archived', features: ['steward-archive'],
-    expect: 'Agent Plus\'s session list in the side bar. The demo conversation supervises "Add a dry-run flag to the cleanup script", and you '
-      + 'asked it to archive that conversation. Its row is now in the list\'s open Archived section.',
+    expect: 'Agent Plus\'s session list in the side bar. The demo conversation supervises "Why does the nightly export skip archived rows?", '
+      + 'and you asked it to archive that conversation. Its row is now in the list\'s open Archived section.',
     unchanged: null,
     act: async (d) => {
       const [t1] = d.threads.slice(1);
@@ -3517,7 +3521,7 @@ const STEPS = [
      * Conversations these steps write into the demo folder for themselves, with the same records lib/fake-home.js
      * writes: one turn, its AI title and its last prompt. Their reply is days old, from before Agent Plus began its
      * record of the folder, so the list counts it as read. Each role has a session id of its own, derived from the
-     * run's root folder: a conversation once closed in this window keeps the light blue stripe of a recently closed
+     * run's root folder: a conversation once closed in this window keeps the grey stripe of a recently closed
      * one, so a role that must show no stripe is never opened. Every step removes what it wrote.
      */
     const idOf = (role) => {
@@ -3559,7 +3563,7 @@ const STEPS = [
         const u = `${t.id.slice(0, 24)}000000000001`, a = `${t.id.slice(0, 24)}000000000002`;
         const records = [
           { parentUuid: null, ...base, sessionId: t.id, type: 'user', message: { role: 'user', content: ask }, uuid: u,
-            timestamp: new Date(at - 40000).toISOString(), permissionMode: 'default', promptSource: 'user' },
+            timestamp: new Date(at - 40000).toISOString(), permissionMode: 'default', promptSource: 'user', origin: { kind: 'human' } },
           { parentUuid: u, ...base, sessionId: t.id, type: 'assistant', uuid: a, timestamp: new Date(at).toISOString(), requestId: `req_look_${t.id.slice(-8)}`,
             message: { id: `msg_look_${t.id.slice(-8)}`, type: 'message', role: 'assistant', model: require('./lib/fake-home').MODEL,
               content: [{ type: 'text', text: answer }], stop_reason: 'end_turn', stop_sequence: null,
@@ -3832,7 +3836,7 @@ const STEPS = [
         name: 'agent-plus-states-light', features: ['agent-plus-session-list', 'light-theme', 'light-envelope', 'dot-working', 'dot-waiting', 'unread-envelope', 'agent-plus-elsewhere'],
         expect: sceneSaid(', in a light theme: dark text on a light background, the section bands a little darker than the rows.')
           + ' The green and blue dots keep their colours and stand out against the light background. The envelope and terminal icon '
-          + 'are dark like the text. The solid stripes are dark grey bars; the terminal row has a hollow stripe with a dark border. The '
+          + 'are dark like the text. The solid stripes are dark blue bars; the terminal row has a hollow stripe outlined in the same blue. The '
           + 'greyed row is paler than the others but still readable. Nothing else is left in the dark theme\'s colours.',
         unchanged: 'The demo conversation is in front in the editor, as before.',
         act: async (d) => { await theme(d, 'Default Light Modern'); await d.sleep(2500); await sceneUp(d); return d.sidebar(); },
@@ -3920,8 +3924,8 @@ const STEPS = [
         expect: 'The RECENTLY CLOSED section is open in Agent Plus\'s session list. Its band has a down arrow, a clock icon, the words '
           + 'RECENTLY CLOSED and a count. The first two rows below the band are "' + C.closedB.title + '" and "' + C.closedA.title
           + '", newest first. This step opened and closed both tabs. Each of those two rows ends in "closed now" or '
-          + '"closed 1m" in place of how long ago it was active, and has a light blue stripe at its start; neither is '
-          + 'greyed. The same two conversations\' own rows further down, under UNGROUPED, have the light blue stripe '
+          + '"closed 1m" in place of how long ago it was active, and has a solid grey stripe at its start; neither is '
+          + 'greyed. The same two conversations\' own rows further down, under UNGROUPED, have the grey stripe '
           + 'too. Rows of conversations that earlier steps closed may follow in the section.',
         unchanged: 'The demo conversation is in front in the editor.',
         act: async (d) => {
@@ -4114,7 +4118,7 @@ const STEPS = [
       + 'key" and This window with "No conversation running". There is no THIS CONVERSATION heading and no figures. '
       + 'The rows line up with the other parts\' rows, are readable, and nothing is cut off at the side bar\'s edge. '
       + 'No Claude Code tab is open. For each tab this step just closed, the conversation\'s row in the list below '
-      + 'starts with the light blue stripe for conversations recently closed in this window, not the solid stripe for '
+      + 'starts with the grey stripe for conversations recently closed in this window, not the blue stripe for '
       + 'conversations open here.',
     act: async (d) => {
       await d.exec('workbench.action.closeAllEditors');
