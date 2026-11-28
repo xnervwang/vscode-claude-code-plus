@@ -970,21 +970,22 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await sleep(300);
       await shot('session-list');
 
-      /* The transcripts of a `claude --bg`, a `claude -p` and a daemon session that lib/fake-home.js wrote with the
-         others. claudeCodePlus.hideBackgroundSessions, on by default, leaves all three out; turned off, without a reload,
-         the first two are listed and the daemon session still is not. */
+      /* The transcripts of a `claude --bg`, two `claude -p` runs (one run from a conversation in VS Code) and a daemon
+         session that lib/fake-home.js wrote with the others. claudeCodePlus.hideBackgroundSessions, on by default,
+         leaves all four out; turned off, without a reload, all but the daemon session are listed. */
       const titles = () => list.evaluate(() => [...document.querySelectorAll('[class*="sessionItem_"] span[class*="sessionName_"]')].map((e) => e.textContent.trim()));
       const backgroundShown = async () => { const got = await titles(); return background.filter((b) => got.includes(b.title)).map((b) => b.title); };
       const setHide = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('hideBackgroundSessions', arg === null ? undefined : arg,
         vscode.ConfigurationTarget.Global); return true;`, v);
       const listedWhenShown = background.filter((b) => b.listedWhenShown).map((b) => b.title);
-      check(background.length === 3 && !(await backgroundShown()).length,
-        'with claudeCodePlus.hideBackgroundSessions on, the list leaves out the claude --bg, claude -p and daemon sessions', await backgroundShown());
+      check(background.length === 4 && !(await backgroundShown()).length,
+        'with claudeCodePlus.hideBackgroundSessions on, the list leaves out the claude --bg, claude -p and daemon sessions, '
+        + 'also a claude -p that a VS Code conversation ran, which records the panel\'s entry point', await backgroundShown());
       await setHide(false);
       try {
         const shown = await until(async () => { const b = await backgroundShown(); return listedWhenShown.every((x) => b.includes(x)) && b; }, 30000, 500);
         check(!!shown && JSON.stringify(shown.slice().sort()) === JSON.stringify(listedWhenShown.slice().sort()),
-          'turned off, without a reload, the list shows the claude --bg and claude -p sessions, and still not the daemon session', shown || await backgroundShown());
+          'turned off, without a reload, the list shows the claude --bg and both claude -p sessions, and still not the daemon session', shown || await backgroundShown());
         await page.mouse.move(5, 880);
         await sleep(300);
         await shot('session-list-background-shown');
@@ -4812,9 +4813,15 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         check(!!resumed && resumed.outcome === 'notReceived' && resumed.opened !== true && /the tab was closed again/.test(resumed.reason || ''),
           'a supervisor\'s resume whose page does not load closes its tab and reports the message as not sent', resumed);
         check(!!two, 'the two tabs Claude Code opened itself stay open with its default title', await claudeTabs());
+        /* As w.reload() does, with the script put back once the reload has begun: the window going away builds no page
+           again, and the new one finds the script when it draws its pages. */
         reloadedAt = Date.now();
-        await w.reload();
+        await call('setTimeout(() => vscode.commands.executeCommand("workbench.action.reloadWindow"), 200); return true;');
+        await sleep(450);
         putBack();
+        await sleep(1050);
+        await page.waitForSelector('.monaco-workbench', { timeout: 90000 });
+        await w.hostUp(reloadedAt);
       } finally { putBack(); }
       await until(async () => { const st = await patchState(); return st && st.active && st; }, 60000, 1000);
       const reopened = await until(() => tabOf(A), 60000, 500);
@@ -4824,7 +4831,13 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       check(!!shown && Array.isArray(left) && !left.includes(A.id),
         'after the reload the kept conversation is reopened in a tab that shows it, and it leaves the list', { tabs: await claudeTabs(), kept: left });
       check(!(await tabOf(B)), 'the resumed conversation whose tab was closed is not brought back', await claudeTabs());
-      /* Claude Code starts a conversation for each page as it loads; the two of its own tabs come up last. */
+      /* Claude Code starts a conversation for each page as it loads. Each of its own two tabs is shown once, so that its
+         page loads whether or not the loader got to it. */
+      const plain = page.locator('.tabs-container .tab[aria-label^="Claude Code,"]');
+      for (let i = 0, n = await plain.count(); i < n; i++) {
+        await plain.nth(i).click().catch(() => {});
+        await until(async () => empties(reloadedAt).length > i, 15000, 500);
+      }
       const found = await until(async () => { const e = empties(reloadedAt); return e.length >= 2 && e; }, 45000, 1000) || empties(reloadedAt);
       await sleep(3000);
       const empty = empties(reloadedAt);

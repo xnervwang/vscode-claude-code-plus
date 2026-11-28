@@ -8728,6 +8728,40 @@ console.log('\nbackground sessions left out of the session list');
     fs.writeFileSync(path.join(dir, J + '.jsonl'), meta + big + '\n' + rec({ parentUuid: 'u1', type: 'user', sessionKind: 'bg' }));
     if (bg.kindOf(path.join(dir, J + '.jsonl')) === 'bg') ok('a first record longer than the first 64 KB is still read whole');
     else bad(`a long first record read as ${JSON.stringify(bg.kindOf(path.join(dir, J + '.jsonl')))}`);
+
+    /* A `claude -p` that a conversation in VS Code ran from Bash inherits the claude-vscode entry point; its first prompt
+       tells it apart: one a person typed carries origin.kind "human", one given to claude -p turnOrigin "sdk", and one
+       with neither was not typed when the version that wrote it marks typed ones. */
+    {
+      const P = (n) => `7a7a7a7${n}-bbbb-cccc-dddd-eeeeeeeeeeee`;
+      const vs = (o) => Object.assign({ entrypoint: 'claude-vscode', version: '2.1.330', isSidechain: false, userType: 'external' }, o);
+      const prompt = (o, text = 'Count the rows of the export.') => vs(Object.assign({ type: 'user', message: { role: 'user', content: text } }, o));
+      const put = (n, recs, mtime = settled) => { const f = path.join(dir, P(n) + '.jsonl'); fs.writeFileSync(f, recs.map(rec).join('')); fs.utimesSync(f, mtime, mtime); return f; };
+      const attached = vs({ parentUuid: null, type: 'attachment', attachment: { type: 'nested_memory', content: 'x'.repeat(100000) } });
+      const files = {
+        typed: put(1, [prompt({ parentUuid: null, origin: { kind: 'human' } })]),
+        sdk: put(2, [prompt({ parentUuid: null, turnOrigin: 'sdk' })]),
+        unmarked: put(3, [prompt({ parentUuid: null, version: '2.1.263' })]),
+        old: put(4, [prompt({ parentUuid: null, version: '2.1.200' })]),
+        late: put(5, [attached, prompt({ parentUuid: 'u1', turnOrigin: 'sdk' })]),
+        meta: put(6, [prompt({ parentUuid: null, isMeta: true }, '<local-command-caveat>Caveat</local-command-caveat>'),
+          vs({ parentUuid: 'u1', type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'ok' }] } }),
+          prompt({ parentUuid: 'u2', origin: { kind: 'human' } })]),
+        peer: put(7, [prompt({ parentUuid: null, turnOrigin: 'peer', origin: { kind: 'peer' } })]),
+        waiting: put(8, [vs({ parentUuid: null, type: 'attachment', attachment: { type: 'output_style' } })], new Date()),
+        settledNone: put(9, [vs({ parentUuid: null, type: 'attachment', attachment: { type: 'output_style' } })]),
+      };
+      const kinds = Object.fromEntries(Object.entries(files).map(([k, f]) => [k, bg.kindOf(f)]));
+      const want = { typed: '', sdk: 'sdk', unmarked: 'sdk', old: '', late: 'sdk', meta: '', peer: '', waiting: null, settledNone: '' };
+      const hidden = ids(bg.withoutBackground([{ id: P(1) }, { id: P(2) }, { id: P(3) }, { id: P(4) }], cwd, root));
+      const shownToo = ids(bg.withoutDaemons([{ id: P(1) }, { id: P(2) }], cwd, root));
+      if (JSON.stringify(kinds) === JSON.stringify(want) && JSON.stringify(hidden) === JSON.stringify([P(1), P(4)])
+          && JSON.stringify(shownToo) === JSON.stringify([P(1), P(2)]) && JSON.stringify(bg.HUMAN_ORIGIN_FROM) === '[2,1,234]') {
+        ok('a claude -p a VS Code conversation ran, which records the panel\'s entry point, is left out by its first prompt: one given to claude -p, '
+          + 'or one with no origin from a version that marks typed prompts, past attached records, meta records and tool results; '
+          + 'a typed prompt, a message from another session and a prompt from an older version keep it listed, and a file with no prompt yet is read again');
+      } else bad(`first prompts read as ${JSON.stringify({ kinds, hidden, shownToo })}`);
+    }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 
   const he = host.EDITS.find((x) => x.name === 'session list leaves out background sessions');

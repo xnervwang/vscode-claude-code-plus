@@ -11,6 +11,11 @@
  * claudeCode.claudeProcessWrapper is set. So the patched host hands the finished list here instead, and this module
  * reads both fields as Claude Code does, leaving out `claude --bg`, `claude -p` and daemon sessions.
  *
+ * The entry point comes from the environment of the process: a `claude -p` that a conversation in VS Code runs from
+ * Bash inherits "claude-vscode" and records it. Such a session is told apart by its first prompt. Claude Code marks
+ * one a person typed with origin.kind "human" and, from 2.1.277, one given to `claude -p` with turnOrigin "sdk"; a
+ * prompt with neither, written by a version that marks typed ones (HUMAN_ORIGIN_FROM), was not typed either.
+ *
  * With the setting off, the patched host has Claude Code keep its SDK and daemon sessions too (src/host.js), so that
  * `claude -p` sessions can be listed; daemon sessions are left out still. They are Claude Code's own background
  * processes, not anything a person started.
@@ -34,7 +39,37 @@ const SDK = /^sdk-(?:cli|ts|py)$/;
 const RAN = /"type":"(?:cost-state|last-prompt)"/;
 const HIDDEN = new Set(['bg', 'daemon', 'daemon-worker', 'sdk', 'empty']);
 const DAEMON = new Set(['daemon', 'daemon-worker']);
+/* The first version seen to mark a prompt a person typed with origin.kind "human"; older transcripts mark neither. */
+const HUMAN_ORIGIN_FROM = [2, 1, 234];
 const kinds = new Map();
+
+/* Whether version string `v` ("2.1.277") is at least `from`. */
+function atLeast(v, from) {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(String(v || ''));
+  if (!m) return false;
+  for (let i = 0; i < 3; i++) {
+    const n = Number(m[i + 1]);
+    if (n !== from[i]) return n > from[i];
+  }
+  return true;
+}
+
+/* A prompt: a user record with text of its own, not a tool's result, a hidden or meta record, or a summary that
+   continues a conversation after compaction. */
+function isPrompt(r) {
+  if (!r || r.type !== 'user' || r.isMeta || r.isCompactSummary || r.isVisibleInTranscriptOnly) return false;
+  const c = r.message && r.message.content;
+  if (typeof c === 'string') return !!c.trim();
+  return Array.isArray(c) && c.some((b) => b && b.type === 'text') && !c.some((b) => b && b.type === 'tool_result');
+}
+
+/* 'sdk' for a prompt that no person typed, '' otherwise. */
+function promptKind(r) {
+  if (r.origin && r.origin.kind === 'human') return '';
+  if (r.turnOrigin === 'sdk') return 'sdk';
+  if (r.origin || r.turnOrigin) return '';
+  return atLeast(r.version, HUMAN_ORIGIN_FROM) ? 'sdk' : '';
+}
 
 /* Claude Code's folder name for a working directory; one longer than 200 characters gets a hash it computes itself. */
 function folderName(cwd) {
@@ -43,23 +78,28 @@ function folderName(cwd) {
 }
 
 /*
- * What the first record with a parent link says: its sessionKind ('' when it has none), or 'sdk' for an SDK entry point.
- * With no such record, 'empty' when the whole file shows the session ran and has settled, and null for a session not
- * started yet, a record still being written, or a file that cannot be read.
+ * What the first record with a parent link says: its sessionKind, or 'sdk' for an SDK entry point. With neither, 'sdk'
+ * when the first prompt was not typed by a person and '' when it was, or when the part read has no prompt. With no
+ * record with a parent link, 'empty' when the whole file shows the session ran and has settled. Null for a session not
+ * started yet, a record still being written, a file with no prompt yet that is still changing, or a file that cannot
+ * be read.
  */
 function kindOf(file, now = Date.now()) {
   let fd;
   try {
     fd = fs.openSync(file, 'r');
     const st = fs.fstatSync(fd);
-    let size = Math.min(st.size, HEAD_BYTES), head = '', lines = [], at = -1;
-    for (;;) {
+    let size = Math.min(st.size, HEAD_BYTES), head = '', lines = [], at = -1, whole = false;
+    const readHead = () => {
       const buf = Buffer.alloc(size);
       const read = fs.readSync(fd, buf, 0, size, 0);
       head = buf.toString('utf8', 0, read);
       lines = head.split('\n');
+      whole = read >= st.size;
+    };
+    for (;;) {
+      readHead();
       at = lines.findIndex((l) => l.includes('"parentUuid":'));
-      const whole = read >= st.size;
       if ((at >= 0 && at < lines.length - 1) || whole || size >= MAX_BYTES) {
         if (at < 0) return whole && RAN.test(head) && now - st.mtimeMs >= SETTLED_MS ? 'empty' : null;
         break;
@@ -72,7 +112,20 @@ function kindOf(file, now = Date.now()) {
     try { rec = JSON.parse(lines[at]); } catch (_) { return null; }
     if (!rec || typeof rec !== 'object') return null;
     if (SDK.test(String(rec.entrypoint || ''))) return 'sdk';
-    return typeof rec.sessionKind === 'string' ? rec.sessionKind : '';
+    if (typeof rec.sessionKind === 'string' && rec.sessionKind) return rec.sessionKind;
+    /* The first prompt can follow records Claude Code attaches to it; the last piece read may be cut short. */
+    for (;;) {
+      for (let i = at; i < lines.length - 1; i++) {
+        let r;
+        try { r = JSON.parse(lines[i]); } catch (_) { continue; }
+        if (isPrompt(r)) return promptKind(r);
+      }
+      if (whole || size >= MAX_BYTES) break;
+      size = Math.min(st.size, MAX_BYTES);
+      readHead();
+    }
+    /* No prompt in what was read: as a typed conversation, unless the file may still get its first prompt. */
+    return whole && now - st.mtimeMs < SETTLED_MS ? null : '';
   } catch (_) {
     return null;
   } finally {
@@ -110,4 +163,4 @@ function withoutBackground(entries, cwd, projects = projectsDir()) { return leav
 /* What the list keeps when background sessions are shown. */
 function withoutDaemons(entries, cwd, projects = projectsDir()) { return leaving(entries, cwd, projects, DAEMON); }
 
-module.exports = { withoutBackground, withoutDaemons, isBackground, kindOf, folderName, SETTLED_MS };
+module.exports = { withoutBackground, withoutDaemons, isBackground, kindOf, folderName, SETTLED_MS, HUMAN_ORIGIN_FROM };

@@ -48,14 +48,18 @@ const OTHER_THREADS = [
     turns: [['Rename the columns of the billing export.', 'Renamed them in export/billing.sql and in its two readers.']] },
 ];
 
-/* Transcripts as Claude Code's CLI writes them for a `claude --bg` session, a `claude -p` run and a daemon session.
-   Each copies the last of THREADS and changes the first record's entry point and session kind. This extension leaves
-   all three out of the session list while claudeCodePlus.hideBackgroundSessions is on; with it off, it lists the first
-   two. */
+/* Transcripts as Claude Code's CLI writes them for a `claude --bg` session, a `claude -p` run, a `claude -p` that a
+   conversation in VS Code ran from Bash, and a daemon session. Each copies the last of THREADS and changes the first
+   record's entry point and session kind, or for the third its prompts' origin: that `claude -p` inherits the
+   claude-vscode entry point, and its prompts carry turnOrigin "sdk" instead of the origin of a typed one. This
+   extension leaves all four out of the session list while claudeCodePlus.hideBackgroundSessions is on; with it off, it
+   lists all but the daemon session. */
+const TYPED = '"origin":{"kind":"human"}';
 const BACKGROUND = [
-  { head: '5b0d1c2e-9a8f-4c6b-8d7e-', entry: '"entrypoint":"cli","sessionKind":"bg"', title: 'Nightly report run in the background', listedWhenShown: true },
-  { head: '6c1e2d3f-0b9a-4d7c-9e8f-', entry: '"entrypoint":"sdk-cli"', title: 'Weekly digest written by claude -p', listedWhenShown: true },
-  { head: '7d2f3e4a-1c0b-4e8d-af90-', entry: '"entrypoint":"cli","sessionKind":"daemon"', title: 'Daemon session never listed', listedWhenShown: false },
+  { head: '5b0d1c2e-9a8f-4c6b-8d7e-', from: '"entrypoint":"claude-vscode"', to: '"entrypoint":"cli","sessionKind":"bg"', title: 'Nightly report run in the background', listedWhenShown: true },
+  { head: '6c1e2d3f-0b9a-4d7c-9e8f-', from: '"entrypoint":"claude-vscode"', to: '"entrypoint":"sdk-cli"', title: 'Weekly digest written by claude -p', listedWhenShown: true },
+  { head: '8e3a4f5b-2d1c-4f9e-b0a1-', from: TYPED, to: '"turnOrigin":"sdk"', title: 'Probe run with claude -p from a conversation', listedWhenShown: true },
+  { head: '7d2f3e4a-1c0b-4e8d-af90-', from: '"entrypoint":"claude-vscode"', to: '"entrypoint":"cli","sessionKind":"daemon"', title: 'Daemon session never listed', listedWhenShown: false },
 ];
 
 /* Claude Code's folder name for a working directory (folderName in src/bgsessions.js). */
@@ -83,7 +87,7 @@ function transcript(thread, cwd, now) {
     const at = start + i * gap;
     const u = uuid(thread, ++n), a = uuid(thread, ++n);
     lines.push({ parentUuid: parent, ...base, type: 'user', message: { role: 'user', content: ask }, uuid: u,
-      timestamp: new Date(at).toISOString(), permissionMode: 'default', promptSource: 'user' });
+      timestamp: new Date(at).toISOString(), permissionMode: 'default', origin: { kind: 'human' }, promptSource: 'user' });
     lines.push({ parentUuid: u, ...base, type: 'assistant', uuid: a, timestamp: new Date(at + Math.min(40000, gap / 2)).toISOString(), requestId: `req_fake_${n}`,
       message: { id: `msg_fake_${thread.id.slice(-4)}_${n}`, type: 'message', role: 'assistant', model: MODEL,
         content: [{ type: 'text', text: answer }], stop_reason: 'end_turn', stop_sequence: null,
@@ -188,7 +192,7 @@ function write(home, { folder, now = Date.now() }) {
   /* Every record id of the copied conversation starts with the first 24 characters of its session id. */
   const background = BACKGROUND.map((b) => {
     const id = b.head + t.id.slice(24), file = path.join(dir, `${id}.jsonl`);
-    fs.writeFileSync(file, src.split(t.id.slice(0, 24)).join(b.head).split('"entrypoint":"claude-vscode"').join(b.entry).split(t.title).join(b.title));
+    fs.writeFileSync(file, src.split(t.id.slice(0, 24)).join(b.head).split(b.from).join(b.to).split(t.title).join(b.title));
     return { id, title: b.title, listedWhenShown: b.listedWhenShown, file };
   });
   return { dir, files, threads: THREADS, background };
