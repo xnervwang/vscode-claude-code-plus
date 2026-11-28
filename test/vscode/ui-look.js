@@ -2448,6 +2448,9 @@ const STEPS = [
       await d.exec('workbench.view.extension.claudeCodePlusSteward');
       const frame = await d.frameWhere(() => /Managed by/.test(document.body ? document.body.innerText : ''), 30000);
       if (frame) await d.until(() => frame.evaluate(() => !!document.querySelector('.env')), 20000, 1000);
+      if (!frame || !await d.until(() => frame.evaluate((t) => [...document.querySelectorAll('.name')].some((e) => e.textContent.startsWith(t)), LONG), 20000, 500)) {
+        throw new Error('the Supervisor panel does not show the new name');
+      }
       await agentRowWhere(d, agents, LONG, (s) => s.unread === 1 && !s.crowns, 20000, 'does not show one envelope and no crown');
       await d.away();
       const stored = storedTitle(d, id), labels = await tabLabels(d);

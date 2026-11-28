@@ -9607,10 +9607,10 @@ console.log('\nthe Supervisor panel');
         records: () => [{ sessionId: ${JSON.stringify(S(1))}, messagingSocketPath: 'uds:/x' }], post: async (a, t) => { posts.push([a, t]); return true; },
         windowName: () => 'proj-a', windowFolders: () => ['/w'], shownList: () => [${JSON.stringify(S(1))}, ${JSON.stringify(S(2))}, ${JSON.stringify(S(6))}],
         alive: (pid) => pid === 4242 });
-      let onMsg;
+      let onMsg, visibility = () => {};
       const sentToPage = [];
       const view = { visible: true, webview: { options: {}, html: '', onDidReceiveMessage: (f) => { onMsg = f; },
-        postMessage: (m) => { sentToPage.push(m); } }, onDidChangeVisibility() {}, onDidDispose() {} };
+        postMessage: (m) => { sentToPage.push(m); } }, onDidChangeVisibility: (f) => { visibility = f; }, onDidDispose() {} };
       (async () => {
         await v._pass();
         const idle = asked;
@@ -9693,8 +9693,18 @@ console.log('\nthe Supervisor panel');
         const everyOff = st.read(D2)[S1];
         const freedPage = latest();
         const every = { on: everyOn, lockedPage, locked, grown, off: everyOff, freedPage, keptAway, goneLater };
+        /* Hidden, the panel's passes do not read the list; shown again, it reads it at once. */
+        view.visible = false;
+        visibility();
+        await v._pass();
+        const hiddenAsked = asked;
+        records = records.map((r) => r.sessionId === ${JSON.stringify(S(2))} ? Object.assign({}, r, { name: 'Renamed while hidden' }) : r);
+        view.visible = true;
+        visibility();
+        await new Promise((r) => setTimeout(r, 100));
+        const reshown = { read: asked - hiddenAsked, renamed: latest().includes('Renamed while hidden') };
         v.dispose();
-        process.stdout.write(JSON.stringify({ replacedTook, first, second, ticked, heldStop, afterDone, held, posts, stillTicked, cleared, reloaded: shellAfter !== shellFirst, idle, ownWindow, groupOn, groupOff, allTicked, away, dropped, everyShown, jump, every }));
+        process.stdout.write(JSON.stringify({ reshown, replacedTook, first, second, ticked, heldStop, afterDone, held, posts, stillTicked, cleared, reloaded: shellAfter !== shellFirst, idle, ownWindow, groupOn, groupOff, allTicked, away, dropped, everyShown, jump, every }));
       })().catch((e) => process.stdout.write(JSON.stringify({ error: e.stack })));`;
     if (process.env.CCE_DUMP_PANEL) fs.writeFileSync(process.env.CCE_DUMP_PANEL, PANEL_SCRIPT);
     const out = JSON.parse(cp.execFileSync(process.execPath, ['-e', PANEL_SCRIPT], { encoding: 'utf8', timeout: 30000 }));
@@ -9729,6 +9739,8 @@ console.log('\nthe Supervisor panel');
           && /\bchecked\b/.test(box(out.allTicked, own)) && !/data-mixed/.test(box(out.allTicked, own))) {
         ok('ticking a group box ticks every conversation in it, and clearing it clears them, leaving other groups as they were');
       } else bad(`the group box gave ${JSON.stringify([out.groupOn, out.groupOff])}`);
+      if (out.reshown && out.reshown.read > 0 && out.reshown.renamed) ok('a Supervisor panel shown again reads the conversations at once and shows a name changed while it was hidden');
+      else bad(`a Supervisor panel shown again after hiding: ${JSON.stringify(out.reshown)}`);
       if (out.idle === 0) ok('with the panel never shown and no supervisor in this window, nothing is read');
       else bad(`a hidden panel with no supervisor still listed conversations ${out.idle} time(s)`);
       if (out.stillTicked[S(1)] && out.cleared[S(1)] === undefined) ok('a window that may not write shared files changes nothing; Clear empties the list');

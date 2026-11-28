@@ -1241,7 +1241,9 @@ function create(vscode, deps) {
       view = v;
       v.webview.options = { enableScripts: true };
       v.webview.onDidReceiveMessage((m) => { onMessage(m).catch((e) => deps.log('supervisor panel: ' + ((e && e.message) || e))); });
-      v.onDidChangeVisibility(() => { shown = null; render(); });
+      /* While hidden, passes skip reading the list, so a view shown again reads it at once instead of drawing the list
+         from before it was hidden until the next pass. */
+      v.onDidChangeVisibility(() => { shown = null; render(); if (v.visible) pass(); });
       v.onDidDispose(() => { if (view === v) view = null; });
       shown = null;
       render();
