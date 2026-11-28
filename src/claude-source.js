@@ -98,9 +98,14 @@ const PREFILL_NOT_RECEIVED = {
   late: 'the panel answered too late, so it dropped the text without typing it',
 };
 
-function outcomeOf(sent, reason) {
+/* The panel handed the text to its conversation without the message input (src/page/91-direct-send.js), and the
+   conversation's send failed; the text may already be in it. */
+const DIRECT_FAILED = 'the panel handed it to the conversation, but sending it failed, so it may or may not have arrived; check the conversation\'s latest messages before sending it again';
+
+function outcomeOf(sent, reason, detail) {
   if (sent === true) return { outcome: 'submitted' };
   if (Object.prototype.hasOwnProperty.call(NOT_RECEIVED, reason)) return { outcome: 'notReceived', reason: NOT_RECEIVED[reason] };
+  if (reason === 'direct-error') return { outcome: 'uncertain', reason: detail ? `${DIRECT_FAILED} (${String(detail).slice(0, 200)})` : DIRECT_FAILED };
   return { outcome: 'uncertain', reason: reason ? `the panel reported "${reason}"` : 'the panel gave no reason' };
 }
 
@@ -273,7 +278,7 @@ function createClaudeSource(deps) {
   /* When the input still holds a text this extension typed there earlier, the refusal says so; the one asking would
      otherwise take it for the user's own draft. */
   const refused = (reason, detail) => {
-    const r = outcomeOf(false, reason);
+    const r = outcomeOf(false, reason, detail);
     if (reason === 'draft' && detail && yes('typedFor', detail)) {
       r.reason = 'the message input already had text in it, which Claude Code Plus typed into a panel for a supervisor or for Agent Plus in the last day; check whether the conversation received it, and the user can clear the input there';
     }

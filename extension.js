@@ -39,6 +39,7 @@ const bgEnds = require('./src/bgends');
 const stoppedWork = require('./src/stoppedwork');
 const replyImages = require('./src/reply-images');
 const conversationLinks = require('./src/conversation-links');
+const supervisorBadge = require('./src/supervisor-badge');
 const planBars = require('./src/plan-bar');
 const efforts = require('./src/efforts');
 const { sweepOrphans, planDir, readPlan } = require('./src/workplan');
@@ -426,6 +427,7 @@ function start(context, log, renamed, handing = false) {
       background: off.includes('backgroundSessions') ? [] : background.collect(),
       workers: off.includes('backgroundSessions') ? [] : background.workersNow() || [],
       detached: off.includes('detachedCommands') ? [] : background.jobRows({ jobs: background.jobsNow() || [] }),
+      supervisor: supervisorBadge.live(cfg().get(PREFIX + supervisorBadge.SETTING, 'auto'), vscode.env.language),
     };
   };
   /* Never after Remove, which has just taken these files out of Claude Code's folder: a scan finishing afterwards would
@@ -2247,7 +2249,7 @@ function start(context, log, renamed, handing = false) {
    * only affects what the panel shows is applied through the live stylesheet alone; the patched bundles are not
    * checked, since that reads ten megabytes and these settings cannot change them.
    */
-  const LIVE_SETTINGS = [SETTING, COLOR_SETTING, EDGE_SETTING]
+  const LIVE_SETTINGS = [SETTING, COLOR_SETTING, EDGE_SETTING, PREFIX + supervisorBadge.SETTING]
     .concat(webview.SWITCHES.map((k) => PREFIX + 'show.' + k));
   const listAgain = () => { claude.invalidate(); claude.changed(); };
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(listAgain));

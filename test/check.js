@@ -3057,14 +3057,14 @@ console.log('\na Claude Code build the patch does not fit yet');
     ok('it is shown as one plain sentence in the editor\'s display language, with the rule that failed left to the output channel');
   } else bad('extension.js does not show the unsupported-build warning through vscode.l10n');
   const bundles = fs.readdirSync(path.join(root, 'src', 'l10n')).filter((f) => /^bundle\.l10n\.[a-z]{2}(-[a-z]+)?\.json$/.test(f));
-  const keys = [un.MESSAGE, un.DETAILS].sort();
+  const keys = [un.MESSAGE, un.DETAILS, ...require('../src/supervisor-badge').KEYS].sort();
   const off = bundles.filter((f) => {
     const b = JSON.parse(fs.readFileSync(path.join(root, 'src', 'l10n', f), 'utf8'));
     return JSON.stringify(Object.keys(b).sort()) !== JSON.stringify(keys) || !b[un.MESSAGE].includes('{0}')
       || Object.values(b).some((v) => typeof v !== 'string' || !v.trim());
   });
   if (bundles.includes('bundle.l10n.zh-cn.json') && bundles.includes('bundle.l10n.zh-tw.json') && !off.length) {
-    ok(`each of the ${bundles.length} translations has exactly the strings passed to vscode.l10n.t, the version placeholder kept`);
+    ok(`each of the ${bundles.length} translations has exactly the strings passed to vscode.l10n.t and the supervisor badge's words, the version placeholder kept`);
   } else bad(`translations: ${JSON.stringify({ bundles, off })}`);
 }
 
@@ -13501,7 +13501,7 @@ console.log('\nanswering from the Conversations tab');
     const box = { out: {}, window: { addEventListener() {} }, document: { querySelector: () => null }, setTimeout,
       sessionRef: { sessionId: { value: 'B' } }, acquireVsCodeApi: () => ({ postMessage: (m) => posted.push(m) }) };
     new vm.Script('(function(){var sigValue = function(n){ var s = sessionRef && sessionRef[n]; return s ? s.value : undefined; };'
-      + read('91-answer.js') + '\n;out.sendAnswer = sendAnswer;})()', { filename: 'answer-switch' }).runInNewContext(box);
+      + read('91-answer.js') + '\n' + read('91-direct-send.js') + '\n;out.sendAnswer = sendAnswer;})()', { filename: 'answer-switch' }).runInNewContext(box);
     box.out.sendAnswer({ type: 'cce_answer', sessionId: 'A', text: 'hi', id: 'k1' });
     box.out.sendAnswer({ type: 'cce_answer', sessionId: 'B', text: 'hi', id: 'k2' });
     const got = posted.map((m) => [m.id, m.sent, m.reason]);
@@ -15671,6 +15671,244 @@ console.log('\nRestricted Mode');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
+/* ── a supervisor's message: handed to the conversation, drawn with a badge ──
+   The page hands a message from the host to the panel's own send(), the one its input calls on Enter, when that method
+   has the shape src/page/91-direct-send.js expects, and types it into the input otherwise. A message that starts with a
+   supervisor's line is drawn with a badge in place of the line (src/page/97-supervisor-rows.js, through the edit
+   "supervisor messages drawn with a badge"), in the language the user writes in or the one the setting names. */
+console.log('\na supervisor\'s message, handed over and drawn with a badge');
+/* The checks that wait for the page's promises; the last block of this file waits for them before counting. */
+let supervisorSends = Promise.resolve();
+{
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'src', 'page', f), 'utf8');
+  const direct = require('../src/page/91-direct-send.js');
+  const sendShapeCheck = require('./send-shape');
+  /* A send() written like the panel's, with what the shape check looks for; `cut` takes one part out. */
+  const SEND = (cut) => 'async send(e,t,n,o,r){let i=' + (cut === 'human' ? 'o?.kind==="peer"' : 'o?.kind==="human"') + '&&e.trimStart().startsWith("/");'
+    + 'let c=' + (cut === 'mentions' ? '!0' : 'r?.expandMentions!==!1') + ';let b={type:"user",' + (cut === 'origin' ? '' : '...o&&{origin:o},') + 'message:{role:"user",content:e}};'
+    + (cut === 'queue' ? 'this.messages.value=[...this.messages.value,b];' : 'if(this.turnRunningOrQueued)this.heldPrompts.value=[...this.heldPrompts.value,{uuid:1,message:b}];')
+    + 'window.__sent.push([e,t,n,o,r]);}';
+  const shapes = ['', 'human', 'origin', 'mentions', 'queue'].map((c) => direct.sendShape(SEND(c)));
+  if (JSON.stringify(shapes) === '[true,false,false,false,false]' && !direct.sendShape('send(e,t,n,o,r){}') && !direct.sendShape('async send(e,t){}')) {
+    ok('the shape check takes a send() like the panel\'s and refuses one without the human origin, the origin it sends, expandMentions, or the queue');
+  } else bad(`send() shapes: ${JSON.stringify(shapes)}`);
+  const bundle = 'class A{x(){return"}"}async send(e,t,n,o,r){let s=`a${"}"}b`;' + SEND('').slice('async send(e,t,n,o,r){'.length) + 'other(){}}';
+  const one = sendShapeCheck.sendMethods(bundle);
+  if (one.length === 1 && one[0].endsWith('window.__sent.push([e,t,n,o,r]);}') && sendShapeCheck.check(bundle).ok
+      && !sendShapeCheck.check('class A{async send(e,t){}}').ok && !sendShapeCheck.check(bundle + bundle).ok) {
+    ok('test/send-shape.js reads the method out of a bundle past strings and template literals, and fails a bundle with none or two');
+  } else bad(`send-shape on a stand-in bundle: ${JSON.stringify(one)}`);
+  let seen = 0;
+  for (const dir of Array.from(new Set(extensionsDirs()))) {
+    for (const install of webview.findInstalls(dir)) {
+      const adapter = ADAPTERS.find((a) => a.name === 'Claude Code panel');
+      const p = adapter ? pristine(adapter.targetFile(install), adapter) : null;
+      if (!p || p.foreign) continue;
+      seen++;
+      const r = sendShapeCheck.check(p.src);
+      if (r.ok) ok(`${path.basename(install)}: the panel's session sends a message as the user's own and queues it while a turn runs`);
+      else bad(`${path.basename(install)}: ${r.why}`);
+    }
+  }
+  if (!seen) note('no Claude Code install here to read send() from');
+
+  /* The page, in a context with a stand-in panel: an input holding the user's draft, a session whose send() has the
+     panel's shape or not, and the host's messages. */
+  const page = (opts) => {
+    const posted = [], sent = [], listeners = {};
+    const input = { textContent: opts.draft || '', isConnected: true };
+    const ctx = { window: { __sent: sent, addEventListener: (t, f) => { listeners[t] = f; } }, setTimeout, clearTimeout, Promise, Date,
+      document: { addEventListener: (t, f) => { listeners['doc-' + t] = f; }, querySelector: (sel) => (/Message input/.test(sel) ? input : null),
+        querySelectorAll: () => [input], hidden: false },
+      acquireVsCodeApi: () => ({ postMessage: (m) => posted.push(m) }), out: {} };
+    vm.createContext(ctx);
+    vm.runInContext(`var S = class { ${opts.send || SEND('')} }; var sessionRef = new S(); sessionRef.sessionId = { value: 'A' };`
+      + 'sessionRef.heldPrompts = { value: [] }; sessionRef.messages = { value: [] }; sessionRef.turnRunningOrQueued = ' + (opts.busy ? 'true' : 'false') + ';'
+      + 'var sigValue = function(n){ var s = sessionRef && sessionRef[n]; return s ? s.value : undefined; };'
+      + read('91-answer.js') + '\n' + read('91-direct-send.js') + '\nlistenForAnswers(); out.session = sessionRef;', ctx);
+    const host = (m) => listeners.message({ data: { type: 'from-extension', message: Object.assign({ type: 'cce_answer', sessionId: 'A', id: 'k' }, m) } });
+    return { ctx, posted, sent, input, host, listeners, results: () => posted.filter((m) => m.type === 'cce_answer_result' && m.id !== 'cce-answers-ready').map((m) => [m.id, m.sent, m.reason, m.detail]) };
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 30));
+  supervisorSends = (async () => {
+    const draft = page({ draft: 'half a sentence' });
+    draft.host({ text: 'Sent by the supervisor "Lead" (aca6238e-6640-4377-beec-cf1363596a9d) for the user:\r\nCheck the cache.', id: 'd1' });
+    await settle();
+    if (JSON.stringify(draft.results()) === JSON.stringify([['d1', true, 'direct', '']])
+        && JSON.stringify(draft.sent) === JSON.stringify([['Sent by the supervisor "Lead" (aca6238e-6640-4377-beec-cf1363596a9d) for the user:\nCheck the cache.', [], false, { kind: 'human' }, { expandMentions: false }]])
+        && draft.input.textContent === 'half a sentence') {
+      ok('with the user\'s draft in the input, a message goes to the panel\'s send() as the user\'s own, with its line breaks, without mentions expanded, and the draft is left as it was');
+    } else bad(`a message beside a draft: ${JSON.stringify({ results: draft.results(), sent: draft.sent, input: draft.input.textContent })}`);
+
+    const go = page({ draft: 'mine', busy: true });
+    go.listeners['doc-compositionstart']();
+    go.host({ text: 'Then stop.', id: 'g1', confirm: true, goWaitMs: 2000, sendMs: 3000 });
+    const ready = JSON.stringify(go.results());
+    go.listeners.message({ data: { type: 'from-extension', message: { type: 'cce_answer_go', id: 'g1' } } });
+    await settle();
+    if (ready === JSON.stringify([['g1', false, 'ready', '']]) && JSON.stringify(go.results()) === JSON.stringify([['g1', false, 'ready', ''], ['g1', true, 'direct', '']])
+        && go.sent.length === 1 && go.ctx.out.session.heldPrompts.value.length === 1 && go.input.textContent === 'mine') {
+      ok('with the host\'s go, while a turn runs and a word is being composed, the message is sent once the go comes and the panel queues it; the input is left alone');
+    } else bad(`a message with a go during a turn: ${JSON.stringify({ ready, results: go.results(), sent: go.sent.length, input: go.input.textContent })}`);
+
+    const old = page({ draft: 'half a sentence', send: 'async send(e,t){window.__sent.push([e]);}' });
+    old.host({ text: 'Check the cache.', id: 'o1' });
+    const slash = page({ draft: 'kept' });
+    slash.host({ text: '/compact', id: 's1' });
+    await settle();
+    if (JSON.stringify(old.results()) === JSON.stringify([['o1', false, 'draft', 'half a sentence']]) && !old.sent.length
+        && JSON.stringify(slash.results()) === JSON.stringify([['s1', false, 'draft', 'kept']]) && !slash.sent.length) {
+      ok('a panel whose send() has another shape, and a text that starts with a slash, go to the input as before, which refuses them beside a draft');
+    } else bad(`the input instead: ${JSON.stringify({ old: old.results(), oldSent: old.sent, slash: slash.results() })}`);
+
+    const fails = page({ send: SEND('').replace('window.__sent.push([e,t,n,o,r]);}', 'throw new Error("no channel");}') });
+    fails.host({ text: 'Check the cache.', id: 'f1' });
+    await settle();
+    const stubHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cce-direct-outcome-')));
+    let o = {}, sentOutcome = '';
+    try {
+      const stub = path.join(stubHome, 'vscode-stub.js');
+      fs.writeFileSync(stub, 'module.exports = { TabInputWebview: class {} };');
+      [o, sentOutcome] = JSON.parse(cp.execFileSync(process.execPath, ['-e', `
+        const Module = require('module'), realResolve = Module._resolveFilename;
+        Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? ${JSON.stringify(stub)} : realResolve.call(this, request, ...rest); };
+        const C = require(${JSON.stringify(path.join(__dirname, '..', 'src', 'claude-source.js'))});
+        process.stdout.write(JSON.stringify([C.outcomeOf(false, 'direct-error', 'no channel'), C.outcomeOf(true, 'direct').outcome]));`], { encoding: 'utf8', timeout: 30000 }));
+    } catch (e) { o = { error: e.message }; } finally { fs.rmSync(stubHome, { recursive: true, force: true }); }
+    if (JSON.stringify(fails.results()) === JSON.stringify([['f1', false, 'direct-error', 'no channel']]) && o.outcome === 'uncertain'
+        && /may or may not have arrived/.test(o.reason) && o.reason.includes('no channel') && sentOutcome === 'submitted') {
+      ok('a send() that fails is reported with its error, and the sender is told it may or may not have arrived');
+    } else bad(`a failed send(): ${JSON.stringify({ results: fails.results(), outcome: o })}`);
+  })().catch((e) => bad(`the direct send checks threw: ${(e && e.stack) || e}`));
+
+  /* The badge: which messages carry it, what the block becomes, and the words. */
+  const rows = require('../src/page/97-supervisor-rows.js');
+  const LINE = 'Sent by the supervisor "Multi lead" (aca6238e-6640-4377-beec-cf1363596a9d) for the user:';
+  class Block { constructor(e, t = false, n, o = Math.random()) { this.content = e; this.partial = t; this.narrationHint = n; this.key = o; } }
+  const b1 = new Block({ type: 'text', text: LINE + '\nThe desktop restarted.\nLook where it stopped.' });
+  const body = rows.supBody(b1);
+  const notes = ['Supervisor notice from Claude Code Plus: x', 'Handoff from "a" (b): x', 'just a line naming no one'];
+  if (body instanceof Block && body.content.text === 'The desktop restarted.\nLook where it stopped.' && rows.supBody(b1) === body
+      && b1.content.text.startsWith(LINE) && rows.supInfo(b1).title === 'Multi lead' && rows.supInfo(b1).steward === 'aca6238e-6640-4377-beec-cf1363596a9d'
+      && notes.every((t) => rows.supBody(new Block({ type: 'text', text: t })) === null) && rows.supBody(new Block({ type: 'image' })) === null
+      && rows.supInfo(new Block({ type: 'text', text: 'Sent by the steward (aca6238e-6640-4377-beec-cf1363596a9d) for the user:' })).title === '') {
+    ok('a block that starts with a supervisor\'s line is drawn as a block of its own class without the line, the same object every time; the block itself keeps the line, and other blocks get nothing');
+  } else bad(`the block without the line: ${JSON.stringify({ body: body && body.content, info: rows.supInfo(b1) })}`);
+  const spans = (t) => rows.supOwnSpans(t).map(([a, z]) => t.slice(a, z));
+  const zh = '开发机重启了。先看它做到哪。（主管的安排）遇到审批我来点。\n再查日志(主管查到的)。';
+  const en = 'The cluster restarted. Look where it stopped first. (the supervisor\'s arrangement) I will approve. Logs say 3 (what the supervisor found).';
+  if (JSON.stringify(spans(zh)) === JSON.stringify(['先看它做到哪。（主管的安排）', '再查日志(主管查到的)。'])
+      && JSON.stringify(spans(en)) === JSON.stringify(['Look where it stopped first. (the supervisor\'s arrangement)', 'Logs say 3 (what the supervisor found).'])
+      && !rows.supOwnSpans('Nothing marked here.').length) {
+    ok('the sentences the supervisor marked as its own are found in Chinese and English, the mark included, and nothing else is');
+  } else bad(`the supervisor's sentences: ${JSON.stringify([spans(zh), spans(en)])}`);
+  const lang = [rows.supLangOf('把 deliverAnswer 和 sendAnswer 合并'), rows.supLangOf('please check why the badge is purple'), rows.supLangOf('ok'),
+    rows.supLangOf('看一下 test/check.js 的 output'), rows.supLangOf('```\nconst a = b + c + d + e;\n``` 好')];
+  if (JSON.stringify(lang) === JSON.stringify(['zh', 'en', '', 'zh', ''])) {
+    ok('a message is Chinese with as many Han characters as English words, English otherwise, and too short to tell when code and paths are left out');
+  } else bad(`the language of a text: ${JSON.stringify(lang)}`);
+
+  /* The fragment in a context of its own: the live stylesheet's property, the conversation's messages and the panel's
+     element function stand in for the panel's. */
+  const msg = (text, extra) => Object.assign({ type: 'user', content: [new Block({ type: 'text', text })] }, extra || {});
+  const words = require('../src/supervisor-badge').words();
+  /* The words as the page's stylesheet generates them: its quoted strings, with attr() read from the element. */
+  const generated = (css, part, name) => {
+    const m = new RegExp('\\[data-cce-sup-' + part + '\\]::before\\{content:((?:"(?:[^"\\\\]|\\\\.)*"|\\s|attr\\([\\w-]+\\))+);\\}').exec(css || '');
+    if (!m) return null;
+    return m[1].replace(/"((?:[^"\\]|\\.)*)"|attr\([\w-]+\)|\s+/g, (x, q) => (q !== undefined ? q.replace(/\\(.)/g, '$1') : /^attr/.test(x) ? name : ''));
+  };
+  const drawn = (opts) => {
+    const style = { attrs: {}, textContent: '', setAttribute(k, v) { this.attrs[k] = v; } };
+    const ctx = { window: {}, navigator: { language: opts.browser || 'en-US' }, STEWARD_LINK: 'vscode://xnervwang.claude-code-plus/open?',
+      textOf: (el) => el.text, document: { createElement: () => style, head: { appendChild() {} } },
+      readProp: (name) => (name === '--cce-supervisor' && opts.live !== false ? [opts.choice || 'auto', opts.ui || '', opts.noWords ? undefined : words] : []),
+      sessionRef: { messages: { value: (opts.typed || []).map((t) => (typeof t === 'string' ? msg(t) : t)) } }, out: {} };
+    vm.createContext(ctx);
+    vm.runInContext(read('97-supervisor-rows.js') + '\nout.head = supHead;', ctx);
+    const el = (type, props) => ({ type, props });
+    const h = ctx.out.head(b1, el);
+    const find = (n, attr) => (n && n.props ? (attr in n.props ? n : [].concat(n.props.children || []).map((c) => find(c, attr)).find(Boolean)) : null);
+    if (!h) return null;
+    const name = find(h, 'data-cce-sup-full').props['data-cce-sup-name'];
+    return { lang: style.attrs['data-cce-sup-lang'], steward: h.props['data-cce-sup-head'], full: generated(style.textContent, 'full', name),
+      short: generated(style.textContent, 'short', find(h, 'data-cce-sup-short').props['data-cce-sup-name']), open: generated(style.textContent, 'open', ''),
+      href: find(h, 'data-cce-sup-open').props.href };
+  };
+  const zhTyped = ['这个徽章的颜色不对，改一下', '然后跑一下测试'];
+  const enTyped = ['please make the badge purple', 'then run the window tests again'];
+  const cases = {
+    zh: drawn({ typed: zhTyped, ui: 'en' }),
+    en: drawn({ typed: enTyped, ui: 'zh-cn' }),
+    unknownZh: drawn({ typed: ['ok'], ui: 'zh-cn' }),
+    unknownEn: drawn({ typed: [], ui: 'en' }),
+    setEn: drawn({ typed: zhTyped, choice: 'en' }),
+    setZh: drawn({ typed: enTyped, choice: 'zh', ui: 'en' }),
+    tw: drawn({ typed: zhTyped, ui: 'zh-tw' }),
+    notTyped: drawn({ typed: [msg(LINE + '\nplease run all the tests again now'), msg('Supervisor notice from Claude Code Plus: the run stopped and needs you'),
+      msg('<task-notification>the job ended and wrote its output</task-notification>'), msg('a tool result', { isSynthetic: true }),
+      msg('from another session about the window tests', { origin: { kind: 'peer' } }), ...zhTyped], ui: 'en' }),
+    oldSheet: drawn({ typed: zhTyped, live: false, browser: 'zh-CN' }),
+    noWords: drawn({ typed: zhTyped, noWords: true }),
+  };
+  const zhFull = '🧭 主管「Multi lead」代你发送', enFull = '🧭 Supervisor "Multi lead" sent this for you';
+  const exp = { zh: [zhFull, '打开主管对话 ↗'], en: [enFull, 'Open supervisor ↗'], unknownZh: [zhFull], unknownEn: [enFull], setEn: [enFull], setZh: [zhFull],
+    tw: ['🧭 主管「Multi lead」代你發送', '打開主管對話 ↗'], notTyped: [zhFull], oldSheet: [enFull], noWords: [enFull] };
+  const off = Object.keys(exp).filter((k) => !cases[k] || cases[k].full !== exp[k][0] || (exp[k][1] && cases[k].open !== exp[k][1]));
+  if (!off.length && cases.zh.short === '🧭 Multi lead' && cases.zh.steward === 'aca6238e-6640-4377-beec-cf1363596a9d'
+      && cases.zh.href === 'vscode://xnervwang.claude-code-plus/open?session=aca6238e-6640-4377-beec-cf1363596a9d&source=claude-code' && cases.zh.lang === 'zh' && cases.en.lang === 'en') {
+    ok('the badge follows the language of the user\'s own last messages, leaving out supervisors\' messages, notices, tags, tool results and other sessions; '
+      + 'too little to tell follows the display language; the setting overrides both; traditional Chinese with a traditional display language; '
+      + 'English when the stylesheet has no words; the words are the page\'s own generated content, the link opens the supervisor through Agent Plus, and the narrow badge is the title alone');
+  } else bad(`the badge's words: ${JSON.stringify({ off, cases })}`);
+  const css = read('97-supervisor-rows.js');
+  if (/@container \(max-width: 420px\)\{' \+ SUP_IN \+ '\[data-cce-sup-full\]\{display:none;\}' \+ SUP_IN \+ '\[data-cce-sup-short\]\{display:inline;\}'/.test(css)
+      && /'body\.vscode-light ' \+ SUP_ROW \+ '\{border-left-color:#7c3aed !important;background:rgba\(124,58,237,\.06\) !important;\}'/.test(css)
+      && /SUP_ROW \+ '\{border-left:3px solid #c084fc !important;/.test(css) && /'::highlight\(cce-sup-own\)\{/.test(css)) {
+    ok('a supervisor\'s message has a purple bar and tint, darker purple on a light theme, the badge shrinks to the title in a narrow panel, and the supervisor\'s sentences have a shade of their own');
+  } else bad('the supervisor message styles are not as expected in 97-supervisor-rows.js');
+
+  /* The edit, applied to a line shaped like the panel's: the row and the block without the line come from the page,
+     and without the page the message is drawn as it was. */
+  const { applyEdits } = require('../src/edits');
+  const line = 'var R=g("div",{className:Re.userMessage,children:[Se,u(U5,{maxHeight:60,children:u(Bp,{content:N[q]??le,context:r,plainText:!0})})]});';
+  const patched = applyEdits(line, [webview.EDITS.find((e) => e.name === 'supervisor messages drawn with a badge')]);
+  const runLine = (win) => new Function('window', 'g', 'u', 'Re', 'Se', 'U5', 'Bp', 'N', 'q', 'le', 'r', patched.out + ';return R;')(win,
+    (t, p) => ({ t, p }), (t, p) => ({ t, p }), { userMessage: 'um' }, 'files', 'fold', 'block', [undefined], 0, 'shown', 'ctx');
+  const withPage = patched.error ? null : runLine({ __cceSupHead: (b, h) => h('div', { b }), __cceSupBody: (b) => b + ' without the line' });
+  const without = patched.error ? null : runLine({});
+  if (withPage && withPage.p.children[0].p.b === 'shown' && withPage.p.children[1] === 'files' && withPage.p.children[2].p.children.p.content === 'shown without the line'
+      && without.p.children[0] === null && without.p.children[2].p.children.p.content === 'shown') {
+    ok('the patched user message draws the page\'s badge row first and its block without the line, and without the page draws it as before');
+  } else bad(`the badge edit: ${patched.error || JSON.stringify({ withPage, without })}`);
+
+  /* The host's side: the setting, the display language and the words, in the live stylesheet. */
+  const badge = require('../src/supervisor-badge');
+  const prop = /--cce-supervisor:"([A-Za-z0-9+/=]+)"/.exec(webview.liveCss({ supervisor: badge.live('zh', 'zh-CN') }));
+  const back = prop ? JSON.parse(Buffer.from(prop[1], 'base64').toString('utf8')) : null;
+  const pkg = require('../package.json').contributes.configuration.properties['claudeCodePlus.' + badge.SETTING];
+  const ext = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  if (back && back[0] === 'zh' && back[1] === 'zh-cn' && back[2]['zh-cn'].sent === '主管「{0}」代你发送'
+      && back[2]['zh-tw'].open === '打開主管對話' && back[2].en.sent === badge.SENT
+      && JSON.stringify(badge.live('fr', 'x;y{')) === JSON.stringify(['auto', '', badge.words()])
+      && webview.liveCss({ enabled: false, supervisor: badge.live('auto', 'en') }).includes('--cce-supervisor')
+      && pkg && JSON.stringify(pkg.enum) === '["auto","zh","en"]' && pkg.default === 'auto'
+      && ext.includes('supervisor: supervisorBadge.live(cfg().get(PREFIX + supervisorBadge.SETTING, \'auto\'), vscode.env.language),')
+      && /const LIVE_SETTINGS = \[[^\]]*PREFIX \+ supervisorBadge\.SETTING\]/.test(ext)) {
+    ok('the live stylesheet carries the badge setting, the display language and the words from src/l10n, with marks off too; '
+      + 'an unknown setting is auto and a strange language is dropped; a change to the setting rewrites the stylesheet');
+  } else bad(`the badge in the live stylesheet: ${JSON.stringify({ back, pkg })}`);
+
+  /* Where the sweep reaches the badge: before the marks' switch, so it is drawn with the marks off too, and the time on
+     the badge's own row. */
+  const sweepSrc = read('99-sweep.js');
+  if (/marksFollowSwitches\(\);\s*try \{ supSweep\(bubbles\); \} catch \(e\) \{\}\s*if \(!isOn\(\)\) \{ sweep\(\); return; \}/.test(sweepSrc)
+      && sweepSrc.includes('var badge = supHeadOf(b);\n        set(badge || b, row.mark, !!badge);')
+      && sweepSrc.includes('var line = supRowText(b, b === lastBubble) || textOf(b, b === lastBubble);')) {
+    ok('each sweep shades the supervisor\'s sentences and redraws badges in a new language with the marks off too; the time stands in front of the badge, and the list of your messages has the text after it');
+  } else bad('99-sweep.js does not reach the supervisor rows as expected');
+}
+
 /* ── with Agent Plus ──
    test/with-core.js activates Agent Plus from its checkout beside this one, then this extension, in Agent
    Plus's stand-in VS Code. It runs as a child with an empty home folder, since both extensions write under it. Without
@@ -15762,6 +16000,7 @@ const repo = path.join(__dirname, '..');
   await require('./shared-copies.js')(t, repo);
   console.log('\nthe package');
   await require('./pack-check.js')(t, repo);
+  await supervisorSends;
 
   console.log('\nthe lock around a file every window writes (src/file-lock.js, src/proc-start.js)');
   {

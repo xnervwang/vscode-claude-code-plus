@@ -1329,9 +1329,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
       await openList();
     });
 
-    /* Agent Plus has a message typed into a conversation, as its Answer view and a supervisor's messages are, while the
-       user types in another conversation's panel beside it. The panel says it is ready and types only on the host's
-       go, and the user's focus and keys stay in the other panel. */
+    /* Agent Plus has a message sent to a conversation, as its Answer view and a supervisor's messages are, while the
+       user types in another conversation's panel beside it. The panel says it is ready and, on the host's go, hands the
+       message to its conversation without the input (src/page/91-direct-send.js); the user's focus and keys stay in
+       the other panel. */
     await step('a message typed for someone else', async () => {
       if (!conv) throw new Error('the conversation did not open');
       const t1 = threads[1];
@@ -1365,8 +1366,8 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         const arrived = await until(() => {
           try { return fs.readFileSync(transcriptOf(tab0), 'utf8').split(JSON.stringify(text).slice(1, -1)).length - 1; } catch (_) { return 0; }
         }, 30000, 500);
-        check(!!got && got.outcome === 'submitted' && JSON.stringify(seen) === JSON.stringify([[false, 'ready'], [true, '']]) && arrived >= 1,
-          'a message for a conversation is sent from its panel only after the panel said it was ready and the host said go; it arrives with its line break', { got, seen, arrived });
+        check(!!got && got.outcome === 'submitted' && JSON.stringify(seen) === JSON.stringify([[false, 'ready'], [true, 'direct']]) && arrived >= 1,
+          'a message for a conversation is handed to it by its panel only after the panel said it was ready and the host said go; it arrives with its line break', { got, seen, arrived });
         check(await inputOf(conv) === '' && await inputOf(side) === 'my own words ', 'its input is empty again, and what the user was typing in the panel beside it is untouched',
           { here: await inputOf(conv), beside: await inputOf(side) });
         await page.keyboard.type('and more');
@@ -1376,19 +1377,18 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await shot('typed-for-someone-else');
 
         /* The user's own draft in the conversation's input, and then a word still being composed with an input method
-           in an empty input: the message is refused in both, the sender is told why, and the input is left as it
-           was. */
+           in an empty input: the message is sent in both, and the input is left as it was. */
         const deliver = (t) => call(`return await vscode.extensions.getExtension('xnervwang.agent-plus').exports.agentPlus.deliver({ sourceId: 'claude-code', sessionId: arg.id, text: arg.text });`,
           { id: tab0.id, text: t }, 60000);
         const count = (t) => { try { return fs.readFileSync(transcriptOf(tab0), 'utf8').split(JSON.stringify(t).slice(1, -1)).length - 1; } catch (_) { return 0; } };
-        const REFUSED = /^the message input already had text in it/;
         await conv.locator(SEL).first().click();
         await page.keyboard.type('half a sentence');
         const intoDraft = 'Check the cache size as well.';
         const draftGot = await deliver(intoDraft);
-        check(!!draftGot && draftGot.outcome === 'notReceived' && REFUSED.test(draftGot.reason || '') && await inputOf(conv) === 'half a sentence' && count(intoDraft) === 0,
-          'a message for a conversation whose input holds the user\'s draft is refused with the reason, and the draft is left as it was',
-          { got: draftGot, input: await inputOf(conv), arrived: count(intoDraft) });
+        const draftArrived = await until(() => count(intoDraft), 30000, 500);
+        check(!!draftGot && draftGot.outcome === 'submitted' && draftArrived >= 1 && await inputOf(conv) === 'half a sentence',
+          'a message for a conversation whose input holds the user\'s draft is sent all the same, and the draft is left as it was',
+          { got: draftGot, input: await inputOf(conv), arrived: draftArrived });
         await page.keyboard.press('ControlOrMeta+a');
         await page.keyboard.press('Delete');
         const composing = (name) => conv.evaluate(([sel, type]) => {
@@ -1406,13 +1406,10 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         } finally {
           await composing('compositionend').catch(() => {});
         }
-        check(!!composeGot && composeGot.outcome === 'notReceived' && REFUSED.test(composeGot.reason || '') && await inputOf(conv) === '' && count(whileComposing) === 0,
-          'a message that comes while the user is composing a word with an input method is not typed into the input either',
-          { got: composeGot, input: await inputOf(conv), arrived: count(whileComposing) });
-        const afterGot = await deliver(whileComposing);
-        const afterArrived = await until(() => count(whileComposing), 30000, 500);
-        check(!!afterGot && afterGot.outcome === 'submitted' && afterArrived >= 1 && await inputOf(conv) === '',
-          'after the input method finishes the word, the same message is sent', { got: afterGot, arrived: afterArrived, input: await inputOf(conv) });
+        const composeArrived = await until(() => count(whileComposing), 30000, 500);
+        check(!!composeGot && composeGot.outcome === 'submitted' && composeArrived >= 1 && await inputOf(conv) === '',
+          'a message that comes while the user is composing a word with an input method is sent too, and nothing goes into the input',
+          { got: composeGot, input: await inputOf(conv), arrived: composeArrived });
       } finally {
         await conv.locator(SEL).first().click().catch(() => {});
         await page.keyboard.press('ControlOrMeta+a').catch(() => {});
@@ -1425,6 +1422,149 @@ async function run({ exe, vsix, profile, env, playwright, model, threads, backgr
         await exec('claude-vscode.editor.open', tab0.id);
         conv = await conversation(tab0, 30000) || conv;
       }
+    });
+
+    /* What these steps share: a message sent to the first conversation through Agent Plus, as a supervisor's is, and the
+       panel's session read through its React props. */
+    const SUP_INPUT = '[role="textbox"][aria-label="Message input"]';
+    const handTo = (t, text) => call(`return await vscode.extensions.getExtension('xnervwang.agent-plus').exports.agentPlus.deliver({ sourceId: 'claude-code', sessionId: arg.id, text: arg.text });`,
+      { id: t.id, text }, 60000);
+    const arrivedIn = (t, text) => { try { return fs.readFileSync(transcriptOf(t), 'utf8').split(JSON.stringify(text).slice(1, -1)).length - 1; } catch (_) { return 0; } };
+    const inputIn = (f) => f.evaluate((sel) => { const b = document.querySelector(sel); return b ? b.textContent : null; }, SUP_INPUT).catch(() => null);
+    const clearInput = async (f) => {
+      await f.locator(SUP_INPUT).first().click().catch(() => {});
+      await page.keyboard.press('ControlOrMeta+a').catch(() => {});
+      await page.keyboard.press('Delete').catch(() => {});
+    };
+    /* `what` is 'held' for the number of messages the panel holds for a running turn, 'shadow' to give the session a
+       send() of another shape that still sends (so the panel types into the input), and 'unshadow' to take it away. */
+    const inSession = (f, what) => f.evaluate((w) => {
+      const send = document.querySelector('button[type="submit"][data-permission-mode]');
+      const k = send && Object.keys(send).find((x) => x.startsWith('__reactFiber$'));
+      for (let n = k ? send[k] : null, i = 0; n && i < 60; n = n.return, i++) {
+        const s = n.memoizedProps && n.memoizedProps.session;
+        if (!s || !s.agentMapAgents) continue;
+        if (w === 'held') return s.heldPrompts && Array.isArray(s.heldPrompts.value) ? s.heldPrompts.value.length : -1;
+        if (w === 'shadow') { const real = Object.getPrototypeOf(s).send; s.send = function(a, b, c, d, e) { return real.call(this, a, b, c, d, e); }; return true; }
+        if (w === 'unshadow') { delete s.send; return true; }
+      }
+      return null;
+    }, what).catch(() => null);
+
+    /* While a turn runs, the message waits in the panel's queue, as one the user types then does, and reaches the
+       model once that turn is over. Whatever the user has started typing stays in the input. */
+    await step('a message handed over while a turn runs', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const text = 'While you are at it, check the eviction count too.';
+      const before = model.seen.length;
+      model.hold();
+      let got = null, held = -1, typing = null;
+      try {
+        const turns = model.turns();
+        await conv.locator(SUP_INPUT).first().click();
+        await page.keyboard.type('Read the notes once more.');
+        await page.keyboard.press('Enter');
+        check(!!await until(() => model.turns() > turns, 30000, 300), 'a turn the user started is running, its reply held back', model.seen.slice(-2));
+        await page.keyboard.type('still typing');
+        got = await handTo(tab0, text);
+        held = await until(async () => { const n = await inSession(conv, 'held'); return n > 0 && n; }, 10000, 300);
+        typing = await inputIn(conv);
+        check(!!got && got.outcome === 'submitted' && held >= 1 && typing === 'still typing'
+          && !model.seen.slice(before).some((x) => String(x.input || '').includes(text)),
+          'a message sent while the turn runs is queued by the panel, not given to the model yet, and the user\'s typing is left in the input',
+          { got, held, typing });
+        await shot('message-queued-during-turn');
+      } finally { model.release(); }
+      const reached = await until(() => model.seen.slice(before).some((x) => String(x.input || '').includes(text)), 60000, 500);
+      check(!!reached && arrivedIn(tab0, text) >= 1, 'once the turn is over, the queued message reaches the model and the transcript', { reached: !!reached });
+      await clearInput(conv);
+    });
+
+    /* A panel whose session's send() has another shape, as after a Claude Code update that changed it, types the
+       message into the input and sends it, as before; then a draft in the input refuses it. */
+    await step('a message typed when the panel cannot hand it over', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      if (!await inSession(conv, 'shadow')) throw new Error('the panel\'s session was not found');
+      try {
+        await call(`const prev = globalThis.__cceAnswerHook, seen = globalThis.__cceTestAnswers = [];
+          globalThis.__cceAnswerHook = (key, sent, reason, detail) => { if (key !== 'cce-answers-ready') seen.push([sent, reason]); return prev(key, sent, reason, detail); };
+          globalThis.__cceTestAnswersBack = () => { globalThis.__cceAnswerHook = prev; };
+          return true;`);
+        const text = 'Type this one into the input.';
+        let got = null, seen = null;
+        try { got = await handTo(tab0, text); }
+        finally { seen = await call('const s = globalThis.__cceTestAnswers || []; if (globalThis.__cceTestAnswersBack) globalThis.__cceTestAnswersBack(); return s;'); }
+        const arrived = await until(() => arrivedIn(tab0, text), 30000, 500);
+        check(!!got && got.outcome === 'submitted' && JSON.stringify(seen) === JSON.stringify([[false, 'ready'], [true, '']]) && arrived >= 1 && await inputIn(conv) === '',
+          'with a send() of another shape the panel types the message into the input and Enter sends it', { got, seen, arrived });
+        await conv.locator(SUP_INPUT).first().click();
+        await page.keyboard.type('half a sentence');
+        const refused = await handTo(tab0, 'Not beside a draft.');
+        check(!!refused && refused.outcome === 'notReceived' && /^the message input already had text in it/.test(refused.reason || '')
+          && await inputIn(conv) === 'half a sentence' && arrivedIn(tab0, 'Not beside a draft.') === 0,
+          'and then a draft in the input refuses the message, with the reason, and is left as it was', { got: refused, input: await inputIn(conv) });
+      } finally {
+        await inSession(conv, 'unshadow');
+        await clearInput(conv);
+      }
+    });
+
+    /* A message a supervisor sent starts with the line naming it, which reaches the model; the panel draws a badge in
+       its place, in the language the user writes in (English here) or the one the setting names, and the badge's link
+       opens the supervisor's conversation. */
+    await step('a supervisor message drawn with its badge', async () => {
+      if (!conv) throw new Error('the conversation did not open');
+      const lead = threads[1];
+      const signed = `Sent by the supervisor "${lead.title}" (${lead.id}) for the user:\nCheck the retry delay once more. Look at the cache first. (the supervisor's arrangement) I will approve the change.`;
+      const got = await handTo(tab0, signed);
+      check(!!got && got.outcome === 'submitted' && !!await until(() => arrivedIn(tab0, signed), 30000, 500),
+        'the message reaches the conversation with the supervisor\'s line, which the model reads', got);
+      /* The badge's words are generated content of the page's own stylesheet, read here as the browser resolves them. */
+      const badgeOf = () => conv.evaluate(() => {
+        const h = [...document.querySelectorAll('[data-cce-sup-head]')].pop();
+        if (!h) return null;
+        const row = h.parentElement, hl = window.CSS && CSS.highlights && CSS.highlights.get('cce-sup-own');
+        const said = (a) => {
+          const e = h.querySelector('[' + a + ']');
+          if (!e) return null;
+          const c = getComputedStyle(e, '::before').content || '';
+          if (c === 'none' || c === 'normal') return '';
+          const out = [];
+          c.replace(/"((?:[^"\\]|\\.)*)"|attr\(([^)]*)\)/g, (m, q, at) => { out.push(q !== undefined ? q.replace(/\\(.)/g, '$1') : (e.getAttribute(at.trim()) || '')); return ''; });
+          return out.join('');
+        };
+        const sheet = document.querySelector('style[data-cce-sup]');
+        return { steward: h.getAttribute('data-cce-sup-head'), lang: sheet ? sheet.getAttribute('data-cce-sup-lang') : null, full: said('data-cce-sup-full'),
+          short: said('data-cce-sup-short'), open: said('data-cce-sup-open'), href: h.querySelector('[data-cce-sup-open]').getAttribute('href'), text: row.innerText,
+          stamp: h.hasAttribute('data-cce-ts'), bar: getComputedStyle(row).borderLeftColor, shaded: hl ? [...hl].map((r) => r.toString()) : [] };
+      }).catch(() => null);
+      const en = await until(async () => { const b = await badgeOf(); return b && b.stamp && b.shaded.length && b; }, 30000, 500) || await badgeOf();
+      check(!!en && en.steward === lead.id && en.lang === 'en' && en.full === `\u{1F9ED} Supervisor "${lead.title}" sent this for you` && en.open === 'Open supervisor ↗'
+        && en.href === `vscode://xnervwang.claude-code-plus/open?session=${lead.id}&source=claude-code` && !en.text.includes('Sent by the supervisor')
+        && en.text.includes('Check the retry delay once more.') && en.stamp && en.bar === 'rgb(192, 132, 252)'
+        && JSON.stringify(en.shaded) === JSON.stringify(['Look at the cache first. (the supervisor\'s arrangement)']),
+      'the panel draws a badge naming the supervisor in place of its line, in English for a conversation in English, with the time in front, a purple bar, and the supervisor\'s own sentence shaded', en);
+      await shot('supervisor-badge-english');
+      const setLang = (v) => call(`await vscode.workspace.getConfiguration('claudeCodePlus').update('supervisorBadgeLanguage', arg === null ? undefined : arg, vscode.ConfigurationTarget.Global); return true;`, v);
+      try {
+        await setLang('zh');
+        const zh = await until(async () => { const b = await badgeOf(); return b && b.lang === 'zh' && b; }, 20000, 500);
+        check(!!zh && zh.full === `\u{1F9ED} 主管「${lead.title}」代你发送` && zh.open === '打开主管对话 ↗',
+          'with claudeCodePlus.supervisorBadgeLanguage set to zh the badge is in Chinese at once', zh || await badgeOf());
+        await shot('supervisor-badge-chinese');
+      } finally { await setLang(null); }
+      check(!!await until(async () => { const b = await badgeOf(); return b && b.lang === 'en'; }, 20000, 500), 'and back in English once the setting is auto again', await badgeOf());
+      /* The link goes to Agent Plus's openConversation, which brings the conversation forward where a tab shows it. */
+      await exec('claude-vscode.editor.open', lead.id);
+      if (!await conversation(lead, 60000)) throw new Error('the supervisor\'s conversation did not open');
+      await exec('claude-vscode.editor.open', tab0.id);
+      conv = await conversation(tab0, 30000) || conv;
+      await conv.locator('[data-cce-sup-open]').last().click();
+      const opened = await until(async () => (await claudeTabs()).find((x) => x.active && titled(x.label, lead.title)), 30000, 500);
+      check(!!opened, 'a click on the badge\'s link opens the supervisor\'s conversation', opened || await claudeTabs());
+      if (opened) await call('const t = vscode.window.tabGroups.activeTabGroup.activeTab; if (t) await vscode.window.tabGroups.close(t); return true;');
+      await exec('claude-vscode.editor.open', tab0.id);
+      conv = await conversation(tab0, 30000) || conv;
     });
 
     await step('the dots on a tab', async () => {

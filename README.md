@@ -26,7 +26,7 @@ Verified against Claude Code 2.1.328, 2.1.329, 2.1.330, 2.1.331 and 2.1.332.
 
 Each turn, Claude gets the open rows, those not done or dropped, from the conversation's separate plan file. The rows, one for each piece of work, are numbered 1, 2, 2.1 and so on. You can refer to several rows in one message by number, as in `2.1: not now`.
 
-In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code conversations and stopped ones with open plan rows. When a plan row needs your answer, its question appears under the conversation, and what you type in the adjacent Answer view goes into that conversation's message input. [More about the work plan](docs/work-plan.md).
+In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code conversations and stopped ones with open plan rows. When a plan row needs your answer, its question appears under the conversation, and the adjacent Answer view sends your answer to that conversation as your message. [More about the work plan](docs/work-plan.md).
 
 ![The work plan view with rows in each state, three levels deep](images/shots/work-plan.png)
 
@@ -101,7 +101,7 @@ In the VS Code panel, Agent Plus's Conversations tab lists running Claude Code c
 
 Tick other Claude Code conversations or OpenCode Agent Plus conversations in the Supervisor panel to make the current Claude Code conversation their supervisor; it gets notified when one needs you or stops and relays that conversation's questions word for word.
 
-Start a message to the supervisor with `@` and a conversation's name, or ask it to message one; the supervisor writes the message and Claude Code Plus sends it there. For an OpenCode Agent Plus conversation, Claude Code Plus passes the message to Agent Plus, which sends it to the conversation. A conversation can have several supervisors, and in a supervisor's own conversation you can ask it to start or stop managing another conversation. It can also archive conversations it manages in Agent Plus's session list when you ask it to, up to 50 per command. As when you click Archive on a row, the conversation leaves its group and is unpinned, but you can still open it, run it, or unarchive it from the list. By design, only you can delete a conversation, by hand in Agent Plus's session list; no agent, including a supervisor, can delete one. [More about the supervisor](docs/steward.md).
+Start a message to the supervisor with `@` and a conversation's name, or ask it to message that conversation. The supervisor writes the message and Claude Code Plus sends it to the conversation, where a badge names the supervisor and a link opens the supervisor's conversation. For an OpenCode Agent Plus conversation, Claude Code Plus passes the message to Agent Plus, which sends it to the conversation. A conversation can have several supervisors, and in a supervisor's own conversation you can ask it to start or stop managing another conversation. It can also archive conversations it manages in Agent Plus's session list when you ask it to, up to 50 per command. As when you click Archive on a row, the conversation leaves its group and is unpinned, but you can still open it, run it, or unarchive it from the list. By design, only you can delete a conversation, by hand in Agent Plus's session list; no agent, including a supervisor, can delete one. [More about the supervisor](docs/steward.md).
 
 ## What it costs in tokens
 

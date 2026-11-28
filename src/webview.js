@@ -182,6 +182,13 @@ function detachedProperty(list) {
   return `:root{--cce-detached:"${Buffer.from(JSON.stringify(rows), 'utf8').toString('base64')}";}\n`;
 }
 
+/* What the page needs for the badge on a supervisor's message (src/supervisor-badge.js live()) - same encoding. Written
+   whether or not the marks are on, since the badge is not one of them. */
+function supervisorProperty(list) {
+  if (!Array.isArray(list) || !list.length) return '';
+  return `:root{--cce-supervisor:"${Buffer.from(JSON.stringify(list), 'utf8').toString('base64')}";}\n`;
+}
+
 /* The `claude -p` workers each conversation started (workerRows in src/background.js) - same encoding. */
 function workersProperty(list) {
   if (!Array.isArray(list) || !list.length) return '';
@@ -280,6 +287,7 @@ function liveCss(opts = {}) {
      sessions below are written either way. */
   if (off.length) css += ':root{' + off.map((k) => `--cce-off-${k}:1;`).join('') + '}\n';
   css += scheduleProperty(opts.tasks);
+  css += supervisorProperty(opts.supervisor);
   if (!off.includes('backgroundSessions')) css += backgroundProperty(opts.background) + workersProperty(opts.workers);
   if (!off.includes('detachedCommands')) css += detachedProperty(opts.detached);
   return css;
@@ -593,6 +601,21 @@ const EDITS = [
     re: /img:\(\{src:([\w$]+),alt:([\w$]+)\}\)=>\{if\(\1\?\.startsWith\("data:"\)\)return ([\w$]+)\("img",/g,
     to: (m, src, alt, h) => `img:({src:${src},alt:${alt}})=>{let cceImg=typeof window.__cceImage==="function"?window.__cceImage(${h},${src},${alt}):null;`
       + `if(cceImg)return cceImg;if(${src}?.startsWith("data:"))return ${h}("img",`,
+  },
+  {
+    /* A message a supervisor sent for the user starts with a line naming the supervisor (fromLine in src/stewards.js),
+       which the model reads. src/page/97-supervisor-rows.js gives the panel that block without the line and a row with
+       a badge to draw in front of it, built with the panel's own element function; for any other message both are
+       null and the block is drawn as before. */
+    name: 'supervisor messages drawn with a badge',
+    re: /([\w$]+)\("div",\{className:([\w$]+)\.userMessage,children:\[([\w$]+),([\w$]+)\(([\w$]+),\{maxHeight:60,children:\4\(([\w$]+),\{content:([\w$]+\[[\w$]+\]\?\?[\w$]+),context:([\w$]+),plainText:!0\}\)\}\)\]\}\)/g,
+    to: (m, rows, css, files, h, fold, block, shown, ctx) => {
+      const content = `(${shown})`;
+      return `${rows}("div",{className:${css}.userMessage,children:[`
+        + `(typeof window.__cceSupHead==="function"?window.__cceSupHead(${content},${h}):null),${files},`
+        + `${h}(${fold},{maxHeight:60,children:${h}(${block},{content:(typeof window.__cceSupBody==="function"&&window.__cceSupBody(${content}))||${content},`
+        + `context:${ctx},plainText:!0})})]})`;
+    },
   },
   {
     /*

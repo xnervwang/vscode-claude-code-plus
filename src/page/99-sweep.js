@@ -86,6 +86,7 @@
     try { wireStewardLinks(); wireConversationLinks(); mentionsFollow(); askConversations(); } catch (e) {}
     try { wirePlanBar(); ensurePlanBar(); } catch (e) {}
     marksFollowSwitches();
+    try { supSweep(bubbles); } catch (e) {}
     if (!isOn()) { sweep(); return; }
     if (sessionRef) indexTitles(sessionRef);
     for (var i = 0; i < bubbles.length; i++) {
@@ -117,7 +118,7 @@
         applyOwner(b, 'main');
         var row = live ? null : PROMPT_OF.get(b);
         if (!row) {
-          var line = textOf(b, b === lastBubble);
+          var line = supRowText(b, b === lastBubble) || textOf(b, b === lastBubble);
           // An attachment or image has no text line and gets no row; a message that is only an attachment still gets
           // its mark from the block below. `null` until built, since an empty mark is valid and must not be rebuilt
           // every sweep. The message is kept for grouping the blocks; syncMap adds the time shown in the contents list.
@@ -132,7 +133,9 @@
           }
           row.mark = mark;
         }
-        set(b, row.mark);
+        // A supervisor's message has its time in front of the badge, on the badge's own row (97-supervisor-rows.js).
+        var badge = supHeadOf(b);
+        set(badge || b, row.mark, !!badge);
         if (row.text) prompts.push(row);
       }
     });

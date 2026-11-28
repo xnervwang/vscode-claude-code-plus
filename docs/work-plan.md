@@ -6,7 +6,7 @@ Claude Code Plus gives Claude a work plan, so that Claude does not lose track of
 
 The plan is stored in a file outside the conversation, and Claude gets its open rows every turn. Agent Plus, a separate extension installed along with this one, shows the plan in a view beside the Claude Code panel.
 
-Agent Plus's Conversations tab in the VS Code panel lists running Claude Code conversations in this window's workspace folders. Stopped conversations also appear if their plan still has open rows and was written in the last 7 days. A row that waits for your answer carries a question; the question appears under its conversation, and an answer entered in the Answer view next to the Conversations tab goes into that conversation's message input.
+Agent Plus's Conversations tab in the VS Code panel lists running Claude Code conversations in this window's workspace folders. Stopped conversations also appear if their plan still has open rows and was written in the last 7 days. When a row waits for your answer, its question appears under its conversation. The Answer view next to the Conversations tab sends your answer to that conversation as your message.
 
 Claude starts a plan when you bring up work it should track, or when you ask for one.
 

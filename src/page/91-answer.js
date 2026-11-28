@@ -2,10 +2,11 @@
 // Copyright (c) 2026, Xnerv Wang
 // All rights reserved.
 
-// An answer from the Conversations tab (src/answers.js), sent from this panel as if typed here: the text goes into
-// the message input and Enter sends it, so it reaches the conversation as the user's own message and is queued like
-// one when a turn is running. The host only hands it to the panel showing that conversation. A prefill from Agent Plus's
-// Work plan view goes into the same input and is left there for the user to send.
+// An answer from the Conversations tab (src/answers.js) or a supervisor's message, sent from this panel as the user's own
+// message: handed straight to the conversation (91-direct-send.js), which queues it like one typed while a turn runs,
+// and with the input and any draft in it left alone. Where that cannot be done, the text goes into the message input
+// and Enter sends it. The host only hands it to the panel showing that conversation. A prefill from Agent Plus's Work
+// plan view goes into the same input and is left there for the user to send.
 // Fragment of the in-page script - see README.md in this folder.
 
   var ANSWER_INPUT = '[role="textbox"][aria-label="Message input"]';
@@ -62,8 +63,9 @@
       if (lines[i]) document.execCommand('insertText', false, lines[i]);
     }
   };
-  /* Why the answer cannot go into the input now, or null. The input's own text comes back with 'draft', so that the
-     host can see whether it typed that text itself. */
+  /* Why the answer cannot be sent now, or null. Handed straight to the conversation, it is refused only when the panel
+     shows another one. Typed, it is also refused when the input holds text; that text comes back with 'draft', so that
+     the host can see whether it typed it itself. */
   var MAX_DRAFT = 8000;
   /* Text still being composed with an input method is not in the input yet; typing an answer meanwhile would mix the
      two. */
@@ -72,8 +74,10 @@
     document.addEventListener('compositionstart', function(){ composing = true; }, true);
     document.addEventListener('compositionend', function(){ composing = false; }, true);
   }
+  var answerText = function(m){ return String(m.text).replace(/\r\n?/g, '\n'); };
   var refusal = function(m){
     if (showsOther(m)) return { reason: 'not-shown' };
+    if (directSession(answerText(m))) return null;
     var box = document.querySelector(ANSWER_INPUT);
     if (!box) return { reason: 'no-input' };
     /* Text already in the input would be sent along with the answer. */
@@ -86,7 +90,14 @@
     var no = refusal(m);
     if (no) { answerResult(m.id, false, no.reason, no.detail); return; }
     if (m.confirm === true) { waitForGo(m); return; }
-    typeAnswer(m);
+    sendNow(m);
+  };
+  /* Straight to the conversation when it can take the text, and typed otherwise. `sendBy` is when a typed answer has to
+     be sent by. */
+  var sendNow = function(m, sendBy){
+    var text = answerText(m), s = directSession(text);
+    if (!s) { typeAnswer(m, sendBy); return; }
+    sendDirect(s, text, function(sent, reason, detail){ answerResult(m.id, sent, reason, detail); });
   };
   /*
    * With `confirm`, the panel tells the host it is ready and types the answer only if the host's go arrives within
@@ -118,7 +129,7 @@
     if (w.go) { w.go(); return; }
     var no = refusal(w.m);
     if (no) { answerResult(id, false, no.reason, no.detail); return; }
-    typeAnswer(w.m, w.at + sendOf(w.m));
+    sendNow(w.m, w.at + sendOf(w.m));
   };
   /* Typed with the caret placed in the input rather than by focusing it. The panel can be on screen beside the one the
      user is typing in, and taking the focus would move the user's next keys into this conversation's input. */

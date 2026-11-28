@@ -1457,27 +1457,93 @@ const STEPS = [
      make it, and the mark on a conversation that two processes run. The last undo closes the Supervisor panel and the
      extra tabs and takes the crown off the first tab, which is the state the work-plan step starts from. */
   {
-    name: 'steward-relayed', features: ['steward-send'],
-    expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. The last message in it from you '
-      + 'reads "Please check the export query once more, then stop.", above which is the first line Claude Code Plus '
-      + 'adds to any message a supervisor passes on: Sent by the supervisor "CSV export and budgets" (and the supervisor\'s '
-      + 'session id) for the user:. The demo conversation, which is its supervisor, passed it on and Claude Code Plus '
-      + 'typed it in, so it is drawn like any message you typed; the fake model\'s reply follows it.',
+    name: 'steward-relayed', features: ['steward-send', 'supervisor-badge'],
+    expect: 'The conversation "Why does the nightly export skip archived rows?" is in front. Its last message from you was passed '
+      + 'on by its supervisor, the demo conversation "CSV export and budgets", and is drawn apart from your own: a purple bar '
+      + 'down its left edge and a faint purple tint, where your own messages have a blue bar. Its first row has the time on the '
+      + 'left, then a rounded purple badge reading a compass emoji and Supervisor "CSV export and budgets" sent this for you, and an '
+      + 'underlined "Open supervisor" with an arrow pointing up and right beside it, all three on one row, the badge cut short with an '
+      + 'ellipsis if the title is too long for the row (the compass may be a box where no emoji font is installed); the line "Sent by the supervisor ..." that the message starts with is not '
+      + 'shown. Below that: "Please check the export query once more, then stop." and then "Compare it with the archived rows '
+      + 'first. (the supervisor\'s arrangement)" on a slightly lighter purple shade of its own. Nothing overlaps or is cut off; '
+      + 'the fake model\'s reply follows.',
     unchanged: null,
     act: async (d) => {
       for (const t of d.threads.slice(1)) { await d.exec('claude-vscode.editor.open', t.id); await d.sleep(1000); }
       const t = d.threads[1];
       await stewardOf(d, [t.id]);
-      const words = 'Please check the export query once more, then stop.';
+      const words = 'Please check the export query once more, then stop. Compare it with the archived rows first. (the supervisor\'s arrangement)';
       const said = await relay(d, d.sid, [t.id], words);
       if (!/^Sent: /.test(said)) throw new Error(`the supervisor could not pass the message on: ${said}`);
-      if (!await d.until(() => d.model.seen.some((x) => (x.typed || '').includes(words)), 30000, 500)) throw new Error('the message did not reach the model');
+      /* The fake model keeps the first 400 characters of what was typed, and the supervisor's line before the words takes
+         much of that. */
+      const start = 'Please check the export query once more, then stop.';
+      if (!await d.until(() => d.model.seen.some((x) => (x.typed || '').includes(start)), 30000, 500)) {
+        throw new Error(`the message did not reach the model; the last requests ended with ${JSON.stringify(d.model.seen.slice(-3).map((x) => x.typed))}`);
+      }
       const frame = await thread(d, t);
       await d.until(() => lastReplyHas(frame, PLAIN), 20000, 500);
+      if (!await d.until(() => frame.evaluate(() => !!document.querySelector('[data-cce-sup-head][data-cce-ts]')), 10000, 300)) {
+        throw new Error('the message was drawn without its badge');
+      }
       await toBottom(frame);
       await d.away();
       return d.editor();
     },
+  },
+  {
+    name: 'steward-relayed-chinese', features: ['supervisor-badge'],
+    expect: 'The same conversation and message, with claudeCodePlus.supervisorBadgeLanguage set to zh: the badge now reads '
+      + 'the compass emoji, then the Chinese word for supervisor, the title "CSV export and budgets" inside Chinese corner brackets, and the Chinese for '
+      + '"sent this for you"; the link beside it is the Chinese for "open the supervisor conversation", with the arrow. The supervisor\'s title is unchanged; '
+      + 'the message text below is still in English. The time, the badge and the link stay on one row; a badge too long for it ends '
+      + 'in an ellipsis. On a machine without a Chinese font the Chinese characters are drawn as boxes; then judge only that they '
+      + 'replaced the English words, and the layout.',
+    unchanged: 'The rest of the conversation, the purple bar and tint, and the lighter shade on the supervisor\'s sentence.',
+    act: async (d) => {
+      await setting(d, 'claudeCodePlus.supervisorBadgeLanguage', 'zh');
+      const frame = await thread(d, d.threads[1]);
+      if (!await d.until(() => frame.evaluate(() => { const c = document.querySelector('style[data-cce-sup]'); return !!c && c.getAttribute('data-cce-sup-lang') === 'zh'; }), 15000, 300)) {
+        throw new Error('the badge did not change to Chinese');
+      }
+      await toBottom(frame);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => { await setting(d, 'claudeCodePlus.supervisorBadgeLanguage', null); await d.sleep(2500); },
+  },
+  {
+    name: 'steward-relayed-narrow', features: ['supervisor-badge', 'narrow-panel'],
+    expect: 'The same conversation in a narrow editor, about 400 px wide. The supervisor\'s message keeps its purple bar and tint; '
+      + 'its badge is shortened to the compass emoji and "CSV export and budgets" after the time, and the "Open supervisor" link is not shown. '
+      + 'The message text wraps inside the panel and nothing is cut off at the right edge.',
+    unchanged: 'The side bar shows the same view as before, only wider.',
+    act: async (d) => {
+      const ed = await d.editor(), sb = await d.sidebar();
+      if (ed && sb && ed.width > 420) await d.sideTo(sb.width + ed.width - 400);
+      const frame = await thread(d, d.threads[1]);
+      await toBottom(frame);
+      await d.away();
+      return d.editor();
+    },
+    undo: (d) => d.sideTo(460),
+  },
+  {
+    name: 'steward-relayed-light', features: ['supervisor-badge', 'light-theme'],
+    expect: 'The same conversation in the light theme, at the usual width. The supervisor\'s message has a darker purple bar and a '
+      + 'very faint purple tint on the white background; the badge is pale purple with dark purple text, the "Open supervisor" '
+      + 'link dark purple, and the supervisor\'s marked sentence a slightly deeper purple shade. Everything reads clearly against '
+      + 'the light background.',
+    unchanged: 'The messages and the layout, apart from the colours.',
+    act: async (d) => {
+      await theme(d, 'Default Light Modern');
+      await d.sleep(2500);
+      const frame = await thread(d, d.threads[1]);
+      await toBottom(frame);
+      await d.away();
+      return d.editor();
+    },
+    undo: async (d) => { await theme(d, 'Default Dark Modern'); await d.sleep(2500); },
   },
   {
     name: 'steward-renamed-managed', features: ['steward-renames-managed'],

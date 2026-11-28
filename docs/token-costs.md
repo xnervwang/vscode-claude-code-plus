@@ -73,5 +73,5 @@ In a running conversation, a mode change applies from the next message to work p
 ## Costing nothing
 
 - Everything Claude Code Plus and Agent Plus draw in VS Code.
-- An answer you give in Agent Plus's Answer view is typed into the conversation and sent as your message, as if you had typed it there.
+- An answer you give in Agent Plus's Answer view is sent to the conversation as your message, as if you had typed it there.
 - The context meter's breakdown shows, for the conversation in front, how many times the work plan was added since the last compaction, how many characters that came to, and about what share of the context in use.

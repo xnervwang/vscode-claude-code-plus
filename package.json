@@ -141,6 +141,21 @@
           "default": true,
           "markdownDescription": "Mark **your own messages** in the Claude Code panel with a bar down their left edge, in the theme's focus colour. The panel already outlines them, but in most themes that outline lands within a shade of the editor background, so a question and a reply read as one stream. Off leaves the panel's own outline alone. Changes apply live."
         },
+        "claudeCodePlus.supervisorBadgeLanguage": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "zh",
+            "en"
+          ],
+          "enumDescriptions": [
+            "The language you write in, in the conversation: Chinese when your last few messages are mostly Chinese, English when they are mostly English, and otherwise VS Code's display language.",
+            "Always Chinese.",
+            "Always English."
+          ],
+          "default": "auto",
+          "markdownDescription": "The language of the badge on a message a supervisor sent for you, in the Claude Code panel, and of the link beside it that opens the supervisor's conversation. The supervisor's title is shown as it is. Changes apply live."
+        },
         "claudeCodePlus.latencyThresholdSeconds": {
           "type": "number",
           "default": 10,

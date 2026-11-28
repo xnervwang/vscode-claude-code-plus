@@ -4,10 +4,11 @@
 
 'use strict';
 /*
- * Claude Code does not count a message from another session as the user's consent, but it does count text typed into
- * the conversation's input. A supervisor speaks for the user in the conversations it manages, so the plugin's
- * hooks/steward-relay.py leaves its message as a request in RELAY_DIR of the plan directory, and a window showing the
- * conversation types it into the input (src/page/91-answer.js).
+ * Claude Code does not count a message from another session as the user's consent, but it does count one its panel
+ * sends as the user's, as it sends what is typed into the input. A supervisor speaks for the user in the conversations
+ * it manages, so the plugin's hooks/steward-relay.py leaves its message as a request in RELAY_DIR of the plan
+ * directory, and the panel of a window showing the conversation sends it as the user's message
+ * (src/page/91-direct-send.js), or types it into the input where it cannot (src/page/91-answer.js).
  *
  * The same requests carry the supervisor's other actions on the conversations it manages: `rename` gives one a new title,
  * `close` closes its editor tab, and `open` starts a new conversation in the window that has the folder `to` open,

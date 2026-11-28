@@ -16,8 +16,9 @@
  *
  * Exits 1 when an edit does not match exactly once, when test/reply-shape.js finds a new child in a reply element, when
  * test/todo-gate.js finds the built-in to-do tools on for current models, when test/inbox-shape.js finds the CLI no
- * longer reads a supervisor notice, or when test/shell-snapshot-shape.js finds a Bash command no longer starts with a
- * shell snapshot; the workflow opens an issue for any of them.
+ * longer reads a supervisor notice, when test/shell-snapshot-shape.js finds a Bash command no longer starts with a
+ * shell snapshot, or when test/send-shape.js finds the panel no longer sends a message the way
+ * src/page/91-direct-send.js hands one over; the workflow opens an issue for any of them.
  */
 const fs = require('fs');
 const os = require('os');
@@ -125,6 +126,11 @@ async function fetchPackage(url, dest) {
   }
   try {
     execFileSync('node', [path.join(__dirname, 'shell-snapshot-shape.js'), cli], { stdio: 'inherit' });
+  } catch (_) {
+    failed = true;
+  }
+  try {
+    execFileSync('node', [path.join(__dirname, 'send-shape.js'), panel], { stdio: 'inherit' });
   } catch (_) {
     failed = true;
   }
